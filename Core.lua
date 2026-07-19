@@ -1,0 +1,184 @@
+local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-3.0")
+
+-- Developer logging toggle, mirrored from the saved "Log UI Updates" setting
+-- once the DB loads (see OnInitialize / AddonSettingsView.lua). The value here
+-- only covers prints that happen before OnInitialize.
+WhoDoesWhat.LOG_UI_BUILDING = true
+
+-- Verbose logging for UI building / layout lifecycle. No-op when the flag is off.
+-- Forwards its args straight to AceConsole's Print (space-joined).
+function WhoDoesWhat:LogUiBuilding(...)
+    if self.LOG_UI_BUILDING then
+        self:Print(...)
+    end
+end
+
+-- The (!) alert used wherever something needs the user's attention: the main
+-- window's per-row warnings (MainAssignmentsView) and the unit menu's "no role
+-- yet" hint (UnitMenu). Shared so the two stay visually identical.
+WhoDoesWhat.WARNING_ICON = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
+
+-- True while the player is in a raid with assist rights. The raid leader
+-- counts: leaders hold every assistant privilege (and see the same extra
+-- unit-menu entries), even though UnitIsGroupAssistant alone reports false
+-- for them.
+function WhoDoesWhat:IsRaidAssistant()
+    return IsInRaid()
+        and (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player"))
+end
+
+-- True when the player may set OTHER members' Blizzard role flags (UnitSetRole)
+-- and other protected group state: a raid needs assist (leader included), a
+-- party needs leadership -- UnitSetRole silently no-ops on another member
+-- otherwise, so claiming success without that authority is a lie. Solo counts
+-- too. This gates only Blizzard-side group state -- WDW's own assignments sync
+-- to everyone and are never gated by this. Your OWN role is always settable
+-- regardless, so callers that can target themselves check
+-- UnitIsUnit(unit, "player") / UnitName("player") separately.
+function WhoDoesWhat:CanSetGroupBlizzardState()
+    if IsInRaid() then return self:IsRaidAssistant() end
+    if IsInGroup() then return UnitIsGroupLeader("player") end
+    return true -- solo
+end
+
+-- Whether a player's WDW role assignment (unit right-click menu) is a tank
+-- role. Drives tank-preference floats and misdirect targets in the main view
+-- and the unit menu's misdirect pop-outs.
+function WhoDoesWhat:IsMarkedTank(name)
+    local roleId = self:GetAssignedRole(name)
+    if not roleId then return false end
+    local _, role = self:FindRoleById(roleId)
+    return (role and role.wowRole == "tank") and true or false
+end
+
+-- Whether a player is marked Non-raider (the unit-menu pseudo-role, Data.lua):
+-- sitting out. Non-raiders stay in the plain group lists but drop out of the
+-- paladin-buff demand votes, buff pools/dropdowns, and the buff grid.
+function WhoDoesWhat:IsNonRaider(name)
+    return self:GetAssignedRole(name) == self.NON_RAIDER_ROLE_ID
+end
+
+-- Default saved settings. Stored per-profile in WhoDoesWhatDB (see the
+-- SavedVariables line in WhoDoesWhat.toc).
+local defaults = {
+    profile = {
+        expandRoles = false,
+        -- Per-role saved buff-order customizations, keyed by role id. Each entry
+        -- is { buffOrder = { six buff keys } }. Roles on their defaults have no
+        -- entry here at all; see SetRoleCustomization in Roles.lua.
+        roleCustomizations = {},
+        -- User-created custom roles: array of
+        -- { id = "custom_N", name, class = "Warrior", wowRole = "dps"|"tank"|"healer"|false }
+        -- (false = no wow role assigned). Listed inside their class's role list
+        -- with the "?" icon; buff orders live in roleCustomizations like any
+        -- other role (default = canonical order).
+        customRoles = {},
+        customRoleCounter = 0, -- monotonic id source so deletes never recycle ids
+        -- Per-player role assignments from the unit right-click menu, keyed by
+        -- player name ("Name" or "Name-Realm") -> role id. See UnitMenuExtensions.lua.
+        assignments = {},
+        -- Last talent-detected role per player (same name keys as assignments),
+        -- written by Talents.lua as talent data arrives. Comparing a fresh
+        -- detection against this is what lets auto-assignment fill blanks and
+        -- follow respecs without ever fighting a manual override: an override
+        -- only yields when the detected spec actually *changes*.
+        talentSpecs = {},
+        -- Buff-talent ranks per paladin, scanned by Talents.lua as talent data
+        -- arrives (same name keys as assignments): name -> { might = 0-5,
+        -- wisdom = 0-2, kings = 0-1, sanctuary = 0-1 }. A missing player means
+        -- their talents haven't been seen yet.
+        paladinBuffTalents = {},
+        -- Raid assignments from the main assignments view, keyed by row id
+        -- ("curse_reck", "curse_elements") -> player name. Paladin blessings
+        -- are NOT in here: their coverage is derived, never stored (see
+        -- ComputeBuffGrid in Assignments.lua).
+        raidAssignments = {},
+        -- Custom paladin-buff rules (main window's "+ Rule" button): array of
+        -- { buff = key, kind = "ignore"|"prioritize"|"prefer", scope, value }.
+        -- One rule per buff, six at most. Local strategy config like the role
+        -- customizations -- not synced, survives group changes. See
+        -- CompileBuffRules in Assignments.lua for the shapes and semantics.
+        paladinBuffRules = {},
+        -- Dynamic assignment rows in the main view, one array per section
+        -- (see DynamicSections in MainAssignmentsView.lua). Each entry is
+        -- { player = name or nil, marker = 1..8 | "all" | "custom",
+        --   custom = text, spell = CCSpells id (CC only) }.
+        tankAssignments = {},
+        ccAssignments = {},
+        -- Misdirect rows: { player = hunter name or nil, target = tank name
+        -- or nil, marker = 1..8 or nil (optional, "which pull") }. One tank
+        -- per hunter; several hunters may share a tank.
+        mdAssignments = {},
+        -- Who may edit the shared assignments board in a raid; owned by the
+        -- raid leader and synced with the board. See Permissions.lua for the
+        -- modes and rules ("assistant" mode names its one editor in
+        -- `assistant`; false = none named).
+        permissions = { mode = "assists", assistant = false },
+        -- Addon settings, edited in AddonSettingsView.lua.
+        settings = {
+            -- Assignment dropdowns list every group member instead of only
+            -- the eligible class (e.g. non-paladins for paladin buffs).
+            developerMode = false,
+            -- Persisted source for LOG_UI_BUILDING above.
+            logUiUpdates = true,
+            -- Auto-place an Affliction warlock on Curse of the Elements: on
+            -- spec detection (see AutoAssignDetectedRole) and via the Warlock
+            -- Curses Auto button. See AutoPlaceAfflictionElements in Assignments.lua.
+            autoAssignAfflictionElements = true,
+            -- Let auto-assign fill Curse of Recklessness. It raises the boss's
+            -- damage taken *and* dealt, so the leader can opt out of it.
+            allowRecklessnessAutoAssign = true,
+            -- Testing toggle: inject 23 fake raiders into the roster so paladin
+            -- buff strategies can be worked out solo. See FakeRaid.lua.
+            populateFakeRaid = false,
+            -- How many paladins the fake roster carries (1-4; prot always,
+            -- then ret, holy, a second ret). See FakeRaid.PALADINS.
+            fakeRaidPaladinCount = 3,
+        },
+    },
+}
+
+-- This runs when the game client finishes loading UI frames
+function WhoDoesWhat:OnInitialize()
+    -- Persistent configuration database
+    self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
+    self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
+
+    -- One-off migrations: buffAssignments briefly held the paladin buff picks
+    -- before raidAssignments generalized it -- drop it outright. Then paladin
+    -- blessings stopped being assigned at all (coverage is computed now), so
+    -- strip any retired buff rows and the old override store from raid
+    -- profiles that predate that.
+    self.db.profile.buffAssignments = nil
+    for _, key in ipairs(self.CanonicalBuffOrder) do
+        self.db.profile.raidAssignments[key] = nil
+    end
+    self.db.profile.raidAssignmentOverrides = nil
+
+    -- One-off cache wipe: the first buff-talent scanner matched icons against
+    -- live GetTalentInfo returns, which don't compare equal to the library's
+    -- static fileIDs for the local player -- locally-scanned paladins were
+    -- saved as all-zero ranks ("untalented" Kings on a Kings paladin). Drop
+    -- the poisoned cache; talent broadcasts and inspects repopulate it.
+    if (self.db.profile.buffTalentScanVersion or 1) < 2 then
+        self.db.profile.paladinBuffTalents = {}
+        self.db.profile.buffTalentScanVersion = 2
+    end
+    self:LogUiBuilding("WhoDoesWhat database ready. expandRoles = " .. tostring(self.db.profile.expandRoles))
+
+    -- Populate the cached roles and categories lookup
+    self:PopulateRolesAndCategories()
+
+    -- Re-write the fake raiders' roles/talents when the testing toggle is on:
+    -- the group-leave wipe (Sync.lua) can fire around reload/logout while solo
+    -- and clear them out of the saved board. See FakeRaid.lua.
+    self:ReapplyFakeRaid()
+
+    self:Print("WhoDoesWhat initialized! Type /wdw to open.")
+
+    -- Register our slash commands
+    self:RegisterChatCommand("wdw", "ToggleMainUI")
+
+    -- Inject our section into the unit right-click menus
+    self:SetupUnitMenus()
+end
