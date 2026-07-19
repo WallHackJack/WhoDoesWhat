@@ -1,0 +1,8 @@
+package-as: WhoDoesWhat
+
+ignore:
+    - README.md
+    - CLAUDE.md
+    - .vscode
+    - .gitignore
+    - .pkgmeta
