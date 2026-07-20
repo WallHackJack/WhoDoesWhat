@@ -71,6 +71,18 @@ local TANK_MARKER_DD_WIDTH = 44
 local TANK_MARKER_DD_WIDE = 95
 local DYN_EMPTY_H = 20 -- rows-area height while a dynamic list is empty
 
+-- UIDropDownMenuTemplate right-aligns its collapsed label by default, which
+-- leaves player/spell names (and the marker icon) floating against the arrow
+-- with dead space on the left. Left-align so the content hugs the left edge,
+-- and nudge it down 1px -- the template sits the label a hair high in the box.
+local function LeftAlignDropdown(dd)
+    local text = _G[dd:GetName() .. "Text"]
+    if text then
+        text:SetJustifyH("LEFT")
+        text:AdjustPointsOffset(0, -1)
+    end
+end
+
 local WARNING_ICON = WhoDoesWhat.WARNING_ICON
 local MAIL_ICON = "Interface\\Icons\\INV_Letter_15"
 local CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
@@ -650,6 +662,7 @@ local function AddAssignmentRow(f, box, y, def, sectionTitle)
     local dropdown = CreateFrame("Frame", "WhoDoesWhatAssignDropDown_" .. def.id, row, "UIDropDownMenuTemplate")
     dropdown:SetPoint("RIGHT", mailBtn, "LEFT", 12, -2)
     UIDropDownMenu_SetWidth(dropdown, DROPDOWN_WIDTH)
+    LeftAlignDropdown(dropdown)
     InitAssignmentDropdown(dropdown, def)
 
     local warn = CreateWarningIcon(row)
@@ -799,6 +812,7 @@ local function CreatePallyRuleRow(f, index)
     local buffDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleBuffDD" .. index, row, "UIDropDownMenuTemplate")
     buffDD:SetPoint("LEFT", row, "LEFT", -13, -2)
     UIDropDownMenu_SetWidth(buffDD, RULE_BUFF_DD_W)
+    LeftAlignDropdown(buffDD)
     UIDropDownMenu_Initialize(buffDD, function(_, level)
         local rule = Entry()
         if not rule then return end
@@ -825,6 +839,7 @@ local function CreatePallyRuleRow(f, index)
     local kindDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleKindDD" .. index, row, "UIDropDownMenuTemplate")
     kindDD:SetPoint("LEFT", buffDD, "RIGHT", -30, 0)
     UIDropDownMenu_SetWidth(kindDD, RULE_KIND_DD_W)
+    LeftAlignDropdown(kindDD)
     UIDropDownMenu_Initialize(kindDD, function(_, level)
         local rule = Entry()
         if not rule then return end
@@ -853,6 +868,7 @@ local function CreatePallyRuleRow(f, index)
     local targetDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleTargetDD" .. index, row, "UIDropDownMenuTemplate")
     targetDD:SetPoint("LEFT", kindDD, "RIGHT", -30, 0)
     UIDropDownMenu_SetWidth(targetDD, RULE_TARGET_DD_W)
+    LeftAlignDropdown(targetDD)
     UIDropDownMenu_Initialize(targetDD, function(_, level)
         local rule = Entry()
         if not rule then return end
@@ -1248,6 +1264,7 @@ local function CreateDynamicRow(f, section, index)
     local playerDD = CreateFrame("Frame", prefix .. "PlayerDD" .. index, row, "UIDropDownMenuTemplate")
     playerDD:SetPoint("LEFT", row, "LEFT", -11, -2)
     UIDropDownMenu_SetWidth(playerDD, DYN_PLAYER_DD_WIDTH)
+    LeftAlignDropdown(playerDD)
     UIDropDownMenu_Initialize(playerDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -1276,6 +1293,7 @@ local function CreateDynamicRow(f, section, index)
         local spellDD = CreateFrame("Frame", prefix .. "SpellDD" .. index, row, "UIDropDownMenuTemplate")
         spellDD:SetPoint("LEFT", anchor, "RIGHT", -18, 0)
         UIDropDownMenu_SetWidth(spellDD, DYN_SPELL_DD_WIDTH)
+        LeftAlignDropdown(spellDD)
         UIDropDownMenu_Initialize(spellDD, function(_, level)
             local entry = Entry()
             if not entry then return end
@@ -1326,6 +1344,7 @@ local function CreateDynamicRow(f, section, index)
         local targetDD = CreateFrame("Frame", prefix .. "TargetDD" .. index, row, "UIDropDownMenuTemplate")
         targetDD:SetPoint("LEFT", arrowLabel, "RIGHT", -12, -2)
         UIDropDownMenu_SetWidth(targetDD, DYN_PLAYER_DD_WIDTH)
+        LeftAlignDropdown(targetDD)
         UIDropDownMenu_Initialize(targetDD, function(_, level)
             local entry = Entry()
             if not entry then return end
@@ -1342,6 +1361,7 @@ local function CreateDynamicRow(f, section, index)
         local markerDD = CreateFrame("Frame", prefix .. "TargetMarkerDD" .. index, row, "UIDropDownMenuTemplate")
         markerDD:SetPoint("LEFT", targetDD, "RIGHT", -18, 0)
         UIDropDownMenu_SetWidth(markerDD, TANK_MARKER_DD_WIDTH)
+        LeftAlignDropdown(markerDD)
         UIDropDownMenu_Initialize(markerDD, function(_, level)
             local entry = Entry()
             if not entry then return end
@@ -1370,6 +1390,7 @@ local function CreateDynamicRow(f, section, index)
         local markerDD = CreateFrame("Frame", prefix .. "MarkerDD" .. index, row, "UIDropDownMenuTemplate")
         markerDD:SetPoint("LEFT", arrowLabel, "RIGHT", -12, -2)
         UIDropDownMenu_SetWidth(markerDD, TANK_MARKER_DD_WIDTH)
+        LeftAlignDropdown(markerDD)
         UIDropDownMenu_Initialize(markerDD, function(_, level)
             local entry = Entry()
             if not entry then return end
@@ -1762,6 +1783,7 @@ local function EnsureMainFrame()
     local permDD = CreateFrame("Frame", "WhoDoesWhatPermissionsDD", f, "UIDropDownMenuTemplate")
     permDD:SetPoint("TOPLEFT", MARGIN - 15, -(top - 2))
     UIDropDownMenu_SetWidth(permDD, 170)
+    LeftAlignDropdown(permDD)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
     permDD:Hide()
     f.permDD = permDD
