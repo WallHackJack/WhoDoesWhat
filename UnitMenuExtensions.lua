@@ -276,7 +276,8 @@ end
 -- "Tank Assignments" pop-out: every raid marker, skull through star, as a
 -- multi-select checkbox (a tank legitimately holds several). Checking takes
 -- the marker over -- creating the window row when the marker has none,
--- replacing the tank when it does; unchecking clears this player off it.
+-- replacing the tank when it does; unchecking (toggling off this player's own
+-- marker) deletes the row.
 local function FillTankSubmenu(submenu, playerName)
     for _, m in ipairs(WhoDoesWhat.RaidTargetMarkers) do
         local index = m.index
@@ -285,7 +286,7 @@ local function FillTankSubmenu(submenu, playerName)
             function() return WhoDoesWhat:GetTankMarkerAssignee(index) == playerName end,
             function()
                 if WhoDoesWhat:GetTankMarkerAssignee(index) == playerName then
-                    WhoDoesWhat:SetTankMarkerPlayer(index, nil)
+                    WhoDoesWhat:RemoveTankMarker(index)
                 else
                     WhoDoesWhat:SetTankMarkerPlayer(index, playerName)
                 end
@@ -298,7 +299,8 @@ end
 -- spell the class can cast opens its own skull-through-star radio list plus
 -- None; picking a marker overwrites the identical assignment (same spell +
 -- marker) in the window or creates it, and frees any other target the player
--- held for that spell.
+-- held for that spell. Re-picking the marker this player already holds toggles
+-- it off, deleting that row.
 local function FillCCSubmenu(submenu, playerName, spells)
     for _, spell in ipairs(spells) do
         local spellMenu = submenu:CreateButton(
@@ -309,7 +311,13 @@ local function FillCCSubmenu(submenu, playerName, spells)
             spellMenu:CreateRadio(
                 MarkerText(m),
                 function() return WhoDoesWhat:GetCCAssignee(spell.id, index) == playerName end,
-                function() WhoDoesWhat:SetCCAssignment(spell.id, index, playerName) end
+                function()
+                    if WhoDoesWhat:GetCCAssignee(spell.id, index) == playerName then
+                        WhoDoesWhat:RemoveCCAssignment(spell.id, index)
+                    else
+                        WhoDoesWhat:SetCCAssignment(spell.id, index, playerName)
+                    end
+                end
             )
         end
         spellMenu:CreateRadio(

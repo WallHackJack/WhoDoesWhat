@@ -16,8 +16,9 @@ local GetEligibleMembers = A.GetEligibleMembers
 -- The menu doesn't list the saved rows; it offers the full skull-through-star
 -- grid (tanks: multi-select; CC: one target per spell) and maps each pick
 -- onto the stored entries: overwrite the row already covering that slot,
--- create one when none does. Rows are never deleted from the menu -- clearing
--- only empties a row's player; the window's [x] is where rows die.
+-- create one when none does. Clicking a slot this player already holds toggles
+-- it off, deleting that row (RemoveTankMarker / RemoveCCAssignment) -- the same
+-- effect as the window's [x].
 
 local function SectionByKey(key)
     for _, section in ipairs(DynamicSections) do
@@ -68,6 +69,23 @@ function WhoDoesWhat:SetTankMarkerPlayer(markerIndex, playerName)
     WhoDoesWhat:RefreshMainAssignmentsView()
 end
 
+-- Delete the tank row covering a marker outright (the unit menu's toggle-off
+-- removes the row rather than just blanking its player). No-op without edit
+-- rights or when no row holds the marker.
+function WhoDoesWhat:RemoveTankMarker(markerIndex)
+    if not self:RequireEditPermission() then return end
+    local section = SectionByKey("tank")
+    local entries = GetEntries(section)
+    for i, entry in ipairs(entries) do
+        if entry.marker == markerIndex then
+            table.remove(entries, i)
+            WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            return
+        end
+    end
+end
+
 function WhoDoesWhat:GetCCAssignee(spellId, markerIndex)
     for _, entry in ipairs(GetEntries(SectionByKey("cc"))) do
         if entry.spell == spellId and entry.marker == markerIndex then
@@ -87,10 +105,11 @@ function WhoDoesWhat:GetPlayerCCTarget(spellId, playerName)
 end
 
 -- Assign a player to cast a spell on a marker: overwrites the identical row
--- (same spell + marker) when the window already has one, creates it when
--- not, and frees any other target the player held for that spell -- one
--- mage, one sheep. markerIndex = nil clears the player's assignment for the
--- spell entirely.
+-- (same spell + marker) when the window already has one, otherwise fills a
+-- spell-less placeholder row already on that marker, and only creates a new
+-- row when neither exists. Frees any other target the player held for that
+-- spell -- one mage, one sheep. markerIndex = nil clears the player's
+-- assignment for the spell entirely.
 function WhoDoesWhat:SetCCAssignment(spellId, markerIndex, playerName)
     if not self:RequireEditPermission() then return end
     local section = SectionByKey("cc")
@@ -106,21 +125,35 @@ function WhoDoesWhat:SetCCAssignment(spellId, markerIndex, playerName)
     end
 
     if markerIndex then
-        local target
+        -- Prefer the identical row (same spell + marker) to overwrite; failing
+        -- that, reuse a row already on this marker that has no ability picked
+        -- yet (a placeholder to be filled) rather than adding a duplicate.
+        local target, blank
         for _, entry in ipairs(entries) do
-            if entry.spell == spellId and entry.marker == markerIndex then
-                target = entry
-                break
+            if entry.marker == markerIndex then
+                if entry.spell == spellId then
+                    target = entry
+                    break
+                elseif not entry.spell and not blank then
+                    blank = entry
+                end
             end
         end
+        target = target or blank
         if not target then
-            target = { spell = spellId, marker = markerIndex, custom = "" }
+            target = { marker = markerIndex, custom = "" }
             entries[#entries + 1] = target
+        end
+        if target.spell ~= spellId then
+            target.spell = spellId
+            changed = true
         end
         if target.player ~= playerName then
             target.player = playerName
-            PrintAssignment(section, target)
             changed = true
+        end
+        if changed then
+            PrintAssignment(section, target)
         end
     elseif changed then
         local spell = SpellById(spellId)
@@ -130,6 +163,23 @@ function WhoDoesWhat:SetCCAssignment(spellId, markerIndex, playerName)
 
     if changed then
         WhoDoesWhat:RefreshMainAssignmentsView()
+    end
+end
+
+-- Delete the CC row for a spell on a marker outright (the unit menu's
+-- toggle-off removes the row rather than just clearing the player). No-op
+-- without edit rights or when no such row exists.
+function WhoDoesWhat:RemoveCCAssignment(spellId, markerIndex)
+    if not self:RequireEditPermission() then return end
+    local section = SectionByKey("cc")
+    local entries = GetEntries(section)
+    for i, entry in ipairs(entries) do
+        if entry.spell == spellId and entry.marker == markerIndex then
+            table.remove(entries, i)
+            WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            return
+        end
     end
 end
 
