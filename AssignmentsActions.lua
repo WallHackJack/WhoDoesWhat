@@ -12,13 +12,17 @@ local TargetPlainText = A.TargetPlainText
 local SpellById = A.SpellById
 local MarkerByIndex = A.MarkerByIndex
 local GetEligibleMembers = A.GetEligibleMembers
+local HasMarkerValue = A.HasMarkerValue
+local NormalizeMarkers = A.NormalizeMarkers
+local MarkerValuePlain = A.MarkerValuePlain
 
 -- The menu doesn't list the saved rows; it offers the full skull-through-star
 -- grid (tanks: multi-select; CC: one target per spell) and maps each pick
--- onto the stored entries: overwrite the row already covering that slot,
--- create one when none does. Clicking a slot this player already holds toggles
--- it off, deleting that row (RemoveTankMarker / RemoveCCAssignment) -- the same
--- effect as the window's [x].
+-- onto the stored entries. Tank rows are one-per-tank with a markers ARRAY:
+-- a pick moves the marker onto that tank's row; toggling off clears just the
+-- marker (RemoveTankMarker). CC rows stay one-per-assignment: a pick
+-- overwrites the row covering that slot or creates one, and toggling off
+-- deletes the row (RemoveCCAssignment) like the window's [x].
 
 local function SectionByKey(key)
     for _, section in ipairs(DynamicSections) do
@@ -31,11 +35,22 @@ local function PrintAssignment(section, entry)
         .. EntryText(section, entry, TargetPlainText) .. ".")
 end
 
--- The tank row covering a marker (first one wins if the window holds
--- duplicates), or nil.
-local function TankEntryForMarker(markerIndex)
+-- Tank rows are one-per-tank with a `markers` array (1..8 / "all" /
+-- "custom"); a marker value lives on at most one row -- the setters below
+-- enforce that. The row holding a value, or nil.
+local function TankEntryForMarker(value)
     for _, entry in ipairs(GetEntries(SectionByKey("tank"))) do
-        if entry.marker == markerIndex then return entry end
+        if HasMarkerValue(entry, value) then return entry end
+    end
+end
+
+-- Drop a value from a row's marker list; true when it was there.
+local function RemoveMarkerValue(entry, value)
+    for i, v in ipairs(entry.markers or {}) do
+        if v == value then
+            table.remove(entry.markers, i)
+            return true
+        end
     end
 end
 
@@ -44,15 +59,18 @@ function WhoDoesWhat:GetTankMarkerAssignee(markerIndex)
     return entry and entry.player or nil
 end
 
--- The raid markers a player is assigned to tank, in row order -- numeric only,
--- so the "Everything else"/custom pseudo-markers are skipped. Misdirects
--- inherit from these: a hunter follows their tank onto the tank's first marker.
+-- The raid markers a player is assigned to tank, in list order (the lists are
+-- kept skull-first by NormalizeMarkers) -- numeric only, so the "Everything
+-- else"/custom pseudo-markers are skipped. Misdirects inherit from these: a
+-- hunter follows their tank onto the tank's first marker.
 function WhoDoesWhat:TankMarkers(tankName)
     local out = {}
     if not tankName then return out end
     for _, entry in ipairs(GetEntries(SectionByKey("tank"))) do
-        if entry.player == tankName and type(entry.marker) == "number" then
-            out[#out + 1] = entry.marker
+        if entry.player == tankName then
+            for _, v in ipairs(entry.markers or {}) do
+                if type(v) == "number" then out[#out + 1] = v end
+            end
         end
     end
     return out
@@ -88,50 +106,67 @@ function WhoDoesWhat:AdoptMisdirectsForMarker(markerIndex, tankName)
     end
 end
 
--- Put a player on a tank marker -- replacing whoever held it, creating the
--- row when none covers that marker yet -- or clear the marker with nil.
--- All four setters below are permission-gated: the unit menu renders
--- read-only without edit rights, and this backstops it.
-function WhoDoesWhat:SetTankMarkerPlayer(markerIndex, playerName)
-    if not self:RequireEditPermission() then return end
-    local section = SectionByKey("tank")
-    local entry = TankEntryForMarker(markerIndex)
-    if not entry then
-        if not playerName then return end
-        entry = { marker = markerIndex, custom = "" }
-        local entries = GetEntries(section)
-        entries[#entries + 1] = entry
-    end
-    if entry.player == playerName then return end
-    local prev = entry.player
-    entry.player = playerName
-    if playerName then
-        PrintAssignment(section, entry)
-    else
-        WhoDoesWhat:Print(section.title .. ": "
-            .. EntryText(section, entry, TargetPlainText) .. " cleared.")
-    end
-    -- The displaced tank and the new one both changed marker coverage; pull
-    -- their misdirects along, and adopt any tank-less misdirect on this marker.
-    self:SyncMisdirectsForTank(prev)
-    self:SyncMisdirectsForTank(playerName)
-    self:AdoptMisdirectsForMarker(markerIndex, playerName)
-    WhoDoesWhat:RefreshMainAssignmentsView()
-end
-
--- Delete the tank row covering a marker outright (the unit menu's toggle-off
--- removes the row rather than just blanking its player). No-op without edit
--- rights or when no row holds the marker.
-function WhoDoesWhat:RemoveTankMarker(markerIndex)
+-- Put a player on a tank marker value (1..8, "all" or "custom") -- pulling
+-- it off whoever holds it now and adding it to the player's row, creating
+-- that row when the player has none (auto rows only cover marked tanks; a
+-- created row warns until they're marked or cleared). nil playerName clears
+-- the value instead. All four setters below are permission-gated: the unit
+-- menu renders read-only without edit rights, and this backstops it.
+function WhoDoesWhat:SetTankMarkerPlayer(value, playerName)
+    if not playerName then return self:RemoveTankMarker(value) end
     if not self:RequireEditPermission() then return end
     local section = SectionByKey("tank")
     local entries = GetEntries(section)
-    for i, entry in ipairs(entries) do
-        if entry.marker == markerIndex then
-            local prev = entry.player
-            table.remove(entries, i)
-            self:SyncMisdirectsForTank(prev)
-            WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
+
+    -- One tank per marker: strip the value from its current holder.
+    local displaced
+    for _, entry in ipairs(entries) do
+        if HasMarkerValue(entry, value) then
+            if entry.player == playerName then return end -- already theirs
+            RemoveMarkerValue(entry, value)
+            displaced = entry.player
+        end
+    end
+
+    local mine
+    for _, entry in ipairs(entries) do
+        if entry.player == playerName then
+            mine = entry
+            break
+        end
+    end
+    if not mine then
+        mine = { player = playerName, markers = {}, custom = "" }
+        entries[#entries + 1] = mine
+    end
+    mine.markers = mine.markers or {}
+    mine.markers[#mine.markers + 1] = value
+    NormalizeMarkers(mine.markers)
+    PrintAssignment(section, mine)
+
+    -- The displaced tank and the new one both changed marker coverage; pull
+    -- their misdirects along, and adopt any tank-less misdirect on this marker.
+    self:SyncMisdirectsForTank(displaced)
+    self:SyncMisdirectsForTank(playerName)
+    if type(value) == "number" then
+        self:AdoptMisdirectsForMarker(value, playerName)
+    end
+    WhoDoesWhat:RefreshMainAssignmentsView()
+end
+
+-- Take a marker value off whichever tank row holds it. Only the value clears
+-- -- the rows themselves are roster-managed (a stray row emptied of markers
+-- is reconciled away on the next repaint). No-op without edit rights or when
+-- nobody holds the value.
+function WhoDoesWhat:RemoveTankMarker(value)
+    if not self:RequireEditPermission() then return end
+    local section = SectionByKey("tank")
+    for _, entry in ipairs(GetEntries(section)) do
+        if HasMarkerValue(entry, value) then
+            RemoveMarkerValue(entry, value)
+            self:SyncMisdirectsForTank(entry.player)
+            WhoDoesWhat:Print(section.title .. ": " .. MarkerValuePlain(value, entry.custom)
+                .. " cleared from " .. (entry.player or "?") .. ".")
             WhoDoesWhat:RefreshMainAssignmentsView()
             return
         end

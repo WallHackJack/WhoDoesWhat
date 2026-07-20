@@ -56,7 +56,10 @@ local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
 
 local COMM_PREFIX = "WhoDoesWhat"
-local PROTOCOL = 1 -- bump on any wire-format change; mismatched clients ignore each other
+-- Bump on any wire-format change; mismatched clients warn once and ignore
+-- each other. 2: tank rows went one-per-tank with a `markers` array (was
+-- one-per-marker with a single `marker`).
+local PROTOCOL = 2
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting

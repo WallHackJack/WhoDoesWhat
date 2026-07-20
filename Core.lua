@@ -100,9 +100,12 @@ local defaults = {
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},
         -- Dynamic assignment rows in the main view, one array per section
-        -- (see DynamicSections in MainAssignmentsView.lua). Each entry is
+        -- (see DynamicSections in Assignments.lua). Tank rows are one per
+        -- tank, auto-managed from the marked tanks:
+        -- { player = name, markers = { any mix of 1..8 | "all" | "custom" },
+        --   custom = text }. CC rows are user-added:
         -- { player = name or nil, marker = 1..8 | "all" | "custom",
-        --   custom = text, spell = CCSpells id (CC only) }.
+        --   custom = text, spell = CCSpells id }.
         tankAssignments = {},
         ccAssignments = {},
         -- Misdirect rows: { player = hunter name or nil, target = tank name
@@ -154,6 +157,43 @@ function WhoDoesWhat:OnInitialize()
         self.db.profile.raidAssignments[key] = nil
     end
     self.db.profile.raidAssignmentOverrides = nil
+
+    -- tankAssignments migrated from one-row-per-marker { player, marker } to
+    -- one-row-per-tank { player, markers = { ... } } (multi-select markers on
+    -- auto-populated rows). Old rows merge by player; rows that had a marker
+    -- but no tank held nothing worth keeping and drop.
+    do
+        local store = self.db.profile.tankAssignments
+        local out, byPlayer, migrated = {}, {}, false
+        for _, e in ipairs(store) do
+            if e.markers then
+                out[#out + 1] = e
+            else
+                migrated = true
+                if e.player then
+                    local row = byPlayer[e.player]
+                    if not row then
+                        row = { player = e.player, markers = {}, custom = "" }
+                        byPlayer[e.player] = row
+                        out[#out + 1] = row
+                    end
+                    if e.marker ~= nil then
+                        row.markers[#row.markers + 1] = e.marker
+                    end
+                    if e.custom and e.custom ~= "" then
+                        row.custom = e.custom
+                    end
+                end
+            end
+        end
+        if migrated then
+            for _, row in ipairs(out) do
+                self.Assign.NormalizeMarkers(row.markers)
+            end
+            wipe(store)
+            for _, row in ipairs(out) do store[#store + 1] = row end
+        end
+    end
 
     -- One-off cache wipe: the first buff-talent scanner matched icons against
     -- live GetTalentInfo returns, which don't compare equal to the library's

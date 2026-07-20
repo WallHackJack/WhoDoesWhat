@@ -167,18 +167,97 @@ local function MarkerByIndex(index)
     return nil
 end
 
--- Collapsed marker-dropdown text: the bare icon, since the box is only wide
--- enough for one (the menu items themselves keep their names). Custom borrows
--- the addon's "?" icon. "Everything else" has no icon to stand in for it, so
--- it spells itself out and widens its box -- see TANK_MARKER_DD_WIDE.
-local function TargetText(entry)
-    if entry.marker == "custom" then
+-- ---------------------------------------------------------------------------
+-- Marker VALUES: a tank row's `markers` array holds any mix of 1..8, "all"
+-- ("Everything else") and "custom". CC rows keep a single `marker` field of
+-- the same vocabulary. The three MarkerValue* renderers below are the
+-- single-value forms the Target* functions build from.
+-- ---------------------------------------------------------------------------
+
+-- Canonical order for a tank row's marker list: skull-first markers, then
+-- "Everything else", then Custom. Keeps FirstTankMarker the skull-most
+-- marker and every client rendering the same row identically.
+local MARKER_VALUE_RANK = {}
+for i, m in ipairs(WhoDoesWhat.RaidTargetMarkers) do MARKER_VALUE_RANK[m.index] = i end
+MARKER_VALUE_RANK["all"] = 9
+MARKER_VALUE_RANK["custom"] = 10
+
+local function NormalizeMarkers(markers)
+    table.sort(markers, function(a, b)
+        return (MARKER_VALUE_RANK[a] or 99) < (MARKER_VALUE_RANK[b] or 99)
+    end)
+    return markers
+end
+
+local function HasMarkerValue(entry, value)
+    for _, v in ipairs(entry.markers or {}) do
+        if v == value then return true end
+    end
+    return false
+end
+
+-- Icon-ish form: the bare marker icon (the "?" icon for Custom), words for
+-- "Everything else", which has no icon to stand in for it.
+local function MarkerValueText(v)
+    if v == "custom" then
         return "|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t"
-    elseif entry.marker == "all" then
+    elseif v == "all" then
         return "Everything else"
     end
-    local m = MarkerByIndex(entry.marker)
+    local m = MarkerByIndex(v)
     return m and MarkerMarkup(m.index, 14) or "?"
+end
+
+-- Plain words (marker names, the custom text spelled out).
+local function MarkerValuePlain(v, customText)
+    if v == "custom" then
+        return (customText and customText ~= "") and customText or "Custom"
+    elseif v == "all" then
+        return "Everything else"
+    end
+    local m = MarkerByIndex(v)
+    return m and m.name or "?"
+end
+
+-- Chat form: {skull}-style tokens the receiving client expands into icons;
+-- Custom / Everything else have no token and stay words.
+local function MarkerValueChat(v, customText)
+    if type(v) == "number" then
+        local m = MarkerByIndex(v)
+        return m and ("{" .. m.name:lower() .. "}") or "?"
+    end
+    return MarkerValuePlain(v, customText)
+end
+
+-- Collapsed marker-dropdown text: the bare icon(s), since the box is only
+-- wide enough for icons (the menu items themselves keep their names). A
+-- multi-marker row concatenates all its values; an empty one shows a gray
+-- placeholder. See MarkerDDWidth in the view for how the box grows.
+local function TargetText(entry)
+    if entry.markers then
+        if #entry.markers == 0 then return "|cff909090--|r" end
+        local parts = {}
+        for _, v in ipairs(entry.markers) do
+            parts[#parts + 1] = MarkerValueText(v)
+        end
+        return table.concat(parts, " ")
+    end
+    return MarkerValueText(entry.marker)
+end
+
+-- Read-only line form: icons where they exist, the custom text spelled out.
+local function MarkersRichText(entry)
+    if #(entry.markers or {}) == 0 then return "|cff909090--|r" end
+    local parts = {}
+    for _, v in ipairs(entry.markers) do
+        if v == "custom" then
+            parts[#parts + 1] = (entry.custom and entry.custom ~= "") and entry.custom
+                or ("|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom")
+        else
+            parts[#parts + 1] = MarkerValueText(v)
+        end
+    end
+    return table.concat(parts, ", ")
 end
 
 -- Target text in plain words, for our own :Print() output and tooltips.
@@ -191,28 +270,34 @@ local function TargetPlainText(entry)
         local m = MarkerByIndex(entry.marker)
         return m and (entry.target .. " (" .. m.name .. ")") or entry.target
     end
-    if entry.marker == "custom" then
-        return (entry.custom and entry.custom ~= "") and entry.custom or "Custom"
-    elseif entry.marker == "all" then
-        return "Everything else"
+    if entry.markers then
+        if #entry.markers == 0 then return "no marker" end
+        local parts = {}
+        for _, v in ipairs(entry.markers) do
+            parts[#parts + 1] = MarkerValuePlain(v, entry.custom)
+        end
+        return table.concat(parts, ", ")
     end
-    local m = MarkerByIndex(entry.marker)
-    return m and m.name or "?"
+    return MarkerValuePlain(entry.marker, entry.custom)
 end
 
--- Target text for whispers: chat's own raid-marker tokens, which the
--- receiving client expands into the real icon. The eight valid tokens are
--- exactly our lowercased marker names ({skull}, {cross}, {star}, ...).
--- Custom / Everything else have no icon, so they stay as words. Player
--- targets (Misdirects) lead with the name, marker token after when set.
+-- Target text for whispers: chat's raid-marker tokens (see MarkerValueChat).
+-- Player targets (Misdirects) lead with the name, marker token after when set.
 local function TargetChatText(entry)
-    local m = (entry.marker ~= "custom" and entry.marker ~= "all")
-        and MarkerByIndex(entry.marker) or nil
-    local token = m and ("{" .. m.name:lower() .. "}")
     if entry.target then
+        local m = MarkerByIndex(entry.marker)
+        local token = m and ("{" .. m.name:lower() .. "}")
         return token and (entry.target .. " " .. token) or entry.target
     end
-    return token or TargetPlainText(entry)
+    if entry.markers then
+        if #entry.markers == 0 then return "no marker" end
+        local parts = {}
+        for _, v in ipairs(entry.markers) do
+            parts[#parts + 1] = MarkerValueChat(v, entry.custom)
+        end
+        return table.concat(parts, " ")
+    end
+    return MarkerValueChat(entry.marker, entry.custom)
 end
 
 -- Collapsed spell-dropdown text: icon + class-colored name, or a prompt while
@@ -260,6 +345,85 @@ local function ClearSpellIfUncastable(entry, newPlayer)
     end
 end
 
+-- Names of every marked tank in the group (GetEligibleMembers is sorted, so
+-- this is name-sorted too). Drives the tank section's auto rows and Reset.
+local function MarkedTankNames()
+    local out = {}
+    for _, m in ipairs(GetEligibleMembers(nil)) do
+        if WhoDoesWhat:IsMarkedTank(m.name) then out[#out + 1] = m.name end
+    end
+    return out
+end
+
+-- Tank Reset: rebuild the rows from the marked tanks with the stock marker
+-- layout -- one marker each, skull-first (Skull, Cross, Square, ...) in row
+-- order -- with two preferences: a feral (druid) tank leads and takes Skull,
+-- and a paladin tank slots third holding "Everything else" (AoE threat keeps
+-- the leftovers). Misdirect markers re-sync onto their tanks' fresh markers.
+local function ResetTankAssignments()
+    if not WhoDoesWhat:RequireEditPermission() then return end
+    local ferals, rest, pally = {}, {}, nil
+    for _, name in ipairs(MarkedTankNames()) do
+        local m = FindMember(name)
+        local cls = m and m.classInfo.name
+        if cls == "Druid" then
+            ferals[#ferals + 1] = name
+        elseif cls == "Paladin" and not pally then
+            pally = name
+        else
+            rest[#rest + 1] = name
+        end
+    end
+    local ordered = {}
+    for _, n in ipairs(ferals) do ordered[#ordered + 1] = n end
+    for _, n in ipairs(rest) do ordered[#ordered + 1] = n end
+    if pally then
+        table.insert(ordered, math.min(3, #ordered + 1), pally)
+    end
+
+    local entries = WhoDoesWhat.db.profile.tankAssignments
+    wipe(entries)
+    local nextMarker = 1
+    for _, name in ipairs(ordered) do
+        local markers
+        if name == pally then
+            markers = { "all" }
+        else
+            local m = WhoDoesWhat.RaidTargetMarkers[nextMarker]
+            nextMarker = nextMarker + 1
+            markers = m and { m.index } or {}
+        end
+        entries[#entries + 1] = { player = name, markers = markers, custom = "" }
+    end
+
+    -- Every misdirect follows its tank onto the tank's new first marker.
+    local seen = {}
+    for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
+        if e.target and not seen[e.target] then
+            seen[e.target] = true
+            WhoDoesWhat:SyncMisdirectsForTank(e.target)
+        end
+    end
+
+    if #entries == 0 then
+        WhoDoesWhat:Print("Tank Assignments reset: no marked tanks in the group.")
+    else
+        local parts = {}
+        for _, entry in ipairs(entries) do
+            parts[#parts + 1] = entry.player .. " -> " .. TargetPlainText(entry)
+        end
+        WhoDoesWhat:Print("Tank Assignments reset: " .. table.concat(parts, ", ") .. ".")
+    end
+end
+
+-- Misdirect Reset: wipe every row; the auto-row reconcile rebuilds one blank
+-- row per hunter on the next repaint.
+local function ResetMisdirectAssignments()
+    if not WhoDoesWhat:RequireEditPermission() then return end
+    wipe(WhoDoesWhat.db.profile.mdAssignments)
+    WhoDoesWhat:Print("Misdirect Assignments reset: one empty row per hunter.")
+end
+
 -- ---------------------------------------------------------------------------
 -- Dynamic section definitions
 --
@@ -279,6 +443,16 @@ end
 --               instead of a raid marker: the marker dropdown and custom text
 --               box are replaced by a second player picker plus a compact
 --               optional-marker picker (entry.marker = 1..8 or nil)
+--   autoRows    one row per roster member, auto-managed (EnsureAutoRows): no
+--               Add/[x], the player cell is a fixed label. Roster = autoRoster()
+--               when set, else MembersOfClass(autoRows). emptyHint overrides
+--               the no-members hint; KeepStray(entry) keeps rows whose player
+--               fell out of the roster (so the assignment warns, not vanishes)
+--   multiMarker entries hold a markers ARRAY (any mix of 1..8/"all"/"custom")
+--               behind a multi-select marker dropdown, instead of the single
+--               .marker field
+--   Reset       header "Reset" button (behind a confirm popup) restoring the
+--               section's defaults; resetTooltip explains it
 --   IsPreferred(member, entry) floats a member to the top of the player list
 --   IsPreferredTarget(member)  same, for the target picker (targetPlayer only)
 --   GetWarning(entry)          row warning text, or nil when all is well
@@ -292,12 +466,29 @@ local DynamicSections = {
         noun = "tank assignment",
         whisperLead = "Tank ",
         allowAll = true,
-        clearAll = true,
-        IsPreferred = function(m) return WhoDoesWhat:IsMarkedTank(m.name) end,
+        -- One row per marked tank, auto-managed; the marker dropdown is a
+        -- multi-select so one tank holds all their markers on a single row.
+        autoRows = true,
+        autoRoster = MarkedTankNames,
+        multiMarker = true,
+        emptyHint = "No tanks marked yet - assign tank roles from the unit right-click menu.",
+        -- A unit-menu marker put on someone who isn't a marked tank still
+        -- deserves a (warning) row rather than being silently reconciled away.
+        KeepStray = function(entry)
+            return FindMember(entry.player) ~= nil and #(entry.markers or {}) > 0
+        end,
+        Reset = ResetTankAssignments,
+        resetTooltip = "Rebuild the rows from the marked tanks with default"
+            .. " markers, skull-first (Skull, Cross, Square, ...): a feral"
+            .. " tank leads on Skull, and a paladin tank slots third on"
+            .. " Everything else.",
         GetWarning = function(entry)
             if entry.player and not WhoDoesWhat:IsMarkedTank(entry.player) then
                 return entry.player .. " is not marked as a tank. Assign them a"
                     .. " tank role from the unit right-click menu."
+            end
+            if #(entry.markers or {}) == 0 then
+                return "No marker picked for this tank yet."
             end
         end,
     },
@@ -338,6 +529,8 @@ local DynamicSections = {
         -- every hunter should have a misdirect every fight, so there's no
         -- manual Add/remove -- you just fill in each hunter's tank.
         autoRows = "Hunter",
+        Reset = ResetMisdirectAssignments,
+        resetTooltip = "Clear every misdirect back to an empty row per hunter.",
         IsPreferredTarget = function(m) return WhoDoesWhat:IsMarkedTank(m.name) end,
         GetWarning = function(entry)
             if entry.player then
@@ -419,12 +612,21 @@ end
 -- calls, and an instant burst that size risks the server chat throttle.
 local MAIL_STAGGER = 0.25
 
+-- Whether a dynamic row is complete enough to whisper: misdirects need their
+-- tank picked, multi-marker (tank) rows need at least one marker. Also drives
+-- each row's mail-button enabled state in the view.
+local function EntryHasJob(section, entry)
+    if not entry.player then return false end
+    if section.targetPlayer then return entry.target ~= nil end
+    if entry.markers then return #entry.markers > 0 end
+    return true
+end
+
 -- Distinct assigned players in a dynamic section, whispers in chat-token form.
 local function CollectDynamicWhispers(section)
     local seen, out = {}, {}
     for _, entry in ipairs(GetEntries(section)) do
-        -- Skip misdirect rows still missing their tank -- nothing to whisper.
-        if entry.player and (not section.targetPlayer or entry.target)
+        if EntryHasJob(section, entry)
             and not seen[entry.player] then
             seen[entry.player] = true
             out[#out + 1] = {
@@ -1137,24 +1339,41 @@ local function PruneDepartedAssignments()
     end
 end
 
--- Auto-row sections (misdirects) carry one row per member of the class named
--- in section.autoRows, not rows the user adds by hand. Reconcile the saved
--- entries to the current roster before rendering: keep each hunter's existing
--- row (target + marker preserved), add a blank row for a new hunter, drop rows
--- whose player left or is no longer that class, ordered by the name-sorted
--- roster. Skipped for read-only clients -- they render the leader's synced
--- rows as-is (matching PruneDepartedAssignments).
+-- Auto-row sections carry one row per roster member (misdirects: every
+-- hunter; tanks: every marked tank), not rows the user adds by hand.
+-- Reconcile the saved entries to the roster before rendering: retained rows
+-- keep their current order (assignments preserved), new members append a
+-- blank row in roster order, rows whose player left the roster drop -- unless
+-- the section's KeepStray predicate holds onto them (a unit-menu marker on
+-- someone not marked tank warns instead of silently vanishing). Skipped for
+-- read-only clients -- they render the leader's synced rows as-is (matching
+-- PruneDepartedAssignments).
 local function EnsureAutoRows(section)
     if not WhoDoesWhat:CanEditAssignments() then return end
     local entries = GetEntries(section)
-    local byPlayer = {}
+    local roster = section.autoRoster and section.autoRoster()
+        or MembersOfClass(section.autoRows)
+    local inRoster = {}
+    for _, name in ipairs(roster) do inRoster[name] = true end
+
+    local rebuilt, seen = {}, {}
     for _, e in ipairs(entries) do
-        if e.player then byPlayer[e.player] = e end
+        if e.player and inRoster[e.player] and not seen[e.player] then
+            seen[e.player] = true
+            rebuilt[#rebuilt + 1] = e
+        elseif e.player and not inRoster[e.player]
+            and section.KeepStray and section.KeepStray(e) then
+            rebuilt[#rebuilt + 1] = e
+        end
     end
-    local rebuilt = {}
-    for _, name in ipairs(MembersOfClass(section.autoRows)) do
-        rebuilt[#rebuilt + 1] = byPlayer[name] or { player = name }
+    for _, name in ipairs(roster) do
+        if not seen[name] then
+            rebuilt[#rebuilt + 1] = section.multiMarker
+                and { player = name, markers = {}, custom = "" }
+                or { player = name }
+        end
     end
+
     -- Only rewrite the store when the set/order actually changed, so an
     -- unchanged roster doesn't churn the sync fingerprint every refresh.
     local changed = (#rebuilt ~= #entries)
@@ -1241,6 +1460,10 @@ WhoDoesWhat.Assign = {
     -- marker / spell / target
     MarkerMarkup = MarkerMarkup,
     MarkerByIndex = MarkerByIndex,
+    NormalizeMarkers = NormalizeMarkers,
+    HasMarkerValue = HasMarkerValue,
+    MarkerValuePlain = MarkerValuePlain,
+    MarkersRichText = MarkersRichText,
     TargetText = TargetText,
     TargetPlainText = TargetPlainText,
     TargetChatText = TargetChatText,
@@ -1254,6 +1477,7 @@ WhoDoesWhat.Assign = {
     RowDefs = RowDefs,
     GetEntries = GetEntries,
     EntryText = EntryText,
+    EntryHasJob = EntryHasJob,
     PlayerEntriesText = PlayerEntriesText,
     FirstUnusedMarker = FirstUnusedMarker,
     -- whispers

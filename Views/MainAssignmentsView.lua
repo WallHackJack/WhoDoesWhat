@@ -71,6 +71,22 @@ local TANK_MARKER_DD_WIDTH = 44
 local TANK_MARKER_DD_WIDE = 95
 local DYN_EMPTY_H = 20 -- rows-area height while a dynamic list is empty
 
+-- Collapsed marker-box width for a row: the 44px floor covers one icon; a
+-- multi-marker (tank) row adds 16px per extra icon and ~55px for the word
+-- "Everything else", capped so a kitchen-sink pick can't crowd the row's
+-- right-hand buttons.
+local function MarkerDDWidth(entry)
+    if not entry.markers then
+        return (entry.marker == "all") and TANK_MARKER_DD_WIDE or TANK_MARKER_DD_WIDTH
+    end
+    local w, icons = TANK_MARKER_DD_WIDTH, 0
+    for _, v in ipairs(entry.markers) do
+        if v == "all" then w = w + 55 else icons = icons + 1 end
+    end
+    if icons > 1 then w = w + (icons - 1) * 16 end
+    return math.min(w, 230)
+end
+
 -- UIDropDownMenuTemplate right-aligns its collapsed label by default, which
 -- leaves player/spell names (and the marker icon) floating against the arrow
 -- with dead space on the left. Left-align so the content hugs the left edge,
@@ -113,8 +129,11 @@ local Sections = A.Sections
 local GetEntries = A.GetEntries
 local EnsureAutoRows = A.EnsureAutoRows
 local EntryText = A.EntryText
+local EntryHasJob = A.EntryHasJob
 local PlayerEntriesText = A.PlayerEntriesText
 local FirstUnusedMarker = A.FirstUnusedMarker
+local HasMarkerValue = A.HasMarkerValue
+local MarkersRichText = A.MarkersRichText
 local CollectDynamicWhispers = A.CollectDynamicWhispers
 local CollectStaticWhispers = A.CollectStaticWhispers
 local CollectPaladinBuffWhispers = A.CollectPaladinBuffWhispers
@@ -223,6 +242,8 @@ local function ReadOnlyEntryText(section, entry)
         if entry.marker then
             target = target .. " " .. MarkerMarkup(entry.marker, 14)
         end
+    elseif entry.markers then
+        target = MarkersRichText(entry) -- multi-marker (tank) rows
     elseif entry.marker == "custom" then
         target = (entry.custom and entry.custom ~= "") and entry.custom
             or ("|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom")
@@ -1271,27 +1292,6 @@ local function CreateDynamicRow(f, section, index)
 
     local function Entry() return GetEntries(section)[index] end
 
-    -- Repaint the misdirect box (a tank-row change only repaints the tank box).
-    local function RepaintMisdirects()
-        for _, s in ipairs(DynamicSections) do
-            if s.key == "md" then RefreshDynamicSection(f, s) break end
-        end
-    end
-
-    -- Reconcile misdirects after a tank row changes: pull the tank's misdirects
-    -- onto its new first marker, and (adopt=true) point any tank-less misdirect
-    -- already on this row's marker at the tank. adopt is false for deletes --
-    -- the tank no longer holds that marker. No-op off the tank section (this row
-    -- builder is shared with CC/misdirect).
-    local function SyncTankMisdirects(entry, adopt)
-        if section.key ~= "tank" or not entry then return end
-        WhoDoesWhat:SyncMisdirectsForTank(entry.player)
-        if adopt and entry.player and type(entry.marker) == "number" then
-            WhoDoesWhat:AdoptMisdirectsForMarker(entry.marker, entry.player)
-        end
-        RepaintMisdirects()
-    end
-
     local anchor
 
     if section.autoRows then
@@ -1321,7 +1321,6 @@ local function CreateDynamicRow(f, section, index)
             section.IsPreferred and function(m) return section.IsPreferred(m, entry) end,
             entry.player,
             function(name)
-                local prev = entry.player
                 ClearSpellIfUncastable(entry, name)
                 entry.player = name
                 if name then
@@ -1329,13 +1328,6 @@ local function CreateDynamicRow(f, section, index)
                         .. EntryText(section, entry, TargetPlainText) .. ".")
                 else
                     WhoDoesWhat:Print(section.title .. ": assignment cleared.")
-                end
-                if section.key == "tank" then
-                    -- Old tank first (data only), then the new tank through the
-                    -- shared helper: forward-sync + adopt tank-less misdirects on
-                    -- its marker + repaint the misdirect box.
-                    WhoDoesWhat:SyncMisdirectsForTank(prev)
-                    SyncTankMisdirects(entry, true)
                 end
                 RefreshDynamicSection(f, section)
             end)
@@ -1464,6 +1456,43 @@ local function CreateDynamicRow(f, section, index)
         UIDropDownMenu_Initialize(markerDD, function(_, level)
             local entry = Entry()
             if not entry then return end
+
+            -- Multi-marker (tank) rows: every option is a checkbox toggling
+            -- membership in entry.markers, and the menu stays open so several
+            -- can be picked in one visit. The toggles route through the unit
+            -- menu's setters, which enforce one-tank-per-marker and pull the
+            -- misdirects along.
+            if section.multiMarker then
+                local function AddToggle(value, text, closeAfter)
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = text
+                    info.isNotRadio = true
+                    info.keepShownOnClick = not closeAfter
+                    info.checked = HasMarkerValue(entry, value)
+                    info.func = function()
+                        if HasMarkerValue(entry, value) then
+                            WhoDoesWhat:RemoveTankMarker(value)
+                        else
+                            WhoDoesWhat:SetTankMarkerPlayer(value, entry.player)
+                            if value == "custom" then row.customEdit:SetFocus() end
+                        end
+                        if closeAfter then CloseDropDownMenus() end
+                    end
+                    UIDropDownMenu_AddButton(info, level)
+                end
+                for _, m in ipairs(WhoDoesWhat.RaidTargetMarkers) do
+                    AddToggle(m.index, MarkerMarkup(m.index, 14) .. " " .. m.name)
+                end
+                AddDropdownDivider(level)
+                if section.allowAll then
+                    AddToggle("all", "Everything else")
+                end
+                -- Custom closes the menu so the freed text box can take focus.
+                AddToggle("custom", "|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom...", true)
+                return
+            end
+
+            -- Single-marker (CC) rows: a plain radio list.
             -- The open menu keeps icon + name on every row; only the collapsed
             -- box narrows to the bare icon (see TargetText).
             for _, m in ipairs(WhoDoesWhat.RaidTargetMarkers) do
@@ -1472,7 +1501,6 @@ local function CreateDynamicRow(f, section, index)
                 info.checked = (entry.marker == m.index)
                 info.func = function()
                     entry.marker = m.index
-                    SyncTankMisdirects(entry, true)
                     RefreshDynamicSection(f, section)
                 end
                 UIDropDownMenu_AddButton(info, level)
@@ -1486,7 +1514,6 @@ local function CreateDynamicRow(f, section, index)
                 allInfo.checked = (entry.marker == "all")
                 allInfo.func = function()
                     entry.marker = "all"
-                    SyncTankMisdirects(entry, true)
                     RefreshDynamicSection(f, section)
                 end
                 UIDropDownMenu_AddButton(allInfo, level)
@@ -1497,7 +1524,6 @@ local function CreateDynamicRow(f, section, index)
             info.checked = (entry.marker == "custom")
             info.func = function()
                 entry.marker = "custom"
-                SyncTankMisdirects(entry, true)
                 RefreshDynamicSection(f, section)
                 row.customEdit:SetFocus()
             end
@@ -1527,8 +1553,7 @@ local function CreateDynamicRow(f, section, index)
         delBtn:SetPoint("RIGHT", row.mailBtn, "LEFT", -2, 0)
         delBtn:SetText("x")
         delBtn:SetScript("OnClick", function()
-            local removed = table.remove(GetEntries(section), index)
-            SyncTankMisdirects(removed, false)
+            table.remove(GetEntries(section), index)
             WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
             RefreshDynamicSection(f, section)
         end)
@@ -1628,14 +1653,15 @@ function RefreshDynamicSection(f, section)
                 and MarkerMarkup(entry.marker, 14) or "|cff909090--|r")
         end
         if row.markerDD then
-            -- The marker box shrinks to its icon and widens only for the one
+            -- The marker box shrinks to its icon(s) and widens only for the
             -- text-only option, so set the width before the text each refresh.
             row.markerDD:SetShown(editable)
-            UIDropDownMenu_SetWidth(row.markerDD,
-                (entry.marker == "all") and TANK_MARKER_DD_WIDE or TANK_MARKER_DD_WIDTH)
+            UIDropDownMenu_SetWidth(row.markerDD, MarkerDDWidth(entry))
             UIDropDownMenu_SetText(row.markerDD, TargetText(entry))
 
-            if entry.marker == "custom" and editable then
+            local hasCustom = entry.markers and HasMarkerValue(entry, "custom")
+                or entry.marker == "custom"
+            if hasCustom and editable then
                 if not row.customEdit:HasFocus() then
                     row.customEdit:SetText(entry.custom or "")
                 end
@@ -1654,10 +1680,9 @@ function RefreshDynamicSection(f, section)
         end
         row.warnIcon.tooltipText = warning
         row.warnIcon:SetShown(warning ~= nil)
-        -- A misdirect row only has a job to whisper once its tank is picked;
-        -- other rows just need a player.
-        local hasJob = entry.player ~= nil
-            and (not section.targetPlayer or entry.target ~= nil)
+        -- A misdirect row only has a job to whisper once its tank is picked,
+        -- a tank row once it holds a marker; other rows just need a player.
+        local hasJob = EntryHasJob(section, entry)
         row.mailBtn:SetShown(editable)
         row.mailBtn:SetEnabled(hasJob)
         row.mailBtn.icon:SetDesaturated(not hasJob)
@@ -1666,7 +1691,8 @@ function RefreshDynamicSection(f, section)
         state.rows[i]:Hide()
     end
     if section.autoRows then
-        state.emptyHint:SetText("No " .. section.autoRows:lower() .. "s in the group.")
+        state.emptyHint:SetText(section.emptyHint
+            or ("No " .. tostring(section.autoRows):lower() .. "s in the group."))
     else
         state.emptyHint:SetText(editable
             and ("No " .. section.noun .. "s yet - click Add (+) to add one.")
@@ -1674,6 +1700,7 @@ function RefreshDynamicSection(f, section)
     end
     state.emptyHint:SetShown(#entries == 0)
     if state.plusBtn then state.plusBtn:SetShown(editable) end
+    if state.resetBtn then state.resetBtn:SetShown(editable) end
     if state.clearBtn then
         state.clearBtn:SetShown(editable)
         state.clearBtn:SetEnabled(#entries > 0)
@@ -1694,6 +1721,17 @@ end
 StaticPopupDialogs["WHODOESWHAT_CLEAR_SECTION"] = {
     text = "Remove all %s?",
     button1 = "Clear All",
+    button2 = "Cancel",
+    OnAccept = function(self) self.data() end,
+    timeout = 0,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Reset-a-section confirm, same shape as the clear-all dialog.
+StaticPopupDialogs["WHODOESWHAT_RESET_SECTION"] = {
+    text = "Reset all %s to their defaults?",
+    button1 = "Reset",
     button2 = "Cancel",
     OnAccept = function(self) self.data() end,
     timeout = 0,
@@ -1728,16 +1766,6 @@ local function BuildDynamicSection(f, content, section)
             StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", section.noun .. "s", nil,
                 function()
                     wipe(GetEntries(section))
-                    if section.key == "tank" then
-                        -- Every tank lost its markers; clear the misdirects that
-                        -- were following them, and repaint their box.
-                        for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
-                            WhoDoesWhat:SyncMisdirectsForTank(e.target)
-                        end
-                        for _, s in ipairs(DynamicSections) do
-                            if s.key == "md" then RefreshDynamicSection(f, s) break end
-                        end
-                    end
                     WhoDoesWhat:Print(section.title .. ": all " .. section.noun .. "s removed.")
                     RefreshDynamicSection(f, section)
                 end)
@@ -1764,7 +1792,8 @@ local function BuildDynamicSection(f, content, section)
 
     -- "Add (+)" lives in the title strip with the other section controls
     -- (LayoutHeaderChain re-anchors, so the initial anchor is provisional).
-    -- Auto-row sections (misdirects) have no Add -- their rows are the roster.
+    -- Auto-row sections (tanks, misdirects) have no Add -- their rows are the
+    -- roster.
     if not section.autoRows then
         state.plusBtn = AddHeaderTextButton(box, mailBtn, "Add (+)",
             "Add a " .. section.noun,
@@ -1779,11 +1808,29 @@ local function BuildDynamicSection(f, content, section)
             end) -- hidden without edit permission
     end
 
+    -- Header "Reset": restore the section's defaults (Assignments.lua defines
+    -- what that means per section), behind a confirm popup. A tank reset
+    -- moves misdirect markers too, so repaint everything.
+    if section.Reset then
+        state.resetBtn = AddHeaderTextButton(box, mailBtn, "Reset",
+            "Reset " .. section.title, section.resetTooltip, function()
+                StaticPopup_Hide("WHODOESWHAT_RESET_SECTION") -- re-arm for this section
+                StaticPopup_Show("WHODOESWHAT_RESET_SECTION", section.noun .. "s", nil,
+                    function()
+                        section.Reset()
+                        RefreshRows(f)
+                    end)
+            end) -- hidden without edit permission
+    end
+
     -- Rightmost-first header chain for LayoutHeaderChain: mail at the box
-    -- corner, then X (when the section has one), then Add (+) when present.
+    -- corner, then X / Reset / Add (+) when present.
     state.headerChain = { mailBtn }
     if state.clearBtn then
         state.headerChain[#state.headerChain + 1] = state.clearBtn
+    end
+    if state.resetBtn then
+        state.headerChain[#state.headerChain + 1] = state.resetBtn
     end
     if state.plusBtn then
         state.headerChain[#state.headerChain + 1] = state.plusBtn
