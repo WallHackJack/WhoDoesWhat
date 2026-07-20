@@ -334,6 +334,10 @@ local DynamicSections = {
         whisperLead = "Misdirect to ",
         playerClass = "Hunter",
         targetPlayer = true,
+        -- One row per hunter, auto-managed from the roster (EnsureAutoRows):
+        -- every hunter should have a misdirect every fight, so there's no
+        -- manual Add/remove -- you just fill in each hunter's tank.
+        autoRows = "Hunter",
         IsPreferredTarget = function(m) return WhoDoesWhat:IsMarkedTank(m.name) end,
         GetWarning = function(entry)
             if entry.player then
@@ -357,6 +361,22 @@ local DynamicSections = {
             if not WhoDoesWhat:IsMarkedTank(entry.target) then
                 return entry.target .. " is not marked as a tank. Assign them a"
                     .. " tank role from the unit right-click menu."
+            end
+            local markers = WhoDoesWhat:TankMarkers(entry.target)
+            if #markers == 0 then
+                return entry.target .. " has no marker assigned in Tank"
+                    .. " Assignments, so there's nothing to misdirect on."
+            end
+            if entry.marker then
+                local onTankMarker = false
+                for _, mk in ipairs(markers) do
+                    if mk == entry.marker then onTankMarker = true break end
+                end
+                if not onTankMarker then
+                    local m = MarkerByIndex(entry.marker)
+                    return "This misdirect is on " .. (m and m.name or "?")
+                        .. ", but " .. entry.target .. " isn't tanking that marker."
+                end
             end
         end,
     },
@@ -403,7 +423,9 @@ local MAIL_STAGGER = 0.25
 local function CollectDynamicWhispers(section)
     local seen, out = {}, {}
     for _, entry in ipairs(GetEntries(section)) do
-        if entry.player and not seen[entry.player] then
+        -- Skip misdirect rows still missing their tank -- nothing to whisper.
+        if entry.player and (not section.targetPlayer or entry.target)
+            and not seen[entry.player] then
             seen[entry.player] = true
             out[#out + 1] = {
                 name = entry.player,
@@ -1115,6 +1137,36 @@ local function PruneDepartedAssignments()
     end
 end
 
+-- Auto-row sections (misdirects) carry one row per member of the class named
+-- in section.autoRows, not rows the user adds by hand. Reconcile the saved
+-- entries to the current roster before rendering: keep each hunter's existing
+-- row (target + marker preserved), add a blank row for a new hunter, drop rows
+-- whose player left or is no longer that class, ordered by the name-sorted
+-- roster. Skipped for read-only clients -- they render the leader's synced
+-- rows as-is (matching PruneDepartedAssignments).
+local function EnsureAutoRows(section)
+    if not WhoDoesWhat:CanEditAssignments() then return end
+    local entries = GetEntries(section)
+    local byPlayer = {}
+    for _, e in ipairs(entries) do
+        if e.player then byPlayer[e.player] = e end
+    end
+    local rebuilt = {}
+    for _, name in ipairs(MembersOfClass(section.autoRows)) do
+        rebuilt[#rebuilt + 1] = byPlayer[name] or { player = name }
+    end
+    -- Only rewrite the store when the set/order actually changed, so an
+    -- unchanged roster doesn't churn the sync fingerprint every refresh.
+    local changed = (#rebuilt ~= #entries)
+    for i = 1, #rebuilt do
+        if rebuilt[i] ~= entries[i] then changed = true break end
+    end
+    if changed then
+        wipe(entries)
+        for _, e in ipairs(rebuilt) do entries[#entries + 1] = e end
+    end
+end
+
 -- Persist a static assignment (nil clears it), enforce exclusivity (picking
 -- a player bumps them off any exclusiveWith rows), and repaint. Permission-
 -- gated like every board write (the read-only UI hides the way here, this
@@ -1216,6 +1268,7 @@ WhoDoesWhat.Assign = {
     GetBuffRules = GetBuffRules,
     -- storage
     PruneDepartedAssignments = PruneDepartedAssignments,
+    EnsureAutoRows = EnsureAutoRows,
     SetAssignment = SetAssignment,
     AutoPlaceAfflictionElements = AutoPlaceAfflictionElements,
 }

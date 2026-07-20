@@ -44,6 +44,50 @@ function WhoDoesWhat:GetTankMarkerAssignee(markerIndex)
     return entry and entry.player or nil
 end
 
+-- The raid markers a player is assigned to tank, in row order -- numeric only,
+-- so the "Everything else"/custom pseudo-markers are skipped. Misdirects
+-- inherit from these: a hunter follows their tank onto the tank's first marker.
+function WhoDoesWhat:TankMarkers(tankName)
+    local out = {}
+    if not tankName then return out end
+    for _, entry in ipairs(GetEntries(SectionByKey("tank"))) do
+        if entry.player == tankName and type(entry.marker) == "number" then
+            out[#out + 1] = entry.marker
+        end
+    end
+    return out
+end
+
+function WhoDoesWhat:FirstTankMarker(tankName)
+    return self:TankMarkers(tankName)[1]
+end
+
+-- Pull every misdirect aimed at a tank onto that tank's first marker, so a
+-- hunter's misdirect follows when the tank's marker is (re)assigned. A nil
+-- first marker (the tank lost all its markers) clears the misdirect's marker.
+function WhoDoesWhat:SyncMisdirectsForTank(tankName)
+    if not tankName then return end
+    local marker = self:FirstTankMarker(tankName)
+    for _, entry in ipairs(GetEntries(SectionByKey("md"))) do
+        if entry.target == tankName then
+            entry.marker = marker
+        end
+    end
+end
+
+-- The reverse: when a tank is assigned to a marker, adopt any misdirect that
+-- was already set to that marker but had no tank picked yet, pointing it at the
+-- new tank. Only fills empty targets -- it never steals a misdirect off another
+-- tank.
+function WhoDoesWhat:AdoptMisdirectsForMarker(markerIndex, tankName)
+    if not (markerIndex and tankName) then return end
+    for _, entry in ipairs(GetEntries(SectionByKey("md"))) do
+        if entry.marker == markerIndex and not entry.target then
+            entry.target = tankName
+        end
+    end
+end
+
 -- Put a player on a tank marker -- replacing whoever held it, creating the
 -- row when none covers that marker yet -- or clear the marker with nil.
 -- All four setters below are permission-gated: the unit menu renders
@@ -59,6 +103,7 @@ function WhoDoesWhat:SetTankMarkerPlayer(markerIndex, playerName)
         entries[#entries + 1] = entry
     end
     if entry.player == playerName then return end
+    local prev = entry.player
     entry.player = playerName
     if playerName then
         PrintAssignment(section, entry)
@@ -66,6 +111,11 @@ function WhoDoesWhat:SetTankMarkerPlayer(markerIndex, playerName)
         WhoDoesWhat:Print(section.title .. ": "
             .. EntryText(section, entry, TargetPlainText) .. " cleared.")
     end
+    -- The displaced tank and the new one both changed marker coverage; pull
+    -- their misdirects along, and adopt any tank-less misdirect on this marker.
+    self:SyncMisdirectsForTank(prev)
+    self:SyncMisdirectsForTank(playerName)
+    self:AdoptMisdirectsForMarker(markerIndex, playerName)
     WhoDoesWhat:RefreshMainAssignmentsView()
 end
 
@@ -78,7 +128,9 @@ function WhoDoesWhat:RemoveTankMarker(markerIndex)
     local entries = GetEntries(section)
     for i, entry in ipairs(entries) do
         if entry.marker == markerIndex then
+            local prev = entry.player
             table.remove(entries, i)
+            self:SyncMisdirectsForTank(prev)
             WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
             WhoDoesWhat:RefreshMainAssignmentsView()
             return
@@ -217,10 +269,10 @@ local function MisdirectRowFor(hunterName, freeExtras)
 end
 
 -- Point a hunter's misdirect at a tank (nil clears it). One tank per hunter:
--- the hunter's existing row is retargeted in place -- keeping its optional
--- marker -- rather than swapped for another row. A hunter without a row
--- claims an unmanned row already aimed at that tank before creating a fresh
--- one; rows are never deleted here.
+-- the hunter's existing row is retargeted in place -- defaulting its marker to
+-- the tank's first marker -- rather than swapped for another row. A hunter
+-- without a row claims an unmanned row already aimed at that tank before
+-- creating a fresh one; rows are never deleted here.
 function WhoDoesWhat:SetMisdirectTarget(hunterName, tankName)
     if not self:RequireEditPermission() then return end
     local section = SectionByKey("md")
@@ -248,6 +300,7 @@ function WhoDoesWhat:SetMisdirectTarget(hunterName, tankName)
             mine.player = hunterName
         end
         mine.target = tankName
+        mine.marker = self:FirstTankMarker(tankName) -- default to the tank's marker
         PrintAssignment(section, mine)
         freed = true -- repaint either way
     end

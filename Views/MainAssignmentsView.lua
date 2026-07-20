@@ -111,6 +111,7 @@ local ClearSpellIfUncastable = A.ClearSpellIfUncastable
 local DynamicSections = A.DynamicSections
 local Sections = A.Sections
 local GetEntries = A.GetEntries
+local EnsureAutoRows = A.EnsureAutoRows
 local EntryText = A.EntryText
 local PlayerEntriesText = A.PlayerEntriesText
 local FirstUnusedMarker = A.FirstUnusedMarker
@@ -410,7 +411,7 @@ end
 --   OnPick(name)   selection callback (nil = None)
 --   Annotate(m)    optional; note text appended after the member's name
 --                  (talent ranks on the paladin buff rows), nil for none
-local function AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate)
+local function AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate, noneFirst)
     local members = GetEligibleMembers(class)
 
     local dividerAfter = nil
@@ -430,6 +431,21 @@ local function AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Anno
         for _, m in ipairs(rest) do
             members[#members + 1] = m
         end
+    end
+
+    local function AddNone()
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "None"
+        info.checked = (saved == nil)
+        info.func = function() OnPick(nil) end
+        UIDropDownMenu_AddButton(info, level)
+    end
+
+    -- noneFirst puts the clear option at the top (used by the misdirect tank
+    -- picker); everywhere else "None" trails the roster.
+    if noneFirst then
+        AddNone()
+        if #members > 0 then AddDropdownDivider(level) end
     end
 
     if #members == 0 then
@@ -454,11 +470,9 @@ local function AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Anno
         end
     end
 
-    local info = UIDropDownMenu_CreateInfo()
-    info.text = "None"
-    info.checked = (saved == nil)
-    info.func = function() OnPick(nil) end
-    UIDropDownMenu_AddButton(info, level)
+    if not noneFirst then
+        AddNone()
+    end
 end
 
 -- Wire a static row's dropdown. The initialize function re-runs every time
@@ -1257,6 +1271,41 @@ local function CreateDynamicRow(f, section, index)
 
     local function Entry() return GetEntries(section)[index] end
 
+    -- Repaint the misdirect box (a tank-row change only repaints the tank box).
+    local function RepaintMisdirects()
+        for _, s in ipairs(DynamicSections) do
+            if s.key == "md" then RefreshDynamicSection(f, s) break end
+        end
+    end
+
+    -- Reconcile misdirects after a tank row changes: pull the tank's misdirects
+    -- onto its new first marker, and (adopt=true) point any tank-less misdirect
+    -- already on this row's marker at the tank. adopt is false for deletes --
+    -- the tank no longer holds that marker. No-op off the tank section (this row
+    -- builder is shared with CC/misdirect).
+    local function SyncTankMisdirects(entry, adopt)
+        if section.key ~= "tank" or not entry then return end
+        WhoDoesWhat:SyncMisdirectsForTank(entry.player)
+        if adopt and entry.player and type(entry.marker) == "number" then
+            WhoDoesWhat:AdoptMisdirectsForMarker(entry.marker, entry.player)
+        end
+        RepaintMisdirects()
+    end
+
+    local anchor
+
+    if section.autoRows then
+        -- Auto-row sections (one row per hunter) don't pick the player -- the
+        -- row IS that player, so a fixed label stands where the picker would be.
+        -- Sits at row center; the arrow/"for" label drops its usual +2 nudge
+        -- when anchored to this plain label (see below) so they line up.
+        local playerLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        playerLabel:SetPoint("LEFT", row, "LEFT", 4, 0)
+        playerLabel:SetWidth(DYN_PLAYER_DD_WIDTH)
+        playerLabel:SetJustifyH("LEFT")
+        row.playerLabel = playerLabel
+        anchor = playerLabel
+    else
     -- UIDropDownMenu carries ~15px of transparent padding each side, so the
     -- frame hangs left of the row to land its visible box at the same x=4 the
     -- static rows start their icon on. Everything to the right is anchored off
@@ -1272,6 +1321,7 @@ local function CreateDynamicRow(f, section, index)
             section.IsPreferred and function(m) return section.IsPreferred(m, entry) end,
             entry.player,
             function(name)
+                local prev = entry.player
                 ClearSpellIfUncastable(entry, name)
                 entry.player = name
                 if name then
@@ -1280,12 +1330,19 @@ local function CreateDynamicRow(f, section, index)
                 else
                     WhoDoesWhat:Print(section.title .. ": assignment cleared.")
                 end
+                if section.key == "tank" then
+                    -- Old tank first (data only), then the new tank through the
+                    -- shared helper: forward-sync + adopt tank-less misdirects on
+                    -- its marker + repaint the misdirect box.
+                    WhoDoesWhat:SyncMisdirectsForTank(prev)
+                    SyncTankMisdirects(entry, true)
+                end
                 RefreshDynamicSection(f, section)
             end)
     end)
     row.playerDD = playerDD
-
-    local anchor = playerDD
+    anchor = playerDD
+    end
 
     -- Spell picker (CC only). The list is class-ordered, so a divider on each
     -- class change keeps a long list scannable.
@@ -1333,8 +1390,12 @@ local function CreateDynamicRow(f, section, index)
     end
 
     local arrowLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    arrowLabel:SetPoint("LEFT", anchor, "RIGHT", -10, 2)
-    arrowLabel:SetText("->")
+    -- The +2 y compensates for a dropdown-frame anchor sitting at y=-2; when the
+    -- anchor is the plain hunter label (auto-rows) there's no such offset, so it
+    -- drops to 0 to stay level with the name.
+    arrowLabel:SetPoint("LEFT", anchor, "RIGHT", -10, section.autoRows and 0 or 2)
+    -- Misdirects read "Hunter for Tank on Skull"; other rows keep the arrow.
+    arrowLabel:SetText(section.targetPlayer and "for" or "->")
     row.arrowLabel = arrowLabel -- hidden with the dropdowns in read-only mode
 
     if section.targetPlayer then
@@ -1351,15 +1412,24 @@ local function CreateDynamicRow(f, section, index)
             AddPlayerMenuItems(level, nil, section.IsPreferredTarget, entry.target,
                 function(name)
                     entry.target = name
+                    -- Default the misdirect's marker to the tank's first marker.
+                    entry.marker = name and WhoDoesWhat:FirstTankMarker(name) or nil
                     RefreshDynamicSection(f, section)
-                end)
+                end, nil, true)
         end)
         row.targetDD = targetDD
 
-        -- Optional marker on the pair (which pull the misdirect is for):
-        -- plain markers plus None, no "Everything else"/custom here.
+        -- "on" between the tank and its marker: "Hunter for Tank on Skull".
+        local onLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        onLabel:SetPoint("LEFT", targetDD, "RIGHT", -10, 2)
+        onLabel:SetText("on")
+        row.onLabel = onLabel -- hidden with the dropdowns in read-only mode
+
+        -- Marker on the pair (which target the hunter misdirects on): plain
+        -- markers plus None, no "Everything else"/custom here. It defaults to
+        -- (and follows) the tank's first marker, but can be overridden here.
         local markerDD = CreateFrame("Frame", prefix .. "TargetMarkerDD" .. index, row, "UIDropDownMenuTemplate")
-        markerDD:SetPoint("LEFT", targetDD, "RIGHT", -18, 0)
+        markerDD:SetPoint("LEFT", onLabel, "RIGHT", -12, -2)
         UIDropDownMenu_SetWidth(markerDD, TANK_MARKER_DD_WIDTH)
         LeftAlignDropdown(markerDD)
         UIDropDownMenu_Initialize(markerDD, function(_, level)
@@ -1402,6 +1472,7 @@ local function CreateDynamicRow(f, section, index)
                 info.checked = (entry.marker == m.index)
                 info.func = function()
                     entry.marker = m.index
+                    SyncTankMisdirects(entry, true)
                     RefreshDynamicSection(f, section)
                 end
                 UIDropDownMenu_AddButton(info, level)
@@ -1415,6 +1486,7 @@ local function CreateDynamicRow(f, section, index)
                 allInfo.checked = (entry.marker == "all")
                 allInfo.func = function()
                     entry.marker = "all"
+                    SyncTankMisdirects(entry, true)
                     RefreshDynamicSection(f, section)
                 end
                 UIDropDownMenu_AddButton(allInfo, level)
@@ -1425,6 +1497,7 @@ local function CreateDynamicRow(f, section, index)
             info.checked = (entry.marker == "custom")
             info.func = function()
                 entry.marker = "custom"
+                SyncTankMisdirects(entry, true)
                 RefreshDynamicSection(f, section)
                 row.customEdit:SetFocus()
             end
@@ -1445,28 +1518,35 @@ local function CreateDynamicRow(f, section, index)
     end)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
-    local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    delBtn:SetSize(MAIL_BTN_SIZE, MAIL_BTN_SIZE)
-    delBtn:SetPoint("RIGHT", row.mailBtn, "LEFT", -2, 0)
-    delBtn:SetText("x")
-    delBtn:SetScript("OnClick", function()
-        table.remove(GetEntries(section), index)
-        WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
-        RefreshDynamicSection(f, section)
-    end)
-    delBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Remove this assignment", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    row.delBtn = delBtn
+    -- Auto-row sections (misdirects) have no per-row [x] -- the row set is the
+    -- roster, not hand-managed. The warning then anchors off mail instead.
+    local warnAnchor = row.mailBtn
+    if not section.autoRows then
+        local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        delBtn:SetSize(MAIL_BTN_SIZE, MAIL_BTN_SIZE)
+        delBtn:SetPoint("RIGHT", row.mailBtn, "LEFT", -2, 0)
+        delBtn:SetText("x")
+        delBtn:SetScript("OnClick", function()
+            local removed = table.remove(GetEntries(section), index)
+            SyncTankMisdirects(removed, false)
+            WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
+            RefreshDynamicSection(f, section)
+        end)
+        delBtn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Remove this assignment", 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row.delBtn = delBtn
+        warnAnchor = delBtn
+    end
 
-    -- Warning (!) left of the buttons. Anchored off [x] rather than the row,
-    -- so it holds its column while hidden and nothing shifts as warnings come
-    -- and go.
+    -- Warning (!) left of the buttons. Anchored off [x] (or mail) rather than
+    -- the row, so it holds its column while hidden and nothing shifts as
+    -- warnings come and go.
     local warn = CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
+    warn:SetPoint("RIGHT", warnAnchor, "LEFT", -4, 0)
     row.warnIcon = warn
 
     -- Custom target text, shown only while the marker dropdown is on Custom
@@ -1511,21 +1591,31 @@ end
 -- and ripple the new height into the scroll content.
 function RefreshDynamicSection(f, section)
     local state = f.dynamic[section.key]
-    local entries = GetEntries(section)
     local editable = WhoDoesWhat:CanEditAssignments()
+    -- Auto-row sections rebuild their rows from the roster (one per hunter)
+    -- before we map them onto the pooled UI rows.
+    if section.autoRows then EnsureAutoRows(section) end
+    local entries = GetEntries(section)
 
     for i, entry in ipairs(entries) do
         local row = state.rows[i] or CreateDynamicRow(f, section, i)
         row:Show()
 
         -- Edit widgets or the read-only line, never both (Permissions.lua).
-        row.playerDD:SetShown(editable)
         row.arrowLabel:SetShown(editable)
-        row.delBtn:SetShown(editable)
+        if row.onLabel then row.onLabel:SetShown(editable) end
         row.roText:SetText(ReadOnlyEntryText(section, entry))
         row.roText:SetShown(not editable)
 
-        UIDropDownMenu_SetText(row.playerDD, PlayerTextWithRole(entry.player))
+        if row.playerDD then
+            row.playerDD:SetShown(editable)
+            UIDropDownMenu_SetText(row.playerDD, PlayerTextWithRole(entry.player))
+        end
+        if row.playerLabel then
+            row.playerLabel:SetShown(editable)
+            row.playerLabel:SetText(PlayerTextWithRole(entry.player))
+        end
+        if row.delBtn then row.delBtn:SetShown(editable) end
         if row.spellDD then
             row.spellDD:SetShown(editable)
             UIDropDownMenu_SetText(row.spellDD, SpellText(SpellById(entry.spell)))
@@ -1564,18 +1654,26 @@ function RefreshDynamicSection(f, section)
         end
         row.warnIcon.tooltipText = warning
         row.warnIcon:SetShown(warning ~= nil)
+        -- A misdirect row only has a job to whisper once its tank is picked;
+        -- other rows just need a player.
+        local hasJob = entry.player ~= nil
+            and (not section.targetPlayer or entry.target ~= nil)
         row.mailBtn:SetShown(editable)
-        row.mailBtn:SetEnabled(entry.player ~= nil)
-        row.mailBtn.icon:SetDesaturated(entry.player == nil)
+        row.mailBtn:SetEnabled(hasJob)
+        row.mailBtn.icon:SetDesaturated(not hasJob)
     end
     for i = #entries + 1, #state.rows do
         state.rows[i]:Hide()
     end
-    state.emptyHint:SetText(editable
-        and ("No " .. section.noun .. "s yet - click Add (+) to add one.")
-        or ("No " .. section.noun .. "s yet."))
+    if section.autoRows then
+        state.emptyHint:SetText("No " .. section.autoRows:lower() .. "s in the group.")
+    else
+        state.emptyHint:SetText(editable
+            and ("No " .. section.noun .. "s yet - click Add (+) to add one.")
+            or ("No " .. section.noun .. "s yet."))
+    end
     state.emptyHint:SetShown(#entries == 0)
-    state.plusBtn:SetShown(editable)
+    if state.plusBtn then state.plusBtn:SetShown(editable) end
     if state.clearBtn then
         state.clearBtn:SetShown(editable)
         state.clearBtn:SetEnabled(#entries > 0)
@@ -1630,6 +1728,16 @@ local function BuildDynamicSection(f, content, section)
             StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", section.noun .. "s", nil,
                 function()
                     wipe(GetEntries(section))
+                    if section.key == "tank" then
+                        -- Every tank lost its markers; clear the misdirects that
+                        -- were following them, and repaint their box.
+                        for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
+                            WhoDoesWhat:SyncMisdirectsForTank(e.target)
+                        end
+                        for _, s in ipairs(DynamicSections) do
+                            if s.key == "md" then RefreshDynamicSection(f, s) break end
+                        end
+                    end
                     WhoDoesWhat:Print(section.title .. ": all " .. section.noun .. "s removed.")
                     RefreshDynamicSection(f, section)
                 end)
@@ -1656,26 +1764,30 @@ local function BuildDynamicSection(f, content, section)
 
     -- "Add (+)" lives in the title strip with the other section controls
     -- (LayoutHeaderChain re-anchors, so the initial anchor is provisional).
-    local plus = AddHeaderTextButton(box, mailBtn, "Add (+)",
-        "Add a " .. section.noun,
-        "Append an empty " .. section.noun .. " row.", function()
-            local entries = GetEntries(section)
-            -- Player-target rows start fully blank; marker rows start on the
-            -- first marker no sibling row is using yet.
-            entries[#entries + 1] = section.targetPlayer and {}
-                or { marker = FirstUnusedMarker(section), custom = "" }
-            WhoDoesWhat:LogUiBuilding("Added " .. section.noun .. " row " .. #entries)
-            RefreshDynamicSection(f, section)
-        end)
-    state.plusBtn = plus -- hidden without edit permission
+    -- Auto-row sections (misdirects) have no Add -- their rows are the roster.
+    if not section.autoRows then
+        state.plusBtn = AddHeaderTextButton(box, mailBtn, "Add (+)",
+            "Add a " .. section.noun,
+            "Append an empty " .. section.noun .. " row.", function()
+                local entries = GetEntries(section)
+                -- Player-target rows start fully blank; marker rows start on the
+                -- first marker no sibling row is using yet.
+                entries[#entries + 1] = section.targetPlayer and {}
+                    or { marker = FirstUnusedMarker(section), custom = "" }
+                WhoDoesWhat:LogUiBuilding("Added " .. section.noun .. " row " .. #entries)
+                RefreshDynamicSection(f, section)
+            end) -- hidden without edit permission
+    end
 
     -- Rightmost-first header chain for LayoutHeaderChain: mail at the box
-    -- corner, then X (when the section has one), then Add (+).
+    -- corner, then X (when the section has one), then Add (+) when present.
     state.headerChain = { mailBtn }
     if state.clearBtn then
         state.headerChain[#state.headerChain + 1] = state.clearBtn
     end
-    state.headerChain[#state.headerChain + 1] = plus
+    if state.plusBtn then
+        state.headerChain[#state.headerChain + 1] = state.plusBtn
+    end
 end
 
 -- ---------------------------------------------------------------------------
