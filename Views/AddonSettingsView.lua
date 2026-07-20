@@ -44,6 +44,27 @@ local function EnsureSettingsFrame()
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
     local y = f.titleBarHeight + 14
 
+    local curseHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    curseHeading:SetPoint("TOPLEFT", MARGIN, -y)
+    curseHeading:SetText("Warlock Curses")
+    curseHeading:SetTextColor(0.72, 0.45, 1)
+    y = y + 28
+
+    f.afflElementsCheck, y = AddCheckboxRow(f, y, "Auto assign Affliction to elements",
+        "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
+            WhoDoesWhat:Print("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
+        end)
+
+    f.recklessnessCheck, y = AddCheckboxRow(f, y, "Allow recklessness auto-assign",
+        "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
+            WhoDoesWhat:Print("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
+        end)
+
+    y = y + 6
     local heading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     heading:SetPoint("TOPLEFT", MARGIN, -y)
     heading:SetText("Developer Options")
@@ -63,32 +84,6 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:Print("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
-
-    y = y + 6
-    local curseHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    curseHeading:SetPoint("TOPLEFT", MARGIN, -y)
-    curseHeading:SetText("Warlock Curses")
-    y = y + 28
-
-    f.afflElementsCheck, y = AddCheckboxRow(f, y, "Auto assign Affliction to elements",
-        "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
-            WhoDoesWhat:Print("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
-        end)
-
-    f.recklessnessCheck, y = AddCheckboxRow(f, y, "Allow recklessness auto-assign",
-        "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
-            WhoDoesWhat:Print("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
-        end)
-
-    y = y + 6
-    local testHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    testHeading:SetPoint("TOPLEFT", MARGIN, -y)
-    testHeading:SetText("Testing")
-    y = y + 28
 
     f.fakeRaidCheck, y = AddCheckboxRow(f, y, "Populate Fake Raid",
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",

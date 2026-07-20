@@ -120,7 +120,7 @@ local defaults = {
             -- the eligible class (e.g. non-paladins for paladin buffs).
             developerMode = false,
             -- Persisted source for LOG_UI_BUILDING above.
-            logUiUpdates = true,
+            logUiUpdates = false,
             -- Auto-place an Affliction warlock on Curse of the Elements: on
             -- spec detection (see AutoAssignDetectedRole) and via the Warlock
             -- Curses Auto button. See AutoPlaceAfflictionElements in Assignments.lua.
