@@ -187,11 +187,31 @@ local function CreateRow(f, section, index)
             AddRole(role)
         end
 
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "None"
-        info.checked = (saved == nil)
-        info.func = function() WhoDoesWhat:SetAssignedRole(m.name, nil) end
-        UIDropDownMenu_AddButton(info, level)
+        -- Non-raider (the classless "sitting out" pseudo-role), below a
+        -- divider like the unit menu -- it isn't one of the class's specs.
+        if UIDropDownMenu_AddSeparator then
+            UIDropDownMenu_AddSeparator(level)
+        end
+        local nr = WhoDoesWhat.NonRaiderRole
+        local nrInfo = UIDropDownMenu_CreateInfo()
+        nrInfo.text = RoleText(nr, WhoDoesWhat.NonRaiderClass)
+        nrInfo.checked = (saved == nr.id)
+        nrInfo.func = function()
+            WhoDoesWhat:SetAssignedRole(m.name, nr.id, UnitForName(m.name))
+        end
+        UIDropDownMenu_AddButton(nrInfo, level)
+
+        -- "None" matches the unit menu: a passive read-out of the roleless
+        -- state, shown only while the player has no role and never clickable.
+        -- Once assigned, the way to change is to pick another role -- neither
+        -- panel un-assigns a role back to roleless.
+        if saved == nil then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "None"
+            info.checked = true
+            info.disabled = true
+            UIDropDownMenu_AddButton(info, level)
+        end
     end)
     row.dropdown = dropdown
 

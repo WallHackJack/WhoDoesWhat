@@ -148,6 +148,14 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     self:RefreshMainAssignmentsView()
     self:RefreshRaiderRolesView()
     self:RefreshPaladinBuffGridView()
+
+    -- Only this player's coverage moved, so push a minimal PallyPower delta
+    -- (at most one Normal-blessing exception per paladin) rather than a full
+    -- resync. Combat-safe: it stages on receivers and applies when combat
+    -- ends. Gated on an actual change so re-picking a role stays quiet.
+    if not unchanged then
+        self:PushPlayerBuffToPallyPower(playerName)
+    end
 end
 
 

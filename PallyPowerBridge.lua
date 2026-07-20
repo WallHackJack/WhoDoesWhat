@@ -228,6 +228,85 @@ function WhoDoesWhat:SyncToPallyPower()
     end
 end
 
+-- Minimal per-player push, for a single raider's role change (e.g. mid-combat
+-- Warlock tank -> Warlock, now wanting Salvation). Only that raider's own
+-- blessing can move: every classmate who didn't change is still served by the
+-- class's Greater Blessing, so the whole change is expressible as at most one
+-- Normal-blessing exception (NASSIGN) per paladin -- usually one or two rows.
+-- We recompute the grid, read just this raider's cells, diff against
+-- PallyPower's current exception tables, and send only the rows that moved.
+--
+-- Greater (class) blessings are deliberately never touched here. A lone role
+-- change leaves the class row correct for everyone else, and even a
+-- class-of-one stays correct because a Normal exception overrides the class
+-- row for that player -- at the cost of a slightly untidy (unused) class row,
+-- which the full SyncToPallyPower tidies up. Runs silently on every change,
+-- so no "PallyPower not loaded" chatter and no per-change authority nag (the
+-- full-sync button already warns; receivers reject unauthorized rows anyway).
+-- Combat-safe: SendMessage works in combat, receivers stage the data, and
+-- PallyPower re-applies it on PLAYER_REGEN_ENABLED.
+function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName)
+    local pp = _G.PallyPower
+    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
+        return
+    end
+    if not playerName or IsFakeName(playerName) then return end
+
+    -- The raider's class id, as PallyPower keys it. Untracked classes (no
+    -- Shaman slot on vanilla PallyPower, say) have nothing to push.
+    local member
+    for _, m in ipairs(self:GetGroupMembers(nil)) do
+        if m.name == playerName then member = m break end
+    end
+    if not member then return end
+    -- A paladin's own role change also moves what they CAST (their Greater
+    -- Blessings), which this exception-only path can't express -- leave that
+    -- to the full sync.
+    if member.classInfo.name == "Paladin" then return end
+    local classId = pp.ClassToID and pp.ClassToID[member.classInfo.name:upper()]
+    if not classId then return end
+
+    -- This raider's blessing per paladin, from the freshly recomputed grid
+    -- (empty when uncovered, e.g. after being marked Non-raider).
+    local cells = self.Assign.ComputeBuffGrid()[playerName] or {}
+    local xshort = ShortName(playerName)
+
+    local entries = {}
+    for _, m in ipairs(self:GetGroupMembers("Paladin")) do
+        if m.classInfo.name == "Paladin" and not IsFakeName(m.name) then
+            local pshort = ShortName(m.name)
+            local newBless = BuffKeyToBlessingId(cells[m.name]) -- nil if uncovered
+            local greater = PallyPower_Assignments[pshort]
+                and PallyPower_Assignments[pshort][classId]
+            -- Want an exception only when this raider differs from the class row.
+            local desired = (newBless and newBless ~= 0 and newBless ~= greater)
+                and newBless or nil
+
+            local bucket = PallyPower_NormalAssignments[pshort]
+            local current = bucket and bucket[classId] and bucket[classId][xshort]
+
+            if desired ~= current then
+                -- Mirror into the local tables so the sender's own PallyPower
+                -- and the next diff stay in step (nil clears the exception).
+                PallyPower_NormalAssignments[pshort] = PallyPower_NormalAssignments[pshort] or {}
+                PallyPower_NormalAssignments[pshort][classId] =
+                    PallyPower_NormalAssignments[pshort][classId] or {}
+                PallyPower_NormalAssignments[pshort][classId][xshort] = desired
+                entries[#entries + 1] =
+                    string.format("%s %s %s %s", pshort, classId, xshort, desired or 0)
+            end
+        end
+    end
+
+    if #entries == 0 then return end
+
+    for offset = 1, #entries, 5 do
+        pp:SendMessage("NASSIGN "
+            .. table.concat(entries, "@", offset, math.min(offset + 4, #entries)))
+    end
+    pp:UpdateLayout() -- self-guards in combat; refreshes the sender's grid otherwise
+end
+
 -- ---------------------------------------------------------------------------
 -- The PLPWR traffic log
 -- ---------------------------------------------------------------------------
