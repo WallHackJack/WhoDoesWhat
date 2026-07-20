@@ -43,6 +43,15 @@ UnitMenuExtensions.lua
 RaidMenuExtensions.lua
 
 # --- Views ---
+# SectionKit before the section files (they localize it at load), sections
+# before MainAssignmentsView (it looks them up on open, but keep the order
+# honest).
+Views\SectionKit.lua
+Views\Sections\TankSection.lua
+Views\Sections\CCSection.lua
+Views\Sections\MisdirectSection.lua
+Views\Sections\PaladinBuffsSection.lua
+Views\Sections\WarlockCursesSection.lua
 Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
 Views\PaladinBuffGridView.lua

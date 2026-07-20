@@ -9,10 +9,6 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- they use. Nothing here creates frames; repaints go through the views'
 -- public Refresh methods, which no-op while their window is closed.
 
--- Column id for the static sections' `column` field; matches the view's
--- COL_RIGHT geometry constant.
-local COL_RIGHT = 2
-
 local CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 
 -- Stable player key for a unit: "Name" same-realm, "Name-Realm" foreign.
@@ -425,37 +421,28 @@ local function ResetMisdirectAssignments()
 end
 
 -- ---------------------------------------------------------------------------
--- Dynamic section definitions
+-- Dynamic section definitions -- the MODEL vocabulary for the three
+-- user-facing row sections. The UI for each is hard-coded in its own file
+-- (Views/Sections/TankSection.lua etc.); what lives here is only what the
+-- model machinery and the non-window consumers (whispers, pruning, the unit
+-- menu's read-only summaries, AssignmentsActions' setters) need:
 --
---   key         unique prefix for global widget names
---   title       section box title
+--   key         stable id (SectionByKey) + prefix for global widget names
+--   title       section box title, also used in Print lines
 --   store       db.profile key holding this section's entry array
---   noun        used in the empty hint, the [+] tooltip and Print lines
+--   noun        used in Print lines and the view's popups/tooltips
 --   whisperLead text leading the compiled list in the whisper
---   spells      optional spell list; its presence adds the spell dropdown and
---               gives entries a .spell field (a CCSpells id)
---   allowAll    include "Everything else" in the marker dropdown
---   clearAll    header "X" button that removes every row in the section
---               (behind a confirm popup)
---   playerClass optional class filter for the player dropdown ("Hunter";
---               Developer Mode lifts it like every other class filter)
+--   spells      optional spell list; entries get a .spell field (CCSpells id)
 --   targetPlayer entries target a group member (entry.target, a player name)
---               instead of a raid marker: the marker dropdown and custom text
---               box are replaced by a second player picker plus a compact
---               optional-marker picker (entry.marker = 1..8 or nil)
---   autoRows    one row per roster member, auto-managed (EnsureAutoRows): no
---               Add/[x], the player cell is a fixed label. Roster = autoRoster()
---               when set, else MembersOfClass(autoRows). emptyHint overrides
---               the no-members hint; KeepStray(entry) keeps rows whose player
---               fell out of the roster (so the assignment warns, not vanishes)
+--               instead of a raid marker (misdirects); a row needs its target
+--               before it has a whisperable job (EntryHasJob)
+--   autoRows    one row per roster member, auto-managed (EnsureAutoRows):
+--               roster = autoRoster() when set, else MembersOfClass(autoRows);
+--               KeepStray(entry) keeps rows whose player fell out of the
+--               roster (so the assignment warns, not vanishes)
 --   multiMarker entries hold a markers ARRAY (any mix of 1..8/"all"/"custom")
---               behind a multi-select marker dropdown, instead of the single
---               .marker field
---   Reset       header "Reset" button (behind a confirm popup) restoring the
---               section's defaults; resetTooltip explains it
---   IsPreferred(member, entry) floats a member to the top of the player list
---   IsPreferredTarget(member)  same, for the target picker (targetPlayer only)
---   GetWarning(entry)          row warning text, or nil when all is well
+--               instead of the single .marker field
+--   GetWarning(entry)  row warning text, or nil when all is well
 -- ---------------------------------------------------------------------------
 
 local DynamicSections = {
@@ -465,23 +452,16 @@ local DynamicSections = {
         store = "tankAssignments",
         noun = "tank assignment",
         whisperLead = "Tank ",
-        allowAll = true,
         -- One row per marked tank, auto-managed; the marker dropdown is a
         -- multi-select so one tank holds all their markers on a single row.
         autoRows = true,
         autoRoster = MarkedTankNames,
         multiMarker = true,
-        emptyHint = "No tanks marked yet - assign tank roles from the unit right-click menu.",
         -- A unit-menu marker put on someone who isn't a marked tank still
         -- deserves a (warning) row rather than being silently reconciled away.
         KeepStray = function(entry)
             return FindMember(entry.player) ~= nil and #(entry.markers or {}) > 0
         end,
-        Reset = ResetTankAssignments,
-        resetTooltip = "Rebuild the rows from the marked tanks with default"
-            .. " markers, skull-first (Skull, Cross, Square, ...): a feral"
-            .. " tank leads on Skull, and a paladin tank slots third on"
-            .. " Everything else.",
         GetWarning = function(entry)
             if entry.player and not WhoDoesWhat:IsMarkedTank(entry.player) then
                 return entry.player .. " is not marked as a tank. Assign them a"
@@ -499,12 +479,6 @@ local DynamicSections = {
         noun = "CC assignment",
         whisperLead = "CC ",
         spells = WhoDoesWhat.CCSpells,
-        allowAll = false, -- CC lands on one target; there's no "everything else"
-        clearAll = true,
-        IsPreferred = function(m, entry)
-            local spell = SpellById(entry.spell)
-            return spell ~= nil and m.classInfo.name == spell.class
-        end,
         GetWarning = function(entry)
             local spell = SpellById(entry.spell)
             if not spell then
@@ -523,15 +497,11 @@ local DynamicSections = {
         store = "mdAssignments",
         noun = "misdirect assignment",
         whisperLead = "Misdirect to ",
-        playerClass = "Hunter",
         targetPlayer = true,
         -- One row per hunter, auto-managed from the roster (EnsureAutoRows):
         -- every hunter should have a misdirect every fight, so there's no
         -- manual Add/remove -- you just fill in each hunter's tank.
         autoRows = "Hunter",
-        Reset = ResetMisdirectAssignments,
-        resetTooltip = "Clear every misdirect back to an empty row per hunter.",
-        IsPreferredTarget = function(m) return WhoDoesWhat:IsMarkedTank(m.name) end,
         GetWarning = function(entry)
             if entry.player then
                 local m = FindMember(entry.player)
@@ -574,6 +544,14 @@ local DynamicSections = {
         end,
     },
 }
+
+-- A dynamic section's definition by its stable key ("tank"/"cc"/"md") --
+-- how the view files and AssignmentsActions reach their section's model.
+local function SectionByKey(key)
+    for _, section in ipairs(DynamicSections) do
+        if section.key == key then return section end
+    end
+end
 
 local function GetEntries(section)
     return WhoDoesWhat.db.profile[section.store]
@@ -1169,22 +1147,15 @@ end
 --     GetWarning()  returns warning-tooltip text when the assignment needs
 --                   attention, nil when all is well; drives the (!) icon
 --
---   Section fields: title, rows, column, plus optionally:
---     AutoAssign() (+ autoTooltip)  one-click fills the section's rows from
---                   the group; a header "Auto" button appears when set
---     gridButton    header "Info + Grid" button opening the combined paladin
---                   info + buff grid window
---     paladinSummary  the section has NO assignment rows; the view renders
---                   one computed read-only row per paladin instead
---                   (ComputePaladinBuffSummary) -- who blesses how many
---                   raiders with what, derived, never stored
---     disableWhenNoClass  class name; the whole section grays out (dead
---                   dropdowns/buttons, desaturated rows) while the group
---                   has nobody of that class (Developer Mode keeps it live)
+--   Section fields are just { title, rows }: the model's iteration surface
+--   for whispers, pruning and the unit menu's read-only summaries. Each
+--   section's window UI (header buttons, computed paladin rows, gray-out
+--   rules) is hard-coded in its Views/Sections/*.lua file.
 -- ---------------------------------------------------------------------------
 
 local RowDefs = {} -- row id -> definition, for cross-row lookups
-local Sections     -- ordered { title, rows, column } section list
+local Sections     -- ordered { title, rows } section list
+local AutoAssignWarlockCurses -- defined below, exported for the view's Auto button
 
 do
     local curses = WhoDoesWhat.WarlockCurses
@@ -1230,7 +1201,7 @@ do
     -- Affliction-to-Elements setting, Recklessness on its (it raises boss
     -- damage, so a leader may keep it off). An off toggle leaves that curse's
     -- current pick untouched rather than clearing it.
-    local function AutoAssignWarlockCurses()
+    function AutoAssignWarlockCurses() -- file-local, forward-declared above
         local settings = WhoDoesWhat.db.profile.settings
         local locks = MembersOfClass("Warlock")
         if #locks == 0 then
@@ -1280,26 +1251,20 @@ do
 
     Sections = {
         -- Paladin blessings aren't assigned -- coverage is computed from the
-        -- roster, roles and talents (ComputeBuffGrid), and this section shows
-        -- the result: one read-only row per paladin with their blessing
-        -- workload. rows stays empty; the view builds pooled paladin rows.
-        {
-            title = "Paladin Buffs", rows = {}, column = COL_RIGHT,
-            paladinSummary = true,
-            gridButton = true, -- header button opening the info + grid window
-            disableWhenNoClass = "Paladin", -- gray the section out sans paladins
-        },
-        {
-            title = "Warlock Curses", rows = { reck, elements }, column = COL_RIGHT,
-            calcButton = true, -- header button opening the Curse Value Calculator
-            AutoAssign = AutoAssignWarlockCurses,
-            autoTooltip = "Put Curse of the Elements on an Affliction warlock"
-                .. " and Curse of Recklessness on another warlock. Each curse"
-                .. " is gated by its Settings toggle; a disabled one keeps its"
-                .. " current pick.",
-        },
+        -- roster, roles and talents (ComputeBuffGrid), and the section view
+        -- shows the result as read-only rows. rows stays empty here.
+        { title = "Paladin Buffs", rows = {} },
+        { title = "Warlock Curses", rows = { reck, elements } },
     }
 end
+
+-- Named whisper collectors, one per section, so the section views (and any
+-- future section) mail through a self-documenting call instead of passing
+-- defs around. All are thin wrappers over the two generic collectors above.
+local function CollectTankWhispers() return CollectDynamicWhispers(SectionByKey("tank")) end
+local function CollectCCWhispers() return CollectDynamicWhispers(SectionByKey("cc")) end
+local function CollectMisdirectWhispers() return CollectDynamicWhispers(SectionByKey("md")) end
+local function CollectCurseWhispers() return CollectStaticWhispers(Sections[2]) end
 
 -- Drop assignments whose player is no longer in the group. Run when the
 -- window opens, so a re-formed raid starts from an honest board. Dynamic rows
@@ -1473,6 +1438,7 @@ WhoDoesWhat.Assign = {
     ClearSpellIfUncastable = ClearSpellIfUncastable,
     -- sections + entries
     DynamicSections = DynamicSections,
+    SectionByKey = SectionByKey,
     Sections = Sections,
     RowDefs = RowDefs,
     GetEntries = GetEntries,
@@ -1480,10 +1446,18 @@ WhoDoesWhat.Assign = {
     EntryHasJob = EntryHasJob,
     PlayerEntriesText = PlayerEntriesText,
     FirstUnusedMarker = FirstUnusedMarker,
-    -- whispers
+    -- whispers (generic collectors kept for future sections)
     CollectDynamicWhispers = CollectDynamicWhispers,
     CollectStaticWhispers = CollectStaticWhispers,
+    CollectTankWhispers = CollectTankWhispers,
+    CollectCCWhispers = CollectCCWhispers,
+    CollectMisdirectWhispers = CollectMisdirectWhispers,
+    CollectCurseWhispers = CollectCurseWhispers,
     MassWhisper = MassWhisper,
+    -- section resets / auto-assigns (the views' header buttons)
+    ResetTankAssignments = ResetTankAssignments,
+    ResetMisdirectAssignments = ResetMisdirectAssignments,
+    AutoAssignWarlockCurses = AutoAssignWarlockCurses,
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,
     ComputeBuffGrid = ComputeBuffGrid,
