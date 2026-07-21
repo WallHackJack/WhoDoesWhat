@@ -30,11 +30,12 @@ local PruneDepartedAssignments = A.PruneDepartedAssignments
 local mainFrame = nil
 
 local FRAME_W = 940
--- Paladin-only view also narrows the window to about the section box (378) --
--- the top button row (~438px for the four buttons) is the real floor, so this
--- is sized to keep them on one line; the permission strip hides in this mode
--- so it can't collide with them.
-local NARROW_FRAME_W = 470
+-- Paladin-only view narrows the window to exactly fit the section box (378)
+-- plus the two window margins, so the box centers with an even MARGIN on each
+-- side -- flush with the header's checkbox (left) and buttons (right), no
+-- stray padding. The slimmer header fits well inside this; the permission
+-- strip hides in this mode anyway.
+local NARROW_FRAME_W = 402 -- LEFT_COLUMN_W (378) + MARGIN (12) * 2
 -- The window auto-fits its height to the visible content (ApplyViewMode), so
 -- Paladin-only view collapses to a short, low-profile window while the full
 -- board grows -- but never past MAX (it scrolls) or below MIN (the button
@@ -42,8 +43,7 @@ local NARROW_FRAME_W = 470
 local MAX_FRAME_H = 520
 local MIN_FRAME_H = 130
 local MARGIN = 12
-local SCROLLBAR_W = 26
-local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
+local CONTENT_W = FRAME_W - MARGIN * 2
 local BUTTON_ROW_H = 22
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
@@ -179,20 +179,21 @@ end
 local function ApplyViewMode(f)
     local full = ShouldShowFullBoard()
 
-    -- Width + scroll chrome per mode. The full board needs both columns and
-    -- keeps its scrollbar (reserving room for it). Paladin-only narrows to
-    -- about the section box, drops the scrollbar entirely (the lone box always
-    -- fits) and reclaims its width, hides the permission strip (so it can't
-    -- collide with the button row -- an empty board has nothing to gate), and
-    -- centers the box in the reclaimed interior.
+    -- Width + scroll chrome per mode. The scroll spans the full width in both
+    -- modes (no reserved scrollbar gutter -- the boxes must line up with the top
+    -- button row, which anchors to the window edge); the scrollbar stays hidden
+    -- unless content outgrows the window, in which case it overlays the right
+    -- edge. The full board shows both columns; Paladin-only narrows to about the
+    -- section box, hides the permission strip (so it can't collide with the
+    -- button row -- an empty board has nothing to gate), and centers the lone
+    -- box in the interior.
     f:SetWidth(full and FRAME_W or NARROW_FRAME_W)
     f.scroll:ClearAllPoints()
     f.scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
+    f.scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
     if full then
-        f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
         f.columns[K.COL_LEFT].x = 0
     else
-        f.scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
         f.permDD:Hide()
         f.permNote:Hide()
         local interior = NARROW_FRAME_W - MARGIN * 2
@@ -216,12 +217,12 @@ local function ApplyViewMode(f)
     f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
 end
 
--- The top-right toggle mirrors the setting; its label names the mode a click
--- switches TO ("Paladin View" while full, "Full View" while paladin-only).
+-- The top-left "Full view" checkbox mirrors the setting: checked whenever the
+-- Paladin-only preference is OFF (i.e. the full board is preferred).
 local function UpdateViewToggle(f)
-    if not f.viewToggle then return end
+    if not f.fullViewCheck then return end
     local prefOn = WhoDoesWhat.db.profile.settings.paladinOnlyView
-    f.viewToggle:SetText(prefOn and "Full View" or "Paladin View")
+    f.fullViewCheck:SetChecked(not prefOn)
 end
 
 -- Repaint everything: the permission strip, then every section (each owns
@@ -240,14 +241,22 @@ local function RefreshAll(f)
     K.UpdateHeaderMailButtons(f)
 end
 
--- Build the window once and reuse it: shared chrome, the Settings / Role
--- Preferences buttons under the title bar, and the two scrollable columns.
+-- Build the window once and reuse it: shared chrome, the header strip (Full
+-- view checkbox + permission strip left, Members / Edit roles / Settings right)
+-- and the two scrollable columns.
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H, "WhoDoesWhat - Raid Assignments")
+    local getMeta = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+    local version = getMeta and getMeta("WhoDoesWhat", "Version") or "?"
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H, "WhoDoesWhat (v" .. version .. ")")
+    -- Center the title in the bar (the shared chrome left-aligns it); anchored
+    -- to the window's top so it re-centers when the width changes per view mode.
+    f.titleText:ClearAllPoints()
+    f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
     local top = f.titleBarHeight + 10
 
+    -- Right-side button row: [Members] [Edit roles] [Settings].
     local settingsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     settingsBtn:SetSize(80, BUTTON_ROW_H)
     settingsBtn:SetPoint("TOPRIGHT", -MARGIN, -top)
@@ -256,53 +265,53 @@ local function EnsureMainFrame()
         WhoDoesWhat:OpenAddonSettingsView()
     end)
 
-    local prefsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    prefsBtn:SetSize(130, BUTTON_ROW_H)
-    prefsBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
-    prefsBtn:SetText("Role Preferences")
-    prefsBtn:SetScript("OnClick", function()
+    local editRolesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    editRolesBtn:SetSize(90, BUTTON_ROW_H)
+    editRolesBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
+    editRolesBtn:SetText("Edit roles")
+    editRolesBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenAllRolesView()
     end)
 
-    local raiderBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    raiderBtn:SetSize(110, BUTTON_ROW_H)
-    raiderBtn:SetPoint("RIGHT", prefsBtn, "LEFT", -6, 0)
-    raiderBtn:SetText("Raider Roles")
-    raiderBtn:SetScript("OnClick", function()
+    local membersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    membersBtn:SetSize(80, BUTTON_ROW_H)
+    membersBtn:SetPoint("RIGHT", editRolesBtn, "LEFT", -6, 0)
+    membersBtn:SetText("Members")
+    membersBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenRaiderRolesView()
     end)
 
-    -- Paladin-only view toggle: flips the local "Prefer Paladin-only view"
-    -- setting and repaints. The three view buttons above stay put; only the
-    -- section boxes below react (ApplyViewMode).
-    local viewBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    viewBtn:SetSize(100, BUTTON_ROW_H)
-    viewBtn:SetPoint("RIGHT", raiderBtn, "LEFT", -6, 0)
-    viewBtn:SetText("Paladin View")
-    viewBtn:SetScript("OnClick", function()
+    -- Full-view toggle: a checkbox top-left (checked = full board, unchecked =
+    -- prefer the Paladin-only view). UpdateViewToggle keeps it in sync; only
+    -- the section boxes below react (ApplyViewMode).
+    local fullViewCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    fullViewCB:SetSize(24, 24)
+    fullViewCB:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + BUTTON_ROW_H / 2))
+    local fvLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fvLabel:SetPoint("LEFT", fullViewCB, "RIGHT", 2, 0)
+    fvLabel:SetText("Full view")
+    fullViewCB:SetScript("OnClick", function(self)
         local s = WhoDoesWhat.db.profile.settings
-        s.paladinOnlyView = not s.paladinOnlyView
+        s.paladinOnlyView = not self:GetChecked() -- checked = show the full board
         WhoDoesWhat:Print("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
         RefreshAll(f)
     end)
-    viewBtn:SetScript("OnEnter", function(self)
+    fullViewCB:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Prefer Paladin-only view", 1, 1, 1)
-        GameTooltip:AddLine("Show only the Paladin Buffs section. The full board"
-            .. " still appears automatically while there are active"
-            .. " tank / CC / misdirect / curse assignments.", 0.8, 0.8, 0.8, true)
+        GameTooltip:SetText("Full view", 1, 1, 1)
+        GameTooltip:AddLine("Show the whole board. Unchecked prefers the Paladin-only"
+            .. " view -- but the full board still appears automatically while there"
+            .. " are active tank / CC / misdirect / curse assignments.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
-    viewBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.viewToggle = viewBtn
+    fullViewCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.fullViewCheck = fullViewCB
 
-    -- Editing-permission strip, top-left across from the view buttons: the
+    -- Editing-permission strip, to the right of the Full view checkbox: the
     -- raid leader sees the picker, other raid members a read-only note, and
     -- outside raids both hide (UpdatePermissionControls decides each refresh).
-    -- The dropdown overhangs left by its template's ~15px padding so its
-    -- visible box lines up with the window margin.
     local permDD = CreateFrame("Frame", "WhoDoesWhatPermissionsDD", f, "UIDropDownMenuTemplate")
-    permDD:SetPoint("TOPLEFT", MARGIN - 15, -(top - 2))
+    permDD:SetPoint("LEFT", fvLabel, "RIGHT", 4, -2) -- template overhangs ~15px left
     UIDropDownMenu_SetWidth(permDD, 170)
     K.LeftAlignDropdown(permDD)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
@@ -310,7 +319,7 @@ local function EnsureMainFrame()
     f.permDD = permDD
 
     local permNote = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    permNote:SetPoint("TOPLEFT", MARGIN + 4, -(top + 6))
+    permNote:SetPoint("LEFT", fvLabel, "RIGHT", 16, 0)
     permNote:Hide()
     f.permNote = permNote
 
@@ -318,7 +327,7 @@ local function EnsureMainFrame()
     f.scrollTop = scrollTop -- chrome above the scroll area; ApplyViewMode sizes to it
     local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMainScroll", f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", MARGIN, -scrollTop)
-    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
+    scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN) -- ApplyViewMode re-asserts this each refresh
 
     local content = CreateFrame("Frame", nil, scroll)
     -- A scroll child with no anchor point has an indeterminate rect until
@@ -329,9 +338,11 @@ local function EnsureMainFrame()
     scroll:SetScrollChild(content)
     f.content = content
     f.scroll = scroll
-    -- Auto-hide the scrollbar when the content fits (always the case in the
-    -- narrow Paladin-only view). ApplyViewMode also re-anchors the scroll's
-    -- right edge per mode so the hidden bar leaves no reserved gap.
+    -- Hide the scrollbar whenever the content fits -- the usual case, since the
+    -- window auto-fits its height up to MAX_FRAME_H. It only appears when a
+    -- column outgrows that cap (a long CC list, or a future section), and then
+    -- overlays the right edge rather than reserving a permanent gutter that
+    -- would push the boxes out of line with the top button row.
     scroll.scrollBarHideable = 1
 
     WhoDoesWhat:LogUiBuilding("Building main assignments content.")
