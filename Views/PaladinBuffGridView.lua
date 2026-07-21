@@ -276,6 +276,17 @@ local function CreateCell(f, row, c)
     cell:SetPoint("LEFT", row, "LEFT",
         NAME_COL_W + (c - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
 
+    -- Red backdrop, shown when this raider is confirmed to be MISSING the
+    -- blessing this cell plans for them (BuffTracking.lua). Behind the icon so
+    -- the planned buff still reads through it; hidden while they have it or
+    -- while their state is unknown -- not yet scanned or no real unit (see
+    -- WhoDoesWhat:HasBuff).
+    local missing = cell:CreateTexture(nil, "BACKGROUND")
+    missing:SetAllPoints()
+    missing:SetColorTexture(0.8, 0.1, 0.1, 0.4)
+    missing:Hide()
+    cell.missing = missing
+
     local icon = cell:CreateTexture(nil, "ARTWORK")
     icon:SetSize(CELL_ICON_SIZE, CELL_ICON_SIZE)
     icon:SetPoint("CENTER")
@@ -288,6 +299,10 @@ local function CreateCell(f, row, c)
             GameTooltip:AddLine("Blesses " .. self.raider .. " with "
                 .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long .. ".",
                 0.8, 0.8, 0.8, true)
+            if WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
+                GameTooltip:AddLine(self.raider .. " is missing this buff.",
+                    1, 0.3, 0.3, true)
+            end
         else
             GameTooltip:SetText(self.paladin, 1, 1, 1)
             GameTooltip:AddLine("Nothing for " .. self.raider .. ": every blessing"
@@ -413,6 +428,10 @@ local function RefreshGrid(f)
             else
                 cell.icon:Hide()
             end
+            -- Red only when the raider is confirmed to lack the planned buff;
+            -- unknown (nil -- not yet scanned, or pets with no unit) never flags.
+            cell.missing:SetShown(cell.buffKey ~= nil
+                and WhoDoesWhat:HasBuff(m.name, cell.buffKey) == false)
             cell:Show()
         end
         for c = #paladins + 1, #row.cells do

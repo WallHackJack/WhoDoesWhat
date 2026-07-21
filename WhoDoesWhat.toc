@@ -33,6 +33,7 @@ SlashCommands.lua
 Data.lua
 Permissions.lua
 TalentScanning.lua
+BuffTracking.lua
 Assignments.lua
 AssignmentsActions.lua
 FakeRaid.lua
