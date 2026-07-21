@@ -37,12 +37,10 @@ WhoDoesWhat.Classes = {
         roles = {
             { name = "Beast Mastery", icon = 132164, id = "hunter_bm", wowRole = "dps" },
             { name = "Survival", icon = 132215, id = "hunter_surv", wowRole = "dps" },
-            { name = "Marksmanship", icon = 132243, id = "hunter_mm", wowRole = "dps" },
-            { name = "Pets", icon = 132179, id = "hunter_pets", wowRole = "dps" } -- Ability_Hunter_MendPet
+            { name = "Marksmanship", icon = 132243, id = "hunter_mm", wowRole = "dps" }
         },
         categories = {
-            { name = "DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm" } }, -- class icon
-            { name = "Pets", icon = 132179, id = "cat_hunter_pets", allSubRoles = { "hunter_pets" } } -- always shown, not part of DPS
+            { name = "DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm" } } -- class icon
         }
     },
     {
@@ -368,6 +366,22 @@ WhoDoesWhat.PaladinBuffDefaults = {
     },
 }
 
+-- The hunter-pet pseudo-role: never assignable and never customizable --
+-- every hunter's pet simply carries it. Assignments.lua derives one virtual
+-- pet per hunter for the paladin-buff math (demand votes, grid rows, the
+-- PallyPower bridge); there is nothing to set anywhere. Lives OUTSIDE the
+-- Hunter role/category lists so no Set Role menu or Role Preferences page
+-- ever offers it, but is registered in RolesAndCategories (like Non-raider
+-- below) so a stale assignment synced from an old client still resolves to
+-- an icon and a sane buff order.
+WhoDoesWhat.HUNTER_PET_ROLE_ID = "hunter_pets"
+WhoDoesWhat.HunterPetRole = {
+    name = "Pets",
+    icon = 132179, -- Ability_Hunter_MendPet
+    id = WhoDoesWhat.HUNTER_PET_ROLE_ID,
+    wowRole = "dps",
+}
+
 -- The Non-raider pseudo-role: marks a group member as sitting out (bench,
 -- standby, carried alt). Assignable to ANY class from the unit right-click
 -- menu; non-raiders drop out of the paladin-buff machinery -- no demand
@@ -432,6 +446,20 @@ function WhoDoesWhat:PopulateRolesAndCategories()
             end
         end
     end
+    -- Register the hunter-pet pseudo-role for id lookups, before the buff
+    -- defaults attach below so its {might, kings} order lands on it. Not in
+    -- the Hunter role list, so no role menu ever sees it.
+    for _, classInfo in ipairs(self.Classes) do
+        if classInfo.name == "Hunter" then
+            local petRole = {}
+            for k, v in pairs(self.HunterPetRole) do
+                petRole[k] = v
+            end
+            petRole.classInfo = classInfo
+            self.RolesAndCategories[petRole.id] = petRole
+        end
+    end
+
     -- Attach the shared default buff orders onto their role entries, backfilled so
     -- each one lists all six buffs. The full order is built once per group and
     -- shared across its roles (the customizer copies before mutating).

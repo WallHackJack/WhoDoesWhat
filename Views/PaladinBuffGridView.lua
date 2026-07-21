@@ -65,7 +65,10 @@ local INFO_BOX_H = INFO_TALENT_Y0 + 2 * INFO_LINE_H + INFO_BOX_PAD
 
 -- Group members sorted by class then name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
--- (the unit-menu pseudo-role) are sitting out and get no grid row.
+-- (the unit-menu pseudo-role) are sitting out and get no grid row. Hunter
+-- pets ride along as virtual rows (their own plan cells); they carry the
+-- Hunter class name but sort AFTER the real hunters, forming a "Pets"
+-- section directly beneath the hunter block.
 local function SortedMembers()
     local members = {}
     for _, m in ipairs(WhoDoesWhat:GetGroupMembers(nil)) do
@@ -73,9 +76,16 @@ local function SortedMembers()
             members[#members + 1] = m
         end
     end
+    for _, pet in ipairs(WhoDoesWhat.Assign.GetPetMembers()) do
+        members[#members + 1] = pet
+    end
     table.sort(members, function(a, b)
         if a.classInfo.name ~= b.classInfo.name then
             return a.classInfo.name < b.classInfo.name
+        end
+        -- Real class members first, then the pet "section" beneath them.
+        if (a.isPet or false) ~= (b.isPet or false) then
+            return not a.isPet
         end
         return a.name < b.name
     end)
@@ -222,8 +232,12 @@ end
 -- ---------------------------------------------------------------------------
 
 -- A raider's row icon: their assigned role's icon, their class icon while
--- they have no (resolvable) role.
+-- they have no (resolvable) role. Pets always show the pet pseudo-role's
+-- icon -- they have no assignment to look up.
 local function RoleIconFor(m)
+    if m.isPet then
+        return WhoDoesWhat.HunterPetRole.icon
+    end
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)
     if roleId then
         local _, role = WhoDoesWhat:FindRoleById(roleId)

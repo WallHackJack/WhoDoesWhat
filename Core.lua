@@ -195,6 +195,18 @@ function WhoDoesWhat:OnInitialize()
         end
     end
 
+    -- hunter_pets stopped being an assignable role: every hunter's pet is
+    -- now derived automatically (Assignments.lua), so a hunter still saved
+    -- on it goes back to roleless (talent auto-detect refills them), and any
+    -- saved buff-order customization for it drops -- the role is no longer
+    -- offered anywhere, including Role Preferences.
+    for name, roleId in pairs(self.db.profile.assignments) do
+        if roleId == self.HUNTER_PET_ROLE_ID then
+            self.db.profile.assignments[name] = nil
+        end
+    end
+    self.db.profile.roleCustomizations[self.HUNTER_PET_ROLE_ID] = nil
+
     -- One-off cache wipe: the first buff-talent scanner matched icons against
     -- live GetTalentInfo returns, which don't compare equal to the library's
     -- static fileIDs for the local player -- locally-scanned paladins were

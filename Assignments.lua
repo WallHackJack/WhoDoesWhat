@@ -111,6 +111,44 @@ local function MembersOfClass(className)
     return out
 end
 
+-- One virtual pet per hunter in the group (a non-raider hunter's pet sits
+-- out with them -- the class-filtered roster already drops both). Pets are
+-- not assignable and never stored: they exist purely for the paladin-buff
+-- math, each carrying the hunter_pets pseudo-role's wants so pet coverage
+-- is derived automatically. Keyed/displayed as "<Hunter>'s Pet" (real
+-- character names can't contain an apostrophe, so the keys can't collide
+-- with a raider); entries carry owner + isPet for the buff grid view and
+-- the PallyPower bridge.
+local function GetPetMembers()
+    local out = {}
+    for _, m in ipairs(GetEligibleMembers("Hunter")) do
+        if m.classInfo.name == "Hunter" then
+            out[#out + 1] = {
+                name = m.name .. "'s Pet",
+                owner = m.name,
+                classInfo = m.classInfo,
+                isPet = true,
+            }
+        end
+    end
+    return out
+end
+
+-- What a pet wants and nothing more: the hunter_pets defaults, minus any
+-- rule-ignored buff. Deliberately NOT backfilled to all six -- a pet whose
+-- top-ups are covered shows an empty grid cell rather than collecting
+-- Salvation from an otherwise-idle paladin.
+local PET_WANTS = { "might", "kings" }
+local function PetBuffOrder(ignored)
+    local order = {}
+    for _, key in ipairs(PET_WANTS) do
+        if not ignored[key] then
+            order[#order + 1] = key
+        end
+    end
+    return order
+end
+
 -- Dropdown display text for an assignment: class-colored name while the
 -- player is in the group, gray name once they've left, gray "Unassigned"
 -- when nothing is saved.
@@ -873,6 +911,14 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
             end
         end
     end
+    -- Every hunter's pet votes too (Might, Kings): pet demand shapes the
+    -- primaries without anyone assigning anything.
+    for _ in ipairs(GetPetMembers()) do
+        local order = PetBuffOrder(ignored)
+        for i = 1, math.min(slots, #order) do
+            votes[order[i]] = votes[order[i]] + 1
+        end
+    end
 
     -- The available buffs by demand (ties break canonical, itself roughly
     -- importance-ordered).
@@ -1060,6 +1106,19 @@ local function ComputeBuffGrid()
             end
             plan[m.name] = SolveRaider(order)
         end
+    end
+
+    -- Each hunter's pet rides along as a virtual raider under the same exact
+    -- matching, wanting only the pet order. A pet is its OWN blessing target
+    -- (the owner's class-wide Greater Blessing never reaches it), so these
+    -- cells show which paladin should single-buff each pet; the PallyPower
+    -- bridge pushes them as per-pet Normal blessings.
+    for _, pet in ipairs(GetPetMembers()) do
+        local order = PetBuffOrder(ignored)
+        while #order > #pool do
+            order[#order] = nil
+        end
+        plan[pet.name] = SolveRaider(order)
     end
     return plan
 end
@@ -1418,6 +1477,7 @@ WhoDoesWhat.Assign = {
     GetEligibleMembers = GetEligibleMembers,
     FindMember = FindMember,
     MembersOfClass = MembersOfClass,
+    GetPetMembers = GetPetMembers,
     PlayerText = PlayerText,
     PlayerTextWithRole = PlayerTextWithRole,
     RoleIconMarkup = RoleIconMarkup,

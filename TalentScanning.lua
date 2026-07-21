@@ -19,8 +19,8 @@ local INSPECTOR_PREFIX = "LCIV1"
 -- with the most points), keyed by the uppercase english class token. Tab
 -- order is the TBC talent-frame order.
 --
--- Inherently undetectable from a spec: hunter_pets, warlock_firetank,
--- druid_dreamstate and custom roles -- those only ever arrive by hand, and
+-- Inherently undetectable from a spec: warlock_firetank, druid_dreamstate
+-- and custom roles -- those only ever arrive by hand, and
 -- AutoAssignDetectedRole is built to leave them alone. Feral tanks and cat
 -- DPS share one tree; DPS is the default guess, and a manual correction to
 -- Feral Tank sticks for the same reason.
@@ -178,8 +178,8 @@ WhoDoesWhat.LOG_TALENT_COMMS = false
 --     a manual pick, or synced from a client that inspected them in range)
 -- The change test is against our own previous detection (db.profile
 -- .talentSpecs), not against the assignment, so a manual pick that disagrees
--- with the talents (Feral Tank over the feral-DPS guess, Pets on a hunter, a
--- custom role) is repeated broadcasts of an unchanged spec never touch it.
+-- with the talents (Feral Tank over the feral-DPS guess, a custom role) is
+-- repeated broadcasts of an unchanged spec never touch it.
 -- The flip side: an actual respec overrides even a manual pick -- the board
 -- follows reality, and the leader can re-override if they mean it.
 --

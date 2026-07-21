@@ -119,6 +119,41 @@ function WhoDoesWhat:SyncToPallyPower()
         end
     end
 
+    -- The virtual pet rows (one per hunter, Assignments.lua). A hunter pet is
+    -- a SEPARATE blessing target -- the owner's class-wide Greater Blessing
+    -- never reaches it -- so pets take no part in any class-greater tally
+    -- below. Each is instead pushed as its own single-target Normal blessing,
+    -- keyed by the pet's real unit name (resolved from the live pet units) and
+    -- filed under the class id this client lists pets under (Warrior). Pets we
+    -- can't name (out of range) and fake hunters' pets are skipped.
+    local petOwner, petRealName = {}, {}
+    for _, pet in ipairs(self.Assign.GetPetMembers()) do
+        if not IsFakeName(pet.owner) then
+            petOwner[pet.name] = pet.owner
+        end
+    end
+    do
+        local units = {}
+        if IsInRaid() then
+            for i = 1, GetNumGroupMembers() do
+                units[#units + 1] = { owner = "raid" .. i, pet = "raid" .. i .. "pet" }
+            end
+        else
+            units[#units + 1] = { owner = "player", pet = "pet" }
+            for i = 1, GetNumSubgroupMembers() do
+                units[#units + 1] = { owner = "party" .. i, pet = "party" .. i .. "pet" }
+            end
+        end
+        for _, u in ipairs(units) do
+            if UnitExists(u.pet) then
+                local owner = GetUnitName(u.owner, true)
+                local petName = GetUnitName(u.pet, true)
+                if owner and petName then petRealName[owner] = petName end
+            end
+        end
+    end
+    local petClassId = pp.ClassToID and pp.ClassToID["WARRIOR"]
+
     -- Tally the grid per paladin/class: votes[pallyShort][classId][blessId]
     -- counts raiders, buffOf remembers each raider's exact cell for the
     -- exception pass.
@@ -126,19 +161,21 @@ function WhoDoesWhat:SyncToPallyPower()
     local votes, buffOf = {}, {}
     local skipped = 0
     for raider, cells in pairs(plan) do
-        local cid = classIdOf[raider]
-        for paladin, buffKey in pairs(cells) do
-            local pshort = ShortName(paladin)
-            local bless = BuffKeyToBlessingId(buffKey)
-            if cid and bless and not IsFakeName(paladin) then
-                votes[pshort] = votes[pshort] or {}
-                votes[pshort][cid] = votes[pshort][cid] or {}
-                votes[pshort][cid][bless] = (votes[pshort][cid][bless] or 0) + 1
-                buffOf[pshort] = buffOf[pshort] or {}
-                buffOf[pshort][cid] = buffOf[pshort][cid] or {}
-                buffOf[pshort][cid][ShortName(raider)] = bless
-            elseif not IsFakeName(paladin) then
-                skipped = skipped + 1
+        if not petOwner[raider] then
+            local cid = classIdOf[raider]
+            for paladin, buffKey in pairs(cells) do
+                local pshort = ShortName(paladin)
+                local bless = BuffKeyToBlessingId(buffKey)
+                if cid and bless and not IsFakeName(paladin) then
+                    votes[pshort] = votes[pshort] or {}
+                    votes[pshort][cid] = votes[pshort][cid] or {}
+                    votes[pshort][cid][bless] = (votes[pshort][cid][bless] or 0) + 1
+                    buffOf[pshort] = buffOf[pshort] or {}
+                    buffOf[pshort][cid] = buffOf[pshort][cid] or {}
+                    buffOf[pshort][cid][ShortName(raider)] = bless
+                elseif not IsFakeName(paladin) then
+                    skipped = skipped + 1
+                end
             end
         end
     end
@@ -172,6 +209,27 @@ function WhoDoesWhat:SyncToPallyPower()
                     PallyPower_NormalAssignments[pshort][cid] =
                         PallyPower_NormalAssignments[pshort][cid] or {}
                     PallyPower_NormalAssignments[pshort][cid][raider] = bless
+                    singleCount = singleCount + 1
+                end
+            end
+        end
+    end
+
+    -- Hunter pets: one single-target Normal blessing each (the owner's class
+    -- Greater Blessing never reaches them). Filed under petClassId, keyed by
+    -- the pet's real name, attributed to the paladin the grid matched to that
+    -- pet. Pets we couldn't name are left uncovered here rather than guessed.
+    for petName, owner in pairs(petOwner) do
+        local realName = petRealName[owner]
+        if realName and petClassId then
+            local realShort = ShortName(realName)
+            for paladin, buffKey in pairs(plan[petName] or {}) do
+                local pshort = ShortName(paladin)
+                local bless = BuffKeyToBlessingId(buffKey)
+                if bless and not IsFakeName(paladin) and PallyPower_NormalAssignments[pshort] then
+                    PallyPower_NormalAssignments[pshort][petClassId] =
+                        PallyPower_NormalAssignments[pshort][petClassId] or {}
+                    PallyPower_NormalAssignments[pshort][petClassId][realShort] = bless
                     singleCount = singleCount + 1
                 end
             end
