@@ -44,6 +44,8 @@ local RULE_ROW_H = 30
 local RULE_BUFF_DD_W = 78
 local RULE_KIND_DD_W = 90
 local RULE_TARGET_DD_W = 76
+local FOOTER_BTN_H = 22
+local FOOTER_TOP_GAP = 8 -- gap above the footer button row
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
@@ -54,7 +56,8 @@ local RULE_KINDS = {
     { kind = "prefer", menu = "Is Preferred by...", short = "Preferred by" },
 }
 
-local Refresh -- forward declared; rule-row callbacks repaint through it
+local Refresh -- the section's registered refresh; forward-declared to stay a
+              -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
 
 -- ---------------------------------------------------------------------------
 -- Rule-row text + warning helpers
@@ -153,7 +156,10 @@ local function CreateRuleRow(f, index)
 
     local function Entry() return GetBuffRules()[index] end
     local function Changed()
-        Refresh(f)
+        -- Route through the main refresh (not the section-local Refresh) so
+        -- ApplyViewMode refits the window height -- adding/removing a rule
+        -- grows/shrinks the box, and the collapsed view must follow.
+        WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshPaladinBuffGridView()
     end
 
@@ -482,7 +488,21 @@ function Refresh(f) -- forward declared above
         state.ruleRows[i]:Hide()
     end
 
-    state.box:SetHeight(rulesTop + #rules * RULE_ROW_H + K.BOX_PAD)
+    -- One footer row below the rules: "Info + Grid" left-aligned, then the
+    -- right-aligned "Pally Power: [Sync] [Log]" cluster. Re-anchored every
+    -- pass (y depends on how many rule rows sit above); each button sizes to
+    -- its own label (set in Build).
+    local y = rulesTop + #rules * RULE_ROW_H + FOOTER_TOP_GAP
+    state.gridBtn:ClearAllPoints()
+    state.gridBtn:SetPoint("TOPLEFT", K.BOX_PAD, -y)
+    state.ppLogBtn:ClearAllPoints()
+    state.ppLogBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
+    state.ppSyncBtn:ClearAllPoints()
+    state.ppSyncBtn:SetPoint("RIGHT", state.ppLogBtn, "LEFT", -4, 0)
+    state.ppLabel:ClearAllPoints()
+    state.ppLabel:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -6, 0)
+
+    state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
 
     -- No-paladin gray-out: dead buttons (with the tooltip saying why), gray
@@ -505,6 +525,26 @@ function Refresh(f) -- forward declared above
     K.LayoutHeaderChain(state.headerChain)
 end
 
+-- Full-width action button at the foot of the box. Position + width are set
+-- in Refresh (they sit below the rule rows); tipWarn is an optional red line.
+local function CreateFooterButton(box, text, tipTitle, tipBody, tipWarn, onClick)
+    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
+    btn:SetFrameLevel(box:GetFrameLevel() + 1)
+    btn:SetHeight(FOOTER_BTN_H)
+    btn:SetText(text)
+    btn:SetWidth(math.max(44, btn:GetTextWidth() + 20))
+    btn:SetScript("OnClick", onClick)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(tipTitle, 1, 1, 1)
+        GameTooltip:AddLine(tipBody, 0.8, 0.8, 0.8, true)
+        if tipWarn then GameTooltip:AddLine(tipWarn, 1, 0.5, 0.4, true) end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return btn
+end
+
 local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = "Paladin Buffs",
@@ -513,6 +553,8 @@ local function Build(f, content)
     })
     local box = chrome.box
 
+    -- "Info + Grid" lives on the footer row (positioned in Refresh), not the
+    -- header chain -- but it still grays out with the section (state.buttons).
     local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Info + Grid", "Paladin Info + Grid",
         "Open the paladin window: every paladin's buff-talent ranks on"
         .. " the left, and the buff grid -- every raider against every"
@@ -520,9 +562,8 @@ local function Build(f, content)
         .. " the right.", function()
             WhoDoesWhat:OpenPaladinBuffGridView()
         end)
-    K.ChainHeaderButton(chrome, gridBtn)
 
-    local ruleBtn = K.AddHeaderTextButton(box, gridBtn, "+ Rule", "Add a buff rule",
+    local ruleBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "+ Rule", "Add a buff rule",
         "Add a custom blessing rule: ignore a buff for this fight,"
         .. " prioritize it for part of the raid, or hand it to a specific"
         .. " paladin. One rule per blessing; rules reshape the computed"
@@ -545,7 +586,7 @@ local function Build(f, content)
                 return
             end
             rules[#rules + 1] = { buff = buff, kind = "prefer" }
-            Refresh(f)
+            WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshPaladinBuffGridView()
         end)
     K.ChainHeaderButton(chrome, ruleBtn)
@@ -553,12 +594,39 @@ local function Build(f, content)
     local hint = K.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
 
+    -- Two full-width buttons at the foot of the box (mirrors the Paladin Info
+    -- + Grid window's title-bar actions). Refresh lays them out below the
+    -- rules and grows the box to fit.
+    local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ppLabel:SetText("Pally Power:")
+
+    local ppSyncBtn = CreateFooterButton(box, "Sync",
+        "Sync to PallyPower",
+        "Write this computed grid into PallyPower (each paladin's per-class"
+        .. " blessings; per-raider differences become Normal blessing"
+        .. " exceptions) and broadcast it to the other paladins over"
+        .. " PallyPower's own sync.",
+        "Other clients only accept the push from a raid lead/assist, or when"
+        .. " they run Free Assignment.",
+        function() WhoDoesWhat:SyncToPallyPower() end)
+
+    local ppLogBtn = CreateFooterButton(box, "Log",
+        "PallyPower log",
+        "Open a live feed of PallyPower's hidden addon-channel sync messages,"
+        .. " translated to plain lines -- what every paladin is assigning and"
+        .. " reporting.", nil,
+        function() WhoDoesWhat:OpenPallyPowerLogView() end)
+
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
         mailBtn = chrome.mailBtn,
         buttons = { gridBtn, ruleBtn }, -- the no-paladin gray-out pass
         emptyHint = hint,
+        gridBtn = gridBtn,
+        ppLabel = ppLabel,
+        ppSyncBtn = ppSyncBtn,
+        ppLogBtn = ppLogBtn,
         rows = {},
         ruleRows = {},
     }
