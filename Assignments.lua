@@ -878,13 +878,16 @@ end
 -- buff; raiders whose priorities skip a paladin's primary still get that
 -- paladin's next-best cast, same as before.
 --
--- The pick itself mirrors the retired Auto-assign: raiders vote for the top
--- N buffs of their priority order (N = paladin count), the N most-demanded
--- castable buffs win one paladin each, and casters match scarcity-first --
--- the talent-granted blessings have the fewest possible casters, the
--- Improved ones want their best specialists, and Salvation/Light take
--- whoever's left. A chosen gated buff with no talented caster forfeits its
--- slot to the next-demanded buff.
+-- The pick is an exact max-weight assignment of paladins to distinct buffs:
+-- each pairing scores demand (which buffs the raid wants) + talentRank*10, so
+-- the same solve jointly decides which buffs become primaries AND who owns
+-- each. A specialist's talent weight pulls their Improved/granted blessing
+-- onto them, which pushes the commodity blessings (Kings, Salvation) onto the
+-- non-specialists -- so one paladin owns an entire buff instead of two
+-- splitting it (the demand votes still decide which buffs make the cut when
+-- there are more buffs than paladins). Gated blessings (Kings/Sanctuary) can
+-- only be owned by a talented caster; a slot no free caster can fill is left
+-- unmatched.
 --
 -- Returns primary[paladinName] = buff key, plus forced[paladinName] = buff
 -- key for the pairs a prefer rule locked in (they score a bigger stickiness
@@ -905,7 +908,7 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
     -- primary is decided, they leave the pool, the buff leaves the demand
     -- race. Walked in pool order for determinism; two rules can't name one
     -- buff (one rule per buff), and absent paladins never appear in pool.
-    local used, lockedBuff, lockedCount = {}, {}, 0
+    local used, lockedBuff = {}, {}
     for _, name in ipairs(pool) do
         local buff = preferred[name]
         if buff and not ignored[buff] and not lockedBuff[buff] then
@@ -913,10 +916,8 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
             forced[name] = buff
             used[name] = true
             lockedBuff[buff] = true
-            lockedCount = lockedCount + 1
         end
     end
-    local freeSlots = math.max(slots - lockedCount, 0)
 
     -- Demand votes: each raider's top `slots` wanted buffs, rule-adjusted.
     local votes = {}
@@ -938,86 +939,84 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
         end
     end
 
-    -- The available buffs by demand (ties break canonical, itself roughly
-    -- importance-ordered).
-    local canonIndex = {}
-    for i, key in ipairs(canonical) do canonIndex[key] = i end
-    local demand = {}
-    for _, key in ipairs(avail) do demand[#demand + 1] = key end
-    table.sort(demand, function(a, b)
-        if votes[a] ~= votes[b] then return votes[a] > votes[b] end
-        return canonIndex[a] < canonIndex[b]
-    end)
-    local demandIndex = {}
-    for i, key in ipairs(demand) do demandIndex[key] = i end
+    -- Free casters and still-available buffs after the prefer-rule locks.
+    local freeCasters = {}
+    for _, name in ipairs(pool) do
+        if not used[name] then freeCasters[#freeCasters + 1] = name end
+    end
+    local freeBuffs = {}
+    for _, key in ipairs(avail) do
+        if not lockedBuff[key] then freeBuffs[#freeBuffs + 1] = key end
+    end
 
     local function Gated(key)
         local meta = BuffTalents[key]
         return meta ~= nil and meta.maxRank == 1
     end
-    local function AnyTalented(key)
-        for _, name in ipairs(pool) do
-            if not used[name] and (BuffTalentRank(name, key) or 0) > 0 then
-                return true
-            end
+
+    -- Weight of pairing a paladin with a buff, or nil if infeasible. A small
+    -- base (so filling a slot always beats leaving it empty) + demand (which
+    -- buffs the raid wants) + talentRank*10 (routes each specialist onto their
+    -- Improved/granted blessing). Gated blessings are only feasible for a
+    -- talented caster.
+    local function Weight(name, key)
+        if Gated(key) and (BuffTalentRank(name, key) or 0) == 0 then
+            return nil
         end
-        return false
+        return 1 + votes[key] + (BuffTalentRank(name, key) or 0) * 10
     end
 
-    -- The winners: the `freeSlots` most-demanded unlocked buffs someone in
-    -- the free pool can cast.
-    local chosen, chosenSet = {}, {}
-    for _, key in ipairs(demand) do
-        if #chosen == freeSlots then break end
-        if not lockedBuff[key] and (not Gated(key) or AnyTalented(key)) then
-            chosen[#chosen + 1] = key
-            chosenSet[key] = true
-        end
-    end
-
-    -- Scarcity order for the caster matching; equal scarcity falls back to
-    -- demand order.
-    local scarcity = { kings = 1, sanctuary = 1, might = 2, wisdom = 2 }
-    table.sort(chosen, function(a, b)
-        local sa, sb = scarcity[a] or 3, scarcity[b] or 3
-        if sa ~= sb then return sa < sb end
-        return demandIndex[a] < demandIndex[b]
-    end)
-
-    -- Chosen buffs first, then the also-rans as backfill for any slot a
-    -- chosen buff has to forfeit. Locked buffs are neither: already placed.
-    local sequence = {}
-    for _, key in ipairs(chosen) do sequence[#sequence + 1] = key end
-    for _, key in ipairs(demand) do
-        if not chosenSet[key] and not lockedBuff[key] then
-            sequence[#sequence + 1] = key
-        end
-    end
-
-    local function BestCaster(key)
-        local gated = Gated(key)
-        local bestName, bestRank
-        for _, name in ipairs(pool) do
-            if not used[name] then
-                local rank = BuffTalentRank(name, key) or 0
-                if not (gated and rank == 0)
-                    and (not bestName or rank > bestRank) then
-                    bestName, bestRank = name, rank
+    -- Exact max-weight assignment of the free paladins to distinct free buffs,
+    -- solved by DP over the set of buff indices already handed out (bitmask).
+    -- Maximizing total weight jointly chooses WHICH buffs become primaries and
+    -- WHO owns each: the specialist's talent weight pulls their Improved buff
+    -- into the set and onto them, so the commodity blessings consolidate onto
+    -- the non-specialists (one pally owns every Kings while another runs the
+    -- Wis/Might split). A slot no free caster can fill (a gated buff with no
+    -- talented caster) is left unmatched -- the old forfeit-to-next backfill.
+    -- Masks are walked numerically for a deterministic, refresh-stable pick.
+    local nb = #freeBuffs
+    local full = bit.lshift(1, nb)
+    local dp = { [0] = { score = 0, picks = {} } }
+    for c = 1, #freeCasters do
+        local name = freeCasters[c]
+        local ndp = {}
+        for mask = 0, full - 1 do
+            local st = dp[mask]
+            if st then
+                -- This caster owns no primary.
+                local cur = ndp[mask]
+                if not cur or st.score > cur.score then ndp[mask] = st end
+                -- Or takes one still-free buff they can cast.
+                for j = 1, nb do
+                    local jbit = bit.lshift(1, j - 1)
+                    if bit.band(mask, jbit) == 0 then
+                        local w = Weight(name, freeBuffs[j])
+                        if w then
+                            local score = st.score + w
+                            local nmask = mask + jbit
+                            local prev = ndp[nmask]
+                            if not prev or score > prev.score then
+                                local picks = {}
+                                for cc, jj in pairs(st.picks) do picks[cc] = jj end
+                                picks[c] = j
+                                ndp[nmask] = { score = score, picks = picks }
+                            end
+                        end
+                    end
                 end
             end
         end
-        return bestName
+        dp = ndp
     end
 
-    local placed = 0
-    for _, key in ipairs(sequence) do
-        if placed == freeSlots then break end
-        local caster = BestCaster(key)
-        if caster then
-            primary[caster] = key
-            used[caster] = true
-            placed = placed + 1
-        end
+    local best
+    for mask = 0, full - 1 do
+        local st = dp[mask]
+        if st and (not best or st.score > best.score) then best = st end
+    end
+    for c, j in pairs(best.picks) do
+        primary[freeCasters[c]] = freeBuffs[j]
     end
     return primary, forced
 end
