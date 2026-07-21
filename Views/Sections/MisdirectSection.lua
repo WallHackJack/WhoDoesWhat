@@ -199,7 +199,7 @@ end
 local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = SECTION.title,
-        column = K.COL_LEFT,
+        column = K.COL_RIGHT,
         mailCollect = A.CollectMisdirectWhispers,
     })
 

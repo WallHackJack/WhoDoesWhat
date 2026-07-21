@@ -8,19 +8,20 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Views/Sections/ (registered on WhoDoesWhat.SectionViews as Build/Refresh
 -- pairs, built from the shared primitives in Views/SectionKit.lua):
 --
---   left column   TankSection      one auto row per marked tank
---                 CCSection        user-grown rows (the template for future
---                                  sections -- see its header comment)
---                 MisdirectSection one auto row per hunter
---   right column  PaladinBuffsSection  computed summary + local buff rules
+--   left column   TankSection          one auto row per marked tank
+--                 PaladinBuffsSection  computed summary + local buff rules
 --                 WarlockCursesSection fixed row per curse
+--   right column  CCSection            user-grown rows (the template for future
+--                                      sections -- see its header comment)
+--                 MisdirectSection     one auto row per hunter
 --
--- The columns are deliberately uneven: the left one carries the wide dynamic
--- rows, the right one only needs an icon, a name and one dropdown. Boxes are
--- anchor-chained within their column, so a section that changes height
--- pushes the ones under it down on its own. The model -- section defs,
--- member/text helpers, whisper collectors, demand math, auto-assigns, and
--- storage -- lives in Assignments.lua.
+-- The columns are deliberately uneven: the right one carries the wide dynamic
+-- rows (CC, Misdirect), the left one only needs an icon, a name and one
+-- dropdown (Tank, Paladin Buffs, Warlock Curses). Boxes are anchor-chained
+-- within their column, so a section that changes height pushes the ones under
+-- it down on its own. The model -- section defs, member/text helpers, whisper
+-- collectors, demand math, auto-assigns, and storage -- lives in
+-- Assignments.lua.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -36,15 +37,18 @@ local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
 local BUTTON_ROW_H = 22
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
+-- Left is the narrow column (Tank / Paladin Buffs / Warlock Curses -- an icon,
+-- a name and a dropdown); right is wider for the busy dynamic rows (CC,
+-- Misdirect, and future custom-assignment sections that match them).
 local COLUMN_GAP = 12
-local LEFT_COLUMN_W = 500
+local LEFT_COLUMN_W = 378
 local RIGHT_COLUMN_W = CONTENT_W - COLUMN_GAP - LEFT_COLUMN_W
 
 -- Build + refresh order: left column top-to-bottom, then right column.
 -- Within a column this is also the anchor-chain order.
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
-    return { SV.Tank, SV.CC, SV.Misdirect, SV.PaladinBuffs, SV.WarlockCurses }
+    return { SV.Tank, SV.PaladinBuffs, SV.WarlockCurses, SV.CC, SV.Misdirect }
 end
 
 -- ---------------------------------------------------------------------------

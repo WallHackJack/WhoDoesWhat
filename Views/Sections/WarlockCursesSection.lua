@@ -146,7 +146,7 @@ end
 local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = SECTION.title,
-        column = K.COL_RIGHT,
+        column = K.COL_LEFT,
         mailCollect = A.CollectCurseWhispers,
     })
     local box = chrome.box
