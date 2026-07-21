@@ -49,6 +49,10 @@ K.HEADER_STRIP_TOP = 3
 
 K.DYN_PLAYER_DD_WIDTH = 100
 K.DYN_SPELL_DD_WIDTH = 110
+-- Fixed-label name column (tank/misdirect rows, paladin summary). Wider than
+-- the player dropdown so a long name plus its role icon clears the following
+-- "->" / "for" label instead of overlapping it.
+K.NAME_LABEL_W = 120
 
 -- Marker dropdown widths. UIDropDownMenuTemplate anchors its label 7px in
 -- from the left and 43px in from the right (the gap houses the arrow button),

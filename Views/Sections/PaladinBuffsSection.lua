@@ -36,6 +36,10 @@ local BuffTalents = A.BuffTalents
 
 local PALLY_ROW_H = 24
 local PALLY_MAX_BUFFS = 3
+-- Buff summary is laid out as a grid: the name in a fixed-width column, then
+-- one fixed-width slot per buff so the icons line up in columns down the rows.
+local PALLY_SLOT_W = 48   -- per-buff column: icon + count
+local PALLY_BUFF_ICON = 20
 local RULE_ROW_H = 30
 local RULE_BUFF_DD_W = 78
 local RULE_KIND_DD_W = 90
@@ -357,6 +361,59 @@ local function CreateRuleRow(f, index)
 end
 
 -- ---------------------------------------------------------------------------
+-- Summary rows: name column + one grid slot per buff (icon + count + tooltip)
+-- ---------------------------------------------------------------------------
+
+local function PallyBuffSlotEnter(self)
+    if not self.buffKey then return end
+    local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(buff.name_long, 1, 1, 1)
+    GameTooltip:AddLine("Casting on " .. self.buffCount
+        .. (self.buffCount == 1 and " raider" or " raiders"), 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+end
+
+-- Pooled summary row #index: fixed name column on the left, then PALLY_MAX_BUFFS
+-- fixed-width slots so the buff icons line up in columns across every row. Each
+-- slot is a mouse-enabled frame (icon + count) that tooltips the blessing.
+local function CreatePallyRow(state, index)
+    local row = CreateFrame("Frame", nil, state.box)
+    row:SetFrameLevel(state.box:GetFrameLevel() + 1)
+    row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, PALLY_ROW_H)
+    row:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + K.SECTION_TITLE_H + (index - 1) * PALLY_ROW_H))
+    if index > 1 then
+        K.AddRowDivider(row, 2, 0)
+    end
+
+    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    name:SetPoint("LEFT", 4, 0)
+    name:SetWidth(K.NAME_LABEL_W)
+    name:SetJustifyH("LEFT")
+    row.nameText = name
+
+    row.slots = {}
+    for i = 1, PALLY_MAX_BUFFS do
+        local slot = CreateFrame("Frame", nil, row)
+        slot:SetSize(PALLY_SLOT_W, PALLY_ROW_H)
+        slot:SetPoint("LEFT", 4 + K.NAME_LABEL_W + (i - 1) * PALLY_SLOT_W, 0)
+        local icon = slot:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(PALLY_BUFF_ICON, PALLY_BUFF_ICON)
+        icon:SetPoint("LEFT", 0, 0)
+        slot.icon = icon
+        local count = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        count:SetPoint("LEFT", icon, "RIGHT", 3, 0)
+        slot.count = count
+        slot:EnableMouse(true)
+        slot:SetScript("OnEnter", PallyBuffSlotEnter)
+        slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        slot:Hide()
+        row.slots[i] = slot
+    end
+    return row
+end
+
+-- ---------------------------------------------------------------------------
 -- Refresh: summary rows, rule rows, box height, no-paladin gray-out
 -- ---------------------------------------------------------------------------
 
@@ -365,32 +422,23 @@ function Refresh(f) -- forward declared above
     local summary = ComputePaladinBuffSummary()
 
     for i, p in ipairs(summary) do
-        local row = state.rows[i]
-        if not row then
-            row = CreateFrame("Frame", nil, state.box)
-            row:SetFrameLevel(state.box:GetFrameLevel() + 1)
-            row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, PALLY_ROW_H)
-            row:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + K.SECTION_TITLE_H + (i - 1) * PALLY_ROW_H))
-            if i > 1 then
-                K.AddRowDivider(row, 2, 0)
-            end
-            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            fs:SetPoint("LEFT", 4, 0)
-            fs:SetPoint("RIGHT", -4, 0)
-            fs:SetJustifyH("LEFT")
-            row.text = fs
-            state.rows[i] = row
-        end
+        local row = state.rows[i] or CreatePallyRow(state, i)
+        state.rows[i] = row
         row:Show()
-
-        local segs = {}
-        for bi = 1, math.min(PALLY_MAX_BUFFS, #p.buffs) do
+        row.nameText:SetText(PlayerTextWithRole(p.name, 16))
+        for bi, slot in ipairs(row.slots) do
             local b = p.buffs[bi]
-            segs[#segs + 1] = "|T" .. WhoDoesWhat.PaladinBuffs[b.key].iconId
-                .. ":14:14:0:0|t (" .. b.count .. ")"
+            if b then
+                slot.icon:SetTexture(WhoDoesWhat.PaladinBuffs[b.key].iconId)
+                slot.count:SetText(b.count)
+                slot.buffKey = b.key
+                slot.buffCount = b.count
+                slot:Show()
+            else
+                slot.buffKey = nil
+                slot:Hide()
+            end
         end
-        row.text:SetText(PlayerTextWithRole(p.name)
-            .. (#segs > 0 and ("  " .. table.concat(segs, " > ")) or ""))
     end
     for i = #summary + 1, #state.rows do
         state.rows[i]:Hide()

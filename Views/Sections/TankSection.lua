@@ -56,7 +56,7 @@ local function CreateRow(f, index)
     -- The row IS its tank, so a fixed label stands where a picker would be.
     local playerLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     playerLabel:SetPoint("LEFT", row, "LEFT", 4, 0)
-    playerLabel:SetWidth(K.DYN_PLAYER_DD_WIDTH)
+    playerLabel:SetWidth(K.NAME_LABEL_W)
     playerLabel:SetJustifyH("LEFT")
     row.playerLabel = playerLabel
 
@@ -165,7 +165,7 @@ function Refresh(f) -- forward declared above
         row:Show()
 
         row.playerLabel:SetShown(editable)
-        row.playerLabel:SetText(PlayerTextWithRole(entry.player))
+        row.playerLabel:SetText(PlayerTextWithRole(entry.player, 16))
         row.arrowLabel:SetShown(editable)
         row.roText:SetText(PlayerText(entry.player) .. " -> " .. MarkersRichText(entry))
         row.roText:SetShown(not editable)

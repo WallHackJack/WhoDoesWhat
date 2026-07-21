@@ -177,8 +177,8 @@ end
 
 -- PlayerText with the player's role icon in front (assignment dropdowns). Falls
 -- back to plain PlayerText when there's no name or no resolvable role.
-local function PlayerTextWithRole(name)
-    return RoleIconMarkup(name) .. PlayerText(name)
+local function PlayerTextWithRole(name, size)
+    return RoleIconMarkup(name, size) .. PlayerText(name)
 end
 
 local function GetAssignment(rowId)
