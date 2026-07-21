@@ -119,6 +119,11 @@ local defaults = {
         permissions = { mode = "assists", assistant = false },
         -- Addon settings, edited in AddonSettingsView.lua.
         settings = {
+            -- Announce to raid/party chat "[WhoDoesWhat] X was changed to Role
+            -- by Y" whenever someone's role assignment changes. Off = silent
+            -- (the local :Print still fires; Blizzard's own role-flag message
+            -- is separate and unaffected). See SetAssignedRole.
+            announceRoleChanges = true,
             -- Assignment dropdowns list every group member instead of only
             -- the eligible class (e.g. non-paladins for paladin buffs).
             developerMode = false,

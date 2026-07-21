@@ -8,7 +8,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local settingsFrame = nil
 
 local FRAME_W = 320
-local FRAME_H = 450
+local FRAME_H = 510
 local MARGIN = 14
 local CHECKBOX_ROW_H = 50
 
@@ -44,6 +44,19 @@ local function EnsureSettingsFrame()
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
     local y = f.titleBarHeight + 14
 
+    local generalHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    generalHeading:SetPoint("TOPLEFT", MARGIN, -y)
+    generalHeading:SetText("General")
+    y = y + 28
+
+    f.announceRoleCheck, y = AddCheckboxRow(f, y, "Announce role changes in chat",
+        "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.announceRoleChanges = value
+            WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
+        end)
+
+    y = y + 6
     local curseHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     curseHeading:SetPoint("TOPLEFT", MARGIN, -y)
     curseHeading:SetText("Warlock Curses")
@@ -130,6 +143,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     end
 
     local settings = self.db.profile.settings
+    f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)

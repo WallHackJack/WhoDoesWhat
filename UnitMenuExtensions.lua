@@ -132,7 +132,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
         self:SyncBlizzardRoleState(playerName, role, unit)
         if not unchanged then
             self:Print(playerName .. " set to " .. (role and role.name or roleId) .. ".")
-            if role then
+            if role and self.db.profile.settings.announceRoleChanges then
                 self:SendGroupMessage("[WhoDoesWhat] " .. playerName .. " was changed to "
                     .. role.name .. " by " .. (UnitName("player") or "?") .. ".")
             end
