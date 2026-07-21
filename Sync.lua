@@ -494,9 +494,8 @@ function Sync:ApplyState(msg, senderKey)
         WhoDoesWhat:Print("Assignments synced from the group leader (" .. senderKey .. ").")
         if replacedSomething then
             StaticPopup_Show("WHODOESWHAT_SYNC_REPLACED",
-                "[WhoDoesWhat]\n\nThe group leader is the source of truth, so"
-                .. " their assignments replaced your local board (leader: "
-                .. senderKey .. ").")
+                "The group leader's assignments have replaced your local"
+                .. " WhoDoesWhat board (leader: " .. senderKey .. ").")
         end
     else
         WhoDoesWhat:Print("Assignments updated from " .. senderKey .. ".")

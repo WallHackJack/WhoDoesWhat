@@ -184,22 +184,10 @@ local function CreateRow(f, index)
     end)
     row.markerDD = markerDD
 
-    -- Right-hand controls, left to right: (!) [x] [mail]. Mail sits at the
-    -- far right so it lines up with every section's mail column.
-    row.mailBtn = K.CreateMailButton(row, function()
-        local entry = Entry()
-        if entry and entry.player then
-            return entry.player,
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetChatText),
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
-        end
-    end)
-    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-
-    local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    delBtn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-    delBtn:SetPoint("RIGHT", row.mailBtn, "LEFT", -2, 0)
-    delBtn:SetText("x")
+    -- Right-hand controls, left to right: (!) [mail] [x]. The delete X sits at
+    -- the far right (its own column, matching the rule rows' X).
+    local delBtn = K.CreateCloseButton(row)
+    delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
         table.remove(GetEntries(SECTION), index)
         WhoDoesWhat:Print(SECTION.title .. ": " .. SECTION.noun .. " removed.")
@@ -213,11 +201,21 @@ local function CreateRow(f, index)
     delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.delBtn = delBtn
 
-    -- Warning (!) left of the buttons. Anchored off [x] rather than the row,
-    -- so it holds its column while hidden and nothing shifts as warnings
-    -- come and go.
+    row.mailBtn = K.CreateMailButton(row, function()
+        local entry = Entry()
+        if entry and entry.player then
+            return entry.player,
+                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetChatText),
+                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
+        end
+    end)
+    row.mailBtn:SetPoint("RIGHT", delBtn, "LEFT", -2, 0)
+
+    -- Warning (!) left of the buttons. Anchored off the mail button rather than
+    -- the row, so it holds its column while hidden and nothing shifts as
+    -- warnings come and go.
     local warn = K.CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
+    warn:SetPoint("RIGHT", row.mailBtn, "LEFT", -4, -2)
     row.warnIcon = warn
 
     -- Custom target text, shown only while the marker dropdown is on Custom.
@@ -327,7 +325,9 @@ local function Build(f, content)
 
     -- Header "X": empty the whole section, behind a confirm popup. Disabled
     -- (and saying so) while there's nothing to clear.
-    local clearBtn = K.CreateHeaderSquareButton(box, "X")
+    -- Slightly smaller glyph than the row X's (grow 0.25 vs 0.3) -- same 22px
+    -- frame, so it still lines up with the mail column.
+    local clearBtn = K.CreateCloseButton(box, nil, 0.25)
     clearBtn:SetPoint("RIGHT", chrome.mailBtn, "LEFT", -2, 0)
     clearBtn:SetScript("OnClick", function()
         StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
@@ -350,7 +350,10 @@ local function Build(f, content)
         GameTooltip:Show()
     end)
     clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    K.ChainHeaderButton(chrome, clearBtn)
+    -- Insert at the front of the chain (rightmost) so the clear-all X sits at
+    -- the far right with the mail button to its left -- matching the rows'
+    -- [mail][x] order below.
+    table.insert(chrome.headerChain, 1, clearBtn)
 
     -- "Add (+)" appends an empty row, starting on the first marker no
     -- sibling row is using yet.

@@ -339,10 +339,8 @@ local function CreateRuleRow(f, index)
     end)
     row.targetDD = targetDD
 
-    local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    delBtn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
+    local delBtn = K.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    delBtn:SetText("x")
     delBtn:SetScript("OnClick", function()
         table.remove(GetBuffRules(), index)
         WhoDoesWhat:Print("Paladin Buffs: rule removed.")
@@ -359,7 +357,7 @@ local function CreateRuleRow(f, index)
     -- paladin with a known 0 in the buff's talent (RuleWarningText).
     -- Anchored off [x] so it holds its column while hidden.
     local warn = K.CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
+    warn:SetPoint("RIGHT", delBtn, "LEFT", -4, -2)
     row.warnIcon = warn
 
     state.ruleRows[index] = row

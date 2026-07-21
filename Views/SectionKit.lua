@@ -431,15 +431,32 @@ function K.AddHeaderTextButton(box, anchorTo, text, tooltipTitle, tooltipText, O
     return btn
 end
 
--- Square row-button-sized header button (the CC section's clear-all "X"),
--- sitting in the same column as the rows' [x] buttons. The caller wires the
--- click and tooltip scripts.
-function K.CreateHeaderSquareButton(box, label)
-    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    btn:SetFrameLevel(box:GetFrameLevel() + 1)
-    btn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-    btn:SetText(label)
+-- The window's round red close button (UIPanelCloseButton -- same as the title
+-- bar's), for the small delete / clear-all "x" controls so they match the
+-- window's close button. The caller wires the click and tooltip scripts.
+-- MotionScriptsWhileDisabled keeps the tooltip alive for the clear-all's
+-- disabled ("nothing to clear") state.
+--
+-- The frame stays MAIL_BTN_SIZE so header and row X's line up with the mail
+-- column. UIPanelCloseButton's texture is mostly transparent padding around a
+-- small X, so we grow the textures past the frame -- the visible X fills the
+-- button's footprint (a bolder X, little apparent left/right padding) without
+-- changing the layout size.
+function K.CreateCloseButton(parent, size, growFactor)
+    local s = size or K.MAIL_BTN_SIZE
+    local btn = CreateFrame("Button", nil, parent, "UIPanelCloseButton")
+    btn:SetFrameLevel(parent:GetFrameLevel() + 1)
+    btn:SetSize(s, s)
     btn:SetMotionScriptsWhileDisabled(true)
+    local grow = s * (growFactor or 0.3)
+    for _, tex in ipairs({ btn:GetNormalTexture(), btn:GetPushedTexture(),
+        btn:GetHighlightTexture(), btn:GetDisabledTexture() }) do
+        if tex then
+            tex:ClearAllPoints()
+            tex:SetPoint("TOPLEFT", -grow, grow)
+            tex:SetPoint("BOTTOMRIGHT", grow, -grow)
+        end
+    end
     return btn
 end
 
