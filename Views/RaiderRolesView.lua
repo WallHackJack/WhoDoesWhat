@@ -85,7 +85,7 @@ local function AssignedRole(name)
     return role, roleId
 end
 
--- Group members split into the four buckets, each sorted by class then name.
+-- Group members split into the four buckets, each sorted class > role > name.
 local function BucketedMembers()
     local buckets = { tank = {}, healer = {}, dps = {}, none = {} }
     for _, m in ipairs(WhoDoesWhat:GetGroupMembers(nil)) do
@@ -99,6 +99,9 @@ local function BucketedMembers()
             if a.classInfo.name ~= b.classInfo.name then
                 return a.classInfo.name < b.classInfo.name
             end
+            -- Within a class, group by assigned role (specs clump together).
+            local ra, rb = WhoDoesWhat:RoleSortRank(a.name), WhoDoesWhat:RoleSortRank(b.name)
+            if ra ~= rb then return ra < rb end
             return a.name < b.name
         end)
     end

@@ -670,6 +670,27 @@ function WhoDoesWhat:DeleteCustomRole(roleId)
     self:PopulateRolesAndCategories()
 end
 
+-- Sort rank for a player's assigned role WITHIN their class, so same-role
+-- players clump when a list is ordered class > role > name. The rank is the
+-- role's position in the class's own role list (class-definition order, e.g.
+-- Warrior Fury/Arms/Tank), with custom roles after the built-ins and anything
+-- roleless/unresolved sorted last. Class ordering is handled by the caller.
+function WhoDoesWhat:RoleSortRank(playerName)
+    local roleId = self:GetAssignedRole(playerName)
+    if not roleId then return math.huge end
+    local classInfo = self.RolesAndCategories[roleId] and self.RolesAndCategories[roleId].classInfo
+    if not classInfo then return math.huge end
+    for i, role in ipairs(classInfo.roles) do
+        if role.id == roleId then return i end
+    end
+    if classInfo.customRoles then
+        for i, role in ipairs(classInfo.customRoles) do
+            if role.id == roleId then return 100 + i end
+        end
+    end
+    return math.huge
+end
+
 -- Instantly find a role or category by ID
 function WhoDoesWhat:FindRoleById(roleId)
     local entry = self.RolesAndCategories[roleId]

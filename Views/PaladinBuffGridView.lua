@@ -63,7 +63,7 @@ local INFO_TALENT_Y0 = INFO_BOX_PAD + 26
 local INFO_LINE_H = 16
 local INFO_BOX_H = INFO_TALENT_Y0 + 2 * INFO_LINE_H + INFO_BOX_PAD
 
--- Group members sorted by class then name (same ordering the Raider Roles
+-- Group members sorted class > role > name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
 -- (the unit-menu pseudo-role) are sitting out and get no grid row. Hunter
 -- pets ride along as virtual rows (their own plan cells); they carry the
@@ -87,6 +87,9 @@ local function SortedMembers()
         if (a.isPet or false) ~= (b.isPet or false) then
             return not a.isPet
         end
+        -- Within a class, group by assigned role (tank/heal/dps clump together).
+        local ra, rb = WhoDoesWhat:RoleSortRank(a.name), WhoDoesWhat:RoleSortRank(b.name)
+        if ra ~= rb then return ra < rb end
         return a.name < b.name
     end)
     return members
