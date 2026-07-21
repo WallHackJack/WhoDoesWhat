@@ -493,18 +493,42 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Recompute the scroll child's height from the taller column (section boxes
--- grow and shrink with their rows) and refresh the scroll range.
+-- grow and shrink with their rows) and refresh the scroll range. Hidden boxes
+-- (the Paladin-only view hides all but one) don't count toward the height.
 function K.UpdateContentHeight(f)
     local tallest = 0
     for _, col in ipairs(f.columns) do
         local h = 0
         for _, box in ipairs(col.boxes) do
-            h = h + box:GetHeight() + K.SECTION_GAP
+            if box:IsShown() then
+                h = h + box:GetHeight() + K.SECTION_GAP
+            end
         end
         tallest = math.max(tallest, h)
     end
     f.content:SetHeight(math.max(tallest, 1))
     f.scroll:UpdateScrollChildRect()
+end
+
+-- Re-anchor each column's VISIBLE section boxes top-to-bottom, chaining each to
+-- the previous visible box's bottom so a hidden box (Paladin-only view) leaves
+-- no gap. Idempotent -- in the full view it reproduces CreateSectionBox's own
+-- anchor chain. Run whenever box visibility might have changed.
+function K.LayoutColumnBoxes(f)
+    for _, col in ipairs(f.columns) do
+        local prev
+        for _, box in ipairs(col.boxes) do
+            if box:IsShown() then
+                box:ClearAllPoints()
+                if prev then
+                    box:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -K.SECTION_GAP)
+                else
+                    box:SetPoint("TOPLEFT", f.content, "TOPLEFT", col.x, 0)
+                end
+                prev = box
+            end
+        end
+    end
 end
 
 -- Clear-a-whole-section confirm. The `data` passed to StaticPopup_Show is the

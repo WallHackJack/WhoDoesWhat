@@ -8,7 +8,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local settingsFrame = nil
 
 local FRAME_W = 320
-local FRAME_H = 510
+local FRAME_H = 560
 local MARGIN = 14
 local CHECKBOX_ROW_H = 50
 
@@ -54,6 +54,14 @@ local function EnsureSettingsFrame()
         function(value)
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
             WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
+        end)
+
+    f.paladinOnlyCheck, y = AddCheckboxRow(f, y, "Prefer Paladin-only view",
+        "Show only the Paladin Buffs section in the main window. The full board still appears while there are active tank/CC/misdirect/curse assignments.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.paladinOnlyView = value
+            WhoDoesWhat:Print("Paladin-only view " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:RefreshMainAssignmentsView()
         end)
 
     y = y + 6
@@ -144,6 +152,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
 
     local settings = self.db.profile.settings
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
+    f.paladinOnlyCheck:SetChecked(settings.paladinOnlyView)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
