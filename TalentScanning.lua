@@ -22,8 +22,9 @@ local INSPECTOR_PREFIX = "LCIV1"
 -- Inherently undetectable from a spec: warlock_firetank, druid_dreamstate
 -- and custom roles -- those only ever arrive by hand, and
 -- AutoAssignDetectedRole is built to leave them alone. Feral tanks and cat
--- DPS share one tree; DPS is the default guess, and a manual correction to
--- Feral Tank sticks for the same reason.
+-- DPS share one tree, so the guess here is always cat DPS; OnTalentsReady
+-- recovers the tank from tank cues (WDW feral-tank role / TANK flag / MAINTANK)
+-- before auto-assigning, and a manual correction to Feral Tank sticks anyway.
 local SPEC_ROLES = {
     WARRIOR = { "warrior_arms", "warrior_fury", "warrior_prot" },
     PALADIN = { "paladin_holy", "paladin_prot", "paladin_ret" },
@@ -211,7 +212,12 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
 
     profile.assignments[playerName] = detectedRoleId
     local _, role = self:FindRoleById(detectedRoleId)
-    if playerName == UnitName("player") or self:CanSetGroupBlizzardState() then
+    -- Only the single flag-authority (the leader, or ourselves) touches the
+    -- Blizzard flag here. A non-leader that detected this spec still SAVES the
+    -- WDW assignment (and syncs it if permitted); the leader picks it up over
+    -- the wire and does the one UnitSetRole -- so two clients scanning the same
+    -- newcomer don't fight over the flag. See CanSetOthersBlizzardRole.
+    if playerName == UnitName("player") or self:CanSetOthersBlizzardRole() then
         self:SyncBlizzardRoleState(playerName, role)
     end
     self:Print(playerName .. (current and " respecced: now " or " detected: ")
@@ -257,8 +263,33 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
 
     local detected = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
+
+    -- Feral druids (cat DPS and bear tank) share the Feral Combat tree, so the
+    -- spec read can't tell them apart -- it always guesses cat DPS. Recover the
+    -- tank when the player is already being treated as one: they hold the WDW
+    -- feral-tank role, they're flagged TANK on the raid frame, or they're a
+    -- promoted MAINTANK. Without this a bear that joined pre-flagged as tank
+    -- gets detected as DPS and (worse) has their TANK flag stomped to DPS.
+    if detected == "druid_feral_dps" then
+        if self.db.profile.assignments[key] == "druid_feral_tank"
+            or (UnitGroupRolesAssigned and UnitGroupRolesAssigned(key) == "TANK")
+            or GetPartyAssignment("MAINTANK", key, true) then
+            detected = "druid_feral_tank"
+        end
+    end
+
     if detected and (pointsSpent or 0) > 0 then
         self:AutoAssignDetectedRole(key, detected)
+    end
+
+    -- First-scan main-tank sweep: a player whose WDW role is a tank but who
+    -- isn't MAINTANK yet gets the promote arrow. Only the single flag-authority
+    -- (the leader) drives it, only in a raid; StartPromoteWatch is idempotent
+    -- per player, so the 60s talent rebroadcast that re-runs this won't re-nag
+    -- once they're pending or promoted.
+    if IsInRaid() and self:CanSetOthersBlizzardRole() and self:IsMarkedTank(key)
+        and not GetPartyAssignment("MAINTANK", key, true) then
+        self:StartPromoteWatch(key)
     end
 
     -- Paladins additionally get their buff talents read out, feeding the
@@ -316,7 +347,6 @@ function WhoDoesWhat:SyncRosterTalents()
         end
     end
 
-    local canFlag = self:CanSetGroupBlizzardState()
     for _, unit in ipairs(units) do
         local guid = UnitGUID(unit)
         if guid then
@@ -324,22 +354,13 @@ function WhoDoesWhat:SyncRosterTalents()
             if guid == UnitGUID("player") or (cachedAt and cachedAt ~= 0) then
                 self:OnTalentsReady("TALENTS_READY", guid, false)
             end
-
-            local name = GetUnitKey(unit)
-            local roleId = name and self.db.profile.assignments[name]
-            -- Your own flag is always yours, even as a non-lead party member;
-            -- others' flags only when canFlag (party lead / raid assist).
-            if roleId and (canFlag or UnitIsUnit(unit, "player")) then
-                local _, role = self:FindRoleById(roleId)
-                local meta = role and role.wowRole and self.BasicWowRoles[role.wowRole]
-                if meta and UnitSetRole and UnitGroupRolesAssigned
-                    and UnitGroupRolesAssigned(unit) ~= meta.blizzRole then
-                    UnitSetRole(unit, meta.blizzRole)
-                    self:Print(name .. "'s " .. meta.name .. " role flag restored.")
-                end
-            end
         end
     end
+
+    -- A kick resets the flag, and AutoAssignDetectedRole above won't restore it
+    -- (the detection didn't change), so reconcile every member's flag back to
+    -- the board -- our own always, others' only when we're the flag-authority.
+    self:ReconcileBlizzardRoles()
 end
 
 -- Joins fire GROUP_ROSTER_UPDATE in bursts, so the sweep runs once, a beat
@@ -354,6 +375,16 @@ rosterSync:SetScript("OnEvent", function()
         rosterSyncPending = false
         WhoDoesWhat:SyncRosterTalents()
     end)
+end)
+
+-- Combat self-heal: a UnitSetRole issued mid-fight is sometimes dropped by the
+-- server, so a raider switched during combat can keep their old flag. The
+-- instant combat ends, reconcile every member's flag to the board again. Cheap
+-- and idempotent (ReconcileBlizzardRoles no-ops on flags already correct).
+local combatRoleSync = CreateFrame("Frame")
+combatRoleSync:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatRoleSync:SetScript("OnEvent", function()
+    WhoDoesWhat:ReconcileBlizzardRoles()
 end)
 
 -- The library never fires TALENTS_READY for the local player (INSPECT_READY

@@ -500,6 +500,11 @@ function Sync:ApplyState(msg, senderKey)
     else
         WhoDoesWhat:Print("Assignments updated from " .. senderKey .. ".")
     end
+    -- The board just moved over the wire, which never touches Blizzard flags on
+    -- its own. If we're the flag-authority (leader), push the flags now so a
+    -- role an assist edited lands as one UnitSetRole from us -- not a race
+    -- between every assist. No-ops for non-leaders past their own flag.
+    WhoDoesWhat:ReconcileBlizzardRoles()
     RefreshAllViews()
 end
 
@@ -581,6 +586,10 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
             WhoDoesWhat:Print(senderKey .. " set their own role to "
                 .. (role and role.name or msg.role or "None") .. ".")
+            -- Their own broadcast carries no Blizzard flag; if we're the
+            -- flag-authority (leader), apply it for them so exactly one client
+            -- does the UnitSetRole.
+            WhoDoesWhat:ReconcileBlizzardRoles()
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshRaiderRolesView()
         end

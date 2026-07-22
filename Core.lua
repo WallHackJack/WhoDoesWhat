@@ -27,18 +27,27 @@ function WhoDoesWhat:IsRaidAssistant()
         and (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player"))
 end
 
--- True when the player may set OTHER members' Blizzard role flags (UnitSetRole)
--- and other protected group state: a raid needs assist (leader included), a
--- party needs leadership -- UnitSetRole silently no-ops on another member
--- otherwise, so claiming success without that authority is a lie. Solo counts
--- too. This gates only Blizzard-side group state -- WDW's own assignments sync
--- to everyone and are never gated by this. Your OWN role is always settable
--- regardless, so callers that can target themselves check
--- UnitIsUnit(unit, "player") / UnitName("player") separately.
-function WhoDoesWhat:CanSetGroupBlizzardState()
-    if IsInRaid() then return self:IsRaidAssistant() end
-    if IsInGroup() then return UnitIsGroupLeader("player") end
-    return true -- solo
+-- True when the local player is the SINGLE authority for writing OTHER
+-- members' Blizzard role flags (UnitSetRole) and main-tank state. The group
+-- LEADER owns this exclusively -- and that exclusivity is the point. The role
+-- flag has no range check and can be set from anywhere, so if every raid
+-- assistant wrote it, several clients (each with its own, differently-stale
+-- talent cache) would tug one player's flag back and forth. Routing every
+-- other-member write through the one leader means exactly one UnitSetRole
+-- happens. Solo counts. Your OWN role is always settable regardless, so
+-- callers that can target themselves check UnitIsUnit(unit, "player") /
+-- UnitName("player") separately. WDW's own assignments sync to everyone and
+-- are never gated by this -- only the Blizzard-side flag is.
+--
+-- Fallback: when no leader can own the board -- a battleground, or a raid
+-- whose leader doesn't run WhoDoesWhat (the same conditions that stand the
+-- editing rule down, PermissionsOpenReason) -- raid-assist rights are honoured
+-- instead, so the flags are still managed by someone rather than nobody.
+function WhoDoesWhat:CanSetOthersBlizzardRole()
+    if not IsInGroup() then return true end -- solo
+    if UnitIsGroupLeader("player") then return true end
+    if self:PermissionsOpenReason() then return self:IsRaidAssistant() end
+    return false
 end
 
 -- Whether a player's WDW role assignment (unit right-click menu) is a tank
@@ -146,6 +155,18 @@ local defaults = {
             -- How many paladins the fake roster carries (1-4; prot always,
             -- then ret, holy, a second ret). See FakeRaid.PALADINS.
             fakeRaidPaladinCount = 3,
+            -- Master toggle for the Paladin Buffing Bar (the clickable Nova-style
+            -- blessing bar). Off by default. See Views/PaladinBuffingBarView.lua.
+            buffingBarEnabled = false,
+            -- Dev/testing: render the buffing bar even when the local player
+            -- isn't a paladin, as the paladin named in buffingBarTestPaladin.
+            buffingBarTestMode = false,
+            -- Which paladin's jobs the bar renders while buffingBarTestMode is
+            -- on (a real or fake paladin's name); nil = the first one found.
+            buffingBarTestPaladin = nil,
+            -- Which way the buffing bar grows as blessings are added: "RIGHT"
+            -- (anchor its left edge) or "LEFT" (anchor its right edge).
+            buffingBarGrow = "RIGHT",
         },
     },
 }

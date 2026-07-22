@@ -577,11 +577,14 @@ end
 
 -- Repaint (both panes) if the window is up. Called from outside the view when
 -- buff assignments change (SetAssignment / auto-assign) or talent data
--- arrives (TalentScanning.lua, Sync.lua).
+-- arrives (TalentScanning.lua, Sync.lua). This is the de-facto "buff plan
+-- changed" hook, so it also nudges the buffing bar -- every plan-mutation site
+-- already routes through here, and the bar refresh no-ops when it's hidden.
 function WhoDoesWhat:RefreshPaladinBuffGridView()
     if gridFrame and gridFrame:IsShown() then
         RefreshGrid(gridFrame)
     end
+    self:RefreshPaladinBuffingBar()
 end
 
 -- Toggle the info + grid window open/closed. Shown before the refresh so the

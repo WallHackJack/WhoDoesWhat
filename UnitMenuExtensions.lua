@@ -78,11 +78,11 @@ end
 local function ApplyBlizzardRole(unit, playerName, role)
     if not role or not role.wowRole then return end
 
-    -- Setting another member's flag takes authority (party leader / raid
-    -- assist); your OWN role is always yours, in a party or a raid. Without
-    -- this the UnitSetRole below silently no-ops on others while we act as
-    -- though it took.
-    local mayFlag = UnitIsUnit(unit, "player") or WhoDoesWhat:CanSetGroupBlizzardState()
+    -- Writing another member's flag takes single-writer authority (the group
+    -- leader; see CanSetOthersBlizzardRole); your OWN role is always yours.
+    -- Without this the UnitSetRole below silently no-ops on others while we
+    -- act as though it took -- or, worse, several assists set it at once.
+    local mayFlag = UnitIsUnit(unit, "player") or WhoDoesWhat:CanSetOthersBlizzardRole()
 
     -- Only touch the flag when it actually differs: UnitSetRole on an
     -- already-set role re-announces it to the group ("X is now Damage
@@ -93,7 +93,7 @@ local function ApplyBlizzardRole(unit, playerName, role)
         UnitSetRole(unit, meta.blizzRole)
     end
 
-    if IsInRaid() and role.wowRole ~= "tank"
+    if mayFlag and IsInRaid() and role.wowRole ~= "tank"
         and GetPartyAssignment("MAINTANK", playerName, true) then
         ClearPartyAssignment("MAINTANK", playerName, true)
     end
@@ -108,9 +108,44 @@ end
 -- APIs involved, so callers without a token (talent auto-detection) omit it.
 function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
     ApplyBlizzardRole(unit or playerName, playerName, role)
+    -- Promoting to main tank is the leader's job, so only the flag-authority
+    -- raises the promote arrow -- a non-leader (or someone setting their own
+    -- tank role) can't promote anyone and doesn't want a useless pointer.
     if role and role.wowRole == "tank" and IsInRaid()
+        and self:CanSetOthersBlizzardRole()
         and not GetPartyAssignment("MAINTANK", playerName, true) then
         self:StartPromoteWatch(playerName)
+    end
+end
+
+-- Reconcile every group member's Blizzard role flag (and main-tank demotion)
+-- to their stored WDW assignment. This is the ONE write path for OTHER
+-- members' flags -- gated inside ApplyBlizzardRole on CanSetOthersBlizzardRole,
+-- so only the leader ever pushes them -- however the role change reached us:
+-- our own edit, a synced board (Sync.lua), a member's ROLE broadcast, a talent
+-- auto-detect, a roster sweep, or combat ending. It no-ops on flags that
+-- already match (re-setting re-announces and fights other role addons), and it
+-- never opens a frame (no promote-watch), so it is safe to run in combat --
+-- PLAYER_REGEN_ENABLED re-runs it to heal any UnitSetRole the server dropped
+-- mid-fight (see TalentScanning.lua).
+function WhoDoesWhat:ReconcileBlizzardRoles()
+    if not (UnitSetRole and UnitGroupRolesAssigned) then return end
+    local units = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
+    else
+        units[1] = "player"
+        for i = 1, GetNumSubgroupMembers() do units[#units + 1] = "party" .. i end
+    end
+    for _, unit in ipairs(units) do
+        local name = GetUnitKey(unit)
+        local roleId = name and self.db.profile.assignments[name]
+        if roleId then
+            local _, role = self:FindRoleById(roleId)
+            if role and role.wowRole then
+                ApplyBlizzardRole(unit, name, role)
+            end
+        end
     end
 end
 

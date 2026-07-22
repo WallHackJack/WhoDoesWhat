@@ -26,6 +26,7 @@ Libs\LibSerialize\lib.xml
 Libs\LibDeflate\lib.xml
 Libs\LibDetours-1.0\LibDetours-1.0.lua
 Libs\LibClassicInspector\LibClassicInspector.lua
+Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 
 # --- Main ---
 Core.lua
@@ -56,6 +57,7 @@ Views\Sections\WarlockCursesSection.lua
 Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
 Views\PaladinBuffGridView.lua
+Views\PaladinBuffingBarView.lua
 Views\PallyPowerLogView.lua
 Views\AllRolesView.lua
 Views\SingleRolesCustomizeView.lua

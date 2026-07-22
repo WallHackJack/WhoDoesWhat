@@ -1484,6 +1484,139 @@ local function AutoPlaceAfflictionElements(playerName)
     return true
 end
 
+-- One paladin's buffing jobs, grouped per blessing -- the model behind the
+-- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the same
+-- per-raider grid as the PallyPower bridge and collapses it the same way, but
+-- with no dependency on PallyPower: for each class this paladin buffs, the
+-- majority blessing is the Greater cast (buffs the whole class in one go) and
+-- the dissenters ride along as per-player Normal casts; each hunter pet is its
+-- own Normal cast (a Greater never reaches it).
+--
+-- Returns an array of per-blessing jobs, canonical-buff order:
+--   { key, buff,                       -- PaladinBuffs metadata
+--     total, covered,                  -- real-raider coverage (BuffTracking)
+--     casts = {                        -- ordered: Greaters first, then Normals
+--       { name, isGreater, classInfo, isPet, has }, ... } }
+-- `has` is the live buff state (true/false/nil) for that cast's representative
+-- raider, so the view can colour and the tooltip can list who's missing.
+local function GetPaladinBuffJobs(paladinName)
+    local canonical = WhoDoesWhat.CanonicalBuffOrder
+    local canonIndex = {}
+    for i, key in ipairs(canonical) do canonIndex[key] = i end
+
+    -- raider name -> classInfo / pet flag (pets carry their owner's class).
+    local classOf, isPet = {}, {}
+    for _, m in ipairs(WhoDoesWhat:GetGroupMembers(nil)) do
+        classOf[m.name] = m.classInfo
+    end
+    for _, pet in ipairs(GetPetMembers()) do
+        classOf[pet.name] = pet.classInfo
+        isPet[pet.name] = true
+    end
+
+    -- This paladin's cells: raider -> buffKey.
+    local plan = ComputeBuffGrid()
+    local mine = {}
+    for raider, cells in pairs(plan) do
+        if cells[paladinName] then mine[raider] = cells[paladinName] end
+    end
+
+    -- Group non-pet raiders by class, tallying each blessing, to find each
+    -- class's majority (its Greater assignment). Ties break canonical so a
+    -- class lands on the same Greater every refresh.
+    local byClass = {} -- className -> { classInfo, buffs = { buffKey -> {names} } }
+    for raider, key in pairs(mine) do
+        if not isPet[raider] then
+            local ci = classOf[raider]
+            local cn = ci and ci.name or "?"
+            local c = byClass[cn]
+            if not c then c = { classInfo = ci, buffs = {} }; byClass[cn] = c end
+            c.buffs[key] = c.buffs[key] or {}
+            c.buffs[key][#c.buffs[key] + 1] = raider
+        end
+    end
+    local classMajority = {} -- className -> buffKey
+    for cn, c in pairs(byClass) do
+        local best, bestN
+        for key, names in pairs(c.buffs) do
+            local n = #names
+            if not best or n > bestN
+                or (n == bestN and (canonIndex[key] or 99) < (canonIndex[best] or 99)) then
+                best, bestN = key, n
+            end
+        end
+        classMajority[cn] = best
+    end
+
+    -- Assemble one job per blessing this paladin casts.
+    local jobs, jobByKey = {}, {}
+    local function job(key)
+        local j = jobByKey[key]
+        if not j then
+            j = { key = key, buff = WhoDoesWhat.PaladinBuffs[key],
+                total = 0, covered = 0, casts = {}, raiders = {} }
+            jobByKey[key] = j
+            jobs[#jobs + 1] = j
+        end
+        return j
+    end
+
+    -- Greater casts: one per (class, majority-blessing). Representative is the
+    -- first assigned class member (name-sorted) so the pick is stable.
+    for cn, c in pairs(byClass) do
+        local key = classMajority[cn]
+        local members = c.buffs[key]
+        table.sort(members)
+        local j = job(key)
+        j.casts[#j.casts + 1] = {
+            name = members[1], isGreater = true, classInfo = c.classInfo,
+            has = WhoDoesWhat:HasBuff(members[1], key),
+        }
+    end
+
+    -- Normal casts: every raider whose blessing isn't their class's Greater,
+    -- plus every pet (a Greater never reaches a pet).
+    local normals = {}
+    for raider, key in pairs(mine) do
+        local cn = classOf[raider] and classOf[raider].name or "?"
+        if isPet[raider] or classMajority[cn] ~= key then
+            normals[#normals + 1] = { name = raider, key = key }
+        end
+    end
+    table.sort(normals, function(a, b)
+        if a.key ~= b.key then
+            return (canonIndex[a.key] or 99) < (canonIndex[b.key] or 99)
+        end
+        return a.name < b.name
+    end)
+    for _, n in ipairs(normals) do
+        local j = job(n.key)
+        j.casts[#j.casts + 1] = {
+            name = n.name, isGreater = false, classInfo = classOf[n.name],
+            isPet = isPet[n.name], has = WhoDoesWhat:HasBuff(n.name, n.key),
+        }
+    end
+
+    -- Coverage counts over real raiders only (pet auras aren't tracked, so
+    -- counting them would peg every pet-carrying job below full forever).
+    -- Each job also keeps its real raiders + live buff state so the view can
+    -- range-check the ones still missing it.
+    for raider, key in pairs(mine) do
+        if not isPet[raider] then
+            local j = jobByKey[key]
+            local has = WhoDoesWhat:HasBuff(raider, key)
+            j.total = j.total + 1
+            j.raiders[#j.raiders + 1] = { name = raider, has = has }
+            if has == true then j.covered = j.covered + 1 end
+        end
+    end
+
+    table.sort(jobs, function(a, b)
+        return (canonIndex[a.key] or 99) < (canonIndex[b.key] or 99)
+    end)
+    return jobs
+end
+
 -- ---------------------------------------------------------------------------
 -- Exports: the shared vocabulary the view and the unit-menu API re-localize.
 -- ---------------------------------------------------------------------------
@@ -1540,6 +1673,7 @@ WhoDoesWhat.Assign = {
     BuffTalents = BuffTalents,
     ComputeBuffGrid = ComputeBuffGrid,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
+    GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,
     GetBuffRules = GetBuffRules,
     -- storage
