@@ -1484,136 +1484,189 @@ local function AutoPlaceAfflictionElements(playerName)
     return true
 end
 
--- One paladin's buffing jobs, grouped per blessing -- the model behind the
+-- ownerName -> { name = realPetName, unit = petUnit } for live hunter pets
+-- (the same resolution the PallyPower bridge uses). Fake hunters have no real
+-- pet unit and are absent here.
+local function GetPetUnitInfo()
+    local owners = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do owners[#owners + 1] = { "raid" .. i, "raid" .. i .. "pet" } end
+    else
+        owners[#owners + 1] = { "player", "pet" }
+        for i = 1, GetNumSubgroupMembers() do owners[#owners + 1] = { "party" .. i, "party" .. i .. "pet" } end
+    end
+    local out = {}
+    for _, u in ipairs(owners) do
+        if UnitExists(u[2]) then
+            local owner, pname = GetUnitName(u[1], true), GetUnitName(u[2], true)
+            if owner and pname then out[owner] = { name = pname, unit = u[2] } end
+        end
+    end
+    return out
+end
+
+-- The set of blessing keys some paladin gives WARRIORS as their class Greater
+-- (majority of that paladin's warrior assignments, ties canonical -- the same
+-- derivation the PallyPower bridge uses; pets don't vote here). A hunter pet
+-- rides the Warrior blessing group, so any pet want already in this set is
+-- delivered by a Warrior Greater and needs no individual Normal.
+local function WarriorGreaterKeys(plan, classOf)
+    local canonIndex = {}
+    for i, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do canonIndex[key] = i end
+
+    local perPally = {} -- paladin -> { key -> count } across their warriors
+    for raider, cells in pairs(plan) do
+        local ci = classOf[raider]
+        if ci and ci.name == "Warrior" then
+            for pal, key in pairs(cells) do
+                perPally[pal] = perPally[pal] or {}
+                perPally[pal][key] = (perPally[pal][key] or 0) + 1
+            end
+        end
+    end
+    local set = {}
+    for _, tally in pairs(perPally) do
+        local best, bestN
+        for key, count in pairs(tally) do
+            if not best or count > bestN
+                or (count == bestN and (canonIndex[key] or 99) < (canonIndex[best] or 99)) then
+                best, bestN = key, count
+            end
+        end
+        if best then set[best] = true end
+    end
+    return set
+end
+
+-- One paladin's buffing jobs, grouped per CLASS -- the model behind the
 -- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the same
--- per-raider grid as the PallyPower bridge and collapses it the same way, but
--- with no dependency on PallyPower: for each class this paladin buffs, the
--- majority blessing is the Greater cast (buffs the whole class in one go) and
--- the dissenters ride along as per-player Normal casts; each hunter pet is its
--- own Normal cast (a Greater never reaches it).
+-- per-raider grid as the PallyPower bridge and collapses it the same way, with
+-- no dependency on PallyPower: within each class this paladin buffs, the
+-- majority blessing is the class Greater (one cast buffs the whole class) and
+-- the dissenters are per-player Normal exceptions.
 --
--- Returns an array of per-blessing jobs, canonical-buff order:
---   { key, buff,                       -- PaladinBuffs metadata
---     total, covered,                  -- real-raider coverage (BuffTracking)
---     casts = {                        -- ordered: Greaters first, then Normals
---       { name, isGreater, classInfo, isPet, has }, ... } }
--- `has` is the live buff state (true/false/nil) for that cast's representative
--- raider, so the view can colour and the tooltip can list who's missing.
+-- Hunter pets bucket under WARRIORS -- a Greater on a Warrior reaches them, so
+-- a pet whose want matches the class Greater is covered for free, and a pet
+-- wanting something else rides the right-click Normal cycle like any exception.
+-- The Warrior button appears for pets even with no warriors present.
+--
+-- Returns an array of per-class jobs (class-name sorted). Each member (raider
+-- or pet) carries display name, buff key, live state, and -- for pets -- the
+-- pet unit token to cast on:
+--   { classInfo, greaterKey, greaterBuff, hasPets, hasNonPets,
+--     normals  = { { name, key, buff, isPet, petUnit }, ... },  -- right-click
+--     raiders  = { { name, key, has, isPet, petUnit }, ... },   -- count/range/left
+--     total, covered }
 local function GetPaladinBuffJobs(paladinName)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local canonIndex = {}
     for i, key in ipairs(canonical) do canonIndex[key] = i end
 
-    -- raider name -> classInfo / pet flag (pets carry their owner's class).
-    local classOf, isPet = {}, {}
+    local classOf = {}
     for _, m in ipairs(WhoDoesWhat:GetGroupMembers(nil)) do
         classOf[m.name] = m.classInfo
     end
-    for _, pet in ipairs(GetPetMembers()) do
-        classOf[pet.name] = pet.classInfo
-        isPet[pet.name] = true
-    end
 
-    -- This paladin's cells: raider -> buffKey.
     local plan = ComputeBuffGrid()
-    local mine = {}
-    for raider, cells in pairs(plan) do
-        if cells[paladinName] then mine[raider] = cells[paladinName] end
+    -- className -> { classInfo, members = {...}, hasPets, hasNonPets }
+    local byClass = {}
+    local function bucket(ci)
+        local c = byClass[ci.name]
+        if not c then c = { classInfo = ci, members = {} }; byClass[ci.name] = c end
+        return c
     end
 
-    -- Group non-pet raiders by class, tallying each blessing, to find each
-    -- class's majority (its Greater assignment). Ties break canonical so a
-    -- class lands on the same Greater every refresh.
-    local byClass = {} -- className -> { classInfo, buffs = { buffKey -> {names} } }
-    for raider, key in pairs(mine) do
-        if not isPet[raider] then
-            local ci = classOf[raider]
-            local cn = ci and ci.name or "?"
-            local c = byClass[cn]
-            if not c then c = { classInfo = ci, buffs = {} }; byClass[cn] = c end
-            c.buffs[key] = c.buffs[key] or {}
-            c.buffs[key][#c.buffs[key] + 1] = raider
+    -- Real raiders in their own class.
+    for raider, cells in pairs(plan) do
+        local key, ci = cells[paladinName], classOf[raider]
+        if key and ci then
+            local c = bucket(ci)
+            c.members[#c.members + 1] = { statusName = raider, display = raider, key = key }
+            c.hasNonPets = true
         end
     end
-    local classMajority = {} -- className -> buffKey
-    for cn, c in pairs(byClass) do
-        local best, bestN
-        for key, names in pairs(c.buffs) do
-            local n = #names
-            if not best or n > bestN
-                or (n == bestN and (canonIndex[key] or 99) < (canonIndex[best] or 99)) then
-                best, bestN = key, n
+
+    -- Hunter pets under the Warrior bucket -- but only for a want a Warrior
+    -- Greater doesn't already deliver (that one rides the class Greater for
+    -- free; only the leftover want needs an individual Normal).
+    local warriorGreaters = WarriorGreaterKeys(plan, classOf)
+    local warriorCI = GetClassInfoByToken("WARRIOR")
+    if warriorCI then
+        local petInfo = GetPetUnitInfo()
+        for _, pet in ipairs(GetPetMembers()) do
+            local key = plan[pet.name] and plan[pet.name][paladinName]
+            if key and not warriorGreaters[key] then
+                local c = bucket(warriorCI)
+                local info = petInfo[pet.owner]
+                c.members[#c.members + 1] = {
+                    statusName = pet.name, -- BuffTracking key: "<Owner>'s Pet"
+                    display = (info and info.name) or pet.name,
+                    key = key, isPet = true, owner = pet.owner,
+                    petUnit = info and info.unit,
+                }
+                c.hasPets = true
             end
         end
-        classMajority[cn] = best
     end
 
-    -- Assemble one job per blessing this paladin casts.
-    local jobs, jobByKey = {}, {}
-    local function job(key)
-        local j = jobByKey[key]
-        if not j then
-            j = { key = key, buff = WhoDoesWhat.PaladinBuffs[key],
-                total = 0, covered = 0, casts = {}, raiders = {} }
-            jobByKey[key] = j
-            jobs[#jobs + 1] = j
+    local jobs = {}
+    for _, c in pairs(byClass) do
+        -- The class Greater = majority blessing; ties break canonical. Real
+        -- members decide it (pets don't vote for the Warrior Greater), falling
+        -- back to the pets for a pets-only bucket (no warriors present).
+        local anyReal = false
+        for _, m in ipairs(c.members) do
+            if not m.isPet then anyReal = true; break end
         end
-        return j
-    end
+        local tally = {}
+        for _, m in ipairs(c.members) do
+            if (not m.isPet) or (not anyReal) then
+                tally[m.key] = (tally[m.key] or 0) + 1
+            end
+        end
+        local greaterKey, bestN
+        for key, count in pairs(tally) do
+            if not greaterKey or count > bestN
+                or (count == bestN and (canonIndex[key] or 99) < (canonIndex[greaterKey] or 99)) then
+                greaterKey, bestN = key, count
+            end
+        end
 
-    -- Greater casts: one per (class, majority-blessing). Representative is the
-    -- first assigned class member (name-sorted) so the pick is stable.
-    for cn, c in pairs(byClass) do
-        local key = classMajority[cn]
-        local members = c.buffs[key]
-        table.sort(members)
-        local j = job(key)
-        j.casts[#j.casts + 1] = {
-            name = members[1], isGreater = true, classInfo = c.classInfo,
-            has = WhoDoesWhat:HasBuff(members[1], key),
+        local job = {
+            classInfo = c.classInfo,
+            greaterKey = greaterKey,
+            greaterBuff = WhoDoesWhat.PaladinBuffs[greaterKey],
+            normals = {},
+            raiders = {},
+            total = 0, covered = 0,
+            hasPets = c.hasPets or false,
+            hasNonPets = c.hasNonPets or false,
         }
+        for _, m in ipairs(c.members) do
+            local has = WhoDoesWhat:HasBuff(m.statusName, m.key)
+            job.raiders[#job.raiders + 1] = {
+                name = m.display, key = m.key, has = has,
+                isPet = m.isPet, petUnit = m.petUnit,
+            }
+            job.total = job.total + 1
+            if has == true then job.covered = job.covered + 1 end
+            if m.key ~= greaterKey then
+                job.normals[#job.normals + 1] = {
+                    name = m.display, key = m.key, buff = WhoDoesWhat.PaladinBuffs[m.key],
+                    isPet = m.isPet, petUnit = m.petUnit,
+                }
+            end
+        end
+        table.sort(job.normals, function(a, b)
+            if a.key ~= b.key then
+                return (canonIndex[a.key] or 99) < (canonIndex[b.key] or 99)
+            end
+            return a.name < b.name
+        end)
+        jobs[#jobs + 1] = job
     end
 
-    -- Normal casts: every raider whose blessing isn't their class's Greater,
-    -- plus every pet (a Greater never reaches a pet).
-    local normals = {}
-    for raider, key in pairs(mine) do
-        local cn = classOf[raider] and classOf[raider].name or "?"
-        if isPet[raider] or classMajority[cn] ~= key then
-            normals[#normals + 1] = { name = raider, key = key }
-        end
-    end
-    table.sort(normals, function(a, b)
-        if a.key ~= b.key then
-            return (canonIndex[a.key] or 99) < (canonIndex[b.key] or 99)
-        end
-        return a.name < b.name
-    end)
-    for _, n in ipairs(normals) do
-        local j = job(n.key)
-        j.casts[#j.casts + 1] = {
-            name = n.name, isGreater = false, classInfo = classOf[n.name],
-            isPet = isPet[n.name], has = WhoDoesWhat:HasBuff(n.name, n.key),
-        }
-    end
-
-    -- Coverage counts over real raiders only (pet auras aren't tracked, so
-    -- counting them would peg every pet-carrying job below full forever).
-    -- Each job also keeps its real raiders + live buff state so the view can
-    -- range-check the ones still missing it.
-    for raider, key in pairs(mine) do
-        if not isPet[raider] then
-            local j = jobByKey[key]
-            local has = WhoDoesWhat:HasBuff(raider, key)
-            j.total = j.total + 1
-            j.raiders[#j.raiders + 1] = { name = raider, has = has }
-            if has == true then j.covered = j.covered + 1 end
-        end
-    end
-
-    table.sort(jobs, function(a, b)
-        return (canonIndex[a.key] or 99) < (canonIndex[b.key] or 99)
-    end)
+    table.sort(jobs, function(a, b) return a.classInfo.name < b.classInfo.name end)
     return jobs
 end
 

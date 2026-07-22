@@ -234,10 +234,18 @@ local function BuildDesired(self, pp, paladins)
         end
     end
 
-    -- Hunter pets: one single-target Normal blessing each (the owner's class
-    -- Greater Blessing never reaches them). Filed under petClassId, keyed by
-    -- the pet's real name, attributed to the paladin the grid matched to that
-    -- pet. Pets we couldn't name are left uncovered here rather than guessed.
+    -- Hunter pets ride the Warrior blessing group: a Greater on a Warrior
+    -- reaches them, so any pet want a Warrior-class Greater already delivers
+    -- needs no Normal. Collect those Greaters, then file only the leftover pet
+    -- wants as single-target Normals under petClassId (Warrior), keyed by the
+    -- pet's real name. Pets we couldn't name are left uncovered here.
+    local petGreaters = {}
+    if petClassId then
+        for _, pname in ipairs(paladins) do
+            local g = assignments[ShortName(pname)][petClassId]
+            if g and g ~= 0 then petGreaters[g] = true end
+        end
+    end
     for petName, owner in pairs(petOwner) do
         local realName = petRealName[owner]
         if realName and petClassId then
@@ -245,7 +253,8 @@ local function BuildDesired(self, pp, paladins)
             for paladin, buffKey in pairs(plan[petName] or {}) do
                 local pshort = ShortName(paladin)
                 local bless = BuffKeyToBlessingId(buffKey)
-                if bless and not IsFakeName(paladin) and normal[pshort] then
+                if bless and not petGreaters[bless]
+                    and not IsFakeName(paladin) and normal[pshort] then
                     normal[pshort][petClassId] = normal[pshort][petClassId] or {}
                     normal[pshort][petClassId][realShort] = bless
                     singleCount = singleCount + 1

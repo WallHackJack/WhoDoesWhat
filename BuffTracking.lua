@@ -82,21 +82,36 @@ local function UnitToKey(unit)
     return name
 end
 
--- The unit tokens for the current group (self included off-raid). Fake raiders
--- have no real unit and are simply never tracked -- their buffs stay unknown.
-local function GroupUnits()
-    local units = {}
+-- The units to scan as { unit, key } pairs: every group member (self included
+-- off-raid), plus each hunter's pet keyed "<Owner>'s Pet" to match the plan /
+-- GetPetMembers, so HasBuff("<Owner>'s Pet") resolves. Fake raiders have no
+-- real unit and are simply never tracked -- their buffs stay unknown.
+local function GroupTargets()
+    local owners = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            units[#units + 1] = "raid" .. i
+            owners[#owners + 1] = { "raid" .. i, "raid" .. i .. "pet" }
         end
     else
-        units[1] = "player"
+        owners[1] = { "player", "pet" }
         for i = 1, GetNumSubgroupMembers() do
-            units[#units + 1] = "party" .. i
+            owners[#owners + 1] = { "party" .. i, "party" .. i .. "pet" }
         end
     end
-    return units
+
+    local targets = {}
+    for _, o in ipairs(owners) do
+        local key = UnitToKey(o[1])
+        if key then
+            targets[#targets + 1] = { unit = o[1], key = key }
+            -- Only hunter pets take blessings we plan for (warlock pets aren't
+            -- covered); match GetPetMembers, which is hunters-only.
+            if UnitExists(o[2]) and select(2, UnitClass(o[1])) == "HUNTER" then
+                targets[#targets + 1] = { unit = o[2], key = key .. "'s Pet" }
+            end
+        end
+    end
+    return targets
 end
 
 -- True for the unit tokens GroupUnits produces, so UNIT_AURA can ignore
@@ -184,12 +199,9 @@ function BuffTracking:RefreshAll()
     if not nameToKey then BuildNameMap() end
     local changed = false
     local seen = {}
-    for _, unit in ipairs(GroupUnits()) do
-        local name = UnitToKey(unit)
-        if name then
-            seen[name] = true
-            if ScanUnit(unit, name) then changed = true end
-        end
+    for _, t in ipairs(GroupTargets()) do
+        seen[t.key] = true
+        if ScanUnit(t.unit, t.key) then changed = true end
     end
     for name in pairs(state) do
         if not seen[name] then

@@ -1,11 +1,11 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- The Paladin Buffing Bar: a movable Nova-style strip of one button per
--- blessing the local paladin is assigned to cast (WhoDoesWhat.Assign.
--- GetPaladinBuffJobs), each showing the blessing icon and a coloured
--- "covered/total" count. Left-clicking a button casts the blessing on the next
--- assigned target that needs it, rotating through them (Greater per class,
--- Normal per exception) -- see the secure-casting section below.
+-- The Paladin Buffing Bar: a movable Nova-style strip of one button per CLASS
+-- the local paladin is assigned to buff (WhoDoesWhat.Assign.GetPaladinBuffJobs),
+-- each showing the class icon and a coloured "buffed/total" count. Left-click
+-- casts the class's Greater Blessing on a class member (buffs the whole class);
+-- right-click cycles that class's individual Normal-blessing exceptions -- see
+-- the secure-casting section below.
 --
 -- Whose jobs it renders (ResolveBarPaladin): normally the local player when
 -- they're a paladin; in test mode, the paladin picked in the settings dropdown
@@ -18,12 +18,12 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local bar = nil
 
-local INSET = 4        -- backdrop edge inset
-local PAD = 4          -- inner padding around the button row
-local TITLE_H = 14     -- title strip height
-local BTN_SIZE = 36
-local BTN_GAP = 4
-local COUNT_H = 12     -- room under a button for its count text
+local INSET = 3        -- backdrop edge inset
+local PAD = 3          -- inner padding around the button row
+local TITLE_H = 12     -- title strip height
+local BTN_SIZE = 28
+local BTN_GAP = 3
+local COUNT_H = 10     -- room under a button for its count text
 
 -- y from the bar's top down to where the button row begins.
 local CONTENT_TOP = INSET + TITLE_H + 2
@@ -159,12 +159,22 @@ local function TargetInRange(unit, spellId)
     return true
 end
 
--- Does this job have at least one still-missing raider in range -- i.e. is
--- there anything to cast right now? Drives both the glow and the range-grey.
+-- The unit token to target for a member: a pet's own unit, else the raider's
+-- resolved group unit. Both work as [@unit] in a cast macro and for range.
+local function CastUnit(member, nameToUnit)
+    if member.isPet then return member.petUnit end
+    return nameToUnit[member.name]
+end
+
+-- Does this class job have at least one still-missing member in range -- i.e.
+-- is there anything to cast right now? Drives both the glow and the range-grey.
 local function JobIsReady(job, nameToUnit)
     for _, r in ipairs(job.raiders) do
-        if r.has ~= true and TargetInRange(nameToUnit[r.name], job.buff.spellId) then
-            return true
+        if r.has ~= true then
+            local meta = WhoDoesWhat.PaladinBuffs[r.key]
+            if TargetInRange(CastUnit(r, nameToUnit), meta and meta.spellId) then
+                return true
+            end
         end
     end
     return false
@@ -198,32 +208,39 @@ local function CountColor(covered, total)
     return 1, 0.82, 0.2
 end
 
+-- Status mark + colour for a live buff state (true/false/nil).
+local function StatusMark(has)
+    if has == true then return "|cff40ff40+|r ", 0.8, 0.8, 0.8 end
+    if has == false then return "|cffff6060x|r ", 1, 0.5, 0.5 end
+    return "|cff909090?|r ", 0.6, 0.6, 0.6
+end
+
 local function BuildTooltip(self)
     local job = self.job
     if not job then return end
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:SetText("Greater Blessing of " .. job.buff.name_long, 1, 1, 1)
-    local r, g, b = CountColor(job.covered, job.total)
-    GameTooltip:AddLine(job.covered .. " / " .. job.total .. " covered", r, g, b)
-    GameTooltip:AddLine(" ")
-    for _, cast in ipairs(job.casts) do
-        local kind = cast.isGreater and "Greater" or "Normal"
-        local who = cast.name
-        if cast.isGreater and cast.classInfo then
-            who = cast.classInfo.name .. "s (via " .. cast.name .. ")"
-        end
-        local mark, cr, cg, cb
-        if cast.has == true then
-            mark, cr, cg, cb = "|cff40ff40+|r ", 0.8, 0.8, 0.8
-        elseif cast.has == false then
-            mark, cr, cg, cb = "|cffff6060x|r ", 1, 0.5, 0.5
-        else
-            mark, cr, cg, cb = "|cff909090?|r ", 0.6, 0.6, 0.6
-        end
-        GameTooltip:AddLine(mark .. who .. "  |cff808080(" .. kind .. ")|r", cr, cg, cb)
+    local title = job.classInfo.name
+    if job.hasPets and not job.hasNonPets then
+        title = "Hunter Pets"
+    elseif job.hasPets then
+        title = title .. " + Pets"
     end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Left-click: cast the next target that needs it.", 0.4, 0.7, 1, true)
+    GameTooltip:SetText("|cff" .. job.classInfo.colorHex .. title .. "|r", 1, 1, 1)
+    local r, g, b = CountColor(job.covered, job.total)
+    GameTooltip:AddLine(job.covered .. " / " .. job.total .. " buffed", r, g, b)
+    if job.greaterBuff then
+        GameTooltip:AddLine("Left-click: Greater Blessing of "
+            .. job.greaterBuff.name_long .. " (whole class)", 0.4, 0.7, 1, true)
+    end
+    if #job.normals > 0 then
+        GameTooltip:AddLine("Right-click: cycle individual blessings", 0.4, 0.7, 1, true)
+        GameTooltip:AddLine(" ")
+        for _, nrm in ipairs(job.normals) do
+            local mark, cr, cg, cb = StatusMark(WhoDoesWhat:HasBuff(nrm.name, nrm.key))
+            GameTooltip:AddLine(mark .. nrm.name .. "  |cff808080("
+                .. nrm.buff.name_long .. ")|r", cr, cg, cb)
+        end
+    end
     GameTooltip:Show()
 end
 
@@ -246,6 +263,23 @@ local function CreateButton(index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) -- trim the default icon border
     btn.icon = icon
 
+    -- Small hunter-pet badge tucked into the bottom-right corner (inside the
+    -- button), shown when a class button also carries pets (Warrior + pets). A
+    -- 1px black frame matches the main icon's border; same icon-trim TexCoord.
+    local petBadge = CreateFrame("Frame", nil, btn)
+    petBadge:SetSize(BTN_SIZE * 0.44, BTN_SIZE * 0.44)
+    petBadge:SetPoint("BOTTOMRIGHT", -1, 1)
+    local badgeBorder = petBadge:CreateTexture(nil, "OVERLAY", nil, 1)
+    badgeBorder:SetPoint("TOPLEFT", -1, 1)
+    badgeBorder:SetPoint("BOTTOMRIGHT", 1, -1)
+    badgeBorder:SetColorTexture(0, 0, 0, 0.9)
+    local badgeIcon = petBadge:CreateTexture(nil, "OVERLAY", nil, 2)
+    badgeIcon:SetAllPoints()
+    badgeIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    badgeIcon:SetTexture(WhoDoesWhat.HunterPetRole and WhoDoesWhat.HunterPetRole.icon)
+    petBadge:Hide()
+    btn.petBadge = petBadge
+
     local count = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
     btn.count = count
@@ -261,57 +295,83 @@ end
 -- Secure casting (rotate through targets) -- PallyPower's proven pattern
 -- ---------------------------------------------------------------------------
 
--- The wrapped OnClick runs in the button's restricted environment. It reads the
--- baked-in target/spell lists, picks the current step's target (skipping to the
--- start when past the end), and -- if that target is a live friendly unit --
--- points macrotext1 at it before the macro fires, then advances the step. Set
--- up out of combat; the rotation itself works during combat.
+-- The wrapped OnClick runs in the button's restricted environment. Left-click
+-- casts the class Greater (gSpell) on the next class member (gNames); right
+-- click cycles the individual Normal exceptions (nNames/nSpells). Each side
+-- rotates its own step and points its macrotext at a live friendly target
+-- before the matching macro fires. Set up out of combat; rotation works during
+-- combat off the baked-in lists.
 local ROTATE_SNIPPET = [==[
-    local step = self:GetAttribute("step1") or 1
-    local n = table.maxn(unitNames)
-    if n == 0 then return end
-    if step > n then step = 1 end
-    local name = unitNames[step]
-    local spell = unitSpells[step]
-    if name and spell and SecureCmdOptionParse("[@" .. name .. ",help,nodead]") then
-        self:SetAttribute("macrotext1", "/cast [@" .. name .. ",help,nodead] " .. spell)
-    end
-    self:SetAttribute("step1", step + 1)
-]==]
-
--- Build the restricted-env table assignments for a target/spell list. Names go
--- inside [=[ ]=] so spaces and realm suffixes survive.
-local function BuildExecBody(names, spells)
-    if #names == 0 then
-        return "unitNames = newtable()\nunitSpells = newtable()\n"
-    end
-    return "unitNames = newtable([=[" .. table.concat(names, "]=],[=[") .. "]=])\n"
-        .. "unitSpells = newtable([=[" .. table.concat(spells, "]=],[=[") .. "]=])\n"
-end
-
--- Bake a button's cast rotation from its job's ordered casts. Secure attribute
--- writes are combat-locked, so this no-ops in combat and re-runs on the next
--- out-of-combat refresh (roster/aura changes and PLAYER_REGEN_ENABLED). Pets
--- and fake/unresolved names are skipped -- nothing castable there. Cast highest
--- known rank by using the rank-less spell name.
-local function ConfigureButtonCast(btn, job, nameToUnit)
-    if InCombatLockdown() then return end
-    local greater = GetSpellInfo(job.buff.spellId)
-    local normal = greater and (greater:gsub("^Greater ", ""))
-    local names, spells = {}, {}
-    for _, cast in ipairs(job.casts) do
-        if not cast.isPet and nameToUnit[cast.name] then
-            local spell = cast.isGreater and greater or normal
-            if spell then
-                names[#names + 1] = cast.name
-                spells[#spells + 1] = spell
+    if button == "LeftButton" then
+        local n = table.maxn(gNames)
+        if n > 0 and gSpell ~= "" then
+            local step = self:GetAttribute("gstep") or 1
+            if step > n then step = 1 end
+            local name = gNames[step]
+            if name and SecureCmdOptionParse("[@" .. name .. ",help,nodead]") then
+                self:SetAttribute("macrotext1", "/cast [@" .. name .. ",help,nodead] " .. gSpell)
             end
+            self:SetAttribute("gstep", step + 1)
+        end
+    elseif button == "RightButton" then
+        local n = table.maxn(nNames)
+        if n > 0 then
+            local step = self:GetAttribute("nstep") or 1
+            if step > n then step = 1 end
+            local name = nNames[step]
+            local spell = nSpells[step]
+            if name and spell and SecureCmdOptionParse("[@" .. name .. ",help,nodead]") then
+                self:SetAttribute("macrotext2", "/cast [@" .. name .. ",help,nodead] " .. spell)
+            end
+            self:SetAttribute("nstep", step + 1)
         end
     end
+]==]
+
+-- newtable(...) from a list of strings ("" -> empty), inside [=[ ]=] so spaces
+-- and realm suffixes survive.
+local function NewTable(list)
+    if #list == 0 then return "newtable()" end
+    return "newtable([=[" .. table.concat(list, "]=],[=[") .. "]=])"
+end
+
+-- Bake a button's two cast rotations from its class job. Secure attribute writes
+-- are combat-locked, so this no-ops in combat and re-runs on the next
+-- out-of-combat refresh (roster/aura changes and PLAYER_REGEN_ENABLED).
+-- Fake/unresolved names are skipped -- nothing castable there. Rank-less spell
+-- names cast the highest rank the paladin knows.
+local function ConfigureButtonCast(btn, job, nameToUnit)
+    if InCombatLockdown() then return end
+    local gSpell = (job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)) or ""
+
+    -- Left: any resolvable class member is a valid Greater target (non-pets
+    -- come first, so a warrior is preferred over a pet when both are present).
+    local gNames = {}
+    for _, m in ipairs(job.raiders) do
+        local unit = CastUnit(m, nameToUnit)
+        if unit then gNames[#gNames + 1] = unit end
+    end
+    -- Right: the individual Normal exceptions and their (rank-less) spells.
+    local nNames, nSpells = {}, {}
+    for _, nrm in ipairs(job.normals) do
+        local unit = CastUnit(nrm, nameToUnit)
+        local greater = GetSpellInfo(nrm.buff.spellId)
+        local normal = greater and (greater:gsub("^Greater ", ""))
+        if unit and normal then
+            nNames[#nNames + 1] = unit
+            nSpells[#nSpells + 1] = normal
+        end
+    end
+
     btn:SetAttribute("type1", "macro")
-    btn:Execute(BuildExecBody(names, spells))
+    btn:SetAttribute("type2", "macro")
+    btn:Execute("gSpell = [=[" .. gSpell .. "]=]\n"
+        .. "gNames = " .. NewTable(gNames) .. "\n"
+        .. "nNames = " .. NewTable(nNames) .. "\n"
+        .. "nSpells = " .. NewTable(nSpells) .. "\n")
     if not btn.castWrapped then
-        btn:SetAttribute("step1", 1)
+        btn:SetAttribute("gstep", 1)
+        btn:SetAttribute("nstep", 1)
         btn:WrapScript(btn, "OnClick", ROTATE_SNIPPET)
         btn.castWrapped = true
     end
@@ -409,8 +469,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     if not bar or not bar:IsShown() then return end
     local paladin = ResolveBarPaladin()
     local allJobs = paladin and self.Assign.GetPaladinBuffJobs(paladin) or {}
-    -- Drop blessings with no real raiders to buff (e.g. pet-only jobs, which
-    -- read 0/0) -- nothing to show or cast on the bar.
+    -- Drop classes with no real raiders to buff (read 0/0) -- nothing to show.
     local jobs = {}
     for _, job in ipairs(allJobs) do
         if job.total > 0 then jobs[#jobs + 1] = job end
@@ -428,7 +487,14 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         end
         btn.job = job
         ConfigureButtonCast(btn, job, nameToUnit)
-        btn.icon:SetTexture(job.buff.iconId)
+        -- Pets-only (no warriors) shows the pet icon; a mixed class shows its
+        -- class icon with a small pet badge.
+        if job.hasPets and not job.hasNonPets and WhoDoesWhat.HunterPetRole then
+            btn.icon:SetTexture(WhoDoesWhat.HunterPetRole.icon)
+        else
+            btn.icon:SetTexture(job.classInfo.classIcon)
+        end
+        btn.petBadge:SetShown(job.hasPets and job.hasNonPets)
         btn.count:SetText(job.covered .. "/" .. job.total)
         btn.count:SetTextColor(CountColor(job.covered, job.total))
         btn:ClearAllPoints()

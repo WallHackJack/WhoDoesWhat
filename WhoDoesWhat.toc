@@ -2,7 +2,7 @@
 ## Title: WhoDoesWhat
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
-## Version: 1.0.1
+## Version: 1.0.2
 ## SavedVariables: WhoDoesWhatDB
 
 # --- Libraries ---
