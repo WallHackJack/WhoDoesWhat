@@ -60,6 +60,22 @@ local function BlessingName(id)
     return names[id] or ("blessing " .. id)
 end
 
+-- Blessing id -> our buff key (invert whichever id table is live), and from
+-- there the icon in Data.lua -- for the diff view's blessing icons. Nil for 0
+-- ("none") or an id this client doesn't map.
+local function BlessingIcon(id)
+    id = tonumber(id)
+    if not id or id == 0 then return nil end
+    local pp = _G.PallyPower
+    local map = (pp and pp.isWrath) and BLESSING_ID_WRATH or BLESSING_ID
+    for key, v in pairs(map) do
+        if v == id then
+            local buff = WhoDoesWhat.PaladinBuffs and WhoDoesWhat.PaladinBuffs[key]
+            return buff and buff.iconId
+        end
+    end
+end
+
 -- "WARRIOR" -> "Warrior" via PallyPower's class-id table; falls back to the
 -- raw number so a foreign id still reads.
 local function ClassIdName(id)
@@ -91,24 +107,28 @@ end
 -- Sync: grid -> PallyPower
 -- ---------------------------------------------------------------------------
 
-function WhoDoesWhat:SyncToPallyPower()
-    local pp = _G.PallyPower
-    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
-        self:Print("PallyPower is not loaded; nothing to sync to.")
-        return
-    end
-
-    -- The grid's paladin columns, minus fakes.
+-- The grid's paladin columns, minus the fake testing roster.
+local function GroupPaladins(self)
     local paladins = {}
     for _, m in ipairs(self:GetGroupMembers("Paladin")) do
         if m.classInfo.name == "Paladin" and not IsFakeName(m.name) then
             paladins[#paladins + 1] = m.name
         end
     end
-    if #paladins == 0 then
-        self:Print("No paladins in the group; nothing to sync to PallyPower.")
-        return
-    end
+    return paladins
+end
+
+-- Compute the PallyPower assignment tables our grid implies, WITHOUT touching
+-- the live globals or the wire: majority buff per paladin/class becomes the
+-- class (Greater) assignment, dissenters and hunter pets ride along as Normal
+-- exceptions. This is the single source of truth for "what a full sync would
+-- write" -- SyncToPallyPower copies the result into the live tables and
+-- broadcasts it, and CheckPallyPowerSync diffs the live tables against it, so
+-- the two can never disagree about whether PallyPower is up to date. Returns
+-- assignments[pshort][classId], normal[pshort][classId][target] and the
+-- summary counts.
+local function BuildDesired(self, pp, paladins)
+    local assignments, normal = {}, {}
 
     -- Raider -> PallyPower class id. Classes PallyPower doesn't track on this
     -- client (vanilla PallyPower has no Shaman slot, say) just get skipped.
@@ -180,18 +200,18 @@ function WhoDoesWhat:SyncToPallyPower()
         end
     end
 
-    -- Rebuild the group paladins' rows in PallyPower's tables: majority buff
-    -- becomes the class (Greater) assignment, dissenters become Normal
-    -- exceptions. Ties break on the lower blessing id so repeat clicks are
-    -- deterministic.
+    -- Rebuild the group paladins' rows: majority buff becomes the class
+    -- (Greater) assignment, dissenters become Normal exceptions. Ties break on
+    -- the lower blessing id so repeat builds are deterministic (and the check
+    -- never flags a stable board as drifted).
     local classCount, singleCount = 0, 0
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
-        PallyPower_Assignments[pshort] = {}
+        assignments[pshort] = {}
         for c = 1, PALLYPOWER_MAXCLASSES do
-            PallyPower_Assignments[pshort][c] = 0
+            assignments[pshort][c] = 0
         end
-        PallyPower_NormalAssignments[pshort] = {}
+        normal[pshort] = {}
 
         for cid, tally in pairs(votes[pshort] or {}) do
             local majority, majorityCount = nil, 0
@@ -201,14 +221,13 @@ function WhoDoesWhat:SyncToPallyPower()
                     majority, majorityCount = bless, count
                 end
             end
-            PallyPower_Assignments[pshort][cid] = majority
+            assignments[pshort][cid] = majority
             classCount = classCount + 1
 
             for raider, bless in pairs(buffOf[pshort][cid]) do
                 if bless ~= majority then
-                    PallyPower_NormalAssignments[pshort][cid] =
-                        PallyPower_NormalAssignments[pshort][cid] or {}
-                    PallyPower_NormalAssignments[pshort][cid][raider] = bless
+                    normal[pshort][cid] = normal[pshort][cid] or {}
+                    normal[pshort][cid][raider] = bless
                     singleCount = singleCount + 1
                 end
             end
@@ -226,14 +245,41 @@ function WhoDoesWhat:SyncToPallyPower()
             for paladin, buffKey in pairs(plan[petName] or {}) do
                 local pshort = ShortName(paladin)
                 local bless = BuffKeyToBlessingId(buffKey)
-                if bless and not IsFakeName(paladin) and PallyPower_NormalAssignments[pshort] then
-                    PallyPower_NormalAssignments[pshort][petClassId] =
-                        PallyPower_NormalAssignments[pshort][petClassId] or {}
-                    PallyPower_NormalAssignments[pshort][petClassId][realShort] = bless
+                if bless and not IsFakeName(paladin) and normal[pshort] then
+                    normal[pshort][petClassId] = normal[pshort][petClassId] or {}
+                    normal[pshort][petClassId][realShort] = bless
                     singleCount = singleCount + 1
                 end
             end
         end
+    end
+
+    return assignments, normal, classCount, singleCount, skipped
+end
+
+function WhoDoesWhat:SyncToPallyPower()
+    local pp = _G.PallyPower
+    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
+        self:Print("PallyPower is not loaded; nothing to sync to.")
+        return
+    end
+
+    local paladins = GroupPaladins(self)
+    if #paladins == 0 then
+        self:Print("No paladins in the group; nothing to sync to PallyPower.")
+        return
+    end
+
+    local assignments, normal, classCount, singleCount, skipped =
+        BuildDesired(self, pp, paladins)
+
+    -- Copy the computed rows into the live tables (only the group paladins'
+    -- rows, the scope BuildDesired filled) so the broadcast below reads them
+    -- back out.
+    for _, pname in ipairs(paladins) do
+        local pshort = ShortName(pname)
+        PallyPower_Assignments[pshort] = assignments[pshort]
+        PallyPower_NormalAssignments[pshort] = normal[pshort]
     end
 
     -- Broadcast over PallyPower's own protocol, in its LoadPreset rhythm:
@@ -284,6 +330,74 @@ function WhoDoesWhat:SyncToPallyPower()
             .. " paladins' PallyPower will only accept these if they enabled"
             .. " Free Assignment.")
     end
+end
+
+-- Read-only drift check: does PallyPower's LIVE board still match what a full
+-- SyncToPallyPower would write? A paladin joining/leaving or turning
+-- Non-raider reshapes the whole grid but touches nothing in PallyPower (only
+-- single-raider role changes push, via PushPlayerBuffToPallyPower), so the two
+-- silently diverge. Rather than auto-rewriting the whole board out from under
+-- everyone, the UI surfaces this as a warning icon + a Check window and lets
+-- the user Send the plan when ready. Compares the desired vs. live Greater
+-- assignments and Normal exceptions for the group paladins and returns a list
+-- of structured difference entries the diff view formats (empty = in sync):
+--   { paladin, target, isClass, want, wantName, wantIcon, have, haveName,
+--     haveIcon }  -- want/have are blessing ids (0 = none).
+-- Returns nil when there's nothing to compare (PallyPower not loaded, or no
+-- paladins in the group).
+local function DiffEntry(pshort, target, isClass, want, have)
+    return {
+        paladin = pshort, target = target, isClass = isClass,
+        want = want, wantName = BlessingName(want), wantIcon = BlessingIcon(want),
+        have = have, haveName = BlessingName(have), haveIcon = BlessingIcon(have),
+    }
+end
+
+function WhoDoesWhat:CheckPallyPowerSync()
+    local pp = _G.PallyPower
+    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
+        return nil
+    end
+    local paladins = GroupPaladins(self)
+    if #paladins == 0 then return nil end
+
+    local assignments, normal = BuildDesired(self, pp, paladins)
+    local diffs = {}
+    for _, pname in ipairs(paladins) do
+        local pshort = ShortName(pname)
+
+        -- Greater (class) blessings, slot by slot.
+        local liveA = PallyPower_Assignments[pshort] or {}
+        local wantA = assignments[pshort] or {}
+        for c = 1, PALLYPOWER_MAXCLASSES do
+            local want, live = wantA[c] or 0, liveA[c] or 0
+            if want ~= live then
+                diffs[#diffs + 1] = DiffEntry(pshort, ClassIdName(c), true, want, live)
+            end
+        end
+
+        -- Normal (per-target) exceptions: walk the union of live + desired
+        -- targets under each class so an exception that only one side has still
+        -- reads as a difference (want/live 0 = "none").
+        local liveN = PallyPower_NormalAssignments[pshort] or {}
+        local wantN = normal[pshort] or {}
+        local cids = {}
+        for cid in pairs(liveN) do cids[cid] = true end
+        for cid in pairs(wantN) do cids[cid] = true end
+        for cid in pairs(cids) do
+            local lt, wt = liveN[cid] or {}, wantN[cid] or {}
+            local names = {}
+            for n in pairs(lt) do names[n] = true end
+            for n in pairs(wt) do names[n] = true end
+            for n in pairs(names) do
+                local want, live = wt[n] or 0, lt[n] or 0
+                if want ~= live then
+                    diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live)
+                end
+            end
+        end
+    end
+    return diffs
 end
 
 -- Minimal per-player push, for a single raider's role change (e.g. mid-combat

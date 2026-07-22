@@ -59,6 +59,28 @@ local RULE_KINDS = {
 local Refresh -- the section's registered refresh; forward-declared to stay a
               -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
 
+-- Update the "PallyPower out of date" warning icon from a drift check
+-- (WhoDoesWhat:CheckPallyPowerSync). Pass a precomputed diff list to avoid
+-- recomputing, or omit it to run the check here. The icon shows when
+-- PallyPower's live board differs from what a Send would write (a paladin
+-- joined/left, or turned Non-raider); the detail lives in the Check window, so
+-- the tooltip just points there. Hidden when in sync or when there's nothing
+-- to compare (nil = PallyPower not loaded / no paladins).
+local function UpdatePallyPowerStatus(state, diffs)
+    if diffs == nil then diffs = WhoDoesWhat:CheckPallyPowerSync() end
+    local warn = state.ppWarn
+    if not warn then return end
+    if diffs and #diffs > 0 then
+        warn.tooltipText = string.format("PallyPower is out of date -- %d"
+            .. " assignment(s) differ from the plan. Click Check to see them,"
+            .. " or Send to update PallyPower.", #diffs)
+        warn:Show()
+    else
+        warn.tooltipText = nil
+        warn:Hide()
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Rule-row text + warning helpers
 -- ---------------------------------------------------------------------------
@@ -487,9 +509,10 @@ function Refresh(f) -- forward declared above
     end
 
     -- One footer row below the rules: "Info + Grid" left-aligned, then the
-    -- right-aligned "Pally Power: [Sync] [Log]" cluster. Re-anchored every
-    -- pass (y depends on how many rule rows sit above); each button sizes to
-    -- its own label (set in Build).
+    -- right-aligned "Pally Power: (!) [Check] [Send] [Log]" cluster (Check
+    -- inline with Send; the (!) drift warning sits left of Check). Re-anchored
+    -- every pass (y depends on how many rule rows sit above); each button sizes
+    -- to its own label.
     local y = rulesTop + #rules * RULE_ROW_H + FOOTER_TOP_GAP
     state.gridBtn:ClearAllPoints()
     state.gridBtn:SetPoint("TOPLEFT", K.BOX_PAD, -y)
@@ -497,8 +520,15 @@ function Refresh(f) -- forward declared above
     state.ppLogBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
     state.ppSyncBtn:ClearAllPoints()
     state.ppSyncBtn:SetPoint("RIGHT", state.ppLogBtn, "LEFT", -4, 0)
+    state.ppCheckBtn:ClearAllPoints()
+    state.ppCheckBtn:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -3, 0)
+    -- The warn icon keeps its slot even while hidden, so the label doesn't
+    -- shift when the warning appears/clears.
+    state.ppWarn:ClearAllPoints()
+    state.ppWarn:SetPoint("RIGHT", state.ppCheckBtn, "LEFT", -2, 0)
     state.ppLabel:ClearAllPoints()
-    state.ppLabel:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -6, 0)
+    state.ppLabel:SetPoint("RIGHT", state.ppWarn, "LEFT", -3, 0)
+    UpdatePallyPowerStatus(state)
 
     state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
@@ -598,8 +628,8 @@ local function Build(f, content)
     local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     ppLabel:SetText("Pally Power:")
 
-    local ppSyncBtn = CreateFooterButton(box, "Sync",
-        "Sync to PallyPower",
+    local ppSyncBtn = CreateFooterButton(box, "Send",
+        "Send to PallyPower",
         "Write this computed grid into PallyPower (each paladin's per-class"
         .. " blessings; per-raider differences become Normal blessing"
         .. " exceptions) and broadcast it to the other paladins over"
@@ -615,6 +645,19 @@ local function Build(f, content)
         .. " reporting.", nil,
         function() WhoDoesWhat:OpenPallyPowerLogView() end)
 
+    -- Drift warning icon (shown by Refresh when PallyPower has diverged from
+    -- the plan); a "Check" button (inline with Send) opens the formatted diff
+    -- window on demand -- PallyPower can change from other paladins without a
+    -- repaint here.
+    local ppWarn = K.CreateWarningIcon(box)
+
+    local ppCheckBtn = CreateFooterButton(box, "Check",
+        "Check PallyPower",
+        "Open a window comparing PallyPower's current assignments against this"
+        .. " computed grid. Nothing is written or broadcast -- use Send for"
+        .. " that.", nil,
+        function() WhoDoesWhat:OpenPallyPowerDiffView() end)
+
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
@@ -625,6 +668,8 @@ local function Build(f, content)
         ppLabel = ppLabel,
         ppSyncBtn = ppSyncBtn,
         ppLogBtn = ppLogBtn,
+        ppWarn = ppWarn,
+        ppCheckBtn = ppCheckBtn,
         rows = {},
         ruleRows = {},
     }
