@@ -83,7 +83,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
 * A GitHub push webhook feeds the CurseForge packager, configured to package **tagged commits only** — pushes to `main` are free, a release happens only when a tag lands.
 * To cut a release: bump `## Version:` in `WhoDoesWhat.toc`, commit, then `git tag 1.0.1 && git push origin 1.0.1`.
 * Tag text becomes the display version verbatim — use plain `1.0.1`, **no `v` prefix**. A tag containing `beta`/`alpha` (e.g. `1.1.0-beta`) packages as a Beta/Alpha build instead of a Release.
-* `.pkgmeta` zips as `WhoDoesWhat/` and strips repo-only files (README.md, CLAUDE.md, .vscode, .gitignore, .pkgmeta); `Libs/` ships as committed (no externals).
+* `.pkgmeta` zips as `WhoDoesWhat/` and strips repo-only files (README.md, AGENTS.md, .vscode, .gitignore, .pkgmeta); `Libs/` ships as committed (no externals).
 * The `.toc` version is bumped **manually**, deliberately not `@project-version@` keyword substitution — this working copy is the live addon dir, and the client would display the raw placeholder in-game.
 
 ## Hard-Won Client Facts (Anniversary / TBC 2.5.5)
