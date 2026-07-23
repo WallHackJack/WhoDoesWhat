@@ -2,7 +2,12 @@
 ## Title: WhoDoesWhat
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
+#@debug@
 ## Version: 1.0.2
+#@end-debug@
+#@non-debug@
+# ## Version: @project-version@
+#@end-non-debug@
 ## SavedVariables: WhoDoesWhatDB
 
 # --- Libraries ---

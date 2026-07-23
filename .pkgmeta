@@ -2,7 +2,7 @@ package-as: WhoDoesWhat
 
 ignore:
     - README.md
-    - CLAUDE.md
+    - AGENTS.md
+    - DEVELOPMENT.md
     - .vscode
-    - .gitignore
     - .pkgmeta

@@ -56,7 +56,7 @@ Download from CurseForge (or your addon manager), or clone this repository into 
 - **LibSerialize + LibDeflate** over AceComm for the compressed whole-board sync protocol (last-write-wins with Lamport revisions, leader-as-source-of-truth on join).
 - Speaks **PallyPower's wire protocol** (`PLPWR`) directly for the blessing push, throttled through PallyPower's own channel handling.
 
-Development notes for contributors (and coding agents) live in [CLAUDE.md](CLAUDE.md).
+Development notes for contributors live in [DEVELOPMENT.md](DEVELOPMENT.md). Coding-agent instructions live in [AGENTS.md](AGENTS.md).
 
 ## License
 

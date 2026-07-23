@@ -21,8 +21,5 @@
     },
     "Lua.workspace.ignoreDir": [
         "Libs"
-    ],
-    "Lua.workspace.library": [
-        "c:\\Users\\Jack\\.cursor\\extensions\\ketho.wow-api-0.22.3\\Annotations\\Core"
     ]
 }
