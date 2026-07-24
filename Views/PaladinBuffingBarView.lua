@@ -250,7 +250,9 @@ end
 local function CreateButton(index)
     local btn = CreateFrame("Button", "WhoDoesWhatBuffingBarButton" .. index, bar,
         "SecureHandlerStateTemplate, SecureActionButtonTemplate")
-    btn:RegisterForClicks("AnyUp")
+    -- Secure action buttons obey ActionButtonUseKeyDown. Register both so the
+    -- cast works with either client setting (PallyPower does the same).
+    btn:RegisterForClicks("AnyUp", "AnyDown")
     btn:SetSize(BTN_SIZE, BTN_SIZE)
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
@@ -286,6 +288,35 @@ local function CreateButton(index)
 
     btn:SetScript("OnEnter", BuildTooltip)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("PostClick", function(self, mouseButton)
+        if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks then return end
+        local job = self.job
+        if not job then
+            WhoDoesWhat:Print("Buffing bar click: " .. tostring(mouseButton)
+                .. " (no job configured).")
+            return
+        end
+
+        local action, choices
+        if mouseButton == "LeftButton" then
+            action = job.greaterBuff
+                and ("Greater Blessing of " .. job.greaterBuff.name_long)
+                or "no Greater Blessing"
+            choices = self.gCastCount or 0
+        elseif mouseButton == "RightButton" then
+            action = "individual blessing"
+            choices = self.nCastCount or 0
+        else
+            action = "unmapped input"
+            choices = 0
+        end
+
+        local test = WhoDoesWhat.db.profile.settings.buffingBarTestMode
+            and " [test mode]" or ""
+        WhoDoesWhat:Print("Buffing bar click: " .. tostring(mouseButton) .. " -> "
+            .. job.classInfo.name .. " " .. action .. " (" .. choices
+            .. " castable target" .. (choices == 1 and "" or "s") .. ")." .. test)
+    end)
 
     bar.buttons[index] = btn
     return btn
@@ -362,6 +393,8 @@ local function ConfigureButtonCast(btn, job, nameToUnit)
             nSpells[#nSpells + 1] = normal
         end
     end
+    btn.gCastCount = #gNames
+    btn.nCastCount = #nNames
 
     btn:SetAttribute("type1", "macro")
     btn:SetAttribute("type2", "macro")

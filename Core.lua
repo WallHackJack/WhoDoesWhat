@@ -142,6 +142,8 @@ local defaults = {
             developerMode = false,
             -- Persisted source for LOG_UI_BUILDING above.
             logUiUpdates = false,
+            -- Print Paladin Buffing Bar click diagnostics to chat.
+            logBuffingBarClicks = false,
             -- Auto-place an Affliction warlock on Curse of the Elements: on
             -- spec detection (see AutoAssignDetectedRole) and via the Warlock
             -- Curses Auto button. See AutoPlaceAfflictionElements in Assignments.lua.

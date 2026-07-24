@@ -138,6 +138,13 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:Print("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
+    f.logBuffingClicksCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log buffing bar clicks",
+        "Print each recognized left/right buffing-bar click and its castable target count.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
+            WhoDoesWhat:Print("Log buffing bar clicks "
+                .. (value and "enabled." or "disabled."))
+        end)
     f.fakeRaidCheck, yR = AddCheckboxRow(f, COL_R, yR, "Populate Fake Raid",
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
@@ -219,6 +226,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.paladinOnlyCheck:SetChecked(settings.paladinOnlyView)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
+    f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)
