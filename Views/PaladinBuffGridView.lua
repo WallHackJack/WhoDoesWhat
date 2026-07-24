@@ -280,7 +280,7 @@ end
 -- base on the header divider; rotating +90 around that same corner swings
 -- the text straight up (vertical, reading bottom-to-top).
 local function CreateHeaderCell(f, index)
-    local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetJustifyH("LEFT")
 
     local ag = fs:CreateAnimationGroup()
@@ -399,7 +399,7 @@ local function RefreshGrid(f)
             local cell = f.headerCells[hc] or CreateHeaderCell(f, hc)
             cell.fs:ClearAllPoints()
             cell.fs:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + NAME_COL_W + (c - 1) * COL_W + COL_W / 2, -(f.headerBottom - 24))
+                BlockX(b) + NAME_COL_W + (c - 1) * COL_W + COL_W / 2 - 5, -(f.headerBottom + 6))
             cell.fs:SetText("|cff" .. p.classInfo.colorHex .. p.name .. "|r")
             cell.fs:Show()
             cell.ag:Stop()
