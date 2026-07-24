@@ -476,6 +476,16 @@ end
 function Sync:ApplyState(msg, senderKey)
     local replacedSomething = awaitingSync and BoardNonEmpty()
         and Fingerprint() ~= Canon(msg.state)
+    -- PallyPower rejects assignment changes from ordinary raiders. When the
+    -- leader receives a board containing exactly one role change, relay that
+    -- player's minimal blessing delta from the accepted authority instead.
+    -- Capture both the old roles and old PallyPower drift before ApplySnapshot
+    -- replaces the board.
+    local oldRoles, priorPallyPowerDiffs
+    if UnitIsGroupLeader("player") then
+        oldRoles = CopyTable(WhoDoesWhat.db.profile.assignments)
+        priorPallyPowerDiffs = WhoDoesWhat:CheckPallyPowerSync()
+    end
 
     ApplySnapshot(msg.state)
     lastRev = math.max(lastRev, tonumber(msg.rev) or 0)
@@ -484,6 +494,26 @@ function Sync:ApplyState(msg, senderKey)
     -- The applied board is now the shared truth, our own role included;
     -- without this a read-only client would "correct" it right back.
     lastOwnRoleSent = WhoDoesWhat.db.profile.assignments[UnitName("player")]
+
+    if oldRoles then
+        local changed, changedCount = nil, 0
+        local newRoles = WhoDoesWhat.db.profile.assignments
+        local seen = {}
+        for name, oldRole in pairs(oldRoles) do
+            seen[name] = true
+            if newRoles[name] ~= oldRole then
+                changed, changedCount = name, changedCount + 1
+            end
+        end
+        for name in pairs(newRoles) do
+            if not seen[name] then
+                changed, changedCount = name, changedCount + 1
+            end
+        end
+        if changedCount == 1 then
+            WhoDoesWhat:PushPlayerBuffToPallyPower(changed, priorPallyPowerDiffs)
+        end
+    end
 
     if awaitingSync then
         awaitingSync = false
@@ -577,12 +607,17 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         if msg.role ~= nil and type(msg.role) ~= "string" then return end
         local p = WhoDoesWhat.db.profile
         if p.assignments[senderKey] ~= msg.role then
+            local priorPallyPowerDiffs = UnitIsGroupLeader("player")
+                and WhoDoesWhat:CheckPallyPowerSync() or nil
             -- Don't let this ride the poll back out as a full-board edit of
             -- ours -- unless we already had unbroadcast edits pending, in
             -- which case the poll's next snapshot carries it anyway.
             local wasClean = Fingerprint() == lastSyncedFP
             p.assignments[senderKey] = msg.role
             if wasClean then lastSyncedFP = Fingerprint() end
+            if UnitIsGroupLeader("player") then
+                WhoDoesWhat:PushPlayerBuffToPallyPower(senderKey, priorPallyPowerDiffs)
+            end
             local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
             WhoDoesWhat:Print(senderKey .. " set their own role to "
                 .. (role and role.name or msg.role or "None") .. ".")

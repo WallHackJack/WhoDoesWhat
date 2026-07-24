@@ -103,6 +103,16 @@ local function IsFakeName(name)
     return false
 end
 
+-- PallyPower accepts assignments for other paladins only from the group
+-- leader/raid assistants (unless each receiver opted into Free Assignment).
+-- Do not mutate our local PallyPower tables and pretend a rejected broadcast
+-- succeeded. Non-authority WDW edits are relayed by the WDW leader in Sync.lua.
+local function CanBroadcastAssignments()
+    if not IsInGroup() then return true end
+    if IsInRaid() then return WhoDoesWhat:IsRaidAssistant() end
+    return UnitIsGroupLeader("player")
+end
+
 -- ---------------------------------------------------------------------------
 -- Sync: grid -> PallyPower
 -- ---------------------------------------------------------------------------
@@ -409,29 +419,54 @@ function WhoDoesWhat:CheckPallyPowerSync()
     return diffs
 end
 
--- Minimal per-player push, for a single raider's role change (e.g. mid-combat
--- Warlock tank -> Warlock, now wanting Salvation). Only that raider's own
--- blessing can move: every classmate who didn't change is still served by the
--- class's Greater Blessing, so the whole change is expressible as at most one
--- Normal-blessing exception (NASSIGN) per paladin -- usually one or two rows.
--- We recompute the grid, read just this raider's cells, diff against
--- PallyPower's current exception tables, and send only the rows that moved.
+-- Minimal per-player push for a single raider's role change (e.g. mid-combat
+-- Feral DPS -> Feral Tank, now wanting Salvation removed). PallyPower's
+-- NASSIGN message can set or clear one paladin/class/target Normal-blessing
+-- override, so a safe change is at most one row per paladin.
 --
--- Greater (class) blessings are deliberately never touched here. A lone role
--- change leaves the class row correct for everyone else, and even a
--- class-of-one stays correct because a Normal exception overrides the class
--- row for that player -- at the cost of a slightly untidy (unused) class row,
--- which the full SyncToPallyPower tidies up. Runs silently on every change,
--- so no "PallyPower not loaded" chatter and no per-change authority nag (the
--- full-sync button already warns; receivers reject unauthorized rows anyway).
--- Combat-safe: SendMessage works in combat, receivers stage the data, and
--- PallyPower re-applies it on PLAYER_REGEN_ENABLED.
-function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName)
+-- Safety: `priorDiffs` is CheckPallyPowerSync's result from BEFORE the role
+-- mutation. We auto-send only from an aligned board and only when the new
+-- plan's differences are this target's Normal overrides. A role change can
+-- alter raid-wide demand/primaries, and an already-drifted PallyPower board is
+-- a bad baseline; either case opens the full Differences window with
+-- Ignore/Send instead. Combat-safe: PallyPower parses NASSIGN in combat and
+-- refreshes its protected layout after combat.
+function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
     local pp = _G.PallyPower
     if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
         return
     end
     if not playerName or IsFakeName(playerName) then return end
+    if not CanBroadcastAssignments() then return end
+
+    local diffs = self:CheckPallyPowerSync()
+    if not diffs or #diffs == 0 then return end
+
+    local xshort = ShortName(playerName)
+    local broad = 0
+    for _, d in ipairs(diffs) do
+        if d.isClass or d.target ~= xshort then
+            broad = broad + 1
+        end
+    end
+    if (priorDiffs and #priorDiffs > 0) or broad > 0 then
+        local reason
+        if priorDiffs and #priorDiffs > 0 then
+            reason = string.format(
+                "%s's role changed, but PallyPower was already out of sync."
+                .. " The current plan has %d difference(s). Review them below,"
+                .. " then Send the full plan or Ignore it.",
+                playerName, #diffs)
+        else
+            reason = string.format(
+                "%s's role change affects %d assignment(s) beyond that"
+                .. " raider's own buffs. Review the %d total change(s) below,"
+                .. " then Send the full plan or Ignore it.",
+                playerName, broad, #diffs)
+        end
+        self:OpenPallyPowerDiffView(reason)
+        return
+    end
 
     -- The raider's class id, as PallyPower keys it. Untracked classes (no
     -- Shaman slot on vanilla PallyPower, say) have nothing to push.
@@ -440,17 +475,12 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName)
         if m.name == playerName then member = m break end
     end
     if not member then return end
-    -- A paladin's own role change also moves what they CAST (their Greater
-    -- Blessings), which this exception-only path can't express -- leave that
-    -- to the full sync.
-    if member.classInfo.name == "Paladin" then return end
     local classId = pp.ClassToID and pp.ClassToID[member.classInfo.name:upper()]
     if not classId then return end
 
     -- This raider's blessing per paladin, from the freshly recomputed grid
     -- (empty when uncovered, e.g. after being marked Non-raider).
     local cells = self.Assign.ComputeBuffGrid()[playerName] or {}
-    local xshort = ShortName(playerName)
 
     local entries = {}
     for _, m in ipairs(self:GetGroupMembers("Paladin")) do

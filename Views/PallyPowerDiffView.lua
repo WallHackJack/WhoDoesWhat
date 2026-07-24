@@ -7,7 +7,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- (structured: paladin, target, want/have blessing + icon); this view only
 -- groups them by paladin and renders. A "Send to PallyPower" button pushes the
 -- plan and re-renders (now in sync); "Recheck" re-runs the compare, since
--- PallyPower can change from other paladins with no repaint here.
+-- PallyPower can change from other paladins with no repaint here. Role changes
+-- can open the same window in warning mode, where Recheck becomes Ignore.
 
 local diffFrame = nil
 
@@ -45,6 +46,12 @@ end
 local function RenderDiffs(f)
     local smf = f.smf
     smf:Clear()
+
+    if f.warningText then
+        smf:AddMessage("|cffff6060Role change was not auto-sent.|r "
+            .. f.warningText)
+        smf:AddMessage(" ")
+    end
 
     local diffs = WhoDoesWhat:CheckPallyPowerSync()
     if diffs == nil then
@@ -102,6 +109,8 @@ local function EnsureFrame()
     sendBtn:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
     sendBtn:SetText("Send to PallyPower")
     sendBtn:SetScript("OnClick", function()
+        f.warningText = nil
+        f.secondaryBtn:SetText("Recheck")
         WhoDoesWhat:SyncToPallyPower()
         RenderDiffs(f) -- SyncToPallyPower writes the live tables synchronously,
                        -- so the recheck now reads as in sync.
@@ -117,11 +126,19 @@ local function EnsureFrame()
     sendBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.sendBtn = sendBtn
 
-    local recheck = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    recheck:SetSize(80, 22)
-    recheck:SetPoint("RIGHT", sendBtn, "LEFT", -6, 0)
-    recheck:SetText("Recheck")
-    recheck:SetScript("OnClick", function() RenderDiffs(f) end)
+    local secondary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    secondary:SetSize(80, 22)
+    secondary:SetPoint("RIGHT", sendBtn, "LEFT", -6, 0)
+    secondary:SetText("Recheck")
+    secondary:SetScript("OnClick", function()
+        if f.warningText then
+            f.warningText = nil
+            f:Hide()
+        else
+            RenderDiffs(f)
+        end
+    end)
+    f.secondaryBtn = secondary
 
     local smf = CreateFrame("ScrollingMessageFrame", nil, f)
     smf:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10))
@@ -149,10 +166,13 @@ local function EnsureFrame()
     return f
 end
 
--- Open (or re-render + raise) the PallyPower differences window.
-function WhoDoesWhat:OpenPallyPowerDiffView()
+-- Open (or re-render + raise) the PallyPower differences window. An optional
+-- warning turns the secondary action into Ignore; manual Check opens normally.
+function WhoDoesWhat:OpenPallyPowerDiffView(warningText)
     local f = EnsureFrame()
     self:LogUiBuilding("Opening PallyPower Differences...")
+    f.warningText = warningText
+    f.secondaryBtn:SetText(warningText and "Ignore" or "Recheck")
     RenderDiffs(f)
     f:Show()
     f:Raise()

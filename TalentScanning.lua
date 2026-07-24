@@ -210,6 +210,7 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     -- own guess.
     if current ~= nil and (lastDetected == nil or detectedRoleId == lastDetected) then return end
 
+    local priorPallyPowerDiffs = self:CheckPallyPowerSync()
     profile.assignments[playerName] = detectedRoleId
     local _, role = self:FindRoleById(detectedRoleId)
     -- Only the single flag-authority (the leader, or ourselves) touches the
@@ -227,6 +228,7 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     if detectedRoleId == "warlock_affl" then
         self.Assign.AutoPlaceAfflictionElements(playerName)
     end
+    self:PushPlayerBuffToPallyPower(playerName, priorPallyPowerDiffs)
     self:RefreshMainAssignmentsView()
     self:RefreshRaiderRolesView()
 end
