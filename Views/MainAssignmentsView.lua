@@ -166,22 +166,11 @@ end
 -- Refresh coordinator + window
 -- ---------------------------------------------------------------------------
 
--- Paladin-only view. With the "Prefer Paladin-only view" setting on, only the
--- Paladin Buffs section shows -- UNTIL the board carries real assignments (the
--- leader is actively assigning tanks/CC/misdirects/curses), at which point the
--- full board is revealed. Off (the default) always shows the full board.
-local function ShouldShowFullBoard()
-    if not WhoDoesWhat.db.profile.settings.paladinOnlyView then
-        return true
-    end
-    return A.HasActiveAssignments()
-end
-
 -- Apply the current view mode: hide every box but Paladin Buffs in paladin-only
 -- mode, then re-anchor the visible boxes and recompute the scroll height. Runs
 -- after the sections refresh (their heights must be settled first).
 local function ApplyViewMode(f)
-    local full = ShouldShowFullBoard()
+    local full = not WhoDoesWhat.db.profile.settings.paladinOnlyView
 
     -- Width + scroll chrome per mode. The scroll spans the full width in both
     -- modes (no reserved scrollbar gutter -- the boxes must line up with the top
@@ -307,7 +296,7 @@ local function EnsureMainFrame()
     logsBtn:SetPoint("RIGHT", membersBtn, "LEFT", -6, 0)
 
     -- Full-view toggle: a checkbox top-left (checked = full board, unchecked =
-    -- prefer the Paladin-only view). UpdateViewToggle keeps it in sync; only
+    -- show the Paladin-only view). UpdateViewToggle keeps it in sync; only
     -- the section boxes below react (ApplyViewMode).
     local fullViewCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
     fullViewCB:SetSize(24, 24)
@@ -324,9 +313,8 @@ local function EnsureMainFrame()
     fullViewCB:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText("Full view", 1, 1, 1)
-        GameTooltip:AddLine("Show the whole board. Unchecked prefers the Paladin-only"
-            .. " view -- but the full board still appears automatically while there"
-            .. " are active tank / CC / misdirect / curse assignments.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Show the whole assignment board. Uncheck to show only"
+            .. " the Paladin Buffs section.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     fullViewCB:SetScript("OnLeave", function() GameTooltip:Hide() end)

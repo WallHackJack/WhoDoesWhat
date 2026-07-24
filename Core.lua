@@ -133,9 +133,8 @@ local defaults = {
             -- (the local :Print still fires; Blizzard's own role-flag message
             -- is separate and unaffected). See SetAssignedRole.
             announceRoleChanges = true,
-            -- Prefer showing only the Paladin Buffs section in the main window.
-            -- Local view preference (not synced); the full board still reveals
-            -- itself while there are active assignments. See MainAssignmentsView.
+            -- Whether the main-window Full view checkbox is off, showing only
+            -- Paladin Buffs. Local view preference (not synced).
             paladinOnlyView = false,
             -- Assignment dropdowns list every group member instead of only
             -- the eligible class (e.g. non-paladins for paladin buffs).

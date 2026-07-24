@@ -639,25 +639,6 @@ local function EntryHasJob(section, entry)
     return true
 end
 
--- Whether the board carries any real non-paladin assignment -- a filled
--- tank/CC/misdirect row or an assigned warlock curse. Drives the "Prefer
--- Paladin-only view" reveal: the paladin-only view stands down to the full
--- board the moment the leader actually assigns something (paladin buffs are
--- computed, never stored, so they don't count as "issued assignments").
-local function HasActiveAssignments()
-    for _, section in ipairs(DynamicSections) do
-        if section.enabled ~= false then
-            for _, entry in ipairs(GetEntries(section)) do
-                if EntryHasJob(section, entry) then return true end
-            end
-        end
-    end
-    for _, name in pairs(WhoDoesWhat.db.profile.raidAssignments) do
-        if name then return true end
-    end
-    return false
-end
-
 -- Distinct assigned players in a dynamic section, whispers in chat-token form.
 local function CollectDynamicWhispers(section)
     local seen, out = {}, {}
@@ -1673,7 +1654,6 @@ WhoDoesWhat.Assign = {
     GetEntries = GetEntries,
     EntryText = EntryText,
     EntryHasJob = EntryHasJob,
-    HasActiveAssignments = HasActiveAssignments,
     PlayerEntriesText = PlayerEntriesText,
     FirstUnusedMarker = FirstUnusedMarker,
     -- whispers (generic collectors kept for future sections)

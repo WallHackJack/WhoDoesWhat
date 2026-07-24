@@ -100,14 +100,6 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
             WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
         end)
-    f.paladinOnlyCheck, yL = AddCheckboxRow(f, COL_L, yL, "Prefer Paladin-only view",
-        "Show only the Paladin Buffs section in the main window. The full board still appears while there are active assignments.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.paladinOnlyView = value
-            WhoDoesWhat:Print("Paladin-only view " .. (value and "enabled." or "disabled."))
-            WhoDoesWhat:RefreshMainAssignmentsView()
-        end, 14)
-
     yL = AddHeading(f, COL_L, yL, "Warlock Curses", 0.72, 0.45, 1)
     f.afflElementsCheck, yL = AddCheckboxRow(f, COL_L, yL, "Auto assign Affliction to elements",
         "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
@@ -236,7 +228,6 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     UIDropDownMenu_SetText(f.buffingTestDD, settings.buffingBarTestPaladin or "(first paladin)")
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
-    f.paladinOnlyCheck:SetChecked(settings.paladinOnlyView)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)
