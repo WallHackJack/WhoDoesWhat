@@ -190,6 +190,15 @@ WhoDoesWhat.WarlockCurses = {
     }
 }
 
+local healthstoneClient = WhoDoesWhat.ClientFeatures.warlockHealthstone
+WhoDoesWhat.WarlockHealthstone = {
+    icon = "Interface\\Icons\\INV_Stone_04",
+    talent = "Improved Healthstone",
+    maxRank = 2,
+    name = healthstoneClient.name,
+    lifeByTalentRank = healthstoneClient.lifeByTalentRank,
+}
+
 -- TBC crowd-control spells offered by the CC Assignments section, listed in
 -- class order (the dropdown draws a divider on each class change). spellId is
 -- the max TBC rank and is the single source of truth for a spell: it drives

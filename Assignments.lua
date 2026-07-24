@@ -1313,7 +1313,7 @@ do
         -- roster, roles and talents (ComputeBuffGrid), and the section view
         -- shows the result as read-only rows. rows stays empty here.
         { title = "Paladin Buffs", rows = {} },
-        { title = "Warlock Curses", rows = { reck, elements } },
+        { title = "Warlocks", rows = { reck, elements } },
     }
 end
 

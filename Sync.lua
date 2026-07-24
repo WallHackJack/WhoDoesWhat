@@ -12,8 +12,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     Assignments.lua) -- so there are no paladin rows to sync; the talent
 --     facts below are what keep every client's computation in agreement.
 --     IsSyncedStaticRow still filters the keys as a safety.
---   - paladin buff-talent ranks: each paladin broadcasts their OWN four ranks
---     (might/wisdom/kings/sanctuary), read from their own client's native
+--   - talent ranks: paladins broadcast their OWN four buff ranks and warlocks
+--     broadcast their Improved Healthstone rank. All are read from the
+--     sender's native
 --     talent API -- the one source that is always in range and never hits the
 --     shuffled-index bug (see TalentScanning.lua). Receivers drop the ranks
 --     straight into db.profile.paladinBuffTalents. This is what the old NRC
@@ -26,7 +27,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Conflict model:
 --   - Leaving the group wipes the whole board (roles included): assignments
 --     are group business, and a stale board from the last raid only misleads.
---     The talent caches (talentSpecs / paladinBuffTalents) survive -- they're
+--     The talent caches (talentSpecs / paladinBuffTalents /
+--     warlockHealthstoneTalents) survive -- they're
 --     facts about characters, not group decisions, and they let roles refill
 --     instantly when a group reforms.
 --   - Joining a group makes the LEADER the source of truth: the joiner says
@@ -58,8 +60,9 @@ local LibDeflate = LibStub("LibDeflate")
 local COMM_PREFIX = "WhoDoesWhat"
 -- Bump on any wire-format change; mismatched clients warn once and ignore
 -- each other. 2: tank rows went one-per-tank with a `markers` array (was
--- one-per-marker with a single `marker`).
-local PROTOCOL = 2
+-- one-per-marker with a single `marker`). 3: RANKS/HELLO gained the warlock
+-- Improved Healthstone rank.
+local PROTOCOL = 3
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -243,7 +246,7 @@ local function DescribeMessage(msg)
             #(s.md or {}), Count(s.static))
     end
     if msg.t == "HELLO" then return "requests the leader's board" end
-    if msg.t == "RANKS" then return "shares paladin buff-talent ranks" end
+    if msg.t == "RANKS" then return "shares class utility-talent ranks" end
     if msg.t == "ROLE" then
         local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
         return "sets own role to " .. (role and role.name or msg.role or "None")
@@ -328,13 +331,18 @@ local warnedProtocol = false
 local lastOwnRoleSent = nil
 
 -- ---------------------------------------------------------------------------
--- Paladin buff-talent ranks
+-- Class utility-talent ranks
 -- ---------------------------------------------------------------------------
 
 -- Our own scanned ranks, or nil when we're not a paladin / not scanned yet.
 local function OwnRanks()
     if select(2, UnitClass("player")) ~= "PALADIN" then return nil end
     return WhoDoesWhat.db.profile.paladinBuffTalents[UnitName("player")]
+end
+
+local function OwnHealthstoneRank()
+    if select(2, UnitClass("player")) ~= "WARLOCK" then return nil end
+    return WhoDoesWhat.db.profile.warlockHealthstoneTalents[UnitName("player")]
 end
 
 local function StoreRanks(senderKey, ranks)
@@ -347,6 +355,15 @@ local function StoreRanks(senderKey, ranks)
     LogSync("buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshPaladinBuffGridView()
+end
+
+local function StoreHealthstoneRank(senderKey, rank)
+    rank = tonumber(rank)
+    if not rank then return end
+    rank = math.floor(math.max(0, math.min(WhoDoesWhat.WarlockHealthstone.maxRank, rank)))
+    WhoDoesWhat.db.profile.warlockHealthstoneTalents[senderKey] = rank
+    LogSync("healthstone talent rank stored for", senderKey)
+    WhoDoesWhat:RefreshMainAssignmentsView()
 end
 
 -- ---------------------------------------------------------------------------
@@ -380,9 +397,10 @@ function Sync:BroadcastOwnRanksSoon()
     ranksTimer = self:ScheduleTimer(function()
         ranksTimer = nil
         local ranks = OwnRanks()
+        local healthstone = OwnHealthstoneRank()
         local channel = GroupChannel()
-        if ranks and channel then
-            self:Send({ t = "RANKS", ranks = ranks }, channel)
+        if (ranks or healthstone ~= nil) and channel then
+            self:Send({ t = "RANKS", ranks = ranks, healthstone = healthstone }, channel)
         end
     end, RANKS_DEBOUNCE)
 end
@@ -452,7 +470,11 @@ function Sync:OnGroupJoined()
 
     local channel = GroupChannel()
     if channel then
-        self:Send({ t = "HELLO", ranks = OwnRanks() }, channel)
+        self:Send({
+            t = "HELLO",
+            ranks = OwnRanks(),
+            healthstone = OwnHealthstoneRank(),
+        }, channel)
     end
 end
 
@@ -646,18 +668,25 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
 
     elseif msg.t == "HELLO" then
         StoreRanks(senderKey, msg.ranks)
+        StoreHealthstoneRank(senderKey, msg.healthstone)
         -- The leader answers with the authoritative board; every paladin
-        -- answers with their ranks so the joiner's paladin views fill in.
+        -- and warlock answers with utility ranks so the joiner's views fill in.
         if UnitIsGroupLeader("player") then
             self:Send({ t = "STATE", rev = lastRev, state = Snapshot() }, "WHISPER", sender)
         end
         local ranks = OwnRanks()
-        if ranks then
-            self:Send({ t = "RANKS", ranks = ranks }, "WHISPER", sender)
+        local healthstone = OwnHealthstoneRank()
+        if ranks or healthstone ~= nil then
+            self:Send({
+                t = "RANKS",
+                ranks = ranks,
+                healthstone = healthstone,
+            }, "WHISPER", sender)
         end
 
     elseif msg.t == "RANKS" then
         StoreRanks(senderKey, msg.ranks)
+        StoreHealthstoneRank(senderKey, msg.healthstone)
 
     elseif msg.t == "ROLE" then
         -- A player's OWN role -- the one edit that never needs board rights.
@@ -735,10 +764,15 @@ function Sync:OnEnable()
 
     self:ScheduleRepeatingTimer("PollLocalChanges", POLL_INTERVAL)
 
-    -- Whenever our OWN buff talents get (re)scanned -- login, respec,
+    -- Whenever our OWN utility talents get (re)scanned -- login, respec,
     -- dual-spec swap (see the selfSync frame in TalentScanning.lua) -- share
     -- the fresh ranks. hooksecurefunc keeps sync concerns out of that file.
     hooksecurefunc(WhoDoesWhat, "ScanPaladinBuffTalents", function(_, guid)
+        if guid == UnitGUID("player") then
+            Sync:BroadcastOwnRanksSoon()
+        end
+    end)
+    hooksecurefunc(WhoDoesWhat, "ScanWarlockHealthstoneTalent", function(_, guid)
         if guid == UnitGUID("player") then
             Sync:BroadcastOwnRanksSoon()
         end

@@ -17,7 +17,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- The columns are deliberately uneven: the right one carries the wide dynamic
 -- rows (CC, Misdirect), the left one only needs an icon, a name and one
--- dropdown (Tank, Paladin Buffs, Warlock Curses). Boxes are anchor-chained
+-- dropdown (Tank, Paladin Buffs, Warlocks). Boxes are anchor-chained
 -- within their column, so a section that changes height pushes the ones under
 -- it down on its own. The model -- section defs, member/text helpers, whisper
 -- collectors, demand math, auto-assigns, and storage -- lives in
@@ -40,14 +40,14 @@ local NARROW_FRAME_W = 402 -- LEFT_COLUMN_W (378) + MARGIN (12) * 2
 -- Paladin-only view collapses to a short, low-profile window while the full
 -- board grows -- but never past MAX (it scrolls) or below MIN (the button
 -- strip + a stub box still need room).
-local MAX_FRAME_H = 520
+local MAX_FRAME_H = 550
 local MIN_FRAME_H = 130
 local MARGIN = 12
 local CONTENT_W = FRAME_W - MARGIN * 2
 local BUTTON_ROW_H = 22
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
--- Left is the narrow column (Tank / Paladin Buffs / Warlock Curses -- an icon,
+-- Left is the narrow column (Tank / Paladin Buffs / Warlocks -- an icon,
 -- a name and a dropdown); right is wider for the busy dynamic rows (CC,
 -- Misdirect, and future custom-assignment sections that match them).
 local COLUMN_GAP = 12

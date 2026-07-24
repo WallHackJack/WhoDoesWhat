@@ -23,6 +23,13 @@ WhoDoesWhat.ClientFeatures = {
     paladinBuffTalents = isClassicEra
         and PALADIN_BUFF_TALENTS_CLASSIC
         or PALADIN_BUFF_TALENTS_TBC,
+    warlockHealthstone = isClassicEra and {
+        name = "Major Healthstone",
+        lifeByTalentRank = { [0] = 1200, [1] = 1320, [2] = 1440 },
+    } or {
+        name = "Master Healthstone",
+        lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
+    },
 
     -- Stable CC keys from Data.lua that this client does not have.
     excludedCCSpells = isClassicEra and {

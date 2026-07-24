@@ -53,6 +53,8 @@ local SPEC_ROLES = {
 -- talent = can't cast it); the multi-rank ones improve a baseline blessing.
 -- Salvation and Light have no talent.
 local PALADIN_BUFF_TALENTS = WhoDoesWhat.ClientFeatures.paladinBuffTalents
+-- Improved Healthstone (0-2): Demonology, first row, first column.
+local WARLOCK_HEALTHSTONE_TALENT = { tab = 2, tier = 1, column = 1 }
 
 -- Read one talent's rank straight from the client's native talent API, found
 -- by its (tier, column) so the unstable index order doesn't matter. isInspect
@@ -95,6 +97,18 @@ end
 -- assignments view for its dropdown preferences, warnings and auto-assign.
 function WhoDoesWhat:GetPaladinBuffTalents(playerName)
     return self.db and self.db.profile.paladinBuffTalents[playerName] or nil
+end
+
+function WhoDoesWhat:ScanWarlockHealthstoneTalent(guid, playerKey, isInspect)
+    if not (isInspect or guid == UnitGUID("player")) then return end
+
+    local group = GetActiveTalentGroup(isInspect) or 1
+    self.db.profile.warlockHealthstoneTalents[playerKey] =
+        NativeRankAt(WARLOCK_HEALTHSTONE_TALENT, isInspect, group)
+end
+
+function WhoDoesWhat:GetWarlockHealthstoneTalent(playerName)
+    return self.db and self.db.profile.warlockHealthstoneTalents[playerName] or nil
 end
 
 -- Manual "Rescan" (Paladin Info + Grid window). The auto-scanning only ever sees a
@@ -296,6 +310,9 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
         self:ScanPaladinBuffTalents(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
         self:RefreshPaladinBuffGridView()
+    elseif class == "WARLOCK" then
+        self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
+        self:RefreshMainAssignmentsView()
     end
 end
 

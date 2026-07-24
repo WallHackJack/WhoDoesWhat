@@ -97,6 +97,9 @@ local defaults = {
         -- wisdom = 0-2, kings = 0-1, sanctuary = 0-1 }. A missing player means
         -- their talents haven't been seen yet.
         paladinBuffTalents = {},
+        -- Improved Healthstone rank per warlock (0-2), keyed like assignments.
+        -- A missing player has not had their talent confirmed yet.
+        warlockHealthstoneTalents = {},
         -- Raid assignments from the main assignments view, keyed by row id
         -- ("curse_reck", "curse_elements") -> player name. Paladin blessings
         -- are NOT in here: their coverage is derived, never stored (see

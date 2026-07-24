@@ -10,8 +10,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- view and the paladin-info view read the roster through -- appends
 -- FakeRaid.ROSTER when the toggle is on. The fakes' *roles* live in
 -- db.profile.assignments and the paladins' buff-talent ranks in
--- db.profile.paladinBuffTalents, keyed by the fake names, exactly like real
--- players; that's all the demand/auto logic needs.
+-- db.profile.paladinBuffTalents and warlocks' Improved Healthstone ranks in
+-- db.profile.warlockHealthstoneTalents, keyed by fake name like real players.
 --
 -- The roster is deliberately shaped for buff testing: 3 tanks (one of each
 -- kind), 5 healers (one of each healer kind), a DPS spread to fill, and 3
@@ -73,8 +73,8 @@ FakeRaid.DPS_POOL = {
     { name = "Sunder",       class = "WARRIOR", role = "warrior_arms" },
     { name = "Backstabby",   class = "ROGUE",   role = "rogue_combat" },
     { name = "Arcanum",      class = "MAGE",    role = "mage_arcane" },
-    { name = "Corruption",   class = "WARLOCK", role = "warlock_affl" },
-    { name = "Immolate",     class = "WARLOCK", role = "warlock_destro" },
+    { name = "Corruption",   class = "WARLOCK", role = "warlock_affl", healthstoneRank = 2 },
+    { name = "Immolate",     class = "WARLOCK", role = "warlock_destro", healthstoneRank = 1 },
     { name = "Beastly",      class = "HUNTER",  role = "hunter_bm" },
     { name = "Steadyshot",   class = "HUNTER",  role = "hunter_mm" },
     { name = "Trapmaster",   class = "HUNTER",  role = "hunter_surv" },
@@ -139,7 +139,7 @@ local function RefreshViews()
     WhoDoesWhat:RefreshPaladinBuffGridView()
 end
 
--- Re-write the fakes' roles and paladin buff-talent ranks into the DB. No-op
+-- Re-write the fakes' roles and utility-talent ranks into the DB. No-op
 -- while the toggle is off. Beyond the enable transition, this also heals the
 -- fakes after anything wipes the board out from under them -- the group-leave
 -- wipe (Sync.lua) can fire around reload/logout while solo and eat the roles.
@@ -152,11 +152,14 @@ function WhoDoesWhat:ReapplyFakeRaid()
         if fm.buffTalents then
             profile.paladinBuffTalents[fm.name] = CopyTable(fm.buffTalents)
         end
+        if fm.healthstoneRank ~= nil then
+            profile.warlockHealthstoneTalents[fm.name] = fm.healthstoneRank
+        end
     end
 end
 
 -- Turn the fake raid on or off. Either transition wipes the board. Turning on
--- writes the fakes' roles and paladin buff-talent ranks; turning off removes
+-- writes the fakes' roles and utility-talent ranks; turning off removes
 -- every trace of the fake names so nothing lingers in the DB.
 function WhoDoesWhat:SetFakeRaidEnabled(value)
     value = value and true or false
@@ -172,6 +175,7 @@ function WhoDoesWhat:SetFakeRaidEnabled(value)
             profile.assignments[fm.name] = nil
             profile.talentSpecs[fm.name] = nil
             profile.paladinBuffTalents[fm.name] = nil
+            profile.warlockHealthstoneTalents[fm.name] = nil
         end)
     end
 
@@ -198,6 +202,7 @@ function WhoDoesWhat:SetFakeRaidPaladinCount(n)
             profile.assignments[fm.name] = nil
             profile.talentSpecs[fm.name] = nil
             profile.paladinBuffTalents[fm.name] = nil
+            profile.warlockHealthstoneTalents[fm.name] = nil
         end)
         self:ReapplyFakeRaid()
         RefreshViews()
