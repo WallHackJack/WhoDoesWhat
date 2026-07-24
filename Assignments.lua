@@ -1490,10 +1490,10 @@ end
 local function GetPetUnitInfo()
     local owners = {}
     if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do owners[#owners + 1] = { "raid" .. i, "raid" .. i .. "pet" } end
+        for i = 1, GetNumGroupMembers() do owners[#owners + 1] = { "raid" .. i, "raidpet" .. i } end
     else
         owners[#owners + 1] = { "player", "pet" }
-        for i = 1, GetNumSubgroupMembers() do owners[#owners + 1] = { "party" .. i, "party" .. i .. "pet" } end
+        for i = 1, GetNumSubgroupMembers() do owners[#owners + 1] = { "party" .. i, "partypet" .. i } end
     end
     local out = {}
     for _, u in ipairs(owners) do
@@ -1505,39 +1505,6 @@ local function GetPetUnitInfo()
     return out
 end
 
--- The set of blessing keys some paladin gives WARRIORS as their class Greater
--- (majority of that paladin's warrior assignments, ties canonical -- the same
--- derivation the PallyPower bridge uses; pets don't vote here). A hunter pet
--- rides the Warrior blessing group, so any pet want already in this set is
--- delivered by a Warrior Greater and needs no individual Normal.
-local function WarriorGreaterKeys(plan, classOf)
-    local canonIndex = {}
-    for i, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do canonIndex[key] = i end
-
-    local perPally = {} -- paladin -> { key -> count } across their warriors
-    for raider, cells in pairs(plan) do
-        local ci = classOf[raider]
-        if ci and ci.name == "Warrior" then
-            for pal, key in pairs(cells) do
-                perPally[pal] = perPally[pal] or {}
-                perPally[pal][key] = (perPally[pal][key] or 0) + 1
-            end
-        end
-    end
-    local set = {}
-    for _, tally in pairs(perPally) do
-        local best, bestN
-        for key, count in pairs(tally) do
-            if not best or count > bestN
-                or (count == bestN and (canonIndex[key] or 99) < (canonIndex[best] or 99)) then
-                best, bestN = key, count
-            end
-        end
-        if best then set[best] = true end
-    end
-    return set
-end
-
 -- One paladin's buffing jobs, grouped per CLASS -- the model behind the
 -- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the same
 -- per-raider grid as the PallyPower bridge and collapses it the same way, with
@@ -1545,10 +1512,9 @@ end
 -- majority blessing is the class Greater (one cast buffs the whole class) and
 -- the dissenters are per-player Normal exceptions.
 --
--- Hunter pets bucket under WARRIORS -- a Greater on a Warrior reaches them, so
--- a pet whose want matches the class Greater is covered for free, and a pet
--- wanting something else rides the right-click Normal cycle like any exception.
--- The Warrior button appears for pets even with no warriors present.
+-- Hunter pets bucket under WARRIORS to match the client, but every pet cell is
+-- a separate 10-minute Normal blessing in the right-click cycle. The Warrior
+-- button appears for pets even with no warriors present.
 --
 -- Returns an array of per-class jobs (class-name sorted). Each member (raider
 -- or pet) carries display name, buff key, live state, and -- for pets -- the
@@ -1586,16 +1552,14 @@ local function GetPaladinBuffJobs(paladinName)
         end
     end
 
-    -- Hunter pets under the Warrior bucket -- but only for a want a Warrior
-    -- Greater doesn't already deliver (that one rides the class Greater for
-    -- free; only the leftover want needs an individual Normal).
-    local warriorGreaters = WarriorGreaterKeys(plan, classOf)
+    -- Hunter pets share PallyPower's Warrior bucket but remain individual
+    -- Normal-blessing targets.
     local warriorCI = GetClassInfoByToken("WARRIOR")
     if warriorCI then
         local petInfo = GetPetUnitInfo()
         for _, pet in ipairs(GetPetMembers()) do
             local key = plan[pet.name] and plan[pet.name][paladinName]
-            if key and not warriorGreaters[key] then
+            if key then
                 local c = bucket(warriorCI)
                 local info = petInfo[pet.owner]
                 c.members[#c.members + 1] = {
@@ -1650,7 +1614,7 @@ local function GetPaladinBuffJobs(paladinName)
             }
             job.total = job.total + 1
             if has == true then job.covered = job.covered + 1 end
-            if m.key ~= greaterKey then
+            if m.isPet or m.key ~= greaterKey then
                 job.normals[#job.normals + 1] = {
                     name = m.display, key = m.key, buff = WhoDoesWhat.PaladinBuffs[m.key],
                     isPet = m.isPet, petUnit = m.petUnit,

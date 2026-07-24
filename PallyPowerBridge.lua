@@ -128,6 +128,33 @@ local function GroupPaladins(self)
     return paladins
 end
 
+-- owner name -> live pet name. Pet identities can arrive after the group
+-- roster, so both the sync builder and the late-identification watcher use
+-- this same resolver.
+local function LivePetNames()
+    local units = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            units[#units + 1] = { owner = "raid" .. i, pet = "raidpet" .. i }
+        end
+    else
+        units[#units + 1] = { owner = "player", pet = "pet" }
+        for i = 1, GetNumSubgroupMembers() do
+            units[#units + 1] = { owner = "party" .. i, pet = "partypet" .. i }
+        end
+    end
+
+    local names = {}
+    for _, u in ipairs(units) do
+        if UnitExists(u.pet) then
+            local owner = GetUnitName(u.owner, true)
+            local petName = GetUnitName(u.pet, true)
+            if owner and petName then names[owner] = petName end
+        end
+    end
+    return names
+end
+
 -- Compute the PallyPower assignment tables our grid implies, WITHOUT touching
 -- the live globals or the wire: majority buff per paladin/class becomes the
 -- class (Greater) assignment, dissenters and hunter pets ride along as Normal
@@ -156,32 +183,13 @@ local function BuildDesired(self, pp, paladins)
     -- keyed by the pet's real unit name (resolved from the live pet units) and
     -- filed under the class id this client lists pets under (Warrior). Pets we
     -- can't name (out of range) and fake hunters' pets are skipped.
-    local petOwner, petRealName = {}, {}
+    local petOwner = {}
     for _, pet in ipairs(self.Assign.GetPetMembers()) do
         if not IsFakeName(pet.owner) then
             petOwner[pet.name] = pet.owner
         end
     end
-    do
-        local units = {}
-        if IsInRaid() then
-            for i = 1, GetNumGroupMembers() do
-                units[#units + 1] = { owner = "raid" .. i, pet = "raid" .. i .. "pet" }
-            end
-        else
-            units[#units + 1] = { owner = "player", pet = "pet" }
-            for i = 1, GetNumSubgroupMembers() do
-                units[#units + 1] = { owner = "party" .. i, pet = "party" .. i .. "pet" }
-            end
-        end
-        for _, u in ipairs(units) do
-            if UnitExists(u.pet) then
-                local owner = GetUnitName(u.owner, true)
-                local petName = GetUnitName(u.pet, true)
-                if owner and petName then petRealName[owner] = petName end
-            end
-        end
-    end
+    local petRealName = LivePetNames()
     local petClassId = pp.ClassToID and pp.ClassToID["WARRIOR"]
 
     -- Tally the grid per paladin/class: votes[pallyShort][classId][blessId]
@@ -244,30 +252,21 @@ local function BuildDesired(self, pp, paladins)
         end
     end
 
-    -- Hunter pets ride the Warrior blessing group: a Greater on a Warrior
-    -- reaches them, so any pet want a Warrior-class Greater already delivers
-    -- needs no Normal. Collect those Greaters, then file only the leftover pet
-    -- wants as single-target Normals under petClassId (Warrior), keyed by the
-    -- pet's real name. Pets we couldn't name are left uncovered here.
-    local petGreaters = {}
-    if petClassId then
-        for _, pname in ipairs(paladins) do
-            local g = assignments[ShortName(pname)][petClassId]
-            if g and g ~= 0 then petGreaters[g] = true end
-        end
-    end
+    -- PallyPower groups pets under Warrior on this client, but each planned
+    -- pet cell is still a 10-minute, single-target Normal blessing.
     for petName, owner in pairs(petOwner) do
         local realName = petRealName[owner]
-        if realName and petClassId then
-            local realShort = ShortName(realName)
-            for paladin, buffKey in pairs(plan[petName] or {}) do
-                local pshort = ShortName(paladin)
-                local bless = BuffKeyToBlessingId(buffKey)
-                if bless and not petGreaters[bless]
-                    and not IsFakeName(paladin) and normal[pshort] then
+        local realShort = ShortName(realName)
+        for paladin, buffKey in pairs(plan[petName] or {}) do
+            local pshort = ShortName(paladin)
+            local bless = BuffKeyToBlessingId(buffKey)
+            if not IsFakeName(paladin) then
+                if realShort and petClassId and bless and normal[pshort] then
                     normal[pshort][petClassId] = normal[pshort][petClassId] or {}
                     normal[pshort][petClassId][realShort] = bless
                     singleCount = singleCount + 1
+                else
+                    skipped = skipped + 1
                 end
             end
         end
@@ -339,7 +338,7 @@ function WhoDoesWhat:SyncToPallyPower()
         .. classCount .. " class blessing(s), " .. singleCount .. " individual exception(s)."
     if skipped > 0 then
         summary = summary .. " " .. skipped
-            .. " cell(s) skipped (class or blessing PallyPower doesn't track)."
+            .. " cell(s) skipped (unresolved pet, class, or blessing)."
     end
     self:Print(summary)
 
@@ -638,6 +637,9 @@ end
 -- Wiring
 -- ---------------------------------------------------------------------------
 
+local knownPetNames = {}
+local petCheckPending = false
+
 function Bridge:OnEnable()
     -- Without PallyPower loaded nobody registered the prefix, and unregistered
     -- prefixes never reach CHAT_MSG_ADDON -- register it so the log observes
@@ -647,6 +649,9 @@ function Bridge:OnEnable()
     end
 
     self:RegisterEvent("CHAT_MSG_ADDON")
+    self:RegisterEvent("UNIT_PET", "PetRosterChanged")
+    self:RegisterEvent("GROUP_ROSTER_UPDATE", "PetRosterChanged")
+    knownPetNames = LivePetNames()
 
     -- Outgoing side: everything PallyPower sends (whispers included) goes
     -- through the shared ChatThrottleLib singleton. All addons finished
@@ -661,6 +666,43 @@ function Bridge:OnEnable()
                 end
             end)
     end
+end
+
+-- A full sync can run while a pet's unit exists but its name is not yet
+-- available. When that identity arrives, the desired plan gains Normal
+-- assignments that the completed sync could not send. Surface the existing
+-- review/send window only when the new pet actually accounts for live drift.
+function Bridge:PetRosterChanged()
+    if petCheckPending then return end
+    petCheckPending = true
+    C_Timer.After(0.25, function()
+        petCheckPending = false
+        local live = LivePetNames()
+        local identified = {}
+        for owner, petName in pairs(live) do
+            if knownPetNames[owner] ~= petName then
+                identified[ShortName(petName)] = true
+            end
+        end
+        knownPetNames = live
+        if not next(identified) or not CanBroadcastAssignments() then return end
+
+        local diffs = WhoDoesWhat:CheckPallyPowerSync()
+        if not diffs then return end
+        local petDiffs = 0
+        for _, d in ipairs(diffs) do
+            if not d.isClass and identified[d.target] then
+                petDiffs = petDiffs + 1
+            end
+        end
+        if petDiffs > 0 then
+            WhoDoesWhat:OpenPallyPowerDiffView(string.format(
+                "A hunter pet was just identified, adding %d missing"
+                .. " PallyPower assignment(s). Review them below, then Send"
+                .. " the full plan or Ignore it.",
+                petDiffs))
+        end
+    end)
 end
 
 function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)

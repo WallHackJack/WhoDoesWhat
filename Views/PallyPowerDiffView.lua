@@ -7,8 +7,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- (structured: paladin, target, want/have blessing + icon); this view only
 -- groups them by paladin and renders. A "Send to PallyPower" button pushes the
 -- plan and re-renders (now in sync); "Recheck" re-runs the compare, since
--- PallyPower can change from other paladins with no repaint here. Role changes
--- can open the same window in warning mode, where Recheck becomes Ignore.
+-- PallyPower can change from other paladins with no repaint here. Changes that
+-- cannot be safely auto-sent can open the same window in warning mode, where
+-- Recheck becomes Ignore.
 
 local diffFrame = nil
 
@@ -48,7 +49,7 @@ local function RenderDiffs(f)
     smf:Clear()
 
     if f.warningText then
-        smf:AddMessage("|cffff6060Role change was not auto-sent.|r "
+        smf:AddMessage("|cffff6060PallyPower was not auto-updated.|r "
             .. f.warningText)
         smf:AddMessage(" ")
     end

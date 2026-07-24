@@ -90,12 +90,12 @@ local function GroupTargets()
     local owners = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            owners[#owners + 1] = { "raid" .. i, "raid" .. i .. "pet" }
+            owners[#owners + 1] = { "raid" .. i, "raidpet" .. i }
         end
     else
         owners[1] = { "player", "pet" }
         for i = 1, GetNumSubgroupMembers() do
-            owners[#owners + 1] = { "party" .. i, "party" .. i .. "pet" }
+            owners[#owners + 1] = { "party" .. i, "partypet" .. i }
         end
     end
 
@@ -235,6 +235,7 @@ end
 local driver = CreateFrame("Frame")
 driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("GROUP_ROSTER_UPDATE")
+driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("UNIT_AURA")
 driver:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_AURA" then
