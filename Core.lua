@@ -142,6 +142,10 @@ local defaults = {
             developerMode = false,
             -- Persisted source for LOG_UI_BUILDING above.
             logUiUpdates = false,
+            -- Print automatic WhoDoesWhat board/role sync status to chat.
+            logSyncStatus = false,
+            -- Print detailed WhoDoesWhat addon-message diagnostics to chat.
+            logSyncTraffic = false,
             -- Print Paladin Buffing Bar click diagnostics to chat.
             logBuffingBarClicks = false,
             -- Auto-place an Affliction warlock on Curse of the Elements: on
@@ -178,6 +182,7 @@ function WhoDoesWhat:OnInitialize()
     -- Persistent configuration database
     self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
+    self.LOG_SYNC = self.db.profile.settings.logSyncTraffic
 
     -- One-off migrations: buffAssignments briefly held the paladin buff picks
     -- before raidAssignments generalized it -- drop it outright. Then paladin

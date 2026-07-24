@@ -1,9 +1,9 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Addon settings window. A stub for now: just the Developer Options section.
--- Checkbox state persists in db.profile.settings; "Log UI Updates" also
--- mirrors into WhoDoesWhat.LOG_UI_BUILDING immediately so logging reacts
--- without a reload.
+-- Checkbox state persists in db.profile.settings; chat-log toggles also
+-- mirror into their runtime flags immediately so logging reacts without a
+-- reload.
 
 local settingsFrame = nil
 
@@ -13,7 +13,7 @@ local COL_GAP = 14
 local COL_L = MARGIN
 local COL_R = MARGIN + COL_W + COL_GAP
 local FRAME_W = COL_R + COL_W + MARGIN
-local FRAME_H = 480
+local FRAME_H = 600
 local CHECKBOX_ROW_H = 52
 
 -- Checkbox at column origin `x`, label beside it, gray wrapped description
@@ -138,6 +138,19 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:Print("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
+    f.logSyncStatusCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log sync status",
+        "Print automatic board updates, role syncs, and group-clear notices to chat.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logSyncStatus = value
+            WhoDoesWhat:Print("Log sync status " .. (value and "enabled." or "disabled."))
+        end)
+    f.logSyncTrafficCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log sync details",
+        "Print detailed WhoDoesWhat addon-message diagnostics to chat. Traffic is always retained in Logs.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logSyncTraffic = value
+            WhoDoesWhat.LOG_SYNC = value
+            WhoDoesWhat:Print("Log sync details " .. (value and "enabled." or "disabled."))
+        end, 14)
     f.logBuffingClicksCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log buffing bar clicks",
         "Print each recognized left/right buffing-bar click and its castable target count.",
         function(value)
@@ -226,6 +239,8 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.paladinOnlyCheck:SetChecked(settings.paladinOnlyView)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
+    f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)
+    f.logSyncTrafficCheck:SetChecked(settings.logSyncTraffic)
     f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)

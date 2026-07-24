@@ -64,8 +64,8 @@ local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
 
--- Chat-spam toggle in the LOG_TALENTS mold. Traffic is always retained for
--- the Sync Log view; this only controls whether it is also printed to chat.
+-- Traffic is always retained for the Sync Log view. These helpers only
+-- control optional developer chat output.
 WhoDoesWhat.LOG_SYNC = false
 
 local function LogSync(...)
@@ -268,6 +268,12 @@ local function AppendTraffic(dir, who, msg, channel)
     syncLog[#syncLog + 1] = entry
     if WhoDoesWhat.SyncLogAppended then
         WhoDoesWhat:SyncLogAppended(entry, trimmed)
+    end
+end
+
+local function LogSyncStatus(...)
+    if WhoDoesWhat.db.profile.settings.logSyncStatus then
+        WhoDoesWhat:Print(...)
     end
 end
 
@@ -478,7 +484,7 @@ function Sync:OnGroupLeft()
     lastSyncedFP = Fingerprint()
 
     if hadAnything then
-        WhoDoesWhat:Print("Left the group - all assignments cleared.")
+        LogSyncStatus("Left the group - all assignments cleared.")
     end
     RefreshAllViews()
 end
@@ -573,14 +579,14 @@ function Sync:ApplyState(msg, senderKey)
             self:CancelTimer(awaitTimer)
             awaitTimer = nil
         end
-        WhoDoesWhat:Print("Assignments synced from the group leader (" .. senderKey .. ").")
+        LogSyncStatus("Assignments synced from the group leader (" .. senderKey .. ").")
         if replacedSomething then
             StaticPopup_Show("WHODOESWHAT_SYNC_REPLACED",
                 "The group leader's assignments have replaced your local"
                 .. " WhoDoesWhat board (leader: " .. senderKey .. ").")
         end
     else
-        WhoDoesWhat:Print("Assignments updated from " .. senderKey .. ".")
+        LogSyncStatus("Assignments updated from " .. senderKey .. ".")
     end
     -- The board just moved over the wire, which never touches Blizzard flags on
     -- its own. If we're the flag-authority (leader), push the flags now so a
@@ -672,7 +678,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
                 WhoDoesWhat:PushPlayerBuffToPallyPower(senderKey, priorPallyPowerDiffs)
             end
             local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
-            WhoDoesWhat:Print(senderKey .. " set their own role to "
+            LogSyncStatus(senderKey .. " set their own role to "
                 .. (role and role.name or msg.role or "None") .. ".")
             -- Their own broadcast carries no Blizzard flag; if we're the
             -- flag-authority (leader), apply it for them so exactly one client
