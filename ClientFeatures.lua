@@ -4,8 +4,25 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- scattered version checks. Classic Era is the 1.x client family.
 local isClassicEra = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 
+local PALADIN_BUFF_TALENTS_TBC = {
+    { key = "might",     tab = 3, tier = 1, column = 2 },
+    { key = "wisdom",    tab = 1, tier = 4, column = 3 },
+    { key = "kings",     tab = 2, tier = 3, column = 1 },
+    { key = "sanctuary", tab = 2, tier = 5, column = 2 },
+}
+
+local PALADIN_BUFF_TALENTS_CLASSIC = {
+    { key = "wisdom",    tab = 1, tier = 4, column = 3 },
+    { key = "kings",     tab = 2, tier = 3, column = 1 },
+    { key = "sanctuary", tab = 2, tier = 5, column = 2 },
+    { key = "might",     tab = 3, tier = 1, column = 2 },
+}
+
 WhoDoesWhat.ClientFeatures = {
     misdirectAssignments = not isClassicEra,
+    paladinBuffTalents = isClassicEra
+        and PALADIN_BUFF_TALENTS_CLASSIC
+        or PALADIN_BUFF_TALENTS_TBC,
 
     -- Stable CC keys from Data.lua that this client does not have.
     excludedCCSpells = isClassicEra and {

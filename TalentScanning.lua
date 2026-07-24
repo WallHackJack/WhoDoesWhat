@@ -39,8 +39,8 @@ local SPEC_ROLES = {
 
 -- The four talents that decide which paladin should carry which blessing,
 -- located by their fixed grid position: tab (1 Holy, 2 Protection,
--- 3 Retribution), tier (row, top = 1) and column (left = 1). These are static
--- TBC facts, so they're written out directly -- no per-session lookup.
+-- 3 Retribution), tier (row, top = 1) and column (left = 1). ClientFeatures
+-- selects the Classic Era or TBC layout.
 --
 -- We read ranks by (tier, column) rather than a talent index because the
 -- native GetTalentInfo(tab, i) index order is NOT stable on this client
@@ -52,12 +52,7 @@ local SPEC_ROLES = {
 -- The 1-point talents (Kings, Sanctuary) *grant* their blessing outright (no
 -- talent = can't cast it); the multi-rank ones improve a baseline blessing.
 -- Salvation and Light have no talent.
-local PALADIN_BUFF_TALENTS = {
-    { key = "might",     tab = 3, tier = 1, column = 2 }, -- Improved Blessing of Might (0-5), Retribution
-    { key = "wisdom",    tab = 1, tier = 4, column = 3 }, -- Improved Blessing of Wisdom (0-2), Holy
-    { key = "kings",     tab = 2, tier = 3, column = 1 }, -- Blessing of Kings (0-1), Protection
-    { key = "sanctuary", tab = 2, tier = 5, column = 2 }, -- Blessing of Sanctuary (0-1), Protection
-}
+local PALADIN_BUFF_TALENTS = WhoDoesWhat.ClientFeatures.paladinBuffTalents
 
 -- Read one talent's rank straight from the client's native talent API, found
 -- by its (tier, column) so the unstable index order doesn't matter. isInspect
