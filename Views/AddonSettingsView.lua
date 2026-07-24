@@ -1,19 +1,17 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Addon settings window. A stub for now: just the Developer Options section.
--- Checkbox state persists in db.profile.settings; chat-log toggles also
--- mirror into their runtime flags immediately so logging reacts without a
--- reload.
+-- Addon settings window. Checkbox state persists in db.profile.settings;
+-- chat-log toggles also mirror into their runtime flags immediately so
+-- logging reacts without a reload.
 
 local settingsFrame = nil
 
-local MARGIN = 14
-local COL_W = 290           -- content width of one column
-local COL_GAP = 14
-local COL_L = MARGIN
-local COL_R = MARGIN + COL_W + COL_GAP
-local FRAME_W = COL_R + COL_W + MARGIN
-local FRAME_H = 600
+local NAV_X = 14
+local NAV_W = 94
+local CONTENT_X = 124
+local CONTENT_W = 290
+local FRAME_W = 430
+local FRAME_H = 390
 local CHECKBOX_ROW_H = 52
 
 -- Checkbox at column origin `x`, label beside it, gray wrapped description
@@ -33,7 +31,7 @@ local function AddCheckboxRow(f, x, y, labelText, descText, apply, extra)
 
     local desc = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     desc:SetPoint("TOPLEFT", check, "BOTTOMLEFT", 26, 2)
-    desc:SetWidth(COL_W - 26)
+    desc:SetWidth(CONTENT_W - 26)
     desc:SetJustifyH("LEFT")
     desc:SetTextColor(0.6, 0.6, 0.6)
     desc:SetText(descText)
@@ -50,19 +48,55 @@ local function AddHeading(f, x, y, text, r, g, b)
     return y + 28
 end
 
--- Build the settings window once and reuse it. Two columns: left holds Buffing
--- Bar / General / Warlock Curses, right holds Developer Options.
+-- Build the settings window once and reuse it. Section buttons down the left
+-- keep each page to one narrow column and work consistently across clients.
 local function EnsureSettingsFrame()
     if settingsFrame then return settingsFrame end
 
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
-    local y0 = f.titleBarHeight + 14
+    local y0 = f.titleBarHeight + 20
+    local pages = {}
+    local buttons = {}
+    local sectionLabels = { "General", "Paladin", "Warlock", "Developer", "Testing" }
 
-    -- ---- Left column ----
+    local function SelectSection(index)
+        for i, page in ipairs(pages) do
+            if i == index then page:Show() else page:Hide() end
+            if i == index then buttons[i]:LockHighlight() else buttons[i]:UnlockHighlight() end
+        end
+    end
+
+    for i, label in ipairs(sectionLabels) do
+        local index = i
+        local button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        button:SetSize(NAV_W, 24)
+        button:SetPoint("TOPLEFT", f, "TOPLEFT", NAV_X, -(y0 + (i - 1) * 28))
+        button:SetText(label)
+        button:SetScript("OnClick", function() SelectSection(index) end)
+        buttons[i] = button
+
+        local page = CreateFrame("Frame", nil, f)
+        page:SetAllPoints(f)
+        pages[i] = page
+    end
+
+    -- ---- General ----
+    local generalPage = pages[1]
     local yL = y0
-    yL = AddHeading(f, COL_L, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
+    yL = AddHeading(generalPage, CONTENT_X, yL, "General")
+    f.announceRoleCheck, yL = AddCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
+        "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.announceRoleChanges = value
+            WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
+        end)
 
-    f.buffingBarCheck, yL = AddCheckboxRow(f, COL_L, yL, "Enable Paladin Buffing Bar",
+    -- ---- Paladin ----
+    local paladinPage = pages[2]
+    yL = y0
+    yL = AddHeading(paladinPage, CONTENT_X, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
+
+    f.buffingBarCheck, yL = AddCheckboxRow(paladinPage, CONTENT_X, yL, "Enable Paladin Buffing Bar",
         "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarEnabled = value
@@ -70,96 +104,97 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end, 14)
 
-    local growLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    growLabel:SetPoint("TOPLEFT", COL_L + 4, -(yL + 4))
+    local growLabel = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    growLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     growLabel:SetText("Bar grows:")
-    local GROW_LABELS = { RIGHT = "Right", LEFT = "Left" }
-    local growDD = CreateFrame("Frame", "WhoDoesWhatBuffingGrowDD", f, "UIDropDownMenuTemplate")
+    local growLabels = { RIGHT = "Right", LEFT = "Left" }
+    local growDD = CreateFrame("Frame", "WhoDoesWhatBuffingGrowDD", paladinPage, "UIDropDownMenuTemplate")
     growDD:SetPoint("LEFT", growLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(growDD, 80)
     UIDropDownMenu_Initialize(growDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarGrow or "RIGHT"
         for _, mode in ipairs({ "RIGHT", "LEFT" }) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = GROW_LABELS[mode]
+            info.text = growLabels[mode]
             info.checked = (saved == mode)
             info.func = function()
                 WhoDoesWhat:SetBuffingBarGrow(mode)
-                UIDropDownMenu_SetText(growDD, GROW_LABELS[mode])
+                UIDropDownMenu_SetText(growDD, growLabels[mode])
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
     f.buffingGrowDD = growDD
-    yL = yL + 40
 
-    yL = AddHeading(f, COL_L, yL, "General")
-    f.announceRoleCheck, yL = AddCheckboxRow(f, COL_L, yL, "Announce role changes in chat",
-        "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.announceRoleChanges = value
-            WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
-        end)
-    yL = AddHeading(f, COL_L, yL, "Warlock Curses", 0.72, 0.45, 1)
-    f.afflElementsCheck, yL = AddCheckboxRow(f, COL_L, yL, "Auto assign Affliction to elements",
+    -- ---- Warlock ----
+    local warlockPage = pages[3]
+    yL = y0
+    yL = AddHeading(warlockPage, CONTENT_X, yL, "Warlock Curses", 0.72, 0.45, 1)
+    f.afflElementsCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Auto assign Affliction to elements",
         "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
         function(value)
             WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
             WhoDoesWhat:Print("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
         end)
-    f.recklessnessCheck, yL = AddCheckboxRow(f, COL_L, yL, "Allow recklessness auto-assign",
+    f.recklessnessCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
         "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
         function(value)
             WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
             WhoDoesWhat:Print("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
         end)
 
-    -- ---- Right column ----
+    -- ---- Developer ----
+    local developerPage = pages[4]
     local yR = y0
-    yR = AddHeading(f, COL_R, yR, "Developer Options")
-    f.devModeCheck, yR = AddCheckboxRow(f, COL_R, yR, "Developer Mode",
+    yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
+    f.devModeCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
         "Assignment dropdowns list every group member, not just the eligible class.",
         function(value)
             WhoDoesWhat.db.profile.settings.developerMode = value
             WhoDoesWhat:Print("Developer Mode " .. (value and "enabled." or "disabled."))
         end)
-    f.logUiCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log UI Updates",
+    f.logUiCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
         "Print verbose UI build and layout logging to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logUiUpdates = value
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:Print("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncStatusCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log sync status",
+    f.logSyncStatusCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync status",
         "Print automatic board updates, role syncs, and group-clear notices to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncStatus = value
             WhoDoesWhat:Print("Log sync status " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncTrafficCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log sync details",
+    f.logSyncTrafficCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
         "Print detailed WhoDoesWhat addon-message diagnostics to chat. Traffic is always retained in Logs.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncTraffic = value
             WhoDoesWhat.LOG_SYNC = value
             WhoDoesWhat:Print("Log sync details " .. (value and "enabled." or "disabled."))
         end, 14)
-    f.logBuffingClicksCheck, yR = AddCheckboxRow(f, COL_R, yR, "Log buffing bar clicks",
+    f.logBuffingClicksCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
         "Print each recognized left/right buffing-bar click and its castable target count.",
         function(value)
             WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
             WhoDoesWhat:Print("Log buffing bar clicks "
                 .. (value and "enabled." or "disabled."))
         end)
-    f.fakeRaidCheck, yR = AddCheckboxRow(f, COL_R, yR, "Populate Fake Raid",
+
+    -- ---- Testing ----
+    local testingPage = pages[5]
+    yR = y0
+    yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
+    f.fakeRaidCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
         end)
 
-    local palLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    palLabel:SetPoint("TOPLEFT", COL_R + 4, -(yR + 6))
+    local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    palLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
     palLabel:SetText("Fake paladins:")
-    local palDD = CreateFrame("Frame", "WhoDoesWhatFakePaladinCountDD", f, "UIDropDownMenuTemplate")
+    local palDD = CreateFrame("Frame", "WhoDoesWhatFakePaladinCountDD", testingPage, "UIDropDownMenuTemplate")
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
     UIDropDownMenu_SetWidth(palDD, 40)
     UIDropDownMenu_Initialize(palDD, function(_, level)
@@ -178,7 +213,7 @@ local function EnsureSettingsFrame()
     f.fakePaladinDD = palDD
     yR = yR + 40
 
-    f.buffingTestCheck, yR = AddCheckboxRow(f, COL_R, yR, "Show buffing bar as non-paladin",
+    f.buffingTestCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Show buffing bar as non-paladin",
         "Render the Paladin Buffing Bar even when you're not a paladin, as the paladin picked below (real or fake). Preview only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarTestMode = value
@@ -186,10 +221,10 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end, 14)
 
-    local testLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    testLabel:SetPoint("TOPLEFT", COL_R + 4, -(yR + 6))
+    local testLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    testLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
     testLabel:SetText("Test as paladin:")
-    local testDD = CreateFrame("Frame", "WhoDoesWhatBuffingTestPaladinDD", f, "UIDropDownMenuTemplate")
+    local testDD = CreateFrame("Frame", "WhoDoesWhatBuffingTestPaladinDD", testingPage, "UIDropDownMenuTemplate")
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(testDD, 120)
     UIDropDownMenu_Initialize(testDD, function(_, level)
@@ -208,6 +243,7 @@ local function EnsureSettingsFrame()
     end)
     f.buffingTestDD = testDD
 
+    SelectSection(1)
     settingsFrame = f
     return f
 end
