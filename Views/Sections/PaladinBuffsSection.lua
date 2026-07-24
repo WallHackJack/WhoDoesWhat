@@ -59,6 +59,19 @@ local RULE_KINDS = {
 local Refresh -- the section's registered refresh; forward-declared to stay a
               -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
 
+local function UpdatePallyPowerStatus(state)
+    local diffs = WhoDoesWhat:CheckPallyPowerSync()
+    if diffs and #diffs > 0 then
+        state.ppWarn.tooltipText = string.format("PallyPower is out of date -- %d"
+            .. " assignment(s) differ from the plan. Click Check to review"
+            .. " them, or Send to update PallyPower.", #diffs)
+        state.ppWarn:Show()
+    else
+        state.ppWarn.tooltipText = nil
+        state.ppWarn:Hide()
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Rule-row text + warning helpers
 -- ---------------------------------------------------------------------------
@@ -486,11 +499,20 @@ function Refresh(f) -- forward declared above
         state.ruleRows[i]:Hide()
     end
 
-    -- One footer row below the rules: "Info + Grid". PallyPower actions live
-    -- in the main window toolbar so they remain available outside this box.
+    -- One footer row below the rules: Info + Grid on the left and the
+    -- PallyPower warning / Check / Send controls on the right.
     local y = rulesTop + #rules * RULE_ROW_H + FOOTER_TOP_GAP
     state.gridBtn:ClearAllPoints()
     state.gridBtn:SetPoint("TOPLEFT", K.BOX_PAD, -y)
+    state.ppSyncBtn:ClearAllPoints()
+    state.ppSyncBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
+    state.ppCheckBtn:ClearAllPoints()
+    state.ppCheckBtn:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -4, 0)
+    state.ppWarn:ClearAllPoints()
+    state.ppWarn:SetPoint("RIGHT", state.ppCheckBtn, "LEFT", -2, 0)
+    state.ppLabel:ClearAllPoints()
+    state.ppLabel:SetPoint("RIGHT", state.ppWarn, "LEFT", -3, 0)
+    UpdatePallyPowerStatus(state)
 
     state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
@@ -513,6 +535,27 @@ function Refresh(f) -- forward declared above
     end
 
     K.LayoutHeaderChain(state.headerChain)
+end
+
+local function CreateFooterButton(box, text, tipTitle, tipBody, tipWarn, onClick)
+    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
+    btn:SetFrameLevel(box:GetFrameLevel() + 1)
+    btn:SetHeight(FOOTER_BTN_H)
+    btn:SetText(text)
+    btn:SetWidth(math.max(44, btn:GetTextWidth() + 20))
+    btn:SetMotionScriptsWhileDisabled(true)
+    btn:SetScript("OnClick", onClick)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(tipTitle, 1, 1, 1)
+        GameTooltip:AddLine(self.disabledReason or tipBody, 0.8, 0.8, 0.8, true)
+        if tipWarn and not self.disabledReason then
+            GameTooltip:AddLine(tipWarn, 1, 0.5, 0.4, true)
+        end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return btn
 end
 
 local function Build(f, content)
@@ -564,13 +607,35 @@ local function Build(f, content)
     local hint = K.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
 
+    local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ppLabel:SetText("PallyPower:")
+
+    local ppSyncBtn = CreateFooterButton(box, "Send",
+        "Send to PallyPower",
+        "Write this computed grid into PallyPower and broadcast it over"
+        .. " PallyPower's own sync.",
+        "Other clients only accept the push from a raid lead/assist, or when"
+        .. " they run Free Assignment.",
+        function() WhoDoesWhat:SyncToPallyPower() end)
+
+    local ppWarn = K.CreateWarningIcon(box)
+
+    local ppCheckBtn = CreateFooterButton(box, "Check",
+        "Check PallyPower",
+        "Compare PallyPower's current assignments against this computed grid.",
+        nil, function() WhoDoesWhat:OpenPallyPowerDiffView() end)
+
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
         mailBtn = chrome.mailBtn,
-        buttons = { gridBtn, ruleBtn }, -- the no-paladin gray-out pass
+        buttons = { gridBtn, ruleBtn, ppSyncBtn, ppCheckBtn },
         emptyHint = hint,
         gridBtn = gridBtn,
+        ppLabel = ppLabel,
+        ppSyncBtn = ppSyncBtn,
+        ppWarn = ppWarn,
+        ppCheckBtn = ppCheckBtn,
         rows = {},
         ruleRows = {},
     }
