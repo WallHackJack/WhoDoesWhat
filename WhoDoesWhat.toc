@@ -35,6 +35,7 @@ Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 
 # --- Main ---
 Core.lua
+ClientFeatures.lua
 SlashCommands.lua
 Data.lua
 Permissions.lua

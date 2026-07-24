@@ -58,7 +58,11 @@ local RIGHT_COLUMN_W = CONTENT_W - COLUMN_GAP - LEFT_COLUMN_W
 -- Within a column this is also the anchor-chain order.
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
-    return { SV.Tank, SV.PaladinBuffs, SV.WarlockCurses, SV.CC, SV.Misdirect }
+    local sections = { SV.Tank, SV.PaladinBuffs, SV.WarlockCurses, SV.CC }
+    if WhoDoesWhat.ClientFeatures.misdirectAssignments then
+        sections[#sections + 1] = SV.Misdirect
+    end
+    return sections
 end
 
 -- ---------------------------------------------------------------------------

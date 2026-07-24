@@ -531,6 +531,7 @@ local DynamicSections = {
     },
     {
         key = "md",
+        enabled = WhoDoesWhat.ClientFeatures.misdirectAssignments,
         title = "Misdirect Assignments",
         store = "mdAssignments",
         noun = "misdirect assignment",
@@ -644,10 +645,11 @@ end
 -- board the moment the leader actually assigns something (paladin buffs are
 -- computed, never stored, so they don't count as "issued assignments").
 local function HasActiveAssignments()
-    for _, key in ipairs({ "tank", "cc", "md" }) do
-        local section = SectionByKey(key)
-        for _, entry in ipairs(GetEntries(section)) do
-            if EntryHasJob(section, entry) then return true end
+    for _, section in ipairs(DynamicSections) do
+        if section.enabled ~= false then
+            for _, entry in ipairs(GetEntries(section)) do
+                if EntryHasJob(section, entry) then return true end
+            end
         end
     end
     for _, name in pairs(WhoDoesWhat.db.profile.raidAssignments) do

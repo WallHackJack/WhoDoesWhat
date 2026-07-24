@@ -237,9 +237,11 @@ local function CollectAssignmentSummaries(playerName)
     local A = WhoDoesWhat.Assign
     local out = {}
     for _, section in ipairs(A.DynamicSections) do
-        local text = A.PlayerEntriesText(section, playerName, A.TargetPlainText)
-        if text ~= "" then
-            out[#out + 1] = section.whisperLead .. text
+        if section.enabled ~= false then
+            local text = A.PlayerEntriesText(section, playerName, A.TargetPlainText)
+            if text ~= "" then
+                out[#out + 1] = section.whisperLead .. text
+            end
         end
     end
     for _, section in ipairs(A.Sections) do
@@ -491,7 +493,7 @@ local function AddWdwSection(rootDescription, contextData)
     -- Misdirects are two-sided: a hunter picks their tank, a marked tank
     -- picks their hunters. A hunter marked as a tank gets the hunter side.
     local mdMode
-    if canAssignGroup then
+    if canAssignGroup and WhoDoesWhat.ClientFeatures.misdirectAssignments then
         if classInfo.name == "Hunter" then
             mdMode = "hunter"
         elseif WhoDoesWhat:IsMarkedTank(playerName) then

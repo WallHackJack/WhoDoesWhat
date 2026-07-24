@@ -201,7 +201,7 @@ WhoDoesWhat.WarlockCurses = {
 -- Intimidating Shout) and short stuns/interrupts (Hammer of Justice, Gouge,
 -- Counterspell) -- they're not the kind of thing you assign a target to.
 -- Shamans have no assignable CC in TBC.
-WhoDoesWhat.CCSpells = {
+local ccSpells = {
     { id = "polymorph",   name = "Polymorph",       class = "Mage",    spellId = 12826 }, -- Rank 4
     { id = "banish",      name = "Banish",          class = "Warlock", spellId = 18647 }, -- Rank 2
     { id = "fear",        name = "Fear",            class = "Warlock", spellId = 6215 },  -- Rank 3
@@ -222,6 +222,15 @@ WhoDoesWhat.CCSpells = {
     { id = "repentance",  name = "Repentance",      class = "Paladin", spellId = 20066 },
     { id = "disarm",      name = "Disarm",          class = "Warrior", spellId = 676 },
 }
+
+local features = WhoDoesWhat.ClientFeatures
+WhoDoesWhat.CCSpells = {}
+for _, spell in ipairs(ccSpells) do
+    if not features.excludedCCSpells[spell.id] then
+        spell.spellId = features.ccSpellIds[spell.id] or spell.spellId
+        WhoDoesWhat.CCSpells[#WhoDoesWhat.CCSpells + 1] = spell
+    end
+end
 
 -- Fast lookup for a CC spell by its stable id. Built at load: the list never
 -- changes at runtime, so this needs no init hook.
