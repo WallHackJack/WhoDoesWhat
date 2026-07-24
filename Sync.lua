@@ -64,7 +64,8 @@ local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
 
--- Chat-spam toggle in the LOG_TALENTS mold: a line per message sent/received.
+-- Chat-spam toggle in the LOG_TALENTS mold. Traffic is always retained for
+-- the Sync Log view; this only controls whether it is also printed to chat.
 WhoDoesWhat.LOG_SYNC = false
 
 local function LogSync(...)
@@ -221,6 +222,56 @@ local function Fingerprint()
 end
 
 -- ---------------------------------------------------------------------------
+-- Traffic log
+-- ---------------------------------------------------------------------------
+
+local MAX_LOG = 500
+local syncLog = {}
+WhoDoesWhat.SyncLog = syncLog
+
+local function Count(t)
+    local n = 0
+    for _ in pairs(t or {}) do n = n + 1 end
+    return n
+end
+
+local function DescribeMessage(msg)
+    if msg.t == "STATE" then
+        local s = msg.state or {}
+        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static)",
+            tostring(msg.rev or "?"), Count(s.roles), #(s.tank or {}), #(s.cc or {}),
+            #(s.md or {}), Count(s.static))
+    end
+    if msg.t == "HELLO" then return "requests the leader's board" end
+    if msg.t == "RANKS" then return "shares paladin buff-talent ranks" end
+    if msg.t == "ROLE" then
+        local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
+        return "sets own role to " .. (role and role.name or msg.role or "None")
+    end
+    return "unknown message type " .. tostring(msg.t)
+end
+
+local function AppendTraffic(dir, who, msg, channel)
+    local trimmed = false
+    if #syncLog >= MAX_LOG then
+        for _ = 1, 100 do table.remove(syncLog, 1) end
+        trimmed = true
+    end
+    local entry = {
+        t = date("%H:%M:%S"),
+        dir = dir,
+        who = who,
+        channel = channel,
+        msg = DescribeMessage(msg),
+        raw = Canon(msg),
+    }
+    syncLog[#syncLog + 1] = entry
+    if WhoDoesWhat.SyncLogAppended then
+        WhoDoesWhat:SyncLogAppended(entry, trimmed)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Wire encoding
 -- ---------------------------------------------------------------------------
 
@@ -299,6 +350,7 @@ end
 function Sync:Send(msg, channel, target)
     msg.p = PROTOCOL
     self:SendCommMessage(COMM_PREFIX, Encode(msg), channel, target)
+    AppendTraffic("out", target and SenderKey(target) or UnitName("player"), msg, channel)
     LogSync("sent", msg.t, "via", channel, target or "")
 end
 
@@ -545,6 +597,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
 
     local msg = Decode(text)
     if not msg then return end
+    AppendTraffic("in", senderKey, msg, distribution)
 
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched
     -- version (below). Permissions.lua checks the current leader against

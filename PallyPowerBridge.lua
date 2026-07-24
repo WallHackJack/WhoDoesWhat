@@ -26,6 +26,28 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local Bridge = WhoDoesWhat:NewModule("PallyPowerBridge", "AceEvent-3.0")
 
 local PP_PREFIX = "PLPWR"
+WhoDoesWhat.pallyPowerPeers = {}
+
+function WhoDoesWhat:PaladinHasPallyPower(name)
+    if name == UnitName("player") then return _G.PallyPower ~= nil end
+    return self.pallyPowerPeers[name] == true
+end
+
+-- Ask PallyPower clients to identify themselves. Each paladin answers REQ
+-- with SELF; CHAT_MSG_ADDON below records those replies for the info pane.
+function WhoDoesWhat:RequestPallyPowerPeers()
+    local channel
+    if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        channel = "INSTANCE_CHAT"
+    elseif IsInRaid() then
+        channel = "RAID"
+    elseif IsInGroup() then
+        channel = "PARTY"
+    end
+    if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(PP_PREFIX, "REQ", channel)
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- Id mapping
@@ -709,5 +731,9 @@ function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)
     if prefix ~= PP_PREFIX then return end
     local who = Ambiguate(sender, "none")
     if who == UnitName("player") then return end -- own echo; the send hook logged it
+    if message:find("^SELF ") then
+        WhoDoesWhat.pallyPowerPeers[who] = true
+        WhoDoesWhat:RefreshPaladinBuffGridView()
+    end
     Append("in", who, message)
 end

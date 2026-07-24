@@ -3,8 +3,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Paladin Info + Grid ("Info + Grid" button on the main view): one window,
 -- two panes, no scrolling -- the window sizes itself to its content each
 -- refresh. The left pane is one box per group paladin with their four
--- buff-talent ranks in a 2x2 square (the old Paladin Info window, folded in
--- and condensed). The right pane is the buff grid: every raiding group
+-- buff-talent ranks in a 2x2 square plus their WDW/PallyPower availability
+-- (the old Paladin Info window, folded in and condensed). The right pane is
+-- the buff grid: every raiding group
 -- member down the left with their role icon (Non-raiders are left out
 -- entirely), every paladin across the top, and at each intersection the
 -- buff that paladin gives that raider. At SPLIT_AT_ROWS raiders (or more) the
@@ -61,7 +62,9 @@ local INFO_NAME_Y = INFO_BOX_PAD
 local INFO_DIVIDER_Y = INFO_BOX_PAD + 20
 local INFO_TALENT_Y0 = INFO_BOX_PAD + 26
 local INFO_LINE_H = 16
-local INFO_BOX_H = INFO_TALENT_Y0 + 2 * INFO_LINE_H + INFO_BOX_PAD
+local INFO_ADDON_DIVIDER_Y = INFO_TALENT_Y0 + 2 * INFO_LINE_H + 2
+local INFO_ADDON_Y = INFO_ADDON_DIVIDER_Y + 7
+local INFO_BOX_H = INFO_ADDON_Y + INFO_LINE_H + INFO_BOX_PAD
 
 -- Group members sorted class > role > name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
@@ -207,8 +210,27 @@ local function CreateInfoBox(f, index)
         box.talentFS[i] = fs
     end
 
+    local addonLine = box:CreateTexture(nil, "ARTWORK")
+    addonLine:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    addonLine:SetHeight(1)
+    addonLine:SetPoint("TOPLEFT", INFO_BOX_PAD, -INFO_ADDON_DIVIDER_Y)
+    addonLine:SetPoint("TOPRIGHT", -INFO_BOX_PAD, -INFO_ADDON_DIVIDER_Y)
+
+    box.addonFS = {}
+    for i = 1, 2 do
+        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", INFO_BOX_PAD + 4 + (i - 1) * halfW, -INFO_ADDON_Y)
+        fs:SetJustifyH("LEFT")
+        box.addonFS[i] = fs
+    end
+
     f.infoBoxes[index] = box
     return box
+end
+
+local function AddonStatusText(label, installed)
+    return "|cff" .. (installed and "40ff40" or "ff6060") .. label
+        .. ": " .. (installed and "Yes" or "No") .. "|r"
 end
 
 -- Map the current paladins onto pooled info boxes and hide the surplus.
@@ -222,6 +244,10 @@ local function RefreshInfoPane(f, paladins)
         for j, line in ipairs(TALENT_LINES) do
             box.talentFS[j]:SetText(TalentLineText(line, talents and talents[line.key]))
         end
+        box.addonFS[1]:SetText(AddonStatusText("PallyPower",
+            WhoDoesWhat:PaladinHasPallyPower(m.name)))
+        box.addonFS[2]:SetText(AddonStatusText("WDW",
+            m.name == UnitName("player") or WhoDoesWhat.syncPeers[m.name] == true))
     end
     for i = #paladins + 1, #f.infoBoxes do
         f.infoBoxes[i]:Hide()
@@ -477,42 +503,6 @@ local function EnsureGridFrame()
     end)
     rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- "PP Sync": push this grid into the PallyPower addon and broadcast it
-    -- over PallyPower's own sync channel (see PallyPowerBridge.lua).
-    local ppSync = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    ppSync:SetSize(62, 18)
-    ppSync:SetPoint("TOPRIGHT", -92, -6)
-    ppSync:SetText("PP Sync")
-    ppSync:SetScript("OnClick", function() WhoDoesWhat:SyncToPallyPower() end)
-    ppSync:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:SetText("Sync to PallyPower", 1, 1, 1)
-        GameTooltip:AddLine("Write this grid into PallyPower (each paladin's"
-            .. " per-class blessings; per-raider differences become Normal"
-            .. " blessing exceptions) and broadcast it to the other paladins"
-            .. " over PallyPower's own sync.", 0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine("Other clients only accept the push from a raid"
-            .. " lead/assist, or when they run Free Assignment.", 1, 0.5, 0.4, true)
-        GameTooltip:Show()
-    end)
-    ppSync:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- "PP Log": the live PLPWR traffic window (PallyPowerLogView.lua).
-    local ppLog = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    ppLog:SetSize(56, 18)
-    ppLog:SetPoint("TOPRIGHT", -156, -6)
-    ppLog:SetText("PP Log")
-    ppLog:SetScript("OnClick", function() WhoDoesWhat:OpenPallyPowerLogView() end)
-    ppLog:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:SetText("PallyPower log", 1, 1, 1)
-        GameTooltip:AddLine("A live feed of PallyPower's hidden addon-channel"
-            .. " sync messages, translated to plain lines -- what every"
-            .. " paladin is assigning and reporting.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    ppLog:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     -- Left pane origin: where the first info box hangs (CreateInfoBox).
     f.infoTop = f.titleBarHeight + 10
 
@@ -600,6 +590,7 @@ function WhoDoesWhat:OpenPaladinBuffGridView()
 
     self:LogUiBuilding("Opening Paladin Info + Grid View...")
     f:Show()
+    self:RequestPallyPowerPeers()
     RefreshGrid(f)
     f:Raise()
 end

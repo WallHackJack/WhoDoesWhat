@@ -225,6 +225,25 @@ local function UpdateViewToggle(f)
     f.fullViewCheck:SetChecked(not prefOn)
 end
 
+local function UpdatePallyPowerControls(f)
+    local diffs = WhoDoesWhat:CheckPallyPowerSync()
+    if diffs and #diffs > 0 then
+        f.ppWarn.tooltipText = string.format("PallyPower is out of date -- %d"
+            .. " assignment(s) differ from the plan. Click Check to review"
+            .. " them, or Send to update PallyPower.", #diffs)
+        f.ppWarn:Show()
+    else
+        f.ppWarn.tooltipText = nil
+        f.ppWarn:Hide()
+    end
+
+    local enabled = A.DevMode() or #A.MembersOfClass("Paladin") > 0
+    f.ppCheckBtn:SetEnabled(enabled)
+    f.ppSendBtn:SetEnabled(enabled)
+    f.ppCheckBtn.disabledReason = enabled and nil or "No paladins in the group."
+    f.ppSendBtn.disabledReason = enabled and nil or "No paladins in the group."
+end
+
 -- Repaint everything: the permission strip, then every section (each owns
 -- its rows, warnings, header buttons and box height), then the view mode
 -- (which box(es) show) and the header mail buttons' enabled states. Mail
@@ -238,7 +257,24 @@ local function RefreshAll(f)
     end
     ApplyViewMode(f)
     UpdateViewToggle(f)
+    UpdatePallyPowerControls(f)
     K.UpdateHeaderMailButtons(f)
+end
+
+local function CreateToolbarButton(f, text, width, title, body, onClick)
+    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btn:SetSize(width, BUTTON_ROW_H)
+    btn:SetText(text)
+    btn:SetMotionScriptsWhileDisabled(true)
+    btn:SetScript("OnClick", onClick)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(title, 1, 1, 1)
+        GameTooltip:AddLine(self.disabledReason or body, 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return btn
 end
 
 -- Build the window once and reuse it: shared chrome, the header strip (Full
@@ -323,7 +359,36 @@ local function EnsureMainFrame()
     permNote:Hide()
     f.permNote = permNote
 
-    local scrollTop = top + BUTTON_ROW_H + 8
+    -- Shared sync actions sit on the main toolbar rather than inside the
+    -- Paladin section or grid window. Keeping them on a second row also fits
+    -- the narrow Paladin-only layout without crowding the standard controls.
+    local logsBtn = CreateToolbarButton(f, "Logs", 52, "Sync traffic",
+        "Open the combined WhoDoesWhat and PallyPower addon-message logs.",
+        function() WhoDoesWhat:OpenSyncLogView("wdw") end)
+    logsBtn:SetPoint("TOPRIGHT", -MARGIN, -(top + BUTTON_ROW_H + 6))
+
+    local ppSendBtn = CreateToolbarButton(f, "Send", 52, "Send to PallyPower",
+        "Write the computed buff plan into PallyPower and broadcast it using"
+        .. " PallyPower's sync.",
+        function() WhoDoesWhat:SyncToPallyPower() end)
+    ppSendBtn:SetPoint("RIGHT", logsBtn, "LEFT", -4, 0)
+    f.ppSendBtn = ppSendBtn
+
+    local ppCheckBtn = CreateToolbarButton(f, "Check", 52, "Check PallyPower",
+        "Compare PallyPower's current assignments with the computed buff plan.",
+        function() WhoDoesWhat:OpenPallyPowerDiffView() end)
+    ppCheckBtn:SetPoint("RIGHT", ppSendBtn, "LEFT", -4, 0)
+    f.ppCheckBtn = ppCheckBtn
+
+    local ppWarn = K.CreateWarningIcon(f)
+    ppWarn:SetPoint("RIGHT", ppCheckBtn, "LEFT", -2, 0)
+    f.ppWarn = ppWarn
+
+    local ppLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ppLabel:SetPoint("RIGHT", ppWarn, "LEFT", -3, 0)
+    ppLabel:SetText("PallyPower:")
+
+    local scrollTop = top + BUTTON_ROW_H * 2 + 14
     f.scrollTop = scrollTop -- chrome above the scroll area; ApplyViewMode sizes to it
     local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMainScroll", f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", MARGIN, -scrollTop)

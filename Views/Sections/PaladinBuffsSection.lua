@@ -45,7 +45,7 @@ local RULE_BUFF_DD_W = 78
 local RULE_KIND_DD_W = 90
 local RULE_TARGET_DD_W = 76
 local FOOTER_BTN_H = 22
-local FOOTER_TOP_GAP = 8 -- gap above the footer button row
+local FOOTER_TOP_GAP = 8 -- gap above the Info + Grid footer button
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
@@ -58,28 +58,6 @@ local RULE_KINDS = {
 
 local Refresh -- the section's registered refresh; forward-declared to stay a
               -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
-
--- Update the "PallyPower out of date" warning icon from a drift check
--- (WhoDoesWhat:CheckPallyPowerSync). Pass a precomputed diff list to avoid
--- recomputing, or omit it to run the check here. The icon shows when
--- PallyPower's live board differs from what a Send would write (a paladin
--- joined/left, or turned Non-raider); the detail lives in the Check window, so
--- the tooltip just points there. Hidden when in sync or when there's nothing
--- to compare (nil = PallyPower not loaded / no paladins).
-local function UpdatePallyPowerStatus(state, diffs)
-    if diffs == nil then diffs = WhoDoesWhat:CheckPallyPowerSync() end
-    local warn = state.ppWarn
-    if not warn then return end
-    if diffs and #diffs > 0 then
-        warn.tooltipText = string.format("PallyPower is out of date -- %d"
-            .. " assignment(s) differ from the plan. Click Check to see them,"
-            .. " or Send to update PallyPower.", #diffs)
-        warn:Show()
-    else
-        warn.tooltipText = nil
-        warn:Hide()
-    end
-end
 
 -- ---------------------------------------------------------------------------
 -- Rule-row text + warning helpers
@@ -508,27 +486,11 @@ function Refresh(f) -- forward declared above
         state.ruleRows[i]:Hide()
     end
 
-    -- One footer row below the rules: "Info + Grid" left-aligned, then the
-    -- right-aligned "Pally Power: (!) [Check] [Send] [Log]" cluster (Check
-    -- inline with Send; the (!) drift warning sits left of Check). Re-anchored
-    -- every pass (y depends on how many rule rows sit above); each button sizes
-    -- to its own label.
+    -- One footer row below the rules: "Info + Grid". PallyPower actions live
+    -- in the main window toolbar so they remain available outside this box.
     local y = rulesTop + #rules * RULE_ROW_H + FOOTER_TOP_GAP
     state.gridBtn:ClearAllPoints()
     state.gridBtn:SetPoint("TOPLEFT", K.BOX_PAD, -y)
-    state.ppLogBtn:ClearAllPoints()
-    state.ppLogBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
-    state.ppSyncBtn:ClearAllPoints()
-    state.ppSyncBtn:SetPoint("RIGHT", state.ppLogBtn, "LEFT", -4, 0)
-    state.ppCheckBtn:ClearAllPoints()
-    state.ppCheckBtn:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -3, 0)
-    -- The warn icon keeps its slot even while hidden, so the label doesn't
-    -- shift when the warning appears/clears.
-    state.ppWarn:ClearAllPoints()
-    state.ppWarn:SetPoint("RIGHT", state.ppCheckBtn, "LEFT", -2, 0)
-    state.ppLabel:ClearAllPoints()
-    state.ppLabel:SetPoint("RIGHT", state.ppWarn, "LEFT", -3, 0)
-    UpdatePallyPowerStatus(state)
 
     state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
@@ -551,26 +513,6 @@ function Refresh(f) -- forward declared above
     end
 
     K.LayoutHeaderChain(state.headerChain)
-end
-
--- Full-width action button at the foot of the box. Position + width are set
--- in Refresh (they sit below the rule rows); tipWarn is an optional red line.
-local function CreateFooterButton(box, text, tipTitle, tipBody, tipWarn, onClick)
-    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    btn:SetFrameLevel(box:GetFrameLevel() + 1)
-    btn:SetHeight(FOOTER_BTN_H)
-    btn:SetText(text)
-    btn:SetWidth(math.max(44, btn:GetTextWidth() + 20))
-    btn:SetScript("OnClick", onClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(tipTitle, 1, 1, 1)
-        GameTooltip:AddLine(tipBody, 0.8, 0.8, 0.8, true)
-        if tipWarn then GameTooltip:AddLine(tipWarn, 1, 0.5, 0.4, true) end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
 end
 
 local function Build(f, content)
@@ -622,42 +564,6 @@ local function Build(f, content)
     local hint = K.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
 
-    -- Two full-width buttons at the foot of the box (mirrors the Paladin Info
-    -- + Grid window's title-bar actions). Refresh lays them out below the
-    -- rules and grows the box to fit.
-    local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ppLabel:SetText("Pally Power:")
-
-    local ppSyncBtn = CreateFooterButton(box, "Send",
-        "Send to PallyPower",
-        "Write this computed grid into PallyPower (each paladin's per-class"
-        .. " blessings; per-raider differences become Normal blessing"
-        .. " exceptions) and broadcast it to the other paladins over"
-        .. " PallyPower's own sync.",
-        "Other clients only accept the push from a raid lead/assist, or when"
-        .. " they run Free Assignment.",
-        function() WhoDoesWhat:SyncToPallyPower() end)
-
-    local ppLogBtn = CreateFooterButton(box, "Log",
-        "PallyPower log",
-        "Open a live feed of PallyPower's hidden addon-channel sync messages,"
-        .. " translated to plain lines -- what every paladin is assigning and"
-        .. " reporting.", nil,
-        function() WhoDoesWhat:OpenPallyPowerLogView() end)
-
-    -- Drift warning icon (shown by Refresh when PallyPower has diverged from
-    -- the plan); a "Check" button (inline with Send) opens the formatted diff
-    -- window on demand -- PallyPower can change from other paladins without a
-    -- repaint here.
-    local ppWarn = K.CreateWarningIcon(box)
-
-    local ppCheckBtn = CreateFooterButton(box, "Check",
-        "Check PallyPower",
-        "Open a window comparing PallyPower's current assignments against this"
-        .. " computed grid. Nothing is written or broadcast -- use Send for"
-        .. " that.", nil,
-        function() WhoDoesWhat:OpenPallyPowerDiffView() end)
-
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
@@ -665,11 +571,6 @@ local function Build(f, content)
         buttons = { gridBtn, ruleBtn }, -- the no-paladin gray-out pass
         emptyHint = hint,
         gridBtn = gridBtn,
-        ppLabel = ppLabel,
-        ppSyncBtn = ppSyncBtn,
-        ppLogBtn = ppLogBtn,
-        ppWarn = ppWarn,
-        ppCheckBtn = ppCheckBtn,
         rows = {},
         ruleRows = {},
     }

@@ -5,6 +5,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --                  pulls the leader's (same flow as joining the group)
 -- /wdw ppsync    - push the computed buff grid into PallyPower and broadcast
 --                  it over PallyPower's own sync (PallyPowerBridge.lua)
+-- /wdw log       - toggle the WhoDoesWhat sync traffic log
 -- /wdw pplog     - toggle the PallyPower traffic log window
 function WhoDoesWhat:ToggleMainUI(input)
     input = input and input:trim():lower() or ""
@@ -14,6 +15,10 @@ function WhoDoesWhat:ToggleMainUI(input)
     end
     if input == "ppsync" then
         self:SyncToPallyPower()
+        return
+    end
+    if input == "log" then
+        self:OpenSyncLogView("wdw")
         return
     end
     if input == "pplog" then
