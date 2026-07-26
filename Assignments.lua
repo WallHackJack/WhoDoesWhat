@@ -851,10 +851,10 @@ end
 --      ComputePrimaries below) -- the consolidation glue -- with a
 --      rank-proof +100 when a prefer rule dictated the pairing.
 --
--- A raider's wants are capped at their top-N priorities (N = paladin
--- count), so a paladin with nothing castable that the raider actually wants
--- keeps a nil cell -- visibly unassigned rather than handed the bottom of
--- the raider's list.
+-- Every allowed priority participates. The matcher still assigns at most one
+-- blessing per paladin, but if Kings or Sanctuary is uncastable it can fall
+-- through to the raider's next allowed choice; below-divider buffs are absent
+-- from the order entirely.
 --
 -- Returns plan[raiderName] = { [paladinName] = buff key }.
 
@@ -1022,7 +1022,8 @@ local function ComputeBuffGrid()
     local pool = MembersOfClass("Paladin") -- sorted names
     local primary, forced = ComputePrimaries(pool, ignored, prioritized, preferred)
 
-    -- Talent-granted blessings need the talent; unscanned counts as can't.
+    -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
+    -- rank 0; Salvation/Light have no talent requirement.
     local function CanCast(name, key)
         local meta = BuffTalents[key]
         if meta and meta.maxRank == 1 then
@@ -1100,16 +1101,6 @@ local function ComputeBuffGrid()
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
             local order = RuleAdjustedOrder(m, ignored, prioritized)
-            -- A raider only wants as many buffs as there are paladins: trim
-            -- to their top-N priorities. Without this, one uncastable want
-            -- (Sanctuary with its only holder busy on Kings) made the
-            -- matcher reach to the BOTTOM of the list -- Might on every
-            -- caster. An empty cell beats a blessing their role ranked
-            -- last; the deep slots only come into play with enough paladins
-            -- to genuinely reach them.
-            while #order > #pool do
-                order[#order] = nil
-            end
             plan[m.name] = SolveRaider(order)
         end
     end
@@ -1121,9 +1112,6 @@ local function ComputeBuffGrid()
     -- bridge pushes them as per-pet Normal blessings.
     for _, pet in ipairs(GetPetMembers()) do
         local order = PetBuffOrder(ignored)
-        while #order > #pool do
-            order[#order] = nil
-        end
         plan[pet.name] = SolveRaider(order)
     end
     return plan
