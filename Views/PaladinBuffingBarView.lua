@@ -45,6 +45,21 @@ function WhoDoesWhat:GetBuffingBarPaladins()
     return self.Assign.MembersOfClass("Paladin")
 end
 
+-- Resolve the test selection against the current roster. A departed paladin
+-- clears the saved override so test mode falls back to the first paladin.
+function WhoDoesWhat:GetBuffingBarTestPaladin()
+    local paladins = self:GetBuffingBarPaladins()
+    local settings = self.db.profile.settings
+    local saved = settings.buffingBarTestPaladin
+    if saved then
+        for _, name in ipairs(paladins) do
+            if name == saved then return saved end
+        end
+        settings.buffingBarTestPaladin = nil
+    end
+    return paladins[1]
+end
+
 -- The paladin whose jobs the bar should show, or nil when it shouldn't show at
 -- all: master toggle off, or the local player isn't a paladin and test mode is
 -- off.
@@ -53,8 +68,7 @@ local function ResolveBarPaladin()
     -- Dev test mode is an independent override: render as the picked paladin
     -- even if the master toggle is off and the local player isn't a paladin.
     if s.buffingBarTestMode then
-        if s.buffingBarTestPaladin then return s.buffingBarTestPaladin end
-        return WhoDoesWhat:GetBuffingBarPaladins()[1]
+        return WhoDoesWhat:GetBuffingBarTestPaladin()
     end
     if not s.buffingBarEnabled then return nil end
     local _, class = UnitClass("player")
@@ -552,7 +566,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     if n == 0 then
         bar.hint:SetText(paladin
             and (paladin .. " has no assigned blessings.")
-            or "No paladin selected.")
+            or "No Paladin selected for testing.")
         bar:SetSize(200, CONTENT_TOP + 18 + INSET)
     else
         bar:SetSize(INSET * 2 + PAD * 2 + n * BTN_SIZE + (n - 1) * BTN_GAP,
@@ -560,11 +574,11 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     end
 end
 
--- Show or hide the whole bar based on the master toggle + who's resolved, then
--- repaint. Called from the settings checkboxes and on load.
+-- Show or hide the whole bar based on the master/test toggles, then repaint.
+-- Test mode stays visible without a paladin so roster updates can fill it in.
 function WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
     local paladin = ResolveBarPaladin()
-    if not paladin then
+    if not paladin and not self.db.profile.settings.buffingBarTestMode then
         if bar then
             for _, b in ipairs(bar.buttons) do SetButtonGlow(b, false) end
             bar:Hide()
@@ -576,11 +590,11 @@ function WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
     self:RefreshPaladinBuffingBar()
 end
 
--- Bring the bar up on login/reload if it was left enabled. Delayed so the
--- roster and plan are populated before the first resolve (same beat the sync
--- handshake waits for).
+-- Bring the bar up immediately on login/reload if it was left enabled, then
+-- repaint once more after the roster and synced plan have had time to arrive.
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_ENTERING_WORLD")
 loader:SetScript("OnEvent", function()
+    WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
     C_Timer.After(2, function() WhoDoesWhat:UpdatePaladinBuffingBarVisibility() end)
 end)

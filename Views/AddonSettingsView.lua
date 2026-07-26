@@ -16,6 +16,15 @@ local FRAME_H = 512
 FRAME_H = 542
 --@end-do-not-package@
 local CHECKBOX_ROW_H = 52
+local FIRST_PALADIN_LABEL = "(use first paladin)"
+
+local function RefreshBuffingTestPaladinDropdown(f)
+    WhoDoesWhat:GetBuffingBarTestPaladin()
+    if f.buffingTestDD then
+        UIDropDownMenu_SetText(f.buffingTestDD,
+            WhoDoesWhat.db.profile.settings.buffingBarTestPaladin or FIRST_PALADIN_LABEL)
+    end
+end
 
 -- Checkbox at column origin `x`, label beside it, gray wrapped description
 -- underneath. `apply` writes the new boolean. Returns the checkbox and the y
@@ -217,6 +226,8 @@ local function EnsureSettingsFrame()
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
+            RefreshBuffingTestPaladinDropdown(f)
+            WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
 
     local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -234,6 +245,8 @@ local function EnsureSettingsFrame()
             info.func = function()
                 WhoDoesWhat:SetFakeRaidPaladinCount(n)
                 UIDropDownMenu_SetText(palDD, tostring(n))
+                RefreshBuffingTestPaladinDropdown(f)
+                WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
             end
             UIDropDownMenu_AddButton(info, level)
         end
@@ -256,7 +269,17 @@ local function EnsureSettingsFrame()
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(testDD, 120)
     UIDropDownMenu_Initialize(testDD, function(_, level)
+        RefreshBuffingTestPaladinDropdown(f)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarTestPaladin
+        local defaultInfo = UIDropDownMenu_CreateInfo()
+        defaultInfo.text = FIRST_PALADIN_LABEL
+        defaultInfo.checked = (saved == nil)
+        defaultInfo.func = function()
+            WhoDoesWhat.db.profile.settings.buffingBarTestPaladin = nil
+            UIDropDownMenu_SetText(testDD, FIRST_PALADIN_LABEL)
+            WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
+        end
+        UIDropDownMenu_AddButton(defaultInfo, level)
         for _, pname in ipairs(WhoDoesWhat:GetBuffingBarPaladins()) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = pname
@@ -290,7 +313,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.buffingBarCheck:SetChecked(settings.buffingBarEnabled)
     UIDropDownMenu_SetText(f.buffingGrowDD, settings.buffingBarGrow == "LEFT" and "Left" or "Right")
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
-    UIDropDownMenu_SetText(f.buffingTestDD, settings.buffingBarTestPaladin or "(first paladin)")
+    RefreshBuffingTestPaladinDropdown(f)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
