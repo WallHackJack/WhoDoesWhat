@@ -11,7 +11,7 @@ Open one window (`/wdw`), lay out your tanks, crowd control, misdirects, curses,
 - **Tank assignments** — assign tanks to raid markers, with an "everything else" catch-all and warnings for unmarked targets.
 - **Crowd control** — assign CC by marker, with spell dropdowns filtered to what the assignee can actually cast.
 - **Misdirects** — pair hunters with their tanks (and optionally a marker), with sanity warnings for double-misdirects and unmarked tanks.
-- **Warlock curses** — Elements and Recklessness with one-click auto-assign (Elements prefers your Affliction lock).
+- **Warlock curses** — TBC assigns Elements/Recklessness (preferring an Affliction lock); Classic assigns Elements/Shadow/Recklessness to separate warlocks.
 - Every dropdown shows role icons and class colors, and every row has a **mail button** that whispers the player their full job list — or mass-whisper the entire board at once.
 
 ## Paladin Blessings — hassle-free
@@ -33,7 +33,7 @@ Any permitted edit broadcasts the whole board to every WhoDoesWhat user in the g
 - **Editing permissions** — the raid leader decides who may edit: leader only, one named assistant, all assists (default), or everyone. Everyone else gets a clean read-only view.
 - **Role management** — roles auto-detect from talents (and follow respecs), with a role overview window and right-click "Set Role" on any unit frame. Custom roles and per-spec buff priorities are fully customizable.
 - **Right-click everything** — assign tank markers, CC targets, and misdirects straight from unit frames.
-- **Curse value calculator** — pulls a fight from Details! and estimates how much raid damage Curse of the Elements and Recklessness actually provided (or would have).
+- **Curse value calculator** — pulls a fight from Details! and estimates flavor-correct CoE/CoS/CoR value, including optional Classic Ignite double-dipping.
 
 ## Usage
 
@@ -46,7 +46,7 @@ Any permitted edit broadcasts the whole board to every WhoDoesWhat user in the g
 
 ## Installation
 
-Download from CurseForge (or your addon manager), or clone this repository into `Interface\AddOns\WhoDoesWhat`. Built for the TBC Anniversary client (Interface `20505`).
+Download from CurseForge (or your addon manager), or clone this repository into `Interface\AddOns\WhoDoesWhat`. Built for TBC Anniversary (`20505`) and Classic Era (`11509`).
 
 ## Tech Stack
 

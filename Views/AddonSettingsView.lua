@@ -17,6 +17,7 @@ FRAME_H = 542
 --@end-do-not-package@
 local CHECKBOX_ROW_H = 52
 local FIRST_PALADIN_LABEL = "(use first paladin)"
+local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
 local function RefreshBuffingTestPaladinDropdown(f)
     WhoDoesWhat:GetBuffingBarTestPaladin()
@@ -142,11 +143,19 @@ local function EnsureSettingsFrame()
     local warlockPage = pages[3]
     yL = y0
     yL = AddHeading(warlockPage, CONTENT_X, yL, "Warlock Curses", 0.72, 0.45, 1)
-    f.afflElementsCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Auto assign Affliction to elements",
-        "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
+    local magicCurseLabel = IS_CLASSIC_ERA and "Auto assign elements and shadow"
+        or "Auto assign Affliction to elements"
+    local magicCurseDescription = IS_CLASSIC_ERA
+        and "Let the Auto button fill Curse of the Elements and Curse of Shadow on separate warlocks."
+        or "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button."
+    f.afflElementsCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, magicCurseLabel,
+        magicCurseDescription,
         function(value)
             WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
-            WhoDoesWhat:LogUiBuilding("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
+            local settingName = IS_CLASSIC_ERA and "Magic curse auto-assign"
+                or "Auto-assign Affliction to Elements"
+            WhoDoesWhat:LogUiBuilding(settingName .. " "
+                .. (value and "enabled." or "disabled."))
         end)
     f.recklessnessCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
         "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",

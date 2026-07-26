@@ -19,6 +19,7 @@ local PALADIN_BUFF_TALENTS_CLASSIC = {
 }
 
 WhoDoesWhat.ClientFeatures = {
+    isClassicEra = isClassicEra,
     misdirectAssignments = not isClassicEra,
     paladinBuffTalents = isClassicEra
         and PALADIN_BUFF_TALENTS_CLASSIC
@@ -29,6 +30,14 @@ WhoDoesWhat.ClientFeatures = {
     } or {
         name = "Master Healthstone",
         lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
+    },
+    warlockCurseSpellIds = isClassicEra and {
+        reck = 11717,     -- Curse of Recklessness (Rank 4)
+        elements = 11722, -- Curse of the Elements (Rank 3)
+        shadow = 17937,   -- Curse of Shadow (Rank 2)
+    } or {
+        reck = 27226,     -- Curse of Recklessness (Rank 5)
+        elements = 27228, -- Curse of the Elements (Rank 4)
     },
 
     -- Highest Greater Blessing ranks available in Classic Era.

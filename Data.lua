@@ -176,24 +176,32 @@ for key, spellId in pairs(features.paladinBuffSpellIds) do
     WhoDoesWhat.PaladinBuffs[key].spellId = spellId
 end
 
--- Warlock raid curses metadata (TBC max ranks), same shape as PaladinBuffs.
--- Elements is best on an Affliction warlock (Malediction improves the debuff);
--- the assignments view floats them to the top of its dropdown and warns when
--- the curse lands on anyone else.
+-- Warlock raid curses metadata, using the highest rank available on this
+-- client. Classic Era keeps Curse of Shadow separate; TBC folds its schools
+-- into Curse of the Elements.
+local curseSpellIds = features.warlockCurseSpellIds
 WhoDoesWhat.WarlockCurses = {
     reck = {
         icon = "Interface\\Icons\\Spell_Shadow_UnholyStrength",
         name_short = "Reck",
         name_long = "Curse of Recklessness",
-        spellId = 27226 -- Curse of Recklessness (Rank 5)
+        spellId = curseSpellIds.reck
     },
     elements = {
         icon = "Interface\\Icons\\Spell_Shadow_ChillTouch",
         name_short = "Elements",
         name_long = "Curse of the Elements",
-        spellId = 27228 -- Curse of the Elements (Rank 4)
+        spellId = curseSpellIds.elements
     }
 }
+if curseSpellIds.shadow then
+    WhoDoesWhat.WarlockCurses.shadow = {
+        icon = "Interface\\Icons\\Spell_Shadow_CurseOfAchimonde",
+        name_short = "Shadow",
+        name_long = "Curse of Shadow",
+        spellId = curseSpellIds.shadow,
+    }
+end
 
 local healthstoneClient = WhoDoesWhat.ClientFeatures.warlockHealthstone
 WhoDoesWhat.WarlockHealthstone = {

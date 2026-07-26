@@ -1,19 +1,16 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Curse value calculator. Pulls a fight from Details! and estimates how much
--- raid damage Curse of the Elements and Curse of Recklessness provided (or, if
--- they weren't up, could have provided).
+-- raid damage each client flavor's raid curses provided (or could provide).
 --
--- CoE is near-exact: Details records each spell's school bitmask and per-target
--- damage, so we sum the boss's fire/frost/shadow/arcane damage and apply the
--- flat magic-taken bonus (10%, or 13% with Malediction). Nature and Holy fall
--- out of the mask on their own.
+-- Details records each spell's school bitmask and per-target damage, so the
+-- magic curses use the appropriate school pools: Classic CoE fire/frost and
+-- CoS shadow/arcane, or TBC CoE all four (10%, or 13% with Malediction).
 --
--- CoR is an estimate. Armor mitigation is m(A) = C/(A+C); removing CoR's flat
--- 800 armor is worth more the lower the boss's armor already is (convex, but
--- bounded because C dominates). We reconstruct the boss's armor from the
--- assumed debuff set the user ticks -- the exact numbers Details can't know --
--- and compute the physical pool with vs. without the 800. Two deliberate
+-- CoR is an estimate. Damage through armor is m(A) = C/(A+C). We reconstruct
+-- the boss's armor from the assumed debuff set the user ticks -- the exact
+-- numbers Details can't know --
+-- and compute the physical pool with vs. without CoR. Two deliberate
 -- gaps, both surfaced in the footnote: bleeds are physical-school but ignore
 -- armor, so a spell-id list drops them from the pool; and per-player armor pen
 -- (trinkets, Executioner, gear) isn't tracked, offered instead as an optional
@@ -21,34 +18,38 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local calcFrame = nil
 
+local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
+
 local FRAME_W = 520
-local FRAME_H = 560
+local FRAME_H = IS_CLASSIC_ERA and 650 or 560
 local MARGIN = 14
 local COL_R = 268 -- right input column x
 
--- Level-70 attacker armor constant: 467.5*70 - 22167.5. Damage that lands
--- through armor A is C/(A+C).
-local ARMOR_C = 10557.5
+-- Damage that lands through armor A is C/(A+C). Classic uses the level-60
+-- constant (400 + 85*60); TBC uses 467.5*70 - 22167.5.
+local ARMOR_C = IS_CLASSIC_ERA and 5500 or 10557.5
+local BOSS_ARMORS = IS_CLASSIC_ERA and { 3731, 3009, 4641 } or { 7700, 6200 }
 
 -- Flat armor removed by each debuff (5-stack / 5-point / TBC ranks) and CoR.
-local SUNDER = 2600
-local EXPOSE = 3075 -- Improved Expose Armor (talented)
-local FAERIE_FIRE = 610
-local COR_ARMOR = 800
+local SUNDER = IS_CLASSIC_ERA and 2250 or 2600
+local EXPOSE = IS_CLASSIC_ERA and 2550 or 3075 -- Improved Expose Armor
+local FAERIE_FIRE = IS_CLASSIC_ERA and 505 or 610
+local COR_ARMOR = IS_CLASSIC_ERA and 640 or 800
 
 -- Magic-taken bonus from Curse of the Elements: base rank 4, or 13% with the
 -- Affliction talent Malediction.
 local COE_BASE = 0.10
 local COE_MALEDICTION = 0.13
 
--- Arms warrior Blood Frenzy: +4% to ALL physical damage the target takes,
--- bleeds included (it's a school multiplier, not an armor change).
 local BLOOD_FRENZY = 0.04
 
 -- School bitmask: Physical 1, Holy 2, Fire 4, Nature 8, Frost 16, Shadow 32,
--- Arcane 64. CoE boosts fire+frost+shadow+arcane (4|16|32|64 = 116).
+-- Arcane 64. In Classic, CoE covers fire/frost and CoS covers shadow/arcane;
+-- in TBC, CoE covers all four schools.
 local SCHOOL_PHYSICAL = 0x1
-local COE_MASK = 0x4 + 0x10 + 0x20 + 0x40
+local COE_MASK = IS_CLASSIC_ERA and (0x4 + 0x10) or (0x4 + 0x10 + 0x20 + 0x40)
+local COS_MASK = 0x20 + 0x40
+local IGNITE_SPELL_ID = 12654
 
 -- Breakdown colors: CoR orange, CoE warlock-purple, total green, and a muted
 -- grey for the rows the curses don't touch (bleeds, nature/holy).
@@ -123,15 +124,18 @@ end
 --     bleeds         physical but armor-ignoring (the BLEEDS list)
 --     physNonBleed   physAll - bleeds  -- what CoR acts on
 --     magicAll       total - physAll   -- every non-physical school
---     coeRelevant    fire/frost/shadow/arcane -- what CoE acts on
---     magicOther     magicAll - coeRelevant  -- nature/holy, unaffected
+--     coeRelevant    schools affected by this client's CoE
+--     cosRelevant    Classic shadow/arcane damage affected by CoS
+--     ignite         Classic Ignite damage (inside coeRelevant)
+--     magicOther     magic unaffected by either curse
 local function BossPoolsFromCombat(combat)
     local actors = combat.GetActorList and combat:GetActorList(1) -- 1 = damage
     if not actors then return nil end
 
     local perTarget = {}
     for _, actor in ipairs(actors) do
-        if actor.grupo or actor.owner then -- in group, or a pet
+        local owner = actor.owner
+        if actor.grupo or (type(owner) == "table" and owner.grupo) then
             local spells = actor.spells and actor.spells._ActorTable
             if spells then
                 for spellId, spell in pairs(spells) do
@@ -143,7 +147,8 @@ local function BossPoolsFromCombat(combat)
                             if amount and amount > 0 then
                                 local t = perTarget[targetName]
                                 if not t then
-                                    t = { total = 0, physAll = 0, bleeds = 0, coeRelevant = 0 }
+                                    t = { total = 0, physAll = 0, bleeds = 0,
+                                        coeRelevant = 0, cosRelevant = 0, ignite = 0 }
                                     perTarget[targetName] = t
                                 end
                                 t.total = t.total + amount
@@ -152,6 +157,11 @@ local function BossPoolsFromCombat(combat)
                                     if isBleed then t.bleeds = t.bleeds + amount end
                                 elseif bit.band(school, COE_MASK) ~= 0 then
                                     t.coeRelevant = t.coeRelevant + amount
+                                    if IS_CLASSIC_ERA and spellId == IGNITE_SPELL_ID then
+                                        t.ignite = t.ignite + amount
+                                    end
+                                elseif IS_CLASSIC_ERA and bit.band(school, COS_MASK) ~= 0 then
+                                    t.cosRelevant = t.cosRelevant + amount
                                 end
                             end
                         end
@@ -161,10 +171,20 @@ local function BossPoolsFromCombat(combat)
         end
     end
 
-    local bossName, best
-    for name, t in pairs(perTarget) do
-        if not best or t.total > best.total then
-            best, bossName = t, name
+    -- Details knows the encounter boss for most raid segments. Prefer that
+    -- exact target; older/non-encounter segments retain the old max-damage
+    -- target heuristic as a fallback.
+    local bossName = combat.GetBossName and combat:GetBossName() or combat.bossName
+    local best = bossName and perTarget[bossName]
+    if not best and combat.bossName then
+        bossName = combat.bossName
+        best = perTarget[bossName]
+    end
+    if not best then
+        for name, t in pairs(perTarget) do
+            if not best or t.total > best.total then
+                best, bossName = t, name
+            end
         end
     end
     if not best then return nil end
@@ -176,7 +196,10 @@ local function BossPoolsFromCombat(combat)
         physNonBleed = best.physAll - best.bleeds,
         magicAll = best.total - best.physAll,
         coeRelevant = best.coeRelevant,
-        magicOther = (best.total - best.physAll) - best.coeRelevant,
+        cosRelevant = best.cosRelevant,
+        ignite = best.ignite,
+        magicOther = (best.total - best.physAll)
+            - best.coeRelevant - best.cosRelevant,
     }
 end
 
@@ -207,6 +230,7 @@ local function ShowStatus(f, text)
     f.sumLabels:SetText("")
     f.sumValues:SetText("")
     f.coeResult:SetText("")
+    f.cosResult:SetText("")
     f.corResult:SetText("")
     f.armsResult:SetText("")
     f.footnote:SetText("")
@@ -241,24 +265,34 @@ local function Recompute(f)
 
     -- Damage breakdown, rendered as two aligned columns (labels left, values
     -- right) so the numbers line up under one another.
-    f.sumLabels:SetText(table.concat({
+    local sumLabels = {
         Color(C_TOTAL, "Total damage to target"),
         "   Physical",
         "      " .. Color(C_COR, "Armor-mitigated  -> CoR"),
         "      " .. Color(C_MUTED, "Bleeds (ignore armor)"),
         "   Magic",
-        "      " .. Color(C_COE, "Fire/Frost/Shadow/Arcane  -> CoE"),
-        "      " .. Color(C_MUTED, "Other (Nature/Holy)"),
-    }, "\n"))
-    f.sumValues:SetText(table.concat({
+    }
+    local sumValues = {
         Color(C_TOTAL, Commafy(stats.total)),
         Commafy(stats.physAll),
         Color(C_COR, Commafy(stats.physNonBleed)),
         Color(C_MUTED, Commafy(stats.bleeds)),
         Commafy(stats.magicAll),
-        Color(C_COE, Commafy(stats.coeRelevant)),
-        Color(C_MUTED, Commafy(stats.magicOther)),
-    }, "\n"))
+    }
+    if IS_CLASSIC_ERA then
+        sumLabels[#sumLabels + 1] = "      " .. Color(C_COE, "Fire/Frost  -> CoE")
+        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.coeRelevant))
+        sumLabels[#sumLabels + 1] = "      " .. Color(C_COE, "Shadow/Arcane  -> CoS")
+        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.cosRelevant))
+    else
+        sumLabels[#sumLabels + 1] = "      "
+            .. Color(C_COE, "Fire/Frost/Shadow/Arcane  -> CoE")
+        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.coeRelevant))
+    end
+    sumLabels[#sumLabels + 1] = "      " .. Color(C_MUTED, "Other (Nature/Holy)")
+    sumValues[#sumValues + 1] = Color(C_MUTED, Commafy(stats.magicOther))
+    f.sumLabels:SetText(table.concat(sumLabels, "\n"))
+    f.sumValues:SetText(table.concat(sumValues, "\n"))
 
     local function PerSec(total)
         if duration > 0 then
@@ -267,29 +301,43 @@ local function Recompute(f)
         return ""
     end
 
+    local function MagicCurseText(name, pool, rate, applied, specialPool, specialMultiplier)
+        local normalPool = pool - (specialPool or 0)
+        local multiplier = 1 + rate
+        local before, withCurse, value
+        if applied then
+            before = normalPool / multiplier
+                + (specialPool or 0) / (specialMultiplier or multiplier)
+            value = pool - before
+            return string.format(
+                "|cff9482c9%s|r (+%d%%, applied)\n"
+                .. "  Damage with curse:   |cffffffff%s|r\n"
+                .. "  Damage before curse: |cffffffff%s|r\n"
+                .. "  Provided: |cff00ff00%s|r%s",
+                name, math.floor(rate * 100 + 0.5), Commafy(pool), Commafy(before),
+                Commafy(value), PerSec(value))
+        end
+        withCurse = normalPool * multiplier
+            + (specialPool or 0) * (specialMultiplier or multiplier)
+        value = withCurse - pool
+        return string.format(
+            "|cff9482c9%s|r (+%d%%, NOT applied)\n"
+            .. "  Damage now:        |cffffffff%s|r\n"
+            .. "  Damage with curse: |cffffffff%s|r\n"
+            .. "  Could have provided: |cffffff00%s|r%s",
+            name, math.floor(rate * 100 + 0.5), Commafy(pool), Commafy(withCurse),
+            Commafy(value), PerSec(value))
+    end
+
     -- Curse of the Elements ---------------------------------------------------
     local coeRate = f.state.malediction and COE_MALEDICTION or COE_BASE
-    local ratePct = math.floor(coeRate * 100 + 0.5)
-    if f.state.coe then
-        -- Recorded magic already carries the bonus; back out to before-CoE.
-        local before = coePool / (1 + coeRate)
-        local provided = coePool - before
-        f.coeResult:SetText(string.format(
-            "|cff9482c9Curse of the Elements|r (+%d%%, applied)\n"
-            .. "  Damage with CoE:   |cffffffff%s|r\n"
-            .. "  Damage before CoE: |cffffffff%s|r\n"
-            .. "  Provided: |cff00ff00%s|r%s",
-            ratePct, Commafy(coePool), Commafy(before), Commafy(provided), PerSec(provided)))
-    else
-        -- No CoE was up; recorded magic is the before number.
-        local withCoe = coePool * (1 + coeRate)
-        local could = withCoe - coePool
-        f.coeResult:SetText(string.format(
-            "|cff9482c9Curse of the Elements|r (+%d%%, NOT applied)\n"
-            .. "  Damage now:      |cffffffff%s|r\n"
-            .. "  Damage with CoE: |cffffffff%s|r\n"
-            .. "  Could have provided: |cffffff00%s|r%s",
-            ratePct, Commafy(coePool), Commafy(withCoe), Commafy(could), PerSec(could)))
+    local ignitePool = IS_CLASSIC_ERA and f.state.igniteDoubleDip and stats.ignite or 0
+    f.coeResult:SetText(MagicCurseText("Curse of the Elements", coePool, coeRate,
+        f.state.coe, ignitePool, ignitePool > 0 and 1.21 or nil))
+
+    if IS_CLASSIC_ERA then
+        f.cosResult:SetText(MagicCurseText("Curse of Shadow", stats.cosRelevant,
+            COE_BASE, f.state.cos))
     end
 
     -- Curse of Recklessness ---------------------------------------------------
@@ -301,10 +349,10 @@ local function Recompute(f)
     local nonCorReduction = armorDebuff + ff + pen
 
     if f.state.cor then
-        -- Recorded physical is the with-CoR number; add the 800 back to see
-        -- what it would have been without.
-        local aWith = math.max(base - nonCorReduction - COR_ARMOR, 0)
-        local aWithout = aWith + COR_ARMOR
+        -- Reconstruct both states independently so a debuff set that already
+        -- reaches zero armor cannot invent armor in the without-CoR state.
+        local aWithout = math.max(base - nonCorReduction, 0)
+        local aWith = math.max(aWithout - COR_ARMOR, 0)
         local before = physPool * (aWith + C) / (aWithout + C)
         local provided = physPool - before
         f.corResult:SetText(string.format(
@@ -327,18 +375,19 @@ local function Recompute(f)
             Commafy(physPool), Commafy(withCor), Commafy(provided), PerSec(provided)))
     end
 
-    -- Arms warrior (Blood Frenzy): a fixed +4% on all physical taken, bleeds
-    -- included, so its pool is the full physical damage (not the CoR pool).
-    -- No toggle -- always shown as the value of having one in the raid.
-    local armsValue = stats.physAll * BLOOD_FRENZY
-    f.armsResult:SetText(string.format(
-        "|cffc79c6eAn Arms warrior|r could have provided |cffffff00%s|r damage%s\n"
-        .. "|cff808080Blood Frenzy: +4%% to all physical, bleeds included|r",
-        Commafy(armsValue), PerSec(armsValue)))
+    if IS_CLASSIC_ERA then
+        f.armsResult:SetText("")
+    else
+        local armsValue = stats.physAll * BLOOD_FRENZY
+        f.armsResult:SetText(string.format(
+            "|cffc79c6eAn Arms warrior|r could have provided |cffffff00%s|r damage%s\n"
+            .. "|cff808080Blood Frenzy: +4%% to all physical, bleeds included|r",
+            Commafy(armsValue), PerSec(armsValue)))
+    end
 
-    f.footnote:SetText("CoR is an estimate: the armor state comes from the boxes you tick, bleeds"
-        .. " are excluded from the physical pool, and per-player armor pen beyond the field"
-        .. " above isn't tracked (so CoR is a conservative floor).")
+    f.footnote:SetText("Assumes 100% curse uptime; resistance reduction is not valued. CoR is an"
+        .. " estimate: ticked debuffs and average armor pen are flat reductions, and known"
+        .. " bleeds are excluded. Zero extra pen is conservative unless armor is already zero.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -402,9 +451,10 @@ local function EnsureCalcFrame()
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatCurseCalcFrame", FRAME_W, FRAME_H,
         "WhoDoesWhat - Curse Value Calculator")
     f.state = {
-        bossArmor = 7700,
+        bossArmor = BOSS_ARMORS[1],
         sunder = true, expose = false,
-        cor = true, coe = true, malediction = true,
+        cor = true, coe = true, cos = true,
+        malediction = not IS_CLASSIC_ERA, igniteDoubleDip = true,
     }
 
     local top = f.titleBarHeight + 12
@@ -439,7 +489,7 @@ local function EnsureCalcFrame()
     f.sumValues:SetSpacing(4)
 
     -- Inputs -----------------------------------------------------------------
-    local iy = y + 138
+    local iy = y + (IS_CLASSIC_ERA and 158 or 138)
 
     -- Left column: boss armor + armor debuffs
     local armorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -450,7 +500,7 @@ local function EnsureCalcFrame()
     f.armorDD:SetPoint("LEFT", armorLabel, "RIGHT", -10, -2)
     UIDropDownMenu_SetWidth(f.armorDD, 70)
     UIDropDownMenu_Initialize(f.armorDD, function(_, level)
-        for _, v in ipairs({ 7700, 6200 }) do
+        for _, v in ipairs(BOSS_ARMORS) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = tostring(v)
             info.checked = (f.state.bossArmor == v)
@@ -466,17 +516,20 @@ local function EnsureCalcFrame()
 
     -- Sunder / Expose are mutually exclusive (at most one), so each unticks the
     -- other. Unticking the checked one leaves neither -> no armor debuff.
-    f.sunderCheck = MakeCheck(f, MARGIN, iy + 32, "Sunder Armor (2600)", function(on)
+    f.sunderCheck = MakeCheck(f, MARGIN, iy + 32,
+        "Sunder Armor (" .. SUNDER .. ")", function(on)
         f.state.sunder = on
         if on then f.state.expose = false; f.exposeCheck:SetChecked(false) end
         Recompute(f)
     end)
-    f.exposeCheck = MakeCheck(f, MARGIN, iy + 58, "Improved Expose Armor (3075)", function(on)
+    f.exposeCheck = MakeCheck(f, MARGIN, iy + 58,
+        "Improved Expose Armor (" .. EXPOSE .. ")", function(on)
         f.state.expose = on
         if on then f.state.sunder = false; f.sunderCheck:SetChecked(false) end
         Recompute(f)
     end)
-    f.ffCheck = MakeCheck(f, MARGIN, iy + 84, "Faerie Fire (610)", function(on)
+    f.ffCheck = MakeCheck(f, MARGIN, iy + 84,
+        "Faerie Fire (" .. FAERIE_FIRE .. ")", function(on)
         f.state.ff = on
         Recompute(f)
     end)
@@ -499,10 +552,24 @@ local function EnsureCalcFrame()
         f.state.coe = on
         Recompute(f)
     end)
-    f.maledictionCheck = MakeCheck(f, COL_R, iy + 26, "Malediction (13% instead of 10%)", function(on)
-        f.state.malediction = on
-        Recompute(f)
-    end)
+    if IS_CLASSIC_ERA then
+        f.igniteCheck = MakeCheck(f, COL_R, iy + 26,
+            "Ignite double-dips (1.21x)", function(on)
+                f.state.igniteDoubleDip = on
+                Recompute(f)
+            end)
+        f.cosCheck = MakeCheck(f, COL_R, iy + 52,
+            "Curse of Shadow applied", function(on)
+                f.state.cos = on
+                Recompute(f)
+            end)
+    else
+        f.maledictionCheck = MakeCheck(f, COL_R, iy + 26,
+            "Malediction (13% instead of 10%)", function(on)
+                f.state.malediction = on
+                Recompute(f)
+            end)
+    end
 
     f.penEdit = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
     f.penEdit:SetSize(48, 18)
@@ -516,10 +583,13 @@ local function EnsureCalcFrame()
     f.penEdit:SetScript("OnTextChanged", function(_, userInput)
         if userInput then Recompute(f) end
     end)
-    f.penEdit.tooltip = "Average extra armor reduction per physical raider from trinkets, enchants"
-        .. " (Executioner), and gear (Swarmguard, Madness, armor-pen trinkets). Not"
-        .. " auto-detected -- set what you think your raid runs. Leaving it 0 makes the"
-        .. " CoR value a conservative floor."
+    f.penEdit.tooltip = IS_CLASSIC_ERA
+        and "Average extra flat armor reduction or armor penetration per physical raider"
+            .. " from effects such as Annihilator and Badge of the Swarmguard. Not"
+            .. " auto-detected; leave 0 if you do not want to approximate it."
+        or "Average extra armor reduction per physical raider from trinkets, enchants"
+            .. " (Executioner), and gear (Swarmguard, Madness, armor-pen trinkets). Not"
+            .. " auto-detected; leave 0 if you do not want to approximate it."
     f.penEdit:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Extra armor penetration", 1, 1, 1)
@@ -551,6 +621,14 @@ local function EnsureCalcFrame()
     f.coeResult:SetJustifyV("TOP")
     f.coeResult:SetSpacing(3)
 
+    f.cosResult = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.cosResult:SetPoint("TOPLEFT", COL_R, -(ry + 104))
+    f.cosResult:SetPoint("RIGHT", f, "RIGHT", -MARGIN, 0)
+    f.cosResult:SetJustifyH("LEFT")
+    f.cosResult:SetJustifyV("TOP")
+    f.cosResult:SetSpacing(3)
+    f.cosResult:SetShown(IS_CLASSIC_ERA)
+
     f.footnote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.footnote:SetPoint("BOTTOMLEFT", MARGIN, MARGIN)
     f.footnote:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
@@ -561,13 +639,19 @@ local function EnsureCalcFrame()
     f.armsResult:SetPoint("BOTTOM", f.footnote, "TOP", 0, 10)
     f.armsResult:SetJustifyH("CENTER")
     f.armsResult:SetSpacing(3)
+    f.armsResult:SetShown(not IS_CLASSIC_ERA)
 
     -- Reflect the default checkbox states.
     f.sunderCheck:SetChecked(f.state.sunder)
     f.exposeCheck:SetChecked(f.state.expose)
     f.corCheck:SetChecked(f.state.cor)
     f.coeCheck:SetChecked(f.state.coe)
-    f.maledictionCheck:SetChecked(f.state.malediction)
+    if IS_CLASSIC_ERA then
+        f.igniteCheck:SetChecked(f.state.igniteDoubleDip)
+        f.cosCheck:SetChecked(f.state.cos)
+    else
+        f.maledictionCheck:SetChecked(f.state.malediction)
+    end
 
     calcFrame = f
     return f

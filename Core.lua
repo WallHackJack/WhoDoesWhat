@@ -168,9 +168,8 @@ local defaults = {
             -- Trace WDW role edits through Blizzard role sync and the
             -- main-tank promotion window/highlight flow.
             logRolePromotion = false,
-            -- Auto-place an Affliction warlock on Curse of the Elements: on
-            -- spec detection (see AutoAssignDetectedRole) and via the Warlock
-            -- Curses Auto button. See AutoPlaceAfflictionElements in Assignments.lua.
+            -- TBC: auto-place an Affliction warlock on Curse of the Elements.
+            -- Classic: let the Auto button fill Elements and Shadow.
             autoAssignAfflictionElements = true,
             -- Let auto-assign fill Curse of Recklessness. It raises the boss's
             -- damage taken *and* dealt, so the leader can opt out of it.

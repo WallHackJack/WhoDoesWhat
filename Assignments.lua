@@ -1252,13 +1252,24 @@ local AutoAssignWarlockCurses -- defined below, exported for the view's Auto but
 
 do
     local curses = WhoDoesWhat.WarlockCurses
+    local isClassicEra = WhoDoesWhat.ClientFeatures.isClassicEra
+    local curseIds = isClassicEra
+        and { "curse_reck", "curse_elements", "curse_shadow" }
+        or { "curse_reck", "curse_elements" }
+    local function OtherCurseIds(rowId)
+        local ids = {}
+        for _, id in ipairs(curseIds) do
+            if id ~= rowId then ids[#ids + 1] = id end
+        end
+        return ids
+    end
     local reck = {
         id = "curse_reck",
         icon = curses.reck.icon,
         label = curses.reck.name_long,
         spellId = curses.reck.spellId,
         class = "Warlock",
-        exclusiveWith = { "curse_elements" },
+        exclusiveWith = OtherCurseIds("curse_reck"),
         GetWarning = function()
             if not GetAssignment("curse_reck") then
                 return "No one is assigned to Curse of Recklessness."
@@ -1271,29 +1282,40 @@ do
         label = curses.elements.name_long,
         spellId = curses.elements.spellId,
         class = "Warlock",
-        preferRoleId = "warlock_affl",
-        exclusiveWith = { "curse_reck" },
+        preferRoleId = not isClassicEra and "warlock_affl" or nil,
+        exclusiveWith = OtherCurseIds("curse_elements"),
         GetWarning = function()
             local name = GetAssignment("curse_elements")
             if not name then
                 return "No one is assigned to Curse of the Elements."
             end
-            if WhoDoesWhat:GetAssignedRole(name) ~= "warlock_affl" then
+            if not isClassicEra and WhoDoesWhat:GetAssignedRole(name) ~= "warlock_affl" then
                 return name .. " is not marked as Affliction. Without Malediction,"
                     .. " Curse of the Elements is less effective."
             end
         end,
     }
+    local shadow = curses.shadow and {
+        id = "curse_shadow",
+        icon = curses.shadow.icon,
+        label = curses.shadow.name_long,
+        spellId = curses.shadow.spellId,
+        class = "Warlock",
+        exclusiveWith = OtherCurseIds("curse_shadow"),
+        GetWarning = function()
+            if not GetAssignment("curse_shadow") then
+                return "No one is assigned to Curse of Shadow."
+            end
+        end,
+    }
     RowDefs[reck.id] = reck
     RowDefs[elements.id] = elements
+    if shadow then RowDefs[shadow.id] = shadow end
 
-    -- Curses: Elements first (the bigger raid gain), ideally on an
-    -- Affliction warlock for Malediction; Recklessness goes to any other
-    -- warlock, and stays empty with only one warlock in the group. The two
-    -- Settings toggles gate each curse independently -- Elements on the
-    -- Affliction-to-Elements setting, Recklessness on its (it raises boss
-    -- damage, so a leader may keep it off). An off toggle leaves that curse's
-    -- current pick untouched rather than clearing it.
+    -- TBC prefers an Affliction warlock for Elements, then fills Recklessness.
+    -- Classic fills Recklessness, Elements, then Shadow on distinct warlocks.
+    -- The two Settings toggles gate magic curses and Recklessness separately;
+    -- disabling one leaves its current picks untouched.
     function AutoAssignWarlockCurses() -- file-local, forward-declared above
         local settings = WhoDoesWhat.db.profile.settings
         local locks = MembersOfClass("Warlock")
@@ -1304,23 +1326,57 @@ do
 
         local store = WhoDoesWhat.db.profile.raidAssignments
 
-        local elementsLock = store.curse_elements
-        if settings.autoAssignAfflictionElements then
-            elementsLock = nil
-            for _, name in ipairs(locks) do
-                if WhoDoesWhat:GetAssignedRole(name) == "warlock_affl" then
-                    elementsLock = name
-                    break
+        local elementsLock, shadowLock
+        local reckLock = not settings.allowRecklessnessAutoAssign
+            and store.curse_reck or nil
+        if isClassicEra then
+            if settings.autoAssignAfflictionElements then
+                if settings.allowRecklessnessAutoAssign then
+                    reckLock = locks[1]
+                    store.curse_reck = reckLock
                 end
+                for _, name in ipairs(locks) do
+                    if name ~= reckLock then
+                        if not elementsLock then
+                            elementsLock = name
+                        elseif not shadowLock then
+                            shadowLock = name
+                            break
+                        end
+                    end
+                end
+                store.curse_elements = elementsLock
+                store.curse_shadow = shadowLock
+            else
+                elementsLock = store.curse_elements
+                shadowLock = store.curse_shadow
             end
-            elementsLock = elementsLock or locks[1]
-            store.curse_elements = elementsLock
+        else
+            elementsLock = store.curse_elements
+            if settings.autoAssignAfflictionElements then
+                elementsLock = nil
+                for _, name in ipairs(locks) do
+                    if name ~= reckLock
+                        and WhoDoesWhat:GetAssignedRole(name) == "warlock_affl" then
+                        elementsLock = name
+                        break
+                    end
+                end
+                if not elementsLock then
+                    for _, name in ipairs(locks) do
+                        if name ~= reckLock then
+                            elementsLock = name
+                            break
+                        end
+                    end
+                end
+                store.curse_elements = elementsLock
+            end
         end
 
-        local reckLock
-        if settings.allowRecklessnessAutoAssign then
+        if settings.allowRecklessnessAutoAssign and not reckLock then
             for _, name in ipairs(locks) do
-                if name ~= elementsLock then
+                if name ~= elementsLock and name ~= shadowLock then
                     reckLock = name
                     break
                 end
@@ -1331,12 +1387,17 @@ do
         local parts = {}
         if settings.autoAssignAfflictionElements then
             parts[#parts + 1] = elements.label .. " -> " .. (elementsLock or "nobody")
+            if shadow then
+                parts[#parts + 1] = shadow.label .. " -> "
+                    .. (shadowLock or "nobody (no second warlock)")
+            end
         end
         if settings.allowRecklessnessAutoAssign then
-            parts[#parts + 1] = reck.label .. " -> " .. (reckLock or "nobody (no second warlock)")
+            parts[#parts + 1] = reck.label .. " -> "
+                .. (reckLock or "nobody (no free warlock)")
         end
         if #parts == 0 then
-            WhoDoesWhat:Print("Warlock Curses: both curse auto-assigns are disabled in Settings.")
+            WhoDoesWhat:Print("Warlock Curses: curse auto-assigns are disabled in Settings.")
         else
             WhoDoesWhat:LogOperation("Warlock Curses auto-assigned: " .. table.concat(parts, ", ") .. ".")
         end
@@ -1347,7 +1408,8 @@ do
         -- roster, roles and talents (ComputeBuffGrid), and the section view
         -- shows the result as read-only rows. rows stays empty here.
         { title = "Paladin Buffs", rows = {} },
-        { title = "Warlocks", rows = { reck, elements } },
+        { title = "Warlocks", rows = shadow and { reck, elements, shadow }
+            or { reck, elements } },
     }
 end
 
@@ -1482,6 +1544,7 @@ end
 -- Affliction warlock. Called from AutoAssignDetectedRole (TalentScanning.lua)
 -- after the role is saved. Returns true if it moved the assignment.
 local function AutoPlaceAfflictionElements(playerName)
+    if WhoDoesWhat.ClientFeatures.isClassicEra then return false end
     if not WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements then return false end
     if #MembersOfClass("Warlock") < 2 then return false end
 

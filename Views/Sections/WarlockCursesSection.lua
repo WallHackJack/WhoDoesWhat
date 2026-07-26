@@ -1,7 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Warlocks section: a read-only Improved Healthstone summary followed
--- by one fixed row per curse (Recklessness, Elements), rendered as
+-- by one fixed row per curse, rendered as
 --
 --   [spell icon] Name    (!)  [player dropdown v] [mail]
 --
@@ -25,6 +25,7 @@ local HEALTHSTONE_RANKS = { 2, 1, 0 }
 local HEALTHSTONE_ROW_H = 24
 local HEALTHSTONE_SLOT_W = 48
 local HEALTHSTONE_ICON_SIZE = 20
+local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
 -- Our static-section def (title + row definitions), found by title so a
 -- reordering of A.Sections can't silently swap our rows.
@@ -288,10 +289,15 @@ local function Build(f, content)
     })
     local box = chrome.box
 
+    local autoTooltip = IS_CLASSIC_ERA
+        and "Put Curse of the Elements, Curse of Shadow, and Curse of Recklessness"
+            .. " on separate warlocks. The magic curses and Recklessness are gated"
+            .. " by their Settings toggles."
+        or "Put Curse of the Elements on an Affliction warlock and Curse of"
+            .. " Recklessness on another warlock. Each curse is gated by its"
+            .. " Settings toggle; a disabled one keeps its current pick."
     local autoBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Auto", "Auto-assign",
-        "Put Curse of the Elements on an Affliction warlock and Curse of"
-        .. " Recklessness on another warlock. Each curse is gated by its"
-        .. " Settings toggle; a disabled one keeps its current pick.",
+        autoTooltip,
         function()
             A.AutoAssignWarlockCurses()
             WhoDoesWhat:RefreshMainAssignmentsView()
@@ -300,10 +306,12 @@ local function Build(f, content)
         end)
     K.ChainHeaderButton(chrome, autoBtn)
 
+    local calculatorCurses = IS_CLASSIC_ERA
+        and "Curse of the Elements, Curse of Shadow, and Curse of Recklessness"
+        or "Curse of the Elements and Curse of Recklessness"
     local calcBtn = K.AddHeaderTextButton(box, autoBtn, "Calc", "Curse Value Calculator",
-        "Estimate how much raid damage Curse of the Elements and Curse of"
-        .. " Recklessness provided (or could have provided), pulling the"
-        .. " fight data from Details!.", function()
+        "Estimate how much raid damage " .. calculatorCurses
+        .. " provided (or could have provided), pulling the fight data from Details!.", function()
             WhoDoesWhat:OpenCurseCalculatorView()
         end)
     K.ChainHeaderButton(chrome, calcBtn)

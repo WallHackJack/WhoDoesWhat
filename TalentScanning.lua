@@ -232,8 +232,8 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     end
     self:LogOperation(playerName .. (current and " respecced: now " or " detected: ")
         .. (role and role.name or detectedRoleId) .. ".")
-    -- A fresh Affliction warlock gets Curse of the Elements handed to them
-    -- (setting-gated; no-op for every other spec). See Assignments.lua.
+    -- On TBC, a fresh Affliction warlock gets Curse of the Elements handed to
+    -- them (setting-gated). The assignment helper is a no-op on Classic Era.
     if detectedRoleId == "warlock_affl" then
         self.Assign.AutoPlaceAfflictionElements(playerName)
     end
