@@ -31,6 +31,14 @@ WhoDoesWhat.ClientFeatures = {
         lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
     },
 
+    -- Highest Greater Blessing ranks available in Classic Era.
+    paladinBuffSpellIds = isClassicEra and {
+        might = 25916,
+        light = 25890,
+        wisdom = 25918,
+        sanctuary = 25899,
+    } or {},
+
     -- Stable CC keys from Data.lua that this client does not have.
     excludedCCSpells = isClassicEra and {
         cyclone = true,

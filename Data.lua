@@ -124,8 +124,8 @@ WhoDoesWhat.Classes = {
     }
 }
 
--- Paladin Raid Buffs Metadata (TBC specific). spellId is the TBC max-rank
--- Greater Blessing, used for the ability hover tooltips in the views.
+-- Paladin Raid Buffs Metadata. spellId defaults to the TBC max-rank Greater
+-- Blessing and is overridden below for clients with different ranks.
 WhoDoesWhat.PaladinBuffs = {
     salv = {
         icon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSalvation",
@@ -170,6 +170,11 @@ WhoDoesWhat.PaladinBuffs = {
         spellId = 27169 -- Greater Blessing of Sanctuary (Rank 2)
     }
 }
+
+local features = WhoDoesWhat.ClientFeatures
+for key, spellId in pairs(features.paladinBuffSpellIds) do
+    WhoDoesWhat.PaladinBuffs[key].spellId = spellId
+end
 
 -- Warlock raid curses metadata (TBC max ranks), same shape as PaladinBuffs.
 -- Elements is best on an Affliction warlock (Malediction improves the debuff);
@@ -232,7 +237,6 @@ local ccSpells = {
     { id = "disarm",      name = "Disarm",          class = "Warrior", spellId = 676 },
 }
 
-local features = WhoDoesWhat.ClientFeatures
 WhoDoesWhat.CCSpells = {}
 for _, spell in ipairs(ccSpells) do
     if not features.excludedCCSpells[spell.id] then
