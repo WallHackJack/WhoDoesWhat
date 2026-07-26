@@ -117,7 +117,7 @@ local defaults = {
         -- are NOT in here: their coverage is derived, never stored (see
         -- ComputeBuffGrid in Assignments.lua).
         raidAssignments = {},
-        -- Custom paladin-buff rules (main window's "+ Rule" button): array of
+        -- Custom paladin-buff rules (Buffing Rules > "Add (+)"): array of
         -- { buff = key, kind = "ignore"|"prioritize"|"prefer", scope, value }.
         -- One rule per buff, six at most. Local strategy config like the role
         -- customizations -- not synced, survives group changes. See

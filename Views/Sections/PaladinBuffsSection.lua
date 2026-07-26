@@ -4,12 +4,14 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- is computed from the roster, roles and talents (ComputeBuffGrid), and this
 -- section shows the result: one pooled read-only 24px row per paladin,
 --
---   [role icon] Name  [buff icon] (n) > [buff icon] (n)
+--   [role icon] Name  [buff icon][buff icon][buff icon]  [!] n of n [mail]
 --
--- up to three buffs each (count-desc), paladins sorted by workload
+-- the first three buffs each (count-desc), with an ellipsis when more exist;
+-- paladins are sorted by workload
 -- (ComputePaladinBuffSummary). Header: mass-mail (each paladin's computed
--- workload), "Info + Grid" (the paladin info + buff grid window) and
--- "+ Rule".
+-- workload). A second "Buffing Rules" header below the paladin rows owns the
+-- "Add (+)" and clear-all buttons. "Full Grid" sits in the main header, and
+-- the PallyPower controls stay in the footer.
 --
 -- Below the summary sit the custom rule rows (the model docs the semantics
 -- at CompileBuffRules in Assignments.lua):
@@ -30,22 +32,23 @@ local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
 local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
+local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
 local ComputePaladinBuffSummary = A.ComputePaladinBuffSummary
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
 
 local PALLY_ROW_H = 24
 local PALLY_MAX_BUFFS = 3
--- Buff summary is laid out as a grid: the name in a fixed-width column, then
--- one fixed-width slot per buff so the icons line up in columns down the rows.
-local PALLY_SLOT_W = 48   -- per-buff column: icon + count
 local PALLY_BUFF_ICON = 20
+local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
+local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local RULE_ROW_H = 30
 local RULE_BUFF_DD_W = 78
 local RULE_KIND_DD_W = 90
 local RULE_TARGET_DD_W = 76
+local RULE_HEADER_H = 30
 local FOOTER_BTN_H = 22
-local FOOTER_TOP_GAP = 8 -- gap above the Info + Grid footer button
+local FOOTER_TOP_GAP = 8 -- gap above the PallyPower footer controls
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
@@ -378,7 +381,7 @@ local function CreateRuleRow(f, index)
 end
 
 -- ---------------------------------------------------------------------------
--- Summary rows: name column + one grid slot per buff (icon + count + tooltip)
+-- Summary rows: name column + condensed buff icons + mail placeholder
 -- ---------------------------------------------------------------------------
 
 local function PallyBuffSlotEnter(self)
@@ -391,9 +394,20 @@ local function PallyBuffSlotEnter(self)
     GameTooltip:Show()
 end
 
--- Pooled summary row #index: fixed name column on the left, then PALLY_MAX_BUFFS
--- fixed-width slots so the buff icons line up in columns across every row. Each
--- slot is a mouse-enabled frame (icon + count) that tooltips the blessing.
+local function CoverageTextColor(correct, total)
+    if total == 0 then return 0.5, 0.5, 0.5 end
+    local ratio = correct / total
+    if ratio < 0.2 then return 1, 0.15, 0.15 end
+    if ratio < 0.5 then
+        local t = (ratio - 0.2) / 0.3
+        return 1, 0.15 + 0.85 * t, 0.15 * (1 - t)
+    end
+    local t = (ratio - 0.5) / 0.5
+    return 1 - t, 1, 0
+end
+
+-- Pooled summary row #index: fixed name column on the left, then adjacent buff
+-- icons. Each slot is mouse-enabled so it can tooltip the blessing.
 local function CreatePallyRow(state, index)
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
@@ -418,15 +432,34 @@ local function CreatePallyRow(state, index)
         icon:SetSize(PALLY_BUFF_ICON, PALLY_BUFF_ICON)
         icon:SetPoint("LEFT", 0, 0)
         slot.icon = icon
-        local count = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        count:SetPoint("LEFT", icon, "RIGHT", 3, 0)
-        slot.count = count
         slot:EnableMouse(true)
         slot:SetScript("OnEnter", PallyBuffSlotEnter)
         slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
         slot:Hide()
         row.slots[i] = slot
     end
+
+    -- Visual placeholder only; per-paladin whisper behavior comes later.
+    row.mailBtn = K.CreateMailButton(row, function() end)
+    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.mailBtn:SetScript("OnClick", nil)
+    row.mailBtn:SetScript("OnEnter", nil)
+    row.mailBtn:SetScript("OnLeave", nil)
+
+    local coverageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -14, 0)
+    row.coverageText = coverageText
+
+    local coverageIcon = row:CreateTexture(nil, "OVERLAY")
+    coverageIcon:SetSize(16, 16)
+    coverageIcon:SetPoint("RIGHT", coverageText, "LEFT", -4, 0)
+    row.coverageIcon = coverageIcon
+
+    local more = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    more:SetPoint("LEFT", 4 + K.NAME_LABEL_W + PALLY_MAX_BUFFS * PALLY_SLOT_W, 0)
+    more:SetText("...")
+    more:Hide()
+    row.moreText = more
     return row
 end
 
@@ -437,17 +470,25 @@ end
 function Refresh(f) -- forward declared above
     local state = f.pallySection
     local summary = ComputePaladinBuffSummary()
+    local _, _, byPaladin = ComputePaladinBuffCoverage()
+    local editable = WhoDoesWhat:CanEditAssignments()
 
     for i, p in ipairs(summary) do
         local row = state.rows[i] or CreatePallyRow(state, i)
         state.rows[i] = row
         row:Show()
+        row.mailBtn:SetShown(editable)
+        row.moreText:SetShown(#p.buffs > PALLY_MAX_BUFFS)
         row.nameText:SetText(PlayerTextWithRole(p.name, 16))
+        local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
+        local complete = coverage.total > 0 and coverage.correct == coverage.total
+        row.coverageIcon:SetTexture(complete and COVERAGE_OK_ICON or WhoDoesWhat.WARNING_ICON)
+        row.coverageText:SetText(coverage.correct .. " of " .. coverage.total)
+        row.coverageText:SetTextColor(CoverageTextColor(coverage.correct, coverage.total))
         for bi, slot in ipairs(row.slots) do
             local b = p.buffs[bi]
             if b then
                 slot.icon:SetTexture(WhoDoesWhat.PaladinBuffs[b.key].iconId)
-                slot.count:SetText(b.count)
                 slot.buffKey = b.key
                 slot.buffCount = b.count
                 slot:Show()
@@ -464,23 +505,24 @@ function Refresh(f) -- forward declared above
     state.emptyHint:SetShown(#summary == 0)
     local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or K.DYN_EMPTY_H
 
-    -- The rules area below the summary: a hairline, then one editable row
-    -- per rule. The rows are re-anchored every pass -- their y depends on
-    -- how many summary rows sit above them.
+    -- The rules area below the summary has its own header, then one editable
+    -- row per rule (or an empty-state line). Everything is re-anchored every
+    -- pass because its y depends on how many summary rows sit above it.
     local rules = GetBuffRules()
-    local rulesTop = K.BOX_PAD + K.SECTION_TITLE_H + rowsH
-    if #rules > 0 then
-        if not state.ruleDivider then
-            state.ruleDivider = K.AddRowDivider(state.box, K.BOX_PAD + 2, 0)
-        end
-        state.ruleDivider:ClearAllPoints()
-        state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD + 2, -(rulesTop + 2))
-        state.ruleDivider:SetPoint("TOPRIGHT", -(K.BOX_PAD + 2), -(rulesTop + 2))
-        state.ruleDivider:Show()
-        rulesTop = rulesTop + 5
-    elseif state.ruleDivider then
-        state.ruleDivider:Hide()
-    end
+    local ruleHeaderTop = K.BOX_PAD + K.SECTION_TITLE_H + rowsH
+    state.ruleTitle:ClearAllPoints()
+    state.ruleTitle:SetPoint("LEFT", state.box, "TOPLEFT", K.BOX_PAD + 2,
+        -(ruleHeaderTop + K.MAIL_BTN_SIZE / 2 + 3))
+    state.clearRulesBtn:ClearAllPoints()
+    state.clearRulesBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD,
+        -(ruleHeaderTop + 3))
+    state.ruleBtn:ClearAllPoints()
+    state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
+    state.ruleDivider:ClearAllPoints()
+    state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD, -(ruleHeaderTop + 28))
+    state.ruleDivider:SetPoint("TOPRIGHT", -K.BOX_PAD, -(ruleHeaderTop + 28))
+
+    local rulesTop = ruleHeaderTop + RULE_HEADER_H
 
     for i, rule in ipairs(rules) do
         local row = state.ruleRows[i] or CreateRuleRow(f, i)
@@ -499,11 +541,14 @@ function Refresh(f) -- forward declared above
         state.ruleRows[i]:Hide()
     end
 
-    -- One footer row below the rules: Info + Grid on the left and the
-    -- PallyPower warning / Check / Send controls on the right.
-    local y = rulesTop + #rules * RULE_ROW_H + FOOTER_TOP_GAP
-    state.gridBtn:ClearAllPoints()
-    state.gridBtn:SetPoint("TOPLEFT", K.BOX_PAD, -y)
+    state.rulesEmptyHint:ClearAllPoints()
+    state.rulesEmptyHint:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 4))
+    state.rulesEmptyHint:SetShown(#rules == 0)
+    local rulesH = (#rules > 0) and (#rules * RULE_ROW_H) or K.DYN_EMPTY_H
+
+    -- One footer row below the rules for the PallyPower warning / Check / Send
+    -- controls. Full Grid now lives in the main header.
+    local y = rulesTop + rulesH + FOOTER_TOP_GAP
     state.ppSyncBtn:ClearAllPoints()
     state.ppSyncBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
     state.ppCheckBtn:ClearAllPoints()
@@ -524,8 +569,10 @@ function Refresh(f) -- forward declared above
     local reason = not enabled and "No paladins in the group." or nil
     if enabled then
         state.box.title:SetTextColor(1, 0.82, 0) -- GameFontNormal gold
+        state.ruleTitle:SetTextColor(1, 0.82, 0)
     else
         state.box.title:SetTextColor(0.5, 0.5, 0.5)
+        state.ruleTitle:SetTextColor(0.5, 0.5, 0.5)
         state.mailBtn:SetEnabled(false)
         state.mailBtn.icon:SetDesaturated(true)
     end
@@ -533,6 +580,7 @@ function Refresh(f) -- forward declared above
         btn:SetEnabled(enabled)
         btn.disabledReason = reason
     end
+    state.clearRulesBtn:SetEnabled(enabled and #rules > 0)
 
     K.LayoutHeaderChain(state.headerChain)
 end
@@ -566,17 +614,44 @@ local function Build(f, content)
     })
     local box = chrome.box
 
-    -- "Info + Grid" lives on the footer row (positioned in Refresh), not the
-    -- header chain -- but it still grays out with the section (state.buttons).
-    local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Info + Grid", "Paladin Info + Grid",
+    local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Full Grid", "Paladin Full Grid",
         "Open the paladin window: every paladin's buff-talent ranks on"
         .. " the left, and the buff grid -- every raider against every"
         .. " paladin, with the blessing each paladin gives them -- on"
         .. " the right.", function()
             WhoDoesWhat:OpenPaladinBuffGridView()
         end)
+    K.ChainHeaderButton(chrome, gridBtn)
 
-    local ruleBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "+ Rule", "Add a buff rule",
+    local ruleTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ruleTitle:SetText("Buffing Rules")
+
+    local ruleDivider = box:CreateTexture(nil, "ARTWORK")
+    ruleDivider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    ruleDivider:SetHeight(1)
+
+    local clearRulesBtn = K.CreateCloseButton(box, nil, 0.25)
+    clearRulesBtn:SetScript("OnClick", function()
+        wipe(GetBuffRules())
+        WhoDoesWhat:LogOperation("Paladin Buffs: all buffing rules removed.")
+        WhoDoesWhat:RefreshMainAssignmentsView()
+        WhoDoesWhat:RefreshPaladinBuffGridView()
+    end)
+    clearRulesBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self:IsEnabled() then
+            GameTooltip:SetText("Clear buffing rules", 1, 1, 1)
+            GameTooltip:AddLine("Remove every buffing rule.", 0.8, 0.8, 0.8, true)
+        elseif self.disabledReason then
+            GameTooltip:SetText(self.disabledReason, 0.6, 0.6, 0.6)
+        else
+            GameTooltip:SetText("No buffing rules to clear", 0.6, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    clearRulesBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local ruleBtn = K.AddHeaderTextButton(box, clearRulesBtn, "Add (+)", "Add a buff rule",
         "Add a custom blessing rule: ignore a buff for this fight,"
         .. " prioritize it for part of the raid, or hand it to a specific"
         .. " paladin. One rule per blessing; rules reshape the computed"
@@ -602,10 +677,13 @@ local function Build(f, content)
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshPaladinBuffGridView()
         end)
-    K.ChainHeaderButton(chrome, ruleBtn)
 
     local hint = K.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
+
+    local rulesEmptyHint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    rulesEmptyHint:SetText("No rules exist")
+    rulesEmptyHint:SetTextColor(0.55, 0.55, 0.55)
 
     local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     ppLabel:SetText("PallyPower:")
@@ -629,8 +707,13 @@ local function Build(f, content)
         box = box,
         headerChain = chrome.headerChain,
         mailBtn = chrome.mailBtn,
-        buttons = { gridBtn, ruleBtn, ppSyncBtn, ppCheckBtn },
+        buttons = { gridBtn, ruleBtn, clearRulesBtn, ppSyncBtn, ppCheckBtn },
         emptyHint = hint,
+        ruleTitle = ruleTitle,
+        ruleDivider = ruleDivider,
+        ruleBtn = ruleBtn,
+        clearRulesBtn = clearRulesBtn,
+        rulesEmptyHint = rulesEmptyHint,
         gridBtn = gridBtn,
         ppLabel = ppLabel,
         ppSyncBtn = ppSyncBtn,

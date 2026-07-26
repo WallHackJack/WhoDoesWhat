@@ -1,6 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Paladin Info + Grid ("Info + Grid" button on the main view): one window,
+-- Paladin Info + Grid ("Full Grid" button on the main view): one window,
 -- two panes, no scrolling -- the window sizes itself to its content each
 -- refresh. The left pane is one box per group paladin with their four
 -- buff-talent ranks in a 2x2 square plus their WDW/PallyPower availability
@@ -325,7 +325,8 @@ local function CreateCell(f, row, c)
             GameTooltip:AddLine("Blesses " .. self.raider .. " with "
                 .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long .. ".",
                 0.8, 0.8, 0.8, true)
-            if WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
+            if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
+                and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
                 GameTooltip:AddLine(self.raider .. " is missing this buff.",
                     1, 0.3, 0.3, true)
             end
@@ -455,8 +456,9 @@ local function RefreshGrid(f)
                 cell.icon:Hide()
             end
             -- Red only when the raider is confirmed to lack the planned buff;
-            -- unknown (nil -- not yet scanned, or pets with no unit) never flags.
+            -- unknown and simulated-paladin cells never flag.
             cell.missing:SetShown(cell.buffKey ~= nil
+                and not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(cell.paladin, m.name)
                 and WhoDoesWhat:HasBuff(m.name, cell.buffKey) == false)
             cell:Show()
         end

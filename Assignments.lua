@@ -735,7 +735,8 @@ end
 -- Custom paladin-buff rules (db.profile.paladinBuffRules)
 --
 -- User strategy knobs for the computed blessing coverage, edited in the main
--- window's Paladin Buffs section ("+ Rule"). One rule per buff, six at most:
+-- window's Paladin Buffs section (Buffing Rules > "Add (+)"). One rule per
+-- buff, six at most:
 --
 --   { buff, kind = "ignore" }                    the buff drops out of the
 --                                                plan entirely (fights where
@@ -1115,6 +1116,45 @@ local function ComputeBuffGrid()
         plan[pet.name] = SolveRaider(order)
     end
     return plan
+end
+
+local function IsSimulatedPaladinBuff(paladin, raider)
+    if WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled() then
+        local simulatedPaladin, simulatedRaider = false, false
+        for _, m in ipairs(WhoDoesWhat.FakeRaid.ROSTER) do
+            if m.name == paladin and m.class == "PALADIN" then simulatedPaladin = true end
+            if m.name == raider
+                or (m.class == "HUNTER" and raider == m.name .. "'s Pet") then
+                simulatedRaider = true
+            end
+            if simulatedPaladin and simulatedRaider then return true end
+        end
+    end
+    return false
+end
+
+-- Live completion of the computed plan, raid-wide and per paladin. Simulated
+-- paladin -> simulated raider cells count as covered because neither side can
+-- produce real aura data; real targets always use their scanned state.
+local function ComputePaladinBuffCoverage()
+    local correct, total, byPaladin = 0, 0, {}
+    for raider, cells in pairs(ComputeBuffGrid()) do
+        for paladin, key in pairs(cells) do
+            local p = byPaladin[paladin]
+            if not p then
+                p = { correct = 0, total = 0 }
+                byPaladin[paladin] = p
+            end
+            total = total + 1
+            p.total = p.total + 1
+            if IsSimulatedPaladinBuff(paladin, raider)
+                or WhoDoesWhat:HasBuff(raider, key) == true then
+                correct = correct + 1
+                p.correct = p.correct + 1
+            end
+        end
+    end
+    return correct, total, byPaladin
 end
 
 -- The plan aggregated per paladin: how many raiders each paladin blesses
@@ -1665,6 +1705,8 @@ WhoDoesWhat.Assign = {
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,
     ComputeBuffGrid = ComputeBuffGrid,
+    IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
+    ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

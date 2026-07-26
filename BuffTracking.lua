@@ -184,6 +184,7 @@ local function NotifyChanged()
     notifyPending = true
     C_Timer.After(NOTIFY_DEBOUNCE, function()
         notifyPending = false
+        WhoDoesWhat:RefreshMainAssignmentsView()
         -- RefreshPaladinBuffGridView also nudges the buffing bar.
         WhoDoesWhat:RefreshPaladinBuffGridView()
     end)
