@@ -141,7 +141,7 @@ function WhoDoesWhat:SetPermissionMode(mode, assistant)
     end
     perms.mode = mode
     perms.assistant = assistant or false
-    self:Print("Editing permissions: " .. self:PermissionModeLabel() .. ".")
+    self:LogOperation("Editing permissions: " .. self:PermissionModeLabel() .. ".")
     self:SendGroupMessage("[WhoDoesWhat] Assignment editing is now: "
         .. self:PermissionModeLabel() .. ".")
     self:RefreshMainAssignmentsView()

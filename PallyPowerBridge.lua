@@ -361,8 +361,10 @@ function WhoDoesWhat:SyncToPallyPower()
     if skipped > 0 then
         summary = summary .. " " .. skipped
             .. " cell(s) skipped (unresolved pet, class, or blessing)."
+        self:Print(summary)
+    else
+        self:LogOperation(summary)
     end
-    self:Print(summary)
 
     -- Their clients reject rows for anyone but the sender without authority.
     if IsInRaid() and not self:IsRaidAssistant() then

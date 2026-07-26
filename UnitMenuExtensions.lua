@@ -211,14 +211,14 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
         local _, role = self:FindRoleById(roleId)
         self:SyncBlizzardRoleState(playerName, role, unit)
         if not unchanged then
-            self:Print(playerName .. " set to " .. (role and role.name or roleId) .. ".")
+            self:LogOperation(playerName .. " set to " .. (role and role.name or roleId) .. ".")
             if role and self.db.profile.settings.announceRoleChanges then
                 self:SendGroupMessage("[WhoDoesWhat] " .. playerName .. " was changed to "
                     .. role.name .. " by " .. (UnitName("player") or "?") .. ".")
             end
         end
     else
-        self:Print(playerName .. "'s role cleared.")
+        self:LogOperation(playerName .. "'s role cleared.")
     end
 
     -- Try the PallyPower delta before repainting: RefreshMainAssignmentsView

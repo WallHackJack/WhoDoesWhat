@@ -331,7 +331,7 @@ local function EnsureMainFrame()
     fullViewCB:SetScript("OnClick", function(self)
         local s = WhoDoesWhat.db.profile.settings
         s.paladinOnlyView = not self:GetChecked() -- checked = show the full board
-        WhoDoesWhat:Print("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
+        WhoDoesWhat:LogUiBuilding("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
         RefreshAll(f)
     end)
     fullViewCB:SetScript("OnEnter", function(self)

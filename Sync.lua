@@ -819,10 +819,10 @@ function Sync:ForceSync()
     end
     if UnitIsGroupLeader("player") then
         self:BroadcastState()
-        WhoDoesWhat:Print("Sync: broadcast your board to the group.")
+        WhoDoesWhat:LogOperation("Sync: broadcast your board to the group.")
     else
         self:OnGroupJoined()
-        WhoDoesWhat:Print("Sync: requested the board from the group leader.")
+        WhoDoesWhat:LogOperation("Sync: requested the board from the group leader.")
     end
 end
 

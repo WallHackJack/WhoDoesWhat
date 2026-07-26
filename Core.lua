@@ -3,15 +3,24 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-
 local GetMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 WhoDoesWhat.VERSION = GetMetadata and GetMetadata("WhoDoesWhat", "Version") or "?"
 
--- Developer logging toggle, mirrored from the saved "Log UI Updates" setting
--- once the DB loads (see OnInitialize / AddonSettingsView.lua). The value here
--- only covers prints that happen before OnInitialize.
+-- Developer logging toggles, mirrored from saved settings once the DB loads
+-- (see OnInitialize / AddonSettingsView.lua). These values only cover calls
+-- that happen before OnInitialize.
 WhoDoesWhat.LOG_UI_BUILDING = true
+WhoDoesWhat.LOG_OPERATIONS = false
 
 -- Verbose logging for UI building / layout lifecycle. No-op when the flag is off.
 -- Forwards its args straight to AceConsole's Print (space-joined).
 function WhoDoesWhat:LogUiBuilding(...)
     if self.LOG_UI_BUILDING then
+        self:Print(...)
+    end
+end
+
+-- Routine user and automatic state changes. Off by default so assignment
+-- edits and similar successful operations do not fill chat during normal use.
+function WhoDoesWhat:LogOperation(...)
+    if self.LOG_OPERATIONS then
         self:Print(...)
     end
 end
@@ -136,8 +145,8 @@ local defaults = {
         settings = {
             -- Announce to raid/party chat "[WhoDoesWhat] X was changed to Role
             -- by Y" whenever someone's role assignment changes. Off = silent
-            -- (the local :Print still fires; Blizzard's own role-flag message
-            -- is separate and unaffected). See SetAssignedRole.
+            -- (the optional Log Operations entry and Blizzard's own role-flag
+            -- message are separate and unaffected). See SetAssignedRole.
             announceRoleChanges = true,
             -- Whether the main-window Full view checkbox is off, showing only
             -- Paladin Buffs. Local view preference (not synced).
@@ -147,6 +156,9 @@ local defaults = {
             developerMode = false,
             -- Persisted source for LOG_UI_BUILDING above.
             logUiUpdates = false,
+            -- Print routine assignment, reset, auto-assign, role, customization,
+            -- whisper, and other successful operation messages to chat.
+            logOperations = false,
             -- Print automatic WhoDoesWhat board/role sync status to chat.
             logSyncStatus = false,
             -- Print detailed WhoDoesWhat addon-message diagnostics to chat.
@@ -194,6 +206,7 @@ function WhoDoesWhat:OnInitialize()
     -- Persistent configuration database
     self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
+    self.LOG_OPERATIONS = self.db.profile.settings.logOperations
     self.LOG_SYNC = self.db.profile.settings.logSyncTraffic
 
     -- One-off migrations: buffAssignments briefly held the paladin buff picks
@@ -275,7 +288,7 @@ function WhoDoesWhat:OnInitialize()
     -- and clear them out of the saved board. See FakeRaid.lua.
     self:ReapplyFakeRaid()
 
-    self:Print("WhoDoesWhat initialized! Type /wdw to open.")
+    self:LogUiBuilding("WhoDoesWhat initialized! Type /wdw to open.")
 
     -- Register our slash commands
     self:RegisterChatCommand("wdw", "ToggleMainUI")

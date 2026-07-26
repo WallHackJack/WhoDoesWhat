@@ -181,7 +181,7 @@ function WhoDoesWhat:SetFakeRaidEnabled(value)
 
     RefreshViews()
 
-    self:Print("Populate Fake Raid "
+    self:LogUiBuilding("Populate Fake Raid "
         .. (value and ("enabled -- " .. #FakeRaid.ROSTER .. " fake raiders added.")
                    or "disabled -- fake raiders removed."))
 end
@@ -206,6 +206,6 @@ function WhoDoesWhat:SetFakeRaidPaladinCount(n)
         end)
         self:ReapplyFakeRaid()
         RefreshViews()
-        self:Print("Fake raid rebuilt with " .. n .. " paladin" .. (n == 1 and "" or "s") .. ".")
+        self:LogUiBuilding("Fake raid rebuilt with " .. n .. " paladin" .. (n == 1 and "" or "s") .. ".")
     end
 end

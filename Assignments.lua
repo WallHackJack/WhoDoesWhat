@@ -294,7 +294,7 @@ local function MarkersRichText(entry)
     return table.concat(parts, ", ")
 end
 
--- Target text in plain words, for our own :Print() output and tooltips.
+-- Target text in plain words, for our own operation-log output and tooltips.
 -- AddMessage doesn't expand chat's {skull} tokens, so those would show up
 -- literally here; the words are what we want in our own chat anyway.
 -- Player-target entries (Misdirects) name the player, with their optional
@@ -440,13 +440,13 @@ local function ResetTankAssignments()
     end
 
     if #entries == 0 then
-        WhoDoesWhat:Print("Tank Assignments reset: no marked tanks in the group.")
+        WhoDoesWhat:LogOperation("Tank Assignments reset: no marked tanks in the group.")
     else
         local parts = {}
         for _, entry in ipairs(entries) do
             parts[#parts + 1] = entry.player .. " -> " .. TargetPlainText(entry)
         end
-        WhoDoesWhat:Print("Tank Assignments reset: " .. table.concat(parts, ", ") .. ".")
+        WhoDoesWhat:LogOperation("Tank Assignments reset: " .. table.concat(parts, ", ") .. ".")
     end
 end
 
@@ -455,7 +455,7 @@ end
 local function ResetMisdirectAssignments()
     if not WhoDoesWhat:RequireEditPermission() then return end
     wipe(WhoDoesWhat.db.profile.mdAssignments)
-    WhoDoesWhat:Print("Misdirect Assignments reset: one empty row per hunter.")
+    WhoDoesWhat:LogOperation("Misdirect Assignments reset: one empty row per hunter.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -1298,7 +1298,7 @@ do
         if #parts == 0 then
             WhoDoesWhat:Print("Warlock Curses: both curse auto-assigns are disabled in Settings.")
         else
-            WhoDoesWhat:Print("Warlock Curses auto-assigned: " .. table.concat(parts, ", ") .. ".")
+            WhoDoesWhat:LogOperation("Warlock Curses auto-assigned: " .. table.concat(parts, ", ") .. ".")
         end
     end
 
@@ -1336,20 +1336,20 @@ local function PruneDepartedAssignments()
         if not present[name] then
             store[id] = nil
             local label = RowDefs[id] and RowDefs[id].label or id
-            WhoDoesWhat:Print(label .. " unassigned: " .. name .. " is no longer in the group.")
+            WhoDoesWhat:LogOperation(label .. " unassigned: " .. name .. " is no longer in the group.")
         end
     end
 
     for _, section in ipairs(DynamicSections) do
         for _, entry in ipairs(GetEntries(section)) do
             if entry.player and not present[entry.player] then
-                WhoDoesWhat:Print(section.title .. " (" .. EntryText(section, entry, TargetPlainText)
+                WhoDoesWhat:LogOperation(section.title .. " (" .. EntryText(section, entry, TargetPlainText)
                     .. ") unassigned: " .. entry.player .. " is no longer in the group.")
                 entry.player = nil
             end
             -- Player targets (a misdirect's tank) leave the group too.
             if entry.target and not present[entry.target] then
-                WhoDoesWhat:Print(section.title .. " target cleared: " .. entry.target
+                WhoDoesWhat:LogOperation(section.title .. " target cleared: " .. entry.target
                     .. " is no longer in the group.")
                 entry.target = nil
             end
@@ -1415,19 +1415,19 @@ local function SetAssignment(rowId, playerName)
     store[rowId] = playerName
 
     if playerName then
-        WhoDoesWhat:Print(def.label .. " assigned to " .. playerName .. ".")
+        WhoDoesWhat:LogOperation(def.label .. " assigned to " .. playerName .. ".")
         for _, otherId in ipairs(def.exclusiveWith or {}) do
             if store[otherId] == playerName then
                 store[otherId] = nil
-                WhoDoesWhat:Print(playerName .. " removed from " .. RowDefs[otherId].label .. ".")
+                WhoDoesWhat:LogOperation(playerName .. " removed from " .. RowDefs[otherId].label .. ".")
             end
         end
         if def.pairWith and not store[def.pairWith] then
             store[def.pairWith] = playerName
-            WhoDoesWhat:Print(RowDefs[def.pairWith].label .. " also assigned to " .. playerName .. ".")
+            WhoDoesWhat:LogOperation(RowDefs[def.pairWith].label .. " also assigned to " .. playerName .. ".")
         end
     else
-        WhoDoesWhat:Print(def.label .. " assignment cleared.")
+        WhoDoesWhat:LogOperation(def.label .. " assignment cleared.")
     end
 
     WhoDoesWhat:RefreshMainAssignmentsView()
@@ -1456,7 +1456,7 @@ local function AutoPlaceAfflictionElements(playerName)
     if store.curse_reck == playerName then
         store.curse_reck = nil
     end
-    WhoDoesWhat:Print("Curse of the Elements auto-assigned to " .. playerName
+    WhoDoesWhat:LogOperation("Curse of the Elements auto-assigned to " .. playerName
         .. " (detected Affliction).")
     return true
 end

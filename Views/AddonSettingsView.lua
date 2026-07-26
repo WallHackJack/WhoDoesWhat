@@ -7,13 +7,13 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local settingsFrame = nil
 
 local NAV_X = 14
-local NAV_W = 94
-local CONTENT_X = 124
+local NAV_W = 104
+local CONTENT_X = 134
 local CONTENT_W = 290
-local FRAME_W = 430
-local FRAME_H = 460
+local FRAME_W = 440
+local FRAME_H = 512
 --@do-not-package@
-FRAME_H = 490
+FRAME_H = 542
 --@end-do-not-package@
 local CHECKBOX_ROW_H = 52
 
@@ -60,7 +60,7 @@ local function EnsureSettingsFrame()
     local y0 = f.titleBarHeight + 20
     local pages = {}
     local buttons = {}
-    local sectionLabels = { "General", "Paladin", "Warlock", "Developer", "Testing" }
+    local sectionLabels = { "General", "Paladin Bar", "Warlocks", "Testing", "Developer" }
 
     local function SelectSection(index)
         for i, page in ipairs(pages) do
@@ -91,7 +91,7 @@ local function EnsureSettingsFrame()
         "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
         function(value)
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
-            WhoDoesWhat:Print("Announce role changes " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Announce role changes " .. (value and "enabled." or "disabled."))
         end)
 
     -- ---- Paladin ----
@@ -103,7 +103,7 @@ local function EnsureSettingsFrame()
         "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarEnabled = value
-            WhoDoesWhat:Print("Paladin Buffing Bar " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Paladin Buffing Bar " .. (value and "enabled." or "disabled."))
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end, 14)
 
@@ -137,57 +137,64 @@ local function EnsureSettingsFrame()
         "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button.",
         function(value)
             WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
-            WhoDoesWhat:Print("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Auto-assign Affliction to Elements " .. (value and "enabled." or "disabled."))
         end)
     f.recklessnessCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
         "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
         function(value)
             WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
-            WhoDoesWhat:Print("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
         end)
 
     -- ---- Developer ----
-    local developerPage = pages[4]
+    local developerPage = pages[5]
     local yR = y0
     yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
     f.devModeCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
         "Assignment dropdowns list every group member, not just the eligible class.",
         function(value)
             WhoDoesWhat.db.profile.settings.developerMode = value
-            WhoDoesWhat:Print("Developer Mode " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
         end)
     f.logUiCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
         "Print verbose UI build and layout logging to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logUiUpdates = value
             WhoDoesWhat.LOG_UI_BUILDING = value
-            WhoDoesWhat:Print("Log UI Updates " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Log UI Updates " .. (value and "enabled." or "disabled."))
+        end)
+    f.logOperationsCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log Operations",
+        "Print routine assignment, reset, auto-assign, role, and whisper confirmations to chat.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logOperations = value
+            WhoDoesWhat.LOG_OPERATIONS = value
+            WhoDoesWhat:LogUiBuilding("Log Operations " .. (value and "enabled." or "disabled."))
         end)
     f.logSyncStatusCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync status",
         "Print automatic board updates, role syncs, and group-clear notices to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncStatus = value
-            WhoDoesWhat:Print("Log sync status " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
         end)
     f.logSyncTrafficCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
         "Print detailed WhoDoesWhat addon-message diagnostics to chat. Traffic is always retained in Logs.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncTraffic = value
             WhoDoesWhat.LOG_SYNC = value
-            WhoDoesWhat:Print("Log sync details " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
         end, 14)
     f.logBuffingClicksCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
         "Print each recognized left/right buffing-bar click and its castable target count.",
         function(value)
             WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
-            WhoDoesWhat:Print("Log buffing bar clicks "
+            WhoDoesWhat:LogUiBuilding("Log buffing bar clicks "
                 .. (value and "enabled." or "disabled."))
         end)
     f.logRolePromotionCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log role/promotion flow",
         "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
         function(value)
             WhoDoesWhat.db.profile.settings.logRolePromotion = value
-            WhoDoesWhat:Print("Log role/promotion flow "
+            WhoDoesWhat:LogUiBuilding("Log role/promotion flow "
                 .. (value and "enabled." or "disabled."))
         end, 14)
 --@do-not-package@
@@ -197,13 +204,13 @@ local function EnsureSettingsFrame()
         function(value)
             WhoDoesWhat.db.profile.settings.simulateNewerAddonVersion = value
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:Print("Addon version simulation "
+            WhoDoesWhat:LogUiBuilding("Addon version simulation "
                 .. (value and "enabled." or "disabled."))
         end)
 --@end-do-not-package@
 
     -- ---- Testing ----
-    local testingPage = pages[5]
+    local testingPage = pages[4]
     yR = y0
     yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
     f.fakeRaidCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
@@ -238,7 +245,7 @@ local function EnsureSettingsFrame()
         "Render the Paladin Buffing Bar even when you're not a paladin, as the paladin picked below (real or fake). Preview only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarTestMode = value
-            WhoDoesWhat:Print("Buffing bar test mode " .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:LogUiBuilding("Buffing bar test mode " .. (value and "enabled." or "disabled."))
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end, 14)
 
@@ -287,6 +294,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
+    f.logOperationsCheck:SetChecked(settings.logOperations)
     f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)
     f.logSyncTrafficCheck:SetChecked(settings.logSyncTraffic)
     f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)

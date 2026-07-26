@@ -31,7 +31,7 @@ local function SectionByKey(key)
 end
 
 local function PrintAssignment(section, entry)
-    WhoDoesWhat:Print(section.title .. ": " .. entry.player .. " -> "
+    WhoDoesWhat:LogOperation(section.title .. ": " .. entry.player .. " -> "
         .. EntryText(section, entry, TargetPlainText) .. ".")
 end
 
@@ -165,7 +165,7 @@ function WhoDoesWhat:RemoveTankMarker(value)
         if HasMarkerValue(entry, value) then
             RemoveMarkerValue(entry, value)
             self:SyncMisdirectsForTank(entry.player)
-            WhoDoesWhat:Print(section.title .. ": " .. MarkerValuePlain(value, entry.custom)
+            WhoDoesWhat:LogOperation(section.title .. ": " .. MarkerValuePlain(value, entry.custom)
                 .. " cleared from " .. (entry.player or "?") .. ".")
             WhoDoesWhat:RefreshMainAssignmentsView()
             return
@@ -244,7 +244,7 @@ function WhoDoesWhat:SetCCAssignment(spellId, markerIndex, playerName)
         end
     elseif changed then
         local spell = SpellById(spellId)
-        WhoDoesWhat:Print(section.title .. ": " .. playerName
+        WhoDoesWhat:LogOperation(section.title .. ": " .. playerName
             .. " no longer assigned to " .. (spell and spell.name or "?") .. ".")
     end
 
@@ -263,7 +263,7 @@ function WhoDoesWhat:RemoveCCAssignment(spellId, markerIndex)
     for i, entry in ipairs(entries) do
         if entry.spell == spellId and entry.marker == markerIndex then
             table.remove(entries, i)
-            WhoDoesWhat:Print(section.title .. ": " .. section.noun .. " removed.")
+            WhoDoesWhat:LogOperation(section.title .. ": " .. section.noun .. " removed.")
             WhoDoesWhat:RefreshMainAssignmentsView()
             return
         end
@@ -318,7 +318,7 @@ function WhoDoesWhat:SetMisdirectTarget(hunterName, tankName)
         if mine then
             mine.player = nil
             freed = true
-            WhoDoesWhat:Print(section.title .. ": " .. hunterName .. "'s misdirect cleared.")
+            WhoDoesWhat:LogOperation(section.title .. ": " .. hunterName .. "'s misdirect cleared.")
         end
     elseif not mine or mine.target ~= tankName then
         if not mine then
@@ -367,12 +367,12 @@ function WhoDoesWhat:SetMisdirectMarker(hunterName, markerIndex)
     if mine.marker == markerIndex then return end
     mine.marker = markerIndex
     if not markerIndex then
-        WhoDoesWhat:Print(section.title .. ": " .. hunterName .. "'s marker cleared.")
+        WhoDoesWhat:LogOperation(section.title .. ": " .. hunterName .. "'s marker cleared.")
     elseif mine.target then
         PrintAssignment(section, mine)
     else
         local m = MarkerByIndex(markerIndex)
-        WhoDoesWhat:Print(section.title .. ": " .. hunterName .. " -> "
+        WhoDoesWhat:LogOperation(section.title .. ": " .. hunterName .. " -> "
             .. (m and m.name or "?") .. " (no tank picked yet).")
     end
     WhoDoesWhat:RefreshMainAssignmentsView()

@@ -160,7 +160,7 @@ function WhoDoesWhat:RescanPaladinTalents()
     if total == 0 then
         self:Print("Rescan: no paladins in the group.")
     else
-        self:Print(string.format(
+        self:LogOperation(string.format(
             "Rescanning %d paladin%s (%d in range, refreshing now).",
             total, total == 1 and "" or "s", inRange))
     end
@@ -230,7 +230,7 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     if playerName == UnitName("player") or self:CanSetOthersBlizzardRole() then
         self:SyncBlizzardRoleState(playerName, role)
     end
-    self:Print(playerName .. (current and " respecced: now " or " detected: ")
+    self:LogOperation(playerName .. (current and " respecced: now " or " detected: ")
         .. (role and role.name or detectedRoleId) .. ".")
     -- A fresh Affliction warlock gets Curse of the Elements handed to them
     -- (setting-gated; no-op for every other spec). See Assignments.lua.

@@ -90,10 +90,10 @@ local function CreateRow(f, index)
                 ClearSpellIfUncastable(entry, name)
                 entry.player = name
                 if name then
-                    WhoDoesWhat:Print(SECTION.title .. ": " .. name .. " -> "
+                    WhoDoesWhat:LogOperation(SECTION.title .. ": " .. name .. " -> "
                         .. EntryText(SECTION, entry, TargetPlainText) .. ".")
                 else
-                    WhoDoesWhat:Print(SECTION.title .. ": assignment cleared.")
+                    WhoDoesWhat:LogOperation(SECTION.title .. ": assignment cleared.")
                 end
                 Refresh(f)
             end)
@@ -190,7 +190,7 @@ local function CreateRow(f, index)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
         table.remove(GetEntries(SECTION), index)
-        WhoDoesWhat:Print(SECTION.title .. ": " .. SECTION.noun .. " removed.")
+        WhoDoesWhat:LogOperation(SECTION.title .. ": " .. SECTION.noun .. " removed.")
         Refresh(f)
     end)
     delBtn:SetScript("OnEnter", function(self)
@@ -334,7 +334,7 @@ local function Build(f, content)
         StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
             function()
                 wipe(GetEntries(SECTION))
-                WhoDoesWhat:Print(SECTION.title .. ": all " .. SECTION.noun .. "s removed.")
+                WhoDoesWhat:LogOperation(SECTION.title .. ": all " .. SECTION.noun .. "s removed.")
                 Refresh(f)
             end)
     end)

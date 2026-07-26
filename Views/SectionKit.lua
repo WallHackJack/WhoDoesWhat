@@ -213,7 +213,7 @@ function K.CreateMailButton(row, GetWhisper)
         local name, job, display = GetWhisper()
         if not name then return end
         SendChatMessage("[WhoDoesWhat] Your assignment: " .. job .. ".", "WHISPER", nil, name)
-        WhoDoesWhat:Print("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
+        WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
     end)
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -350,7 +350,7 @@ local function AddHeaderMailButton(f, box, sectionTitle, Collect)
     btn:SetScript("OnClick", function()
         local sent = MassWhisper(CollectOthers())
         if sent > 0 then
-            WhoDoesWhat:Print(sectionTitle .. ": whispered " .. sent
+            WhoDoesWhat:LogOperation(sectionTitle .. ": whispered " .. sent
                 .. (sent == 1 and " player" or " players") .. " their assignments.")
         else
             WhoDoesWhat:Print(sectionTitle .. ": no one assigned to whisper.")

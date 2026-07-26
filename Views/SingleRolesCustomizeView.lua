@@ -208,7 +208,7 @@ local function OnApply(f)
         end
         local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass, GetRoleControls(f))
         WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
-        WhoDoesWhat:Print("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
+        WhoDoesWhat:LogOperation("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
     else
         local role = f.currentRole
         if not role then return end
@@ -222,7 +222,7 @@ local function OnApply(f)
             end
             WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f))
             WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
-            WhoDoesWhat:Print("Custom role '" .. name .. "' saved.")
+            WhoDoesWhat:LogOperation("Custom role '" .. name .. "' saved.")
         else
             local targets = role.allSubRoles or { role.id }
             local customized = 0
@@ -233,11 +233,11 @@ local function OnApply(f)
             end
 
             if customized == 0 then
-                WhoDoesWhat:Print("Settings match the defaults - saved customizations cleared.")
+                WhoDoesWhat:LogOperation("Settings match the defaults - saved customizations cleared.")
             elseif #targets > 1 then
-                WhoDoesWhat:Print("Customizations saved for " .. #targets .. " roles.")
+                WhoDoesWhat:LogOperation("Customizations saved for " .. #targets .. " roles.")
             else
-                WhoDoesWhat:Print("Customizations saved for " .. role.name .. ".")
+                WhoDoesWhat:LogOperation("Customizations saved for " .. role.name .. ".")
             end
         end
     end
@@ -255,12 +255,12 @@ local function OnSecondary(f)
     if f.isCreateMode then
         f:Hide()
     elseif f.currentRole and f.currentRole.isCustom then
-        WhoDoesWhat:Print("Custom role '" .. f.currentRole.name .. "' deleted.")
+        WhoDoesWhat:LogOperation("Custom role '" .. f.currentRole.name .. "' deleted.")
         WhoDoesWhat:DeleteCustomRole(f.currentRole.id)
         CloseAndRefresh(f)
     elseif f.currentRole then
         WhoDoesWhat:ClearRoleCustomization(f.currentRole.id)
-        WhoDoesWhat:Print(f.currentRole.name .. " reset to defaults.")
+        WhoDoesWhat:LogOperation(f.currentRole.name .. " reset to defaults.")
         CloseAndRefresh(f)
     end
 end
