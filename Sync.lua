@@ -100,6 +100,12 @@ local function SenderKey(sender)
     return Ambiguate(sender, "none")
 end
 
+local function UnitKey(unit)
+    local name, realm = UnitName(unit)
+    if name and realm and realm ~= "" then return name .. "-" .. realm end
+    return name
+end
+
 -- The group leader under the same keying, or nil (leaderless moments happen
 -- mid-roster-change). GetRaidRosterInfo names already follow our keying.
 local function LeaderName()
@@ -246,6 +252,7 @@ local function DescribeMessage(msg)
             #(s.md or {}), Count(s.static))
     end
     if msg.t == "HELLO" then return "requests the leader's board" end
+    if msg.t == "VERSION" then return "shares addon version" end
     if msg.t == "RANKS" then return "shares class utility-talent ranks" end
     if msg.t == "ROLE" then
         local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
@@ -324,11 +331,82 @@ local awaitTimer = nil
 
 local ranksTimer = nil
 local warnedProtocol = false
+local peerVersions = {}
 
 -- Our own role as last pushed over the ROLE message (unpermitted clients
 -- only; see PollLocalChanges). Tracked so applying a remote board doesn't
 -- echo the role right back out.
 local lastOwnRoleSent = nil
+
+local function IsNewerVersion(candidate, current)
+    local a, b = {}, {}
+    for n in tostring(candidate or ""):gmatch("%d+") do a[#a + 1] = tonumber(n) end
+    for n in tostring(current or ""):gmatch("%d+") do b[#b + 1] = tonumber(n) end
+    if #a == 0 or #b == 0 then return false end
+    for i = 1, math.max(#a, #b) do
+        local av, bv = a[i] or 0, b[i] or 0
+        if av ~= bv then return av > bv end
+    end
+    return false
+end
+
+--@do-not-package@
+local function NextPatchVersion(version)
+    local major, minor, patch = tostring(version or ""):match("^(%d+)%.(%d+)%.(%d+)")
+    if not major then return "999.0.0" end
+    return string.format("%d.%d.%d", major, minor, tonumber(patch) + 1)
+end
+--@end-do-not-package@
+
+function Sync:GetReportedAddonVersion()
+--@do-not-package@
+    -- The source-only test toggle makes this client behave like the next patch.
+    if WhoDoesWhat.db.profile.settings.simulateNewerAddonVersion then
+        return NextPatchVersion(WhoDoesWhat.VERSION)
+    end
+--@end-do-not-package@
+    return WhoDoesWhat.VERSION
+end
+
+local function RecordPeerVersion(name, version)
+    if type(version) ~= "string" or version == "" then return end
+    if peerVersions[name] == version then return end
+    peerVersions[name] = version
+    for _, peer in ipairs(Sync:GetNewerAddonVersions()) do
+        if peer.name == name then
+            WhoDoesWhat:Print("|cffff2020You are running WhoDoesWhat v"
+                .. Sync:GetReportedAddonVersion() .. ", but " .. name
+                .. " reports using version " .. version
+                .. ". Update the addon to stay compatible.|r")
+            break
+        end
+    end
+    WhoDoesWhat:RefreshMainAssignmentsView()
+end
+
+-- Current group members running a newer addon build, sorted for the tooltip.
+function Sync:GetNewerAddonVersions()
+    local current = self:GetReportedAddonVersion()
+    local members = {}
+    local function AddMember(unit)
+        local name = UnitKey(unit)
+        if name then members[name] = true end
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do AddMember("raid" .. i) end
+    else
+        AddMember("player")
+        for i = 1, GetNumSubgroupMembers() do AddMember("party" .. i) end
+    end
+    local newer = {}
+    for name, version in pairs(peerVersions) do
+        if members[name] and IsNewerVersion(version, current) then
+            newer[#newer + 1] = { name = name, version = version }
+        end
+    end
+    table.sort(newer, function(a, b) return a.name < b.name end)
+    return newer
+end
 
 -- ---------------------------------------------------------------------------
 -- Class utility-talent ranks
@@ -372,6 +450,7 @@ end
 
 function Sync:Send(msg, channel, target)
     msg.p = PROTOCOL
+    msg.v = self:GetReportedAddonVersion()
     self:SendCommMessage(COMM_PREFIX, Encode(msg), channel, target)
     AppendTraffic("out", target and SenderKey(target) or UnitName("player"), msg, channel)
     LogSync("sent", msg.t, "via", channel, target or "")
@@ -490,6 +569,7 @@ function Sync:OnGroupLeft()
     wipe(p.ccAssignments)
     wipe(p.mdAssignments)
     wipe(p.raidAssignments)
+    wipe(peerVersions)
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
@@ -626,6 +706,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     local msg = Decode(text)
     if not msg then return end
     AppendTraffic("in", senderKey, msg, distribution)
+    RecordPeerVersion(senderKey, msg.v)
 
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched
     -- version (below). Permissions.lua checks the current leader against
@@ -671,8 +752,10 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         StoreHealthstoneRank(senderKey, msg.healthstone)
         -- The leader answers with the authoritative board; every paladin
         -- and warlock answers with utility ranks so the joiner's views fill in.
+        local answered = false
         if UnitIsGroupLeader("player") then
             self:Send({ t = "STATE", rev = lastRev, state = Snapshot() }, "WHISPER", sender)
+            answered = true
         end
         local ranks = OwnRanks()
         local healthstone = OwnHealthstoneRank()
@@ -682,11 +765,16 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
                 ranks = ranks,
                 healthstone = healthstone,
             }, "WHISPER", sender)
+            answered = true
         end
+        if not answered then self:Send({ t = "VERSION" }, "WHISPER", sender) end
 
     elseif msg.t == "RANKS" then
         StoreRanks(senderKey, msg.ranks)
         StoreHealthstoneRank(senderKey, msg.healthstone)
+
+    elseif msg.t == "VERSION" then
+        -- Version was recorded before message dispatch; no payload needed.
 
     elseif msg.t == "ROLE" then
         -- A player's OWN role -- the one edit that never needs board rights.

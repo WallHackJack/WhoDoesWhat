@@ -53,4 +53,6 @@ There is currently no automated Lua test suite. For every change:
 - CurseForge packages tagged commits; plain pushes to `main` do not release.
 - Use tags such as `1.0.3` without a `v` prefix. Tags containing `alpha` or `beta` set that release channel.
 - `WhoDoesWhat.toc` keeps a literal Interface number for the live checkout. The packaged `## Version` is supplied from `@project-version@`.
+- Before committing a tagged release, update the debug-block literal `## Version` in `WhoDoesWhat.toc` to exactly match the intended tag and include it in the tagged commit. The main-window title and peer-version warning read this metadata in the live checkout.
+- The addon-version simulator is clone-only developer tooling. Keep every related Lua entry point inside BigWigs `--@do-not-package@` blocks and verify it is absent from the generated release directory.
 - Keep repository-only documentation excluded in `.pkgmeta`.

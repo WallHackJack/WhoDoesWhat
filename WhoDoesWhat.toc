@@ -3,7 +3,9 @@
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
 #@debug@
-## Version: 1.0.2
+# Keep this literal synchronized with the release tag; the in-game title and
+# peer-version warning read it in the live checkout.
+## Version: 1.0.3
 #@end-debug@
 #@non-debug@
 # ## Version: @project-version@

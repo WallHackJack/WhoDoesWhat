@@ -25,6 +25,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
+local Sync = WhoDoesWhat:GetModule("Sync")
 local PruneDepartedAssignments = A.PruneDepartedAssignments
 
 local mainFrame = nil
@@ -218,12 +219,33 @@ local function UpdateViewToggle(f)
     f.fullViewCheck:SetChecked(not prefOn)
 end
 
+local function UpdateVersionWarning(f)
+    if not f.versionWarn then return end
+    local current = Sync:GetReportedAddonVersion()
+    f.titleText:SetText("WhoDoesWhat (v" .. current .. ")")
+    local newer = Sync:GetNewerAddonVersions()
+    if #newer == 0 then
+        f.versionWarn.tooltipText = nil
+        f.versionWarn:Hide()
+        return
+    end
+    local reports = {}
+    for _, peer in ipairs(newer) do
+        reports[#reports + 1] = peer.name .. " reports using version " .. peer.version
+    end
+    f.versionWarn.tooltipText = "You are running WhoDoesWhat v" .. current
+        .. ", but " .. table.concat(reports, "; ")
+        .. ". Update the addon to stay compatible."
+    f.versionWarn:Show()
+end
+
 -- Repaint everything: the permission strip, then every section (each owns
 -- its rows, warnings, header buttons and box height), then the view mode
 -- (which box(es) show) and the header mail buttons' enabled states. Mail
 -- visibility settles first (cheap, no collectors) so every section lays out
 -- its header chain against it.
 local function RefreshAll(f)
+    UpdateVersionWarning(f)
     UpdatePermissionControls(f)
     K.UpdateHeaderMailVisibility(f)
     for _, section in ipairs(f.sections) do
@@ -256,13 +278,15 @@ end
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
-    local getMeta = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-    local version = getMeta and getMeta("WhoDoesWhat", "Version") or "?"
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H, "WhoDoesWhat (v" .. version .. ")")
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H,
+        "WhoDoesWhat (v" .. Sync:GetReportedAddonVersion() .. ")")
     -- Center the title in the bar (the shared chrome left-aligns it); anchored
     -- to the window's top so it re-centers when the width changes per view mode.
     f.titleText:ClearAllPoints()
     f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
+    local versionWarn = K.CreateWarningIcon(f)
+    versionWarn:SetPoint("LEFT", f.titleText, "RIGHT", 4, 0)
+    f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
 
     -- Right-side button row: [Logs] [Members] [Roles] [Settings].

@@ -12,6 +12,9 @@ local CONTENT_X = 124
 local CONTENT_W = 290
 local FRAME_W = 430
 local FRAME_H = 460
+--@do-not-package@
+FRAME_H = 490
+--@end-do-not-package@
 local CHECKBOX_ROW_H = 52
 
 -- Checkbox at column origin `x`, label beside it, gray wrapped description
@@ -187,6 +190,17 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:Print("Log role/promotion flow "
                 .. (value and "enabled." or "disabled."))
         end, 14)
+--@do-not-package@
+    f.newerVersionTestCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR,
+        "|cffff2020Simulate newer addon version|r",
+        "|cffff2020WARNING: This feature should never be turned on. It falsely reports the next addon version to your group.|r",
+        function(value)
+            WhoDoesWhat.db.profile.settings.simulateNewerAddonVersion = value
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            WhoDoesWhat:Print("Addon version simulation "
+                .. (value and "enabled." or "disabled."))
+        end)
+--@end-do-not-package@
 
     -- ---- Testing ----
     local testingPage = pages[5]
@@ -279,6 +293,9 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.logRolePromotionCheck:SetChecked(settings.logRolePromotion)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
+--@do-not-package@
+    f.newerVersionTestCheck:SetChecked(settings.simulateNewerAddonVersion)
+--@end-do-not-package@
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)
     UIDropDownMenu_SetText(f.fakePaladinDD, tostring(settings.fakeRaidPaladinCount or 3))
 

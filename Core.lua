@@ -1,5 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-3.0")
 
+local GetMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+WhoDoesWhat.VERSION = GetMetadata and GetMetadata("WhoDoesWhat", "Version") or "?"
+
 -- Developer logging toggle, mirrored from the saved "Log UI Updates" setting
 -- once the DB loads (see OnInitialize / AddonSettingsView.lua). The value here
 -- only covers prints that happen before OnInitialize.
@@ -73,8 +76,8 @@ local defaults = {
     profile = {
         expandRoles = false,
         -- Per-role saved buff-order customizations, keyed by role id. Each entry
-        -- is { buffOrder = { six buff keys } }. Roles on their defaults have no
-        -- entry here at all; see SetRoleCustomization in Roles.lua.
+        -- is { buffOrder = { six buff keys }, allowedCount = 0..6 }. Roles on
+        -- their defaults have no entry here; see SetRoleCustomization in Data.lua.
         roleCustomizations = {},
         -- User-created custom roles: array of
         -- { id = "custom_N", name, class = "Warrior", wowRole = "dps"|"tank"|"healer"|false }
@@ -163,6 +166,10 @@ local defaults = {
             -- Testing toggle: inject 23 fake raiders into the roster so paladin
             -- buff strategies can be worked out solo. See FakeRaid.lua.
             populateFakeRaid = false,
+--@do-not-package@
+            -- Testing toggle: advertise and compare as the next patch version.
+            simulateNewerAddonVersion = false,
+--@end-do-not-package@
             -- How many paladins the fake roster carries (1-4; prot always,
             -- then ret, holy, a second ret). See FakeRaid.PALADINS.
             fakeRaidPaladinCount = 3,
