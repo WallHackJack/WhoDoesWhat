@@ -518,6 +518,8 @@ function Refresh(f) -- forward declared above
         -(ruleHeaderTop + 3))
     state.ruleBtn:ClearAllPoints()
     state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
+    state.ruleBtn:SetShown(editable)
+    state.clearRulesBtn:SetShown(editable)
     state.ruleDivider:ClearAllPoints()
     state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD, -(ruleHeaderTop + 28))
     state.ruleDivider:SetPoint("TOPRIGHT", -K.BOX_PAD, -(ruleHeaderTop + 28))

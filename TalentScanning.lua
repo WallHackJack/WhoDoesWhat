@@ -291,6 +291,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
 
     if detected and (pointsSpent or 0) > 0 then
         self:AutoAssignDetectedRole(key, detected)
+        self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
     end
 
     -- First-scan main-tank sweep: a player whose WDW role is a tank but who

@@ -380,7 +380,7 @@ local function ClearSpellIfUncastable(entry, newPlayer)
 end
 
 -- Names of every marked tank in the group (GetEligibleMembers is sorted, so
--- this is name-sorted too). Drives the tank section's auto rows and Reset.
+-- this is name-sorted too). Drives the tank section's auto rows.
 local function MarkedTankNames()
     local out = {}
     for _, m in ipairs(GetEligibleMembers(nil)) do
@@ -389,65 +389,16 @@ local function MarkedTankNames()
     return out
 end
 
--- Tank Reset: rebuild the rows from the marked tanks with the stock marker
--- layout -- one marker each, skull-first (Skull, Cross, Square, ...) in row
--- order -- with two preferences: a feral (druid) tank leads and takes Skull,
--- and a paladin tank slots third holding "Everything else" (AoE threat keeps
--- the leftovers). Misdirect markers re-sync onto their tanks' fresh markers.
-local function ResetTankAssignments()
+-- Clear every tank assignment. Auto-row reconciliation repopulates the marked
+-- tanks with empty marker dropdowns; misdirects keep their tanks but lose the
+-- now-invalid inherited markers.
+local function ClearTankAssignments()
     if not WhoDoesWhat:RequireEditPermission() then return end
-    local ferals, rest, pally = {}, {}, nil
-    for _, name in ipairs(MarkedTankNames()) do
-        local m = FindMember(name)
-        local cls = m and m.classInfo.name
-        if cls == "Druid" then
-            ferals[#ferals + 1] = name
-        elseif cls == "Paladin" and not pally then
-            pally = name
-        else
-            rest[#rest + 1] = name
-        end
-    end
-    local ordered = {}
-    for _, n in ipairs(ferals) do ordered[#ordered + 1] = n end
-    for _, n in ipairs(rest) do ordered[#ordered + 1] = n end
-    if pally then
-        table.insert(ordered, math.min(3, #ordered + 1), pally)
-    end
-
-    local entries = WhoDoesWhat.db.profile.tankAssignments
-    wipe(entries)
-    local nextMarker = 1
-    for _, name in ipairs(ordered) do
-        local markers
-        if name == pally then
-            markers = { "all" }
-        else
-            local m = WhoDoesWhat.RaidTargetMarkers[nextMarker]
-            nextMarker = nextMarker + 1
-            markers = m and { m.index } or {}
-        end
-        entries[#entries + 1] = { player = name, markers = markers, custom = "" }
-    end
-
-    -- Every misdirect follows its tank onto the tank's new first marker.
-    local seen = {}
+    wipe(WhoDoesWhat.db.profile.tankAssignments)
     for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
-        if e.target and not seen[e.target] then
-            seen[e.target] = true
-            WhoDoesWhat:SyncMisdirectsForTank(e.target)
-        end
+        e.marker = nil
     end
-
-    if #entries == 0 then
-        WhoDoesWhat:LogOperation("Tank Assignments reset: no marked tanks in the group.")
-    else
-        local parts = {}
-        for _, entry in ipairs(entries) do
-            parts[#parts + 1] = entry.player .. " -> " .. TargetPlainText(entry)
-        end
-        WhoDoesWhat:LogOperation("Tank Assignments reset: " .. table.concat(parts, ", ") .. ".")
-    end
+    WhoDoesWhat:LogOperation("Tank Assignments cleared.")
 end
 
 -- Misdirect Reset: wipe every row; the auto-row reconcile rebuilds one blank
@@ -1762,7 +1713,7 @@ WhoDoesWhat.Assign = {
     CollectCurseWhispers = CollectCurseWhispers,
     MassWhisper = MassWhisper,
     -- section resets / auto-assigns (the views' header buttons)
-    ResetTankAssignments = ResetTankAssignments,
+    ClearTankAssignments = ClearTankAssignments,
     ResetMisdirectAssignments = ResetMisdirectAssignments,
     AutoAssignWarlockCurses = AutoAssignWarlockCurses,
     -- per-raider buff plan + per-paladin summary + custom rules

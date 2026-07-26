@@ -173,6 +173,22 @@ function WhoDoesWhat:RemoveTankMarker(value)
     end
 end
 
+-- Clear one tank's marker dropdown without removing its roster-managed row.
+function WhoDoesWhat:ClearTankMarkers(playerName)
+    if not self:RequireEditPermission() then return end
+    local section = SectionByKey("tank")
+    for _, entry in ipairs(GetEntries(section)) do
+        if entry.player == playerName then
+            entry.markers = {}
+            entry.custom = ""
+            self:SyncMisdirectsForTank(playerName)
+            WhoDoesWhat:LogOperation(section.title .. ": " .. playerName .. " cleared.")
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            return
+        end
+    end
+end
+
 function WhoDoesWhat:GetCCAssignee(spellId, markerIndex)
     for _, entry in ipairs(GetEntries(SectionByKey("cc"))) do
         if entry.spell == spellId and entry.marker == markerIndex then

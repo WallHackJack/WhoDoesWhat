@@ -221,6 +221,9 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
         self:LogOperation(playerName .. "'s role cleared.")
     end
 
+    -- Keep the saved tank rows current even when the main window is closed.
+    self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
+
     -- Try the PallyPower delta before repainting: RefreshMainAssignmentsView
     -- checks PallyPower drift, so it must see the post-send tables rather than
     -- leave a stale warning icon behind after a successful minimal update.

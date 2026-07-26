@@ -1,17 +1,17 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Tank Assignments section: one row per marked tank, auto-managed from the
--- roster (EnsureAutoRows) -- no Add/[x], the player cell is a fixed label,
+-- roster (EnsureAutoRows) -- no Add, the player cell is a fixed label,
 -- and the marker dropdown is a multi-select so one tank holds all their
 -- markers (entry.markers) on a single row:
 --
---   [tank]  ->  [markers v] [custom text] (!) [mail]
+--   [tank]  ->  [markers v] [custom text] (!) [mail] [x]
 --
 -- Marker toggles route through the unit-menu setters (SetTankMarkerPlayer /
 -- RemoveTankMarker, AssignmentsActions.lua), which enforce one-tank-per-
 -- marker and pull the misdirects along; they end in a full window refresh,
--- so this file never repaints other sections itself. The header Reset
--- rebuilds the rows with the stock marker layout (ResetTankAssignments).
+-- so this file never repaints other sections itself. The header [x] clears
+-- every marker assignment while the scanned tank rows remain auto-populated.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -103,7 +103,24 @@ local function CreateRow(f, index)
     end)
     row.markerDD = markerDD
 
-    -- Mail at the far right so it lines up with every section's mail column.
+    -- Clear this tank's markers without removing its auto-populated row.
+    local clearBtn = K.CreateCloseButton(row)
+    clearBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    clearBtn:SetScript("OnClick", function()
+        local entry = Entry()
+        if entry then WhoDoesWhat:ClearTankMarkers(entry.player) end
+    end)
+    clearBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self:IsEnabled() and "Clear this tank assignment"
+            or "Nothing to clear", self:IsEnabled() and 1 or 0.6,
+            self:IsEnabled() and 1 or 0.6, self:IsEnabled() and 1 or 0.6)
+        GameTooltip:Show()
+    end)
+    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.clearBtn = clearBtn
+
+    -- Mail sits immediately left of the row [x], matching the CC rows.
     row.mailBtn = K.CreateMailButton(row, function()
         local entry = Entry()
         if entry and entry.player then
@@ -112,7 +129,7 @@ local function CreateRow(f, index)
                 SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
         end
     end)
-    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.mailBtn:SetPoint("RIGHT", clearBtn, "LEFT", -2, 0)
 
     -- Warning (!) left of mail; anchored off the button rather than the row
     -- so it holds its column while hidden and nothing shifts.
@@ -160,9 +177,11 @@ function Refresh(f) -- forward declared above
     EnsureAutoRows(SECTION)
     local entries = GetEntries(SECTION)
 
+    local hasAssignments = false
     for i, entry in ipairs(entries) do
         local row = state.rows[i] or CreateRow(f, i)
         row:Show()
+        if #(entry.markers or {}) > 0 then hasAssignments = true end
 
         row.playerLabel:SetShown(editable)
         row.playerLabel:SetText(PlayerTextWithRole(entry.player, 16))
@@ -185,15 +204,14 @@ function Refresh(f) -- forward declared above
             row.customEdit:Hide()
         end
 
-        local warning = SECTION.GetWarning(entry)
-        -- A row with nobody on it only warns the people who could fix it.
-        if not editable and not entry.player then
-            warning = nil
-        end
+        -- View-only users cannot fix tank assignments, so hide their warnings.
+        local warning = editable and SECTION.GetWarning(entry) or nil
         row.warnIcon.tooltipText = warning
         row.warnIcon:SetShown(warning ~= nil)
 
         local hasJob = EntryHasJob(SECTION, entry)
+        row.clearBtn:SetShown(editable)
+        row.clearBtn:SetEnabled(hasJob)
         row.mailBtn:SetShown(editable)
         row.mailBtn:SetEnabled(hasJob)
         row.mailBtn.icon:SetDesaturated(not hasJob)
@@ -203,7 +221,8 @@ function Refresh(f) -- forward declared above
     end
 
     state.emptyHint:SetShown(#entries == 0)
-    state.resetBtn:SetShown(editable)
+    state.clearBtn:SetShown(editable)
+    state.clearBtn:SetEnabled(hasAssignments)
     K.LayoutHeaderChain(state.headerChain)
 
     local rowsH = (#entries > 0) and (#entries * K.ROW_H) or K.DYN_EMPTY_H
@@ -215,26 +234,35 @@ end
 local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = SECTION.title,
-        column = K.COL_LEFT,
+        column = K.COL_RIGHT,
         mailCollect = A.CollectTankWhispers,
     })
 
-    -- Header "Reset": stock marker layout, behind a confirm popup. A reset
-    -- moves misdirect markers too, so it ends in a full window refresh.
-    local resetBtn = K.AddHeaderTextButton(chrome.box, chrome.mailBtn, "Reset",
-        "Reset " .. SECTION.title,
-        "Rebuild the rows from the marked tanks with default markers,"
-        .. " skull-first (Skull, Cross, Square, ...): a feral tank leads on"
-        .. " Skull, and a paladin tank slots third on Everything else.",
-        function()
-            StaticPopup_Hide("WHODOESWHAT_RESET_SECTION") -- re-arm for this section
-            StaticPopup_Show("WHODOESWHAT_RESET_SECTION", SECTION.noun .. "s", nil,
-                function()
-                    A.ResetTankAssignments()
-                    WhoDoesWhat:RefreshMainAssignmentsView()
-                end)
-        end) -- hidden without edit permission
-    K.ChainHeaderButton(chrome, resetBtn)
+    -- Header [x]: clear every dropdown back to its empty default, behind the
+    -- shared clear-all confirmation. Scanned tank rows repopulate on refresh.
+    local clearBtn = K.CreateCloseButton(chrome.box, nil, 0.25)
+    clearBtn:SetPoint("RIGHT", chrome.mailBtn, "LEFT", -2, 0)
+    clearBtn:SetScript("OnClick", function()
+        StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
+        StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
+            function()
+                A.ClearTankAssignments()
+                WhoDoesWhat:RefreshMainAssignmentsView()
+            end)
+    end)
+    clearBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self:IsEnabled() then
+            GameTooltip:SetText("Clear tank assignments", 1, 1, 1)
+            GameTooltip:AddLine("Clear every tank's marker dropdown back to default (asks first).",
+                0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:SetText("Nothing to clear", 0.6, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    table.insert(chrome.headerChain, 1, clearBtn)
 
     local hint = K.CreateEmptyHint(chrome.box)
     hint:SetText("No tanks marked yet - assign tank roles from the unit right-click menu.")
@@ -242,7 +270,7 @@ local function Build(f, content)
     f.tankSection = {
         box = chrome.box,
         headerChain = chrome.headerChain,
-        resetBtn = resetBtn,
+        clearBtn = clearBtn,
         emptyHint = hint,
         rows = {},
     }
