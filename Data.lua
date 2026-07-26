@@ -313,16 +313,47 @@ function WhoDoesWhat:GetWowRoleIconMarkup(key, size)
 end
 
 -- Canonical full ordering of all six paladin buffs. Partial PaladinBuffDefaults
--- orders are backfilled from this so every role's buffOrder lists all six, and
--- the main assignments view lists its buff rows in this order.
+-- orders are backfilled from this before default bans move below the divider,
+-- and the main assignments view lists its buff rows in this order.
 WhoDoesWhat.CanonicalBuffOrder = { "salv", "kings", "might", "wisdom", "light", "sanctuary" }
+
+-- Blessings placed below the role editor's END divider by default. Blizzard-
+-- role bans also cover custom roles; role-id bans capture class/spec defaults.
+-- Users can promote any of these above the divider in a saved customization.
+WhoDoesWhat.PaladinBuffBansByWowRole = {
+    tank = { salv = true },
+}
+WhoDoesWhat.PaladinBuffBansByRole = {
+    warrior_fury = { wisdom = true },
+    warrior_arms = { wisdom = true },
+    warrior_prot = { wisdom = true },
+    rogue_combat = { wisdom = true },
+    rogue_assassin = { wisdom = true },
+    rogue_sub = { wisdom = true },
+    paladin_holy = { might = true },
+    priest_disc = { might = true },
+    priest_holy = { might = true },
+    priest_shadow = { might = true },
+    shaman_ele = { might = true },
+    shaman_resto = { might = true },
+    mage_arcane = { might = true },
+    mage_fire = { might = true },
+    mage_frost = { might = true },
+    warlock_affl = { might = true },
+    warlock_demo = { might = true },
+    warlock_destro = { might = true },
+    warlock_firetank = { might = true },
+    druid_balance = { might = true },
+    druid_resto = { might = true },
+    druid_dreamstate = { might = true },
+}
 
 -- Default paladin buff priority orders, grouped so many roles can share one
 -- order without repeating it. Nearly every role now spells out all six buffs
 -- so the bottom slots are deliberate too: casters and healers end
 -- ..Sanctuary, Might (Might dead last -- they swing a wand at best) and
--- tanks end ..Salvation (a tank sheds threat with it, always last). Partial
--- lists are still backfilled (in canonical order) by
+-- tank defaults end ..Salvation, where role bans place it below the divider
+-- and exclude it from assignment. Partial lists are still backfilled by
 -- PopulateRolesAndCategories. Keyed by role id, since class+wowRole can't
 -- disambiguate (e.g. Druid Balance vs Feral DPS are both dps but want
 -- different orders). Applied into RolesAndCategories on init.
@@ -351,17 +382,17 @@ WhoDoesWhat.PaladinBuffDefaults = {
         order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
         roles = { "paladin_ret" },
     },
-    -- Tanks: Salvation dead last, always.
+    -- Tanks: Salvation is listed last here, then removed by the role ban.
     {
         order = { "kings", "might", "light", "wisdom", "sanctuary", "salv" },
         roles = { "druid_feral_tank" },
     },
     {
-        order = { "kings", "might", "sanctuary", "light", "wisdom", "salv" },
+        order = { "kings", "might", "light", "sanctuary", "wisdom", "salv" },
         roles = { "warrior_prot" },
     },
     {
-        order = { "kings", "wisdom", "sanctuary", "might", "light", "salv" },
+        order = { "kings", "wisdom", "light", "sanctuary", "might", "salv" },
         roles = { "paladin_prot" },
     },
     {
@@ -561,7 +592,7 @@ end
 -- The DB only ever holds deviations from the defaults: saving a buff order
 -- that matches a role's defaults deletes its entry, and a role with no entry
 -- is "on defaults". Custom roles live in db.profile.customRoles and default
--- to the canonical order.
+-- to the canonical order with any Blizzard-role bans below its divider.
 -- ---------------------------------------------------------------------------
 
 -- Shallow-compare two buff order arrays.
@@ -573,33 +604,80 @@ function WhoDoesWhat:BuffOrdersEqual(a, b)
     return true
 end
 
--- Default (uncustomized) buff order for a role or category id. Categories read
--- from their first sub-role; custom roles (and anything without a default)
--- fall back to the canonical order. Returns nil for unknown ids.
-function WhoDoesWhat:GetDefaultBuffOrder(roleId)
-    local _, entry = self:FindRoleById(roleId)
-    if not entry then return nil end
-    if entry.allSubRoles then
-        return self:GetDefaultBuffOrder(entry.allSubRoles[1])
+local function PartitionBannedBuffs(order, banned)
+    local allowed, blocked = {}, {}
+    for _, key in ipairs(order) do
+        local target = banned and banned[key] and blocked or allowed
+        target[#target + 1] = key
     end
-    return entry.buffOrder or self.CanonicalBuffOrder
+    local allowedCount = #allowed
+    for _, key in ipairs(blocked) do allowed[#allowed + 1] = key end
+    return allowed, allowedCount
 end
 
--- Effective buff order for a role or category id: the saved customization when
--- one exists, the default otherwise. Categories read from their first
--- sub-role. Saved orders are re-backfilled so stale data (e.g. a buff added in
--- a later version) still yields all six buffs.
-function WhoDoesWhat:GetEffectiveBuffOrder(roleId)
+local function FirstBuffs(order, count)
+    local allowed = {}
+    for i = 1, count do allowed[i] = order[i] end
+    return allowed
+end
+
+-- The combined default role-id and Blizzard-role bans for a role/category.
+function WhoDoesWhat:GetBannedPaladinBuffs(roleId)
+    local entry = self.RolesAndCategories[roleId]
+    if not entry then return nil end
+    if entry.allSubRoles then
+        return self:GetBannedPaladinBuffs(entry.allSubRoles[1])
+    end
+    local byRole = self.PaladinBuffBansByRole[entry.id]
+    local byWowRole = self.PaladinBuffBansByWowRole[entry.wowRole]
+    if not byRole and not byWowRole then return nil end
+    local banned = {}
+    for key in pairs(byRole or {}) do banned[key] = true end
+    for key in pairs(byWowRole or {}) do banned[key] = true end
+    return banned
+end
+
+-- Full default order plus the number of entries above the END divider.
+function WhoDoesWhat:GetDefaultBuffSetup(roleId)
     local _, entry = self:FindRoleById(roleId)
     if not entry then return nil end
     if entry.allSubRoles then
-        return self:GetEffectiveBuffOrder(entry.allSubRoles[1])
+        return self:GetDefaultBuffSetup(entry.allSubRoles[1])
+    end
+    return PartitionBannedBuffs(self:BackfillBuffOrder(entry.buffOrder or self.CanonicalBuffOrder),
+        self:GetBannedPaladinBuffs(entry.id))
+end
+
+-- Allowed portion of the default order (the assignment model's input).
+function WhoDoesWhat:GetDefaultBuffOrder(roleId)
+    local order, allowedCount = self:GetDefaultBuffSetup(roleId)
+    return order and FirstBuffs(order, allowedCount) or nil
+end
+
+-- Full effective order plus divider position. Legacy saves without an
+-- allowedCount receive the current default bans; new saves own their boundary.
+function WhoDoesWhat:GetEffectiveBuffSetup(roleId)
+    local _, entry = self:FindRoleById(roleId)
+    if not entry then return nil end
+    if entry.allSubRoles then
+        return self:GetEffectiveBuffSetup(entry.allSubRoles[1])
     end
     local saved = self.db.profile.roleCustomizations[entry.id]
     if saved then
-        return self:BackfillBuffOrder(saved.buffOrder)
+        local order = self:BackfillBuffOrder(saved.buffOrder)
+        if saved.allowedCount ~= nil then
+            local allowedCount = math.floor(tonumber(saved.allowedCount) or #order)
+            return order, math.max(0, math.min(allowedCount, #order))
+        end
+        return PartitionBannedBuffs(order, self:GetBannedPaladinBuffs(entry.id))
     end
-    return self:GetDefaultBuffOrder(entry.id)
+    return self:GetDefaultBuffSetup(entry.id)
+end
+
+-- Effective allowed order for assignment computation.
+function WhoDoesWhat:GetEffectiveBuffOrder(roleId)
+    local order, allowedCount = self:GetEffectiveBuffSetup(roleId)
+    return order and FirstBuffs(order, allowedCount) or nil
 end
 
 -- Whether a role has a saved customization. A category counts as customized
@@ -620,13 +698,17 @@ end
 -- at the call site). If the order matches the role's own default, the saved
 -- entry is removed instead. Returns true when a customization was stored,
 -- false when the role is (back) on defaults.
-function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder)
+function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder, allowedCount)
     local entry = self.RolesAndCategories[roleId]
     if not entry or entry.allSubRoles then
         self:LogUiBuilding("SetRoleCustomization: invalid role id " .. tostring(roleId))
         return false
     end
-    if self:BuffOrdersEqual(buffOrder, self:GetDefaultBuffOrder(roleId)) then
+    buffOrder = self:BackfillBuffOrder(buffOrder)
+    allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
+    allowedCount = math.max(0, math.min(allowedCount, #buffOrder))
+    local defaultOrder, defaultAllowedCount = self:GetDefaultBuffSetup(roleId)
+    if allowedCount == defaultAllowedCount and self:BuffOrdersEqual(buffOrder, defaultOrder) then
         self.db.profile.roleCustomizations[roleId] = nil
         -- Buff priorities feed the main view's demand counts; keep them live.
         self:RefreshMainAssignmentsView()
@@ -634,6 +716,7 @@ function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder)
     end
     self.db.profile.roleCustomizations[roleId] = {
         buffOrder = { unpack(buffOrder) },
+        allowedCount = allowedCount,
     }
     self:RefreshMainAssignmentsView()
     return true

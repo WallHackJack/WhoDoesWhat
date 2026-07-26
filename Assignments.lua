@@ -803,10 +803,16 @@ local function RuleAdjustedOrder(m, ignored, prioritized)
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)
     local base = (roleId and WhoDoesWhat:GetEffectiveBuffOrder(roleId))
         or WhoDoesWhat.CanonicalBuffOrder
+    local allowed
+    if roleId then
+        allowed = {}
+        for _, key in ipairs(base) do allowed[key] = true end
+    end
 
     local order, inOrder = {}, {}
     for _, rule in ipairs(prioritized) do
         if not ignored[rule.buff] and not inOrder[rule.buff]
+            and (not allowed or allowed[rule.buff])
             and RuleMatchesMember(rule, m) then
             order[#order + 1] = rule.buff
             inOrder[rule.buff] = true

@@ -3,8 +3,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local customizeFrame = nil
 
 local FRAME_W = 250
-local FRAME_H = 370        -- built-in roles: no assign-role row
-local FRAME_H_CUSTOM = 404 -- custom/create: assign-role row below the buff list
+local FRAME_H = 400        -- built-in roles: no assign-role row
+local FRAME_H_CUSTOM = 434 -- custom/create: assign-role row below the buff list
 local CLASS_ICON_SIZE = 52
 local SPEC_ICON_SIZE = 26
 
@@ -110,29 +110,75 @@ local function GetRoleControls(f)
 end
 
 
--- Repaint every buff row from f.buffOrder (index number, icon, spell name) and
--- hide the arrows that would move a buff off either end of the list.
+-- Repaint the full order around the END divider. Rows below it are banned:
+-- their Up arrow promotes them, while their Down arrow is disabled.
 local function RenderBuffRows(f)
+    f.buffDivider:ClearAllPoints()
+    f.buffDivider:SetPoint("TOPLEFT", 16,
+        -(f.buffListTop + f.allowedCount * BUFF_ROW_H))
     for i, row in ipairs(f.buffRows) do
         local key = f.buffOrder[i]
         local buff = WhoDoesWhat.PaladinBuffs[key]
+        local isBanned = i > f.allowedCount
+        local visualIndex = i + (isBanned and 1 or 0)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 16,
+            -(f.buffListTop + (visualIndex - 1) * BUFF_ROW_H))
         row.buffKey = key
-        row.index:SetText(i .. ".")
         row.icon:SetTexture(buff.iconId)
         row.label:SetText(buff.name_long)
-        SetArrowEnabled(row.upBtn, i > 1)
-        SetArrowEnabled(row.downBtn, i < #f.buffOrder)
+        if isBanned then
+            row.index:SetText("X")
+            row.index:SetTextColor(1, 0.2, 0.2)
+            row.label:SetTextColor(0.5, 0.5, 0.5)
+        else
+            row.index:SetText(i .. ".")
+            row.index:SetTextColor(1, 0.82, 0)
+            row.label:SetTextColor(1, 1, 1)
+        end
+        SetArrowEnabled(row.upBtn, i > 1 or i > f.allowedCount)
+        SetArrowEnabled(row.downBtn, i <= f.allowedCount)
+        row:Show()
     end
 end
 
 
--- Swap a buff with its neighbour, flag the unsaved edit, and repaint.
+-- Reorder allowed buffs, ban the last allowed buff, or promote any banned buff
+-- to the lowest allowed priority.
 local function MoveBuff(f, index, delta)
-    local target = index + delta
-    if target < 1 or target > #f.buffOrder then return end
-    f.buffOrder[index], f.buffOrder[target] = f.buffOrder[target], f.buffOrder[index]
+    if delta < 0 and index > f.allowedCount then
+        local key = table.remove(f.buffOrder, index)
+        f.allowedCount = f.allowedCount + 1
+        table.insert(f.buffOrder, f.allowedCount, key)
+    elseif delta < 0 and index > 1 then
+        f.buffOrder[index], f.buffOrder[index - 1] = f.buffOrder[index - 1], f.buffOrder[index]
+    elseif delta > 0 and index == f.allowedCount then
+        f.allowedCount = f.allowedCount - 1
+    elseif delta > 0 and index < f.allowedCount then
+        f.buffOrder[index], f.buffOrder[index + 1] = f.buffOrder[index + 1], f.buffOrder[index]
+    else
+        return
+    end
     RenderBuffRows(f)
     MarkDirty(f)
+end
+
+
+-- When a custom role becomes a tank, place its role-type defaults below the
+-- divider. The user can immediately promote them again with Up.
+local function ApplyWowRoleBans(f, wowRole)
+    local banned = WhoDoesWhat.PaladinBuffBansByWowRole[wowRole]
+    if not banned then return end
+    local i = 1
+    while i <= f.allowedCount do
+        if banned[f.buffOrder[i]] then
+            table.insert(f.buffOrder, table.remove(f.buffOrder, i))
+            f.allowedCount = f.allowedCount - 1
+        else
+            i = i + 1
+        end
+    end
+    RenderBuffRows(f)
 end
 
 
@@ -161,7 +207,7 @@ local function OnApply(f)
             return
         end
         local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass, GetRoleControls(f))
-        WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder)
+        WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
         WhoDoesWhat:Print("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
     else
         local role = f.currentRole
@@ -175,13 +221,13 @@ local function OnApply(f)
                 return
             end
             WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f))
-            WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder)
+            WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
             WhoDoesWhat:Print("Custom role '" .. name .. "' saved.")
         else
             local targets = role.allSubRoles or { role.id }
             local customized = 0
             for _, id in ipairs(targets) do
-                if WhoDoesWhat:SetRoleCustomization(id, f.buffOrder) then
+                if WhoDoesWhat:SetRoleCustomization(id, f.buffOrder, f.allowedCount) then
                     customized = customized + 1
                 end
             end
@@ -300,16 +346,40 @@ local function EnsureCustomizeFrame()
     buffHeading:SetText("Paladin Buff Priority")
     f.buffHeading = buffHeading
 
-    -- Buff priority rows: number, icon, spell name, and up/down arrows. There is
-    -- always one row per paladin buff (the order is a permutation of all six).
+    -- Buff priority rows: number, icon, spell name, and up/down arrows, with an
+    -- END divider inserted between allowed and banned blessings at render time.
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     f.buffOrder = { unpack(canonical) }
+    f.allowedCount = #canonical
     f.buffRows = {}
     local listTop = top + CLASS_ICON_SIZE + 36
+    f.buffListTop = listTop
+    local divider = CreateFrame("Frame", nil, f)
+    divider:SetSize(FRAME_W - 32, BUFF_ROW_H)
+    local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalLarge")
+    dividerLabel:SetPoint("TOP")
+    dividerLabel:SetPoint("BOTTOM")
+    dividerLabel:SetJustifyH("CENTER")
+    dividerLabel:SetText("END")
+    dividerLabel:SetTextColor(1, 0.2, 0.2)
+    local dividerLeft = divider:CreateTexture(nil, "BACKGROUND")
+    dividerLeft:SetHeight(8)
+    dividerLeft:SetPoint("LEFT", 3, 0)
+    dividerLeft:SetPoint("RIGHT", dividerLabel, "LEFT", -5, 0)
+    dividerLeft:SetTexture(137057) -- Interface\Tooltips\UI-Tooltip-Border
+    dividerLeft:SetTexCoord(0.81, 0.94, 0.5, 1)
+    dividerLeft:SetVertexColor(1, 0.2, 0.2)
+    local dividerRight = divider:CreateTexture(nil, "BACKGROUND")
+    dividerRight:SetHeight(8)
+    dividerRight:SetPoint("RIGHT", -3, 0)
+    dividerRight:SetPoint("LEFT", dividerLabel, "RIGHT", 5, 0)
+    dividerRight:SetTexture(137057)
+    dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
+    dividerRight:SetVertexColor(1, 0.2, 0.2)
+    f.buffDivider = divider
     for i = 1, #canonical do
         local row = CreateFrame("Frame", nil, f)
         row:SetSize(FRAME_W - 32, BUFF_ROW_H)
-        row:SetPoint("TOPLEFT", 16, -(listTop + (i - 1) * BUFF_ROW_H))
 
         -- Up/down arrows on the left, then number, icon, and name.
         local upBtn = CreateArrowButton(row, "Up")
@@ -362,12 +432,17 @@ local function EnsureCustomizeFrame()
     -- Assign-role row (custom roles / create mode only): checkbox + wow role
     -- dropdown. The dropdown is always usable; the checkbox records whether
     -- the role is actually assigned.
-    local optionsTop = listTop + #canonical * BUFF_ROW_H + 8
+    local optionsTop = listTop + (#canonical + 1) * BUFF_ROW_H + 8
 
     local assignCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
     assignCheck:SetSize(24, 24)
     assignCheck:SetPoint("TOPLEFT", 16, -optionsTop)
-    assignCheck:SetScript("OnClick", function() MarkDirty(f) end)
+    assignCheck:SetScript("OnClick", function(self)
+        if self:GetChecked() then
+            ApplyWowRoleBans(f, UIDropDownMenu_GetSelectedValue(f.roleDropdown))
+        end
+        MarkDirty(f)
+    end)
     f.assignRoleCheck = assignCheck
 
     local assignLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -387,6 +462,9 @@ local function EnsureCustomizeFrame()
             info.func = function(item)
                 UIDropDownMenu_SetSelectedValue(roleDropdown, item.value)
                 UIDropDownMenu_SetText(roleDropdown, RoleText(item.value))
+                if f.assignRoleCheck:GetChecked() then
+                    ApplyWowRoleBans(f, item.value)
+                end
                 MarkDirty(f)
             end
             UIDropDownMenu_AddButton(info, level)
@@ -491,10 +569,12 @@ function WhoDoesWhat:OpenCustomizer(roleId)
         f.specIcon:Show()
     end
 
-    -- Load the effective buff order (saved customization or default; a category
-    -- reads from its first sub-role). Copied so the in-window arrows don't
-    -- mutate the saved/default tables; nothing is persisted until Save/Apply.
-    f.buffOrder = { unpack(self:GetEffectiveBuffOrder(role.id)) }
+    -- Load the full effective order and its divider position (a category reads
+    -- from its first sub-role). Copied so the in-window arrows don't mutate the
+    -- saved/default tables; nothing is persisted until Save/Apply.
+    local order
+    order, f.allowedCount = self:GetEffectiveBuffSetup(role.id)
+    f.buffOrder = { unpack(order) }
     RenderBuffRows(f)
 
     -- Custom roles: assign-role controls + Save/Delete.
@@ -544,6 +624,7 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     f.nameEdit:Show()
 
     f.buffOrder = { unpack(self.CanonicalBuffOrder) }
+    f.allowedCount = #f.buffOrder
     RenderBuffRows(f)
 
     SetCustomControlsShown(f, true)
