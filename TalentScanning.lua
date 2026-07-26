@@ -391,10 +391,9 @@ rosterSync:SetScript("OnEvent", function()
     end)
 end)
 
--- Combat self-heal: a UnitSetRole issued mid-fight is sometimes dropped by the
--- server, so a raider switched during combat can keep their old flag. The
--- instant combat ends, reconcile every member's flag to the board again. Cheap
--- and idempotent (ReconcileBlizzardRoles no-ops on flags already correct).
+-- UnitSetRole is protected from addon execution in combat on 2.5.6, so the
+-- shared writer skips it mid-fight. The instant combat ends, reconcile every
+-- member's flag to the board. Cheap and idempotent (already-correct flags no-op).
 local combatRoleSync = CreateFrame("Frame")
 combatRoleSync:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatRoleSync:SetScript("OnEvent", function()

@@ -150,6 +150,9 @@ local defaults = {
             logSyncTraffic = false,
             -- Print Paladin Buffing Bar click diagnostics to chat.
             logBuffingBarClicks = false,
+            -- Trace WDW role edits through Blizzard role sync and the
+            -- main-tank promotion window/highlight flow.
+            logRolePromotion = false,
             -- Auto-place an Affliction warlock on Curse of the Elements: on
             -- spec detection (see AutoAssignDetectedRole) and via the Warlock
             -- Curses Auto button. See AutoPlaceAfflictionElements in Assignments.lua.

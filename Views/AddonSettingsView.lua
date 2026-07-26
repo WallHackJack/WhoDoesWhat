@@ -11,7 +11,7 @@ local NAV_W = 94
 local CONTENT_X = 124
 local CONTENT_W = 290
 local FRAME_W = 430
-local FRAME_H = 390
+local FRAME_H = 460
 local CHECKBOX_ROW_H = 52
 
 -- Checkbox at column origin `x`, label beside it, gray wrapped description
@@ -180,6 +180,13 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:Print("Log buffing bar clicks "
                 .. (value and "enabled." or "disabled."))
         end)
+    f.logRolePromotionCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log role/promotion flow",
+        "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logRolePromotion = value
+            WhoDoesWhat:Print("Log role/promotion flow "
+                .. (value and "enabled." or "disabled."))
+        end, 14)
 
     -- ---- Testing ----
     local testingPage = pages[5]
@@ -269,6 +276,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)
     f.logSyncTrafficCheck:SetChecked(settings.logSyncTraffic)
     f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)
+    f.logRolePromotionCheck:SetChecked(settings.logRolePromotion)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)

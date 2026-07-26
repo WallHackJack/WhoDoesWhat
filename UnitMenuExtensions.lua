@@ -67,6 +67,12 @@ function WhoDoesWhat:SendGroupMessage(msg)
     end
 end
 
+function WhoDoesWhat:LogRolePromotion(...)
+    if self.db and self.db.profile.settings.logRolePromotion then
+        self:Print("|cff80c0ffRole/promotion:|r", ...)
+    end
+end
+
 -- Sync blizzard group state to a WDW role (roles without a wowRole, e.g.
 -- unassigned custom roles, leave it untouched):
 --   - the unit's tank/heal/dps role flag (UnitSetRole)
@@ -83,14 +89,33 @@ local function ApplyBlizzardRole(unit, playerName, role)
     -- Without this the UnitSetRole below silently no-ops on others while we
     -- act as though it took -- or, worse, several assists set it at once.
     local mayFlag = UnitIsUnit(unit, "player") or WhoDoesWhat:CanSetOthersBlizzardRole()
+    local inCombat = InCombatLockdown()
 
     -- Only touch the flag when it actually differs: UnitSetRole on an
     -- already-set role re-announces it to the group ("X is now Damage
     -- Dealer") and invites a tug-of-war with anything else managing flags.
     local meta = WhoDoesWhat.BasicWowRoles[role.wowRole]
-    if mayFlag and meta and UnitSetRole and UnitGroupRolesAssigned
-        and UnitGroupRolesAssigned(unit) ~= meta.blizzRole then
-        UnitSetRole(unit, meta.blizzRole)
+    local before = mayFlag and meta and UnitGroupRolesAssigned
+        and UnitGroupRolesAssigned(unit)
+    local setResult
+    -- UnitSetRole became protected for addon execution in combat in 2.5.6.
+    -- Skip only that call so the promotion/raid-window flow below can proceed;
+    -- PLAYER_REGEN_ENABLED reconciles the role flag afterward.
+    if not inCombat and mayFlag and meta and UnitSetRole and UnitGroupRolesAssigned
+        and before ~= meta.blizzRole then
+        setResult = UnitSetRole(unit, meta.blizzRole)
+    end
+    if not meta or before ~= meta.blizzRole then
+        WhoDoesWhat:LogRolePromotion("Blizzard role",
+            "player=" .. tostring(playerName),
+            "unit=" .. tostring(unit),
+            "combat=" .. tostring(inCombat),
+            "mayFlag=" .. tostring(mayFlag),
+            "before=" .. tostring(before),
+            "desired=" .. tostring(meta and meta.blizzRole),
+            "attempted=" .. tostring(setResult ~= nil),
+            "result=" .. tostring(setResult),
+            "after=" .. tostring(setResult ~= nil and UnitGroupRolesAssigned(unit) or before))
     end
 
     if mayFlag and IsInRaid() and role.wowRole ~= "tank"
@@ -101,9 +126,9 @@ end
 
 -- Full blizzard-side sync for a role assignment: the role flag / main-tank
 -- demotion (ApplyBlizzardRole), plus -- since we can't promote to main tank
--- ourselves (protected) -- the promote-watch flow for tank roles: open the
--- raid window with the arrow/glow and watch the roster to clean up once
--- they're actually promoted. Skipped when they already are.
+-- ourselves (protected) -- the promote-watch flow for tank roles: highlight
+-- their row when the leader opens the Raid tab and clean up once promoted.
+-- Skipped when they already are.
 -- `unit` is optional: a group member's name is itself a valid unit for the
 -- APIs involved, so callers without a token (talent auto-detection) omit it.
 function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
@@ -111,9 +136,18 @@ function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
     -- Promoting to main tank is the leader's job, so only the flag-authority
     -- raises the promote arrow -- a non-leader (or someone setting their own
     -- tank role) can't promote anyone and doesn't want a useless pointer.
-    if role and role.wowRole == "tank" and IsInRaid()
-        and self:CanSetOthersBlizzardRole()
-        and not GetPartyAssignment("MAINTANK", playerName, true) then
+    local isTank = role and role.wowRole == "tank"
+    local inRaid = IsInRaid()
+    local authority = isTank and inRaid and self:CanSetOthersBlizzardRole() or false
+    local mainTank = authority and GetPartyAssignment("MAINTANK", playerName, true) or false
+    self:LogRolePromotion("Promotion gate",
+        "player=" .. tostring(playerName),
+        "wowRole=" .. tostring(role and role.wowRole),
+        "inRaid=" .. tostring(inRaid),
+        "authority=" .. tostring(authority),
+        "mainTank=" .. tostring(mainTank),
+        "willPrompt=" .. tostring(isTank and inRaid and authority and not mainTank))
+    if isTank and inRaid and authority and not mainTank then
         self:StartPromoteWatch(playerName)
     end
 end
@@ -125,9 +159,9 @@ end
 -- our own edit, a synced board (Sync.lua), a member's ROLE broadcast, a talent
 -- auto-detect, a roster sweep, or combat ending. It no-ops on flags that
 -- already match (re-setting re-announces and fights other role addons), and it
--- never opens a frame (no promote-watch), so it is safe to run in combat --
--- PLAYER_REGEN_ENABLED re-runs it to heal any UnitSetRole the server dropped
--- mid-fight (see TalentScanning.lua).
+-- never opens a frame (no promote-watch). UnitSetRole itself is skipped in
+-- combat; PLAYER_REGEN_ENABLED re-runs this to apply the deferred flag (see
+-- TalentScanning.lua).
 function WhoDoesWhat:ReconcileBlizzardRoles()
     if not (UnitSetRole and UnitGroupRolesAssigned) then return end
     local units = {}
@@ -161,6 +195,12 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     -- someone else, lost on reload), and re-picking a main tank's non-tank
     -- role is how you demote them without changing their WDW assignment.
     local unchanged = self.db.profile.assignments[playerName] == roleId
+    self:LogRolePromotion("Role request",
+        "player=" .. tostring(playerName),
+        "roleId=" .. tostring(roleId),
+        "unit=" .. tostring(unit),
+        "combat=" .. tostring(InCombatLockdown()),
+        "unchanged=" .. tostring(unchanged))
     -- Capture PallyPower drift BEFORE the role changes the computed plan.
     -- The minimal sender only runs automatically from a known-good baseline;
     -- otherwise it opens the detailed diff window instead of quietly layering
