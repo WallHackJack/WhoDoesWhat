@@ -65,10 +65,9 @@ local function CreateRow(f, index)
     arrowLabel:SetText("->")
     row.arrowLabel = arrowLabel
 
-    -- Multi-select marker dropdown: every option is a checkbox toggling
-    -- membership in entry.markers, and the menu stays open so several can be
-    -- picked in one visit. UIDropDownMenu carries ~15px of transparent
-    -- padding per side, hence the negative anchor offsets.
+    -- Multi-select marker dropdown: selecting a new option closes the menu;
+    -- deselecting a checked option leaves it open. UIDropDownMenu carries
+    -- ~15px of transparent padding per side, hence the negative anchors.
     local markerDD = CreateFrame("Frame", "WhoDoesWhattankMarkerDD" .. index, row, "UIDropDownMenuTemplate")
     markerDD:SetPoint("LEFT", arrowLabel, "RIGHT", -12, -2)
     UIDropDownMenu_SetWidth(markerDD, K.MARKER_DD_WIDTH)
@@ -76,20 +75,21 @@ local function CreateRow(f, index)
     UIDropDownMenu_Initialize(markerDD, function(_, level)
         local entry = Entry()
         if not entry then return end
-        local function AddToggle(value, text, closeAfter)
+        local function AddToggle(value, text)
+            local selected = HasMarkerValue(entry, value)
             local info = UIDropDownMenu_CreateInfo()
             info.text = text
             info.isNotRadio = true
-            info.keepShownOnClick = not closeAfter
-            info.checked = HasMarkerValue(entry, value)
+            info.keepShownOnClick = selected
+            info.checked = selected
             info.func = function()
                 if HasMarkerValue(entry, value) then
                     WhoDoesWhat:RemoveTankMarker(value)
                 else
                     WhoDoesWhat:SetTankMarkerPlayer(value, entry.player)
                     if value == "custom" then row.customEdit:SetFocus() end
+                    CloseDropDownMenus()
                 end
-                if closeAfter then CloseDropDownMenus() end
             end
             UIDropDownMenu_AddButton(info, level)
         end
@@ -98,8 +98,7 @@ local function CreateRow(f, index)
         end
         K.AddDropdownDivider(level)
         AddToggle("all", "Everything else")
-        -- Custom closes the menu so the freed text box can take focus.
-        AddToggle("custom", "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom...", true)
+        AddToggle("custom", "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom...")
     end)
     row.markerDD = markerDD
 
