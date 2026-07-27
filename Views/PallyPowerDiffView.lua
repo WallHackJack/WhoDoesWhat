@@ -15,6 +15,8 @@ local diffFrame = nil
 
 local FRAME_W = 620
 local FRAME_H = 420
+local COMPACT_W = 390
+local COMPACT_H = 92
 local MARGIN = 10
 local BOTTOM_STRIP = 30
 local CONTENT_W = FRAME_W - MARGIN * 2 - 20
@@ -107,6 +109,22 @@ local function SortDiffs(a, b)
     return a.target:lower() < b.target:lower()
 end
 
+local function SetCompact(f)
+    f:SetSize(COMPACT_W, COMPACT_H)
+    f.titleText:SetText("WhoDoesWhat - PallyPower")
+    f.scroll:Hide()
+    f.sendBtn:Hide()
+    f.secondaryBtn:Hide()
+end
+
+local function SetExpanded(f)
+    f:SetSize(FRAME_W, FRAME_H)
+    f.titleText:SetText("WhoDoesWhat - PallyPower Differences")
+    f.scroll:Show()
+    f.sendBtn:Show()
+    f.secondaryBtn:Show()
+end
+
 local function RenderDiffs(f)
     for _, row in ipairs(f.rows) do row:Hide() end
     for _, heading in ipairs(f.headings) do heading:Hide() end
@@ -118,18 +136,21 @@ local function RenderDiffs(f)
 
     local diffs = WhoDoesWhat:CheckPallyPowerSync()
     if diffs == nil then
+        SetCompact(f)
         f.status:SetText("|cff909090PallyPower isn't loaded, or there are no"
             .. " paladins in the group -- nothing to compare.|r")
         f.sendBtn:Disable()
         f.content:SetHeight(1)
-        return
+        return false
     end
     if #diffs == 0 then
+        SetCompact(f)
         f.status:SetText("|cff40ff40PallyPower matches the current WDW plan.|r")
         f.sendBtn:Disable()
         f.content:SetHeight(1)
-        return
+        return false
     end
+    SetExpanded(f)
     f.sendBtn:Enable()
     if not f.warningText then
         f.status:SetText("|cffffd000PallyPower is out of date.|r Press Send to push the WDW plan.")
@@ -176,6 +197,7 @@ local function RenderDiffs(f)
         y = y - ROW_H
     end
     f.content:SetHeight(math.max(1, -y))
+    return true
 end
 
 local function EnsureFrame()
@@ -275,10 +297,14 @@ end
 -- warning turns the secondary action into Ignore; manual Check opens normally.
 function WhoDoesWhat:OpenPallyPowerDiffView(warningText)
     local f = EnsureFrame()
-    self:LogUiBuilding("Opening PallyPower Differences...")
     f.warningText = warningText
     f.secondaryBtn:SetText(warningText and "Ignore" or "Recheck")
-    RenderDiffs(f)
+    local hasDiffs = RenderDiffs(f)
+    if not warningText then self:RefreshMainAssignmentsView() end
+    -- Automatic warnings are advisory, so do not raise a window when a fresh
+    -- comparison says there is nothing left to review.
+    if warningText and not hasDiffs then return end
+    self:LogUiBuilding("Opening PallyPower Differences...")
     f:Show()
     f:Raise()
 end

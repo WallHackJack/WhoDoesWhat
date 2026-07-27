@@ -73,6 +73,7 @@ local function UpdatePallyPowerStatus(state)
         state.ppWarn.tooltipText = nil
         state.ppWarn:Hide()
     end
+    return diffs ~= nil and #diffs == 0
 end
 
 -- ---------------------------------------------------------------------------
@@ -559,7 +560,7 @@ function Refresh(f) -- forward declared above
     state.ppWarn:SetPoint("RIGHT", state.ppCheckBtn, "LEFT", -2, 0)
     state.ppLabel:ClearAllPoints()
     state.ppLabel:SetPoint("RIGHT", state.ppWarn, "LEFT", -3, 0)
-    UpdatePallyPowerStatus(state)
+    local pallyPowerInSync = UpdatePallyPowerStatus(state)
 
     state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
@@ -581,6 +582,10 @@ function Refresh(f) -- forward declared above
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = reason
+    end
+    if enabled and pallyPowerInSync then
+        state.ppCheckBtn:SetEnabled(false)
+        state.ppCheckBtn.disabledReason = "PallyPower already matches the WDW plan."
     end
     state.clearRulesBtn:SetEnabled(enabled and #rules > 0)
 
@@ -696,7 +701,10 @@ local function Build(f, content)
         .. " PallyPower's own sync.",
         "Other clients only accept the push from a raid lead/assist, or when"
         .. " they run Free Assignment.",
-        function() WhoDoesWhat:SyncToPallyPower() end)
+        function()
+            WhoDoesWhat:SyncToPallyPower()
+            WhoDoesWhat:RefreshMainAssignmentsView()
+        end)
 
     local ppWarn = K.CreateWarningIcon(box)
 

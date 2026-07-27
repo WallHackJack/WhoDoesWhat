@@ -177,13 +177,17 @@ local function LivePetNames()
     return names
 end
 
+-- Keep dismissed pet names recognizable in later comparisons: PallyPower can
+-- retain their Normal rows after the unit token disappears.
+local seenPetNames = {}
+
 -- Compute the PallyPower assignment tables our grid implies, WITHOUT touching
 -- the live globals or the wire: majority buff per paladin/class becomes the
 -- class (Greater) assignment, dissenters and hunter pets ride along as Normal
 -- exceptions. This is the single source of truth for "what a full sync would
 -- write" -- SyncToPallyPower copies the result into the live tables and
--- broadcasts it, and CheckPallyPowerSync diffs the live tables against it, so
--- the two can never disagree about whether PallyPower is up to date. Returns
+-- broadcasts it, and CheckPallyPowerSync compares the live tables against it
+-- (with the pet tolerance documented below). Returns
 -- assignments[pshort][classId], normal[pshort][classId][target] and the
 -- summary counts.
 local function BuildDesired(self, pp, paladins)
@@ -400,9 +404,9 @@ end
 
 -- Icons/labels used by the comparison view. Keep this sourced from Data.lua:
 -- class-wide rows use the class icon, raiders use their assigned role, and
--- live hunter pets use the pet pseudo-role.
+-- current or previously seen hunter pets use the pet pseudo-role.
 local function DiffTargetInfo(self)
-    local classes, targets = {}, {}
+    local classes, targets, pets = {}, {}, {}
     for _, classInfo in ipairs(self.Classes) do
         classes[classInfo.name] = {
             icon = classInfo.classIcon,
@@ -417,13 +421,23 @@ local function DiffTargetInfo(self)
             role = role and role.name or (m.classInfo.name .. " (unassigned)"),
         }
     end
+    local petNames = {}
+    for petName in pairs(seenPetNames) do petNames[petName] = true end
     for _, petName in pairs(LivePetNames()) do
-        targets[ShortName(petName)] = {
-            icon = self.HunterPetRole.icon,
-            role = self.HunterPetRole.name,
-        }
+        local short = ShortName(petName)
+        seenPetNames[short] = true
+        petNames[short] = true
     end
-    return classes, targets
+    for petName in pairs(petNames) do
+        if not targets[petName] then
+            targets[petName] = {
+                icon = self.HunterPetRole.icon,
+                role = self.HunterPetRole.name,
+            }
+            pets[petName] = true
+        end
+    end
+    return classes, targets, pets
 end
 
 function WhoDoesWhat:CheckPallyPowerSync()
@@ -435,7 +449,9 @@ function WhoDoesWhat:CheckPallyPowerSync()
     if #paladins == 0 then return nil end
 
     local assignments, normal = BuildDesired(self, pp, paladins)
-    local classInfo, targetInfo = DiffTargetInfo(self)
+    local classInfo, targetInfo, petTargets = DiffTargetInfo(self)
+    local might = BuffKeyToBlessingId("might")
+    local kings = BuffKeyToBlessingId("kings")
     local diffs = {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
@@ -467,7 +483,13 @@ function WhoDoesWhat:CheckPallyPowerSync()
             for n in pairs(wt) do names[n] = true end
             for n in pairs(names) do
                 local want, live = wt[n] or 0, lt[n] or 0
-                if want ~= live then
+                -- Pet rows are identity-sensitive in PallyPower and commonly
+                -- appear/disappear as None around summons. For drift purposes,
+                -- any absence/Might/Kings value is acceptable; only a different
+                -- explicit PallyPower blessing is actionable.
+                local acceptedPetBuff = petTargets[n]
+                    and (live == 0 or live == might or live == kings)
+                if want ~= live and not acceptedPetBuff then
                     diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live,
                         targetInfo[n])
                 end
@@ -697,14 +719,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local knownPetNames = {}
--- ponytail: one prompt per owner/pet identity per addon session; later pet
--- churn stays visible through Check without repeatedly raising a modal window.
-local promptedPetNames = {}
 local petCheckPending = false
-
-local function PetIdentity(owner, petName)
-    return owner .. "\031" .. ShortName(petName)
-end
 
 function Bridge:OnEnable()
     -- Without PallyPower loaded nobody registered the prefix, and unregistered
@@ -718,8 +733,8 @@ function Bridge:OnEnable()
     self:RegisterEvent("UNIT_PET", "PetRosterChanged")
     self:RegisterEvent("GROUP_ROSTER_UPDATE", "PetRosterChanged")
     knownPetNames = LivePetNames()
-    for owner, petName in pairs(knownPetNames) do
-        promptedPetNames[PetIdentity(owner, petName)] = true
+    for _, petName in pairs(knownPetNames) do
+        seenPetNames[ShortName(petName)] = true
     end
 
     -- Outgoing side: everything PallyPower sends (whispers included) goes
@@ -737,27 +752,22 @@ function Bridge:OnEnable()
     end
 end
 
--- A full sync can run while a pet's unit exists but its name is not yet
--- available. When that identity arrives, the desired plan gains Normal
--- assignments that the completed sync could not send. Surface the existing
--- review/send window only when the new pet actually accounts for live drift.
+-- Recheck when a pet identity appears. None/Might/Kings are tolerated by the
+-- shared comparison; an explicit invalid blessing opens the review/send view.
 function Bridge:PetRosterChanged()
     if petCheckPending then return end
     petCheckPending = true
     C_Timer.After(0.25, function()
         petCheckPending = false
         local live = LivePetNames()
-        local identified, identities = {}, {}
+        local identified = {}
         local changed = false
         for owner, petName in pairs(live) do
-            local identity = PetIdentity(owner, petName)
             if knownPetNames[owner] ~= petName then
                 changed = true
-                if not promptedPetNames[identity] then
-                    identified[ShortName(petName)] = true
-                    identities[identity] = true
-                end
+                identified[ShortName(petName)] = true
             end
+            seenPetNames[ShortName(petName)] = true
         end
         for owner in pairs(knownPetNames) do
             if not live[owner] then changed = true break end
@@ -775,10 +785,9 @@ function Bridge:PetRosterChanged()
             end
         end
         if petDiffs > 0 then
-            for identity in pairs(identities) do promptedPetNames[identity] = true end
             WhoDoesWhat:OpenPallyPowerDiffView(string.format(
-                "A hunter pet was just identified, adding %d missing"
-                .. " PallyPower assignment(s). Review them below, then Send"
+                "PallyPower has %d invalid hunter-pet assignment(s). Pets may"
+                .. " only use Might or Kings. Review them below, then Send"
                 .. " the full plan or Ignore it.",
                 petDiffs))
         end
