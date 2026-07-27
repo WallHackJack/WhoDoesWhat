@@ -390,8 +390,8 @@ end
 --   { paladin, target, targetIcon, targetRole, isClass, want, wantName,
 --     wantIcon, have, haveName, haveIcon }
 -- want/have are blessing ids (0 = none).
--- Returns nil when there's nothing to compare (PallyPower not loaded, or no
--- paladins in the group).
+-- Returns nil plus "not-loaded" or "no-paladins" when there's nothing to
+-- compare. Existing callers that only read the first result remain unchanged.
 local function DiffEntry(pshort, target, isClass, want, have, targetInfo)
     return {
         paladin = pshort, target = target, isClass = isClass,
@@ -443,10 +443,10 @@ end
 function WhoDoesWhat:CheckPallyPowerSync()
     local pp = _G.PallyPower
     if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
-        return nil
+        return nil, "not-loaded"
     end
     local paladins = GroupPaladins(self)
-    if #paladins == 0 then return nil end
+    if #paladins == 0 then return nil, "no-paladins" end
 
     local assignments, normal = BuildDesired(self, pp, paladins)
     local classInfo, targetInfo, petTargets = DiffTargetInfo(self)
@@ -605,6 +605,7 @@ end
 local MAX_LOG = 500
 local log = {}
 WhoDoesWhat.PallyPowerLog = log
+local statusRefreshPending
 
 local function Append(dir, who, msg)
     local trimmed = false
@@ -617,6 +618,14 @@ local function Append(dir, who, msg)
     log[#log + 1] = entry
     if WhoDoesWhat.PallyPowerLogAppended then
         WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
+    end
+    if not statusRefreshPending and WhoDoesWhat.RefreshOverviewView then
+        statusRefreshPending = true
+        C_Timer.After(0.1, function()
+            statusRefreshPending = nil
+            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshMainAssignmentsView()
+        end)
     end
 end
 

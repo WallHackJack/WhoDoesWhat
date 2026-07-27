@@ -66,6 +66,7 @@ Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
 Views\PaladinBuffGridView.lua
 Views\PaladinBuffingBarView.lua
+Views\OverviewView.lua
 Views\PallyPowerLogView.lua
 Views\PallyPowerDiffView.lua
 Views\AllRolesView.lua

@@ -62,20 +62,6 @@ local RULE_KINDS = {
 local Refresh -- the section's registered refresh; forward-declared to stay a
               -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
 
-local function UpdatePallyPowerStatus(state)
-    local diffs = WhoDoesWhat:CheckPallyPowerSync()
-    if diffs and #diffs > 0 then
-        state.ppWarn.tooltipText = string.format("PallyPower is out of date -- %d"
-            .. " assignment(s) differ from the plan. Click Check to review"
-            .. " them, or Send to update PallyPower.", #diffs)
-        state.ppWarn:Show()
-    else
-        state.ppWarn.tooltipText = nil
-        state.ppWarn:Hide()
-    end
-    return diffs ~= nil and #diffs == 0
-end
-
 -- ---------------------------------------------------------------------------
 -- Rule-row text + warning helpers
 -- ---------------------------------------------------------------------------
@@ -549,18 +535,41 @@ function Refresh(f) -- forward declared above
     state.rulesEmptyHint:SetShown(#rules == 0)
     local rulesH = (#rules > 0) and (#rules * RULE_ROW_H) or K.DYN_EMPTY_H
 
-    -- One footer row below the rules for the PallyPower warning / Check / Send
-    -- controls. Full Grid now lives in the main header.
+    -- One footer area below the rules for PallyPower state and actions.
     local y = rulesTop + rulesH + FOOTER_TOP_GAP
-    state.ppSyncBtn:ClearAllPoints()
-    state.ppSyncBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
-    state.ppCheckBtn:ClearAllPoints()
-    state.ppCheckBtn:SetPoint("RIGHT", state.ppSyncBtn, "LEFT", -4, 0)
-    state.ppWarn:ClearAllPoints()
-    state.ppWarn:SetPoint("RIGHT", state.ppCheckBtn, "LEFT", -2, 0)
-    state.ppLabel:ClearAllPoints()
-    state.ppLabel:SetPoint("RIGHT", state.ppWarn, "LEFT", -3, 0)
-    local pallyPowerInSync = UpdatePallyPowerStatus(state)
+    state.ppArea:ClearAllPoints()
+    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD, -y)
+    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
+
+    local ppState, ppText = K.GetPallyPowerState(#summary)
+    state.ppIcon:ClearAllPoints()
+    state.ppIcon:SetPoint("LEFT", state.ppBadge, "RIGHT", 4, 0)
+    state.ppStatus:ClearAllPoints()
+    if ppState == "inactive" then
+        state.ppIcon:Hide()
+        state.ppStatus:SetPoint("LEFT", state.ppBadge, "RIGHT", 4, 0)
+        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
+        state.ppStatus:SetTextColor(0.5, 0.5, 0.5)
+        state.ppDiffBtn:Hide()
+        state.ppFixBtn:Hide()
+    elseif ppState == "synced" then
+        state.ppIcon:SetTexture(COVERAGE_OK_ICON)
+        state.ppIcon:Show()
+        state.ppStatus:SetPoint("LEFT", state.ppIcon, "RIGHT", 3, 0)
+        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
+        state.ppStatus:SetTextColor(0.3, 1, 0.3)
+        state.ppDiffBtn:Hide()
+        state.ppFixBtn:Hide()
+    else
+        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
+        state.ppIcon:Show()
+        state.ppStatus:SetPoint("LEFT", state.ppIcon, "RIGHT", 3, 0)
+        state.ppStatus:SetPoint("RIGHT", state.ppDiffBtn, "LEFT", -4, 0)
+        state.ppStatus:SetTextColor(1, 0.4, 0.4)
+        state.ppDiffBtn:Show()
+        state.ppFixBtn:Show()
+    end
+    state.ppStatus:SetText(ppText)
 
     state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
     K.UpdateContentHeight(f)
@@ -583,34 +592,44 @@ function Refresh(f) -- forward declared above
         btn:SetEnabled(enabled)
         btn.disabledReason = reason
     end
-    if enabled and pallyPowerInSync then
-        state.ppCheckBtn:SetEnabled(false)
-        state.ppCheckBtn.disabledReason = "PallyPower already matches the WDW plan."
-    end
     state.clearRulesBtn:SetEnabled(enabled and #rules > 0)
 
     K.LayoutHeaderChain(state.headerChain)
 end
 
-local function CreateFooterButton(box, text, tipTitle, tipBody, tipWarn, onClick)
-    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    btn:SetFrameLevel(box:GetFrameLevel() + 1)
-    btn:SetHeight(FOOTER_BTN_H)
-    btn:SetText(text)
-    btn:SetWidth(math.max(44, btn:GetTextWidth() + 20))
-    btn:SetMotionScriptsWhileDisabled(true)
-    btn:SetScript("OnClick", onClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(tipTitle, 1, 1, 1)
-        GameTooltip:AddLine(self.disabledReason or tipBody, 0.8, 0.8, 0.8, true)
-        if tipWarn and not self.disabledReason then
-            GameTooltip:AddLine(tipWarn, 1, 0.5, 0.4, true)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
+local function CreatePallyPowerArea(box)
+    local area = CreateFrame("Frame", nil, box)
+    area:SetHeight(FOOTER_BTN_H)
+    area:SetFrameLevel(box:GetFrameLevel() + 1)
+
+    local badge = K.CreatePallyPowerBadge(area, 18)
+    badge:SetPoint("LEFT", 0, 0)
+
+    local icon = area:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", badge, "RIGHT", 4, 0)
+
+    local status = area:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    status:SetPoint("LEFT", icon, "RIGHT", 3, 0)
+    status:SetJustifyH("LEFT")
+
+    local fix = K.CreatePallyPowerActionButton(area, "Fix", 30,
+        "Fix PallyPower",
+        "Write the optimized WDW blessing plan into PallyPower and broadcast it.", function()
+            WhoDoesWhat:SyncToPallyPower()
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            WhoDoesWhat:RefreshOverviewView()
+        end)
+    fix:SetPoint("RIGHT", area, "RIGHT", 0, 0)
+
+    local diff = K.CreatePallyPowerActionButton(area, "Diff", 34,
+        "Show PallyPower differences",
+        "Open the detailed comparison between WDW and PallyPower.", function()
+            WhoDoesWhat:OpenPallyPowerDiffView()
+        end)
+    diff:SetPoint("RIGHT", fix, "LEFT", -3, 0)
+
+    return area, badge, icon, status, diff, fix
 end
 
 local function Build(f, content)
@@ -692,32 +711,14 @@ local function Build(f, content)
     rulesEmptyHint:SetText("No rules exist")
     rulesEmptyHint:SetTextColor(0.55, 0.55, 0.55)
 
-    local ppLabel = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ppLabel:SetText("PallyPower:")
-
-    local ppSyncBtn = CreateFooterButton(box, "Send",
-        "Send to PallyPower",
-        "Write this computed grid into PallyPower and broadcast it over"
-        .. " PallyPower's own sync.",
-        "Other clients only accept the push from a raid lead/assist, or when"
-        .. " they run Free Assignment.",
-        function()
-            WhoDoesWhat:SyncToPallyPower()
-            WhoDoesWhat:RefreshMainAssignmentsView()
-        end)
-
-    local ppWarn = K.CreateWarningIcon(box)
-
-    local ppCheckBtn = CreateFooterButton(box, "Check",
-        "Check PallyPower",
-        "Compare PallyPower's current assignments against this computed grid.",
-        nil, function() WhoDoesWhat:OpenPallyPowerDiffView() end)
+    local ppArea, ppBadge, ppIcon, ppStatus, ppDiffBtn, ppFixBtn =
+        CreatePallyPowerArea(box)
 
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
         mailBtn = chrome.mailBtn,
-        buttons = { gridBtn, ruleBtn, clearRulesBtn, ppSyncBtn, ppCheckBtn },
+        buttons = { gridBtn, ruleBtn, clearRulesBtn },
         emptyHint = hint,
         ruleTitle = ruleTitle,
         ruleDivider = ruleDivider,
@@ -725,10 +726,12 @@ local function Build(f, content)
         clearRulesBtn = clearRulesBtn,
         rulesEmptyHint = rulesEmptyHint,
         gridBtn = gridBtn,
-        ppLabel = ppLabel,
-        ppSyncBtn = ppSyncBtn,
-        ppWarn = ppWarn,
-        ppCheckBtn = ppCheckBtn,
+        ppArea = ppArea,
+        ppBadge = ppBadge,
+        ppIcon = ppIcon,
+        ppStatus = ppStatus,
+        ppDiffBtn = ppDiffBtn,
+        ppFixBtn = ppFixBtn,
         rows = {},
         ruleRows = {},
     }

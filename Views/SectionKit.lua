@@ -67,6 +67,14 @@ K.WARNING_ICON = WhoDoesWhat.WARNING_ICON
 K.MAIL_ICON = "Interface\\Icons\\INV_Letter_15"
 K.CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 
+local paladinColor
+for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+    if classInfo.name == "Paladin" then
+        paladinColor = classInfo.colorRGB
+        break
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- Dropdown helpers
 -- ---------------------------------------------------------------------------
@@ -170,6 +178,55 @@ end
 -- ---------------------------------------------------------------------------
 -- Small row widgets
 -- ---------------------------------------------------------------------------
+
+-- Shared PallyPower badge used by the Overview and Paladin Buffs section.
+function K.CreatePallyPowerBadge(parent, size)
+    local badge = CreateFrame("Frame", nil, parent)
+    badge:SetSize(size or 18, size or 18)
+    local bg = badge:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.28, 0.28, 0.3, 1)
+    local label = badge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("CENTER", 0, 0)
+    label:SetText("PP")
+    label:SetTextColor(paladinColor.r, paladinColor.g, paladinColor.b)
+    return badge
+end
+
+-- Matching compact flat-red action button for PallyPower status areas.
+function K.CreatePallyPowerActionButton(parent, text, width, tooltipTitle, tooltipText, OnClick)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(width, 16)
+    local bg = btn:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.42, 0.06, 0.09, 1)
+    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 0.35, 0.42, 0.18)
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("CENTER", 0, 0)
+    label:SetText(text)
+    btn:SetScript("OnClick", OnClick)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(tooltipTitle, 1, 1, 1)
+        GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return btn
+end
+
+-- One source of truth for the PallyPower status text shown in both views.
+function K.GetPallyPowerState(paladinCount)
+    if paladinCount == 0 then return "inactive", "No Paladins, Inactive" end
+    local diffs, reason = WhoDoesWhat:CheckPallyPowerSync()
+    if reason == "no-paladins" then return "inactive", "No Paladins, Inactive" end
+    if diffs == nil then return "inactive", "PallyPower Not Loaded, Inactive" end
+    if #diffs == 0 then return "synced", "Optimized and synced" end
+    return "desynced", #diffs .. " buff" .. (#diffs == 1 and "" or "s")
+        .. " out of sync"
+end
 
 -- Warning (!) icon; the refresh passes set .tooltipText and show/hide it.
 -- Hover explains the problem. Starts hidden.

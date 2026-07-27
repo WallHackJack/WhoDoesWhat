@@ -70,7 +70,7 @@ local function EnsureSettingsFrame()
     local y0 = f.titleBarHeight + 20
     local pages = {}
     local buttons = {}
-    local sectionLabels = { "General", "Paladin Bar", "Warlocks", "Testing", "Developer" }
+    local sectionLabels = { "General", "Status Bars", "Paladin Bar", "Warlocks", "Testing", "Developer" }
 
     local function SelectSection(index)
         for i, page in ipairs(pages) do
@@ -104,8 +104,26 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:LogUiBuilding("Announce role changes " .. (value and "enabled." or "disabled."))
         end)
 
+    -- ---- Status Bars ----
+    local statusPage = pages[2]
+    yL = y0
+    yL = AddHeading(statusPage, CONTENT_X, yL, "Status Bars", 0.96, 0.55, 0.73)
+    f.overviewCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL, "Enable WDW Status",
+        "Show every paladin's live blessing coverage. Alt-drag to move; Alt-drag its right edge to resize.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.overviewEnabled = value
+            WhoDoesWhat:UpdateOverviewViewVisibility()
+        end)
+    f.overviewHideCompletedCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
+        "Hide completed buffs",
+        "Hide a paladin's row once all of their assigned buffs are active.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.overviewHideCompleted = value
+            WhoDoesWhat:RefreshOverviewView()
+        end)
+
     -- ---- Paladin ----
-    local paladinPage = pages[2]
+    local paladinPage = pages[3]
     yL = y0
     yL = AddHeading(paladinPage, CONTENT_X, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
 
@@ -140,7 +158,7 @@ local function EnsureSettingsFrame()
     f.buffingGrowDD = growDD
 
     -- ---- Warlock ----
-    local warlockPage = pages[3]
+    local warlockPage = pages[4]
     yL = y0
     yL = AddHeading(warlockPage, CONTENT_X, yL, "Warlock Curses", 0.72, 0.45, 1)
     local magicCurseLabel = IS_CLASSIC_ERA and "Auto assign elements and shadow"
@@ -165,7 +183,7 @@ local function EnsureSettingsFrame()
         end)
 
     -- ---- Developer ----
-    local developerPage = pages[5]
+    local developerPage = pages[6]
     local yR = y0
     yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
     f.devModeCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
@@ -228,7 +246,7 @@ local function EnsureSettingsFrame()
 --@end-do-not-package@
 
     -- ---- Testing ----
-    local testingPage = pages[4]
+    local testingPage = pages[5]
     yR = y0
     yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
     f.fakeRaidCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
@@ -324,6 +342,8 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
+    f.overviewCheck:SetChecked(settings.overviewEnabled)
+    f.overviewHideCompletedCheck:SetChecked(settings.overviewHideCompleted)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logOperationsCheck:SetChecked(settings.logOperations)

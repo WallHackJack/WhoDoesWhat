@@ -196,6 +196,10 @@ local defaults = {
             -- Which way the buffing bar grows as blessings are added: "RIGHT"
             -- (anchor its left edge) or "LEFT" (anchor its right edge).
             buffingBarGrow = "RIGHT",
+            -- Movable per-paladin live blessing coverage window.
+            overviewEnabled = false,
+            overviewHideCompleted = false,
+            overviewWidth = 220,
         },
     },
 }
