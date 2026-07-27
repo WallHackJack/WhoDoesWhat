@@ -383,16 +383,47 @@ end
 -- the user Send the plan when ready. Compares the desired vs. live Greater
 -- assignments and Normal exceptions for the group paladins and returns a list
 -- of structured difference entries the diff view formats (empty = in sync):
---   { paladin, target, isClass, want, wantName, wantIcon, have, haveName,
---     haveIcon }  -- want/have are blessing ids (0 = none).
+--   { paladin, target, targetIcon, targetRole, isClass, want, wantName,
+--     wantIcon, have, haveName, haveIcon }
+-- want/have are blessing ids (0 = none).
 -- Returns nil when there's nothing to compare (PallyPower not loaded, or no
 -- paladins in the group).
-local function DiffEntry(pshort, target, isClass, want, have)
+local function DiffEntry(pshort, target, isClass, want, have, targetInfo)
     return {
         paladin = pshort, target = target, isClass = isClass,
+        targetIcon = targetInfo and targetInfo.icon,
+        targetRole = targetInfo and targetInfo.role,
         want = want, wantName = BlessingName(want), wantIcon = BlessingIcon(want),
         have = have, haveName = BlessingName(have), haveIcon = BlessingIcon(have),
     }
+end
+
+-- Icons/labels used by the comparison view. Keep this sourced from Data.lua:
+-- class-wide rows use the class icon, raiders use their assigned role, and
+-- live hunter pets use the pet pseudo-role.
+local function DiffTargetInfo(self)
+    local classes, targets = {}, {}
+    for _, classInfo in ipairs(self.Classes) do
+        classes[classInfo.name] = {
+            icon = classInfo.classIcon,
+            role = classInfo.name .. " class",
+        }
+    end
+    for _, m in ipairs(self:GetGroupMembers(nil)) do
+        local roleId = self:GetAssignedRole(m.name)
+        local role = roleId and self.RolesAndCategories[roleId]
+        targets[ShortName(m.name)] = {
+            icon = (role and role.icon) or m.classInfo.classIcon,
+            role = role and role.name or (m.classInfo.name .. " (unassigned)"),
+        }
+    end
+    for _, petName in pairs(LivePetNames()) do
+        targets[ShortName(petName)] = {
+            icon = self.HunterPetRole.icon,
+            role = self.HunterPetRole.name,
+        }
+    end
+    return classes, targets
 end
 
 function WhoDoesWhat:CheckPallyPowerSync()
@@ -404,6 +435,7 @@ function WhoDoesWhat:CheckPallyPowerSync()
     if #paladins == 0 then return nil end
 
     local assignments, normal = BuildDesired(self, pp, paladins)
+    local classInfo, targetInfo = DiffTargetInfo(self)
     local diffs = {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
@@ -414,7 +446,9 @@ function WhoDoesWhat:CheckPallyPowerSync()
         for c = 1, PALLYPOWER_MAXCLASSES do
             local want, live = wantA[c] or 0, liveA[c] or 0
             if want ~= live then
-                diffs[#diffs + 1] = DiffEntry(pshort, ClassIdName(c), true, want, live)
+                local target = ClassIdName(c)
+                diffs[#diffs + 1] = DiffEntry(pshort, target, true, want, live,
+                    classInfo[target])
             end
         end
 
@@ -434,7 +468,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
             for n in pairs(names) do
                 local want, live = wt[n] or 0, lt[n] or 0
                 if want ~= live then
-                    diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live)
+                    diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live,
+                        targetInfo[n])
                 end
             end
         end
@@ -662,7 +697,14 @@ end
 -- ---------------------------------------------------------------------------
 
 local knownPetNames = {}
+-- ponytail: one prompt per owner/pet identity per addon session; later pet
+-- churn stays visible through Check without repeatedly raising a modal window.
+local promptedPetNames = {}
 local petCheckPending = false
+
+local function PetIdentity(owner, petName)
+    return owner .. "\031" .. ShortName(petName)
+end
 
 function Bridge:OnEnable()
     -- Without PallyPower loaded nobody registered the prefix, and unregistered
@@ -676,6 +718,9 @@ function Bridge:OnEnable()
     self:RegisterEvent("UNIT_PET", "PetRosterChanged")
     self:RegisterEvent("GROUP_ROSTER_UPDATE", "PetRosterChanged")
     knownPetNames = LivePetNames()
+    for owner, petName in pairs(knownPetNames) do
+        promptedPetNames[PetIdentity(owner, petName)] = true
+    end
 
     -- Outgoing side: everything PallyPower sends (whispers included) goes
     -- through the shared ChatThrottleLib singleton. All addons finished
@@ -702,13 +747,23 @@ function Bridge:PetRosterChanged()
     C_Timer.After(0.25, function()
         petCheckPending = false
         local live = LivePetNames()
-        local identified = {}
+        local identified, identities = {}, {}
+        local changed = false
         for owner, petName in pairs(live) do
+            local identity = PetIdentity(owner, petName)
             if knownPetNames[owner] ~= petName then
-                identified[ShortName(petName)] = true
+                changed = true
+                if not promptedPetNames[identity] then
+                    identified[ShortName(petName)] = true
+                    identities[identity] = true
+                end
             end
         end
+        for owner in pairs(knownPetNames) do
+            if not live[owner] then changed = true break end
+        end
         knownPetNames = live
+        if changed then WhoDoesWhat:RefreshMainAssignmentsView() end
         if not next(identified) or not CanBroadcastAssignments() then return end
 
         local diffs = WhoDoesWhat:CheckPallyPowerSync()
@@ -720,6 +775,7 @@ function Bridge:PetRosterChanged()
             end
         end
         if petDiffs > 0 then
+            for identity in pairs(identities) do promptedPetNames[identity] = true end
             WhoDoesWhat:OpenPallyPowerDiffView(string.format(
                 "A hunter pet was just identified, adding %d missing"
                 .. " PallyPower assignment(s). Review them below, then Send"
