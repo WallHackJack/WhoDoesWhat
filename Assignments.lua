@@ -1084,24 +1084,49 @@ local function IsSimulatedPaladinBuff(paladin, raider)
     return false
 end
 
+local function DisconnectedGroupTargets()
+    local units = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
+    else
+        units[1] = "player"
+        for i = 1, GetNumSubgroupMembers() do units[#units + 1] = "party" .. i end
+    end
+
+    local disconnected = {}
+    for _, unit in ipairs(units) do
+        if UnitIsConnected(unit) == false then
+            local name = GetUnitKey(unit)
+            if name then
+                disconnected[name] = true
+                disconnected[name .. "'s Pet"] = true
+            end
+        end
+    end
+    return disconnected
+end
+
 -- Live completion of the computed plan, raid-wide and per paladin. Simulated
 -- paladin -> simulated raider cells count as covered because neither side can
--- produce real aura data; real targets always use their scanned state.
+-- produce real aura data; disconnected real targets are left out entirely.
 local function ComputePaladinBuffCoverage()
+    local disconnected = DisconnectedGroupTargets()
     local correct, total, byPaladin = 0, 0, {}
     for raider, cells in pairs(ComputeBuffGrid()) do
-        for paladin, key in pairs(cells) do
-            local p = byPaladin[paladin]
-            if not p then
-                p = { correct = 0, total = 0 }
-                byPaladin[paladin] = p
-            end
-            total = total + 1
-            p.total = p.total + 1
-            if IsSimulatedPaladinBuff(paladin, raider)
-                or WhoDoesWhat:HasBuff(raider, key) == true then
-                correct = correct + 1
-                p.correct = p.correct + 1
+        if not disconnected[raider] then
+            for paladin, key in pairs(cells) do
+                local p = byPaladin[paladin]
+                if not p then
+                    p = { correct = 0, total = 0 }
+                    byPaladin[paladin] = p
+                end
+                total = total + 1
+                p.total = p.total + 1
+                if IsSimulatedPaladinBuff(paladin, raider)
+                    or WhoDoesWhat:HasBuff(raider, key) == true then
+                    correct = correct + 1
+                    p.correct = p.correct + 1
+                end
             end
         end
     end

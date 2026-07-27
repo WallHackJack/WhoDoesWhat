@@ -37,9 +37,9 @@ local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
 -- where ScanUnit falls back to indexed UnitBuff.
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 
--- name -> { buffs = { [buffKey] = true } }. Absence of an entry means "not yet
--- scanned" (unknown); an entry with an empty buffs table means scanned and
--- confirmed to have none of the blessings we track.
+-- name -> { buffs = { [buffKey] = true }, connected = bool }. Absence of an
+-- entry means "not yet scanned" (unknown); an entry with an empty buffs table
+-- means scanned and confirmed to have none of the blessings we track.
 local state = {}
 
 -- ---------------------------------------------------------------------------
@@ -147,8 +147,8 @@ local function ForEachBuffName(unit, fn)
 end
 
 -- Did the freshly-scanned buff set differ from what we had stored?
-local function Differs(prev, buffs)
-    if not prev then return true end
+local function Differs(prev, buffs, connected)
+    if not prev or prev.connected ~= connected then return true end
     for key in pairs(buffs) do
         if not prev.buffs[key] then return true end
     end
@@ -167,8 +167,9 @@ local function ScanUnit(unit, name)
         local key = nameToKey[auraName]
         if key then buffs[key] = true end
     end)
-    local changed = Differs(state[name], buffs)
-    state[name] = { buffs = buffs }
+    local connected = UnitIsConnected(unit) ~= false
+    local changed = Differs(state[name], buffs, connected)
+    state[name] = { buffs = buffs, connected = connected }
     return changed
 end
 
