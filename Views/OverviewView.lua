@@ -25,6 +25,7 @@ local MIN_W = 170
 local HANDLE_W = 10
 local HANDLE_SPACE = 8
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local LCG = LibStub("LibCustomGlow-1.0", true)
 
 local paladinClass
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
@@ -105,6 +106,17 @@ local function RoleIcon(name)
         if role and role.icon then return role.icon end
     end
     return paladinClass and paladinClass.classIcon
+end
+
+local function SetDesyncGlow(row, shown)
+    if not LCG then return end
+    if shown and not row.desyncGlow then
+        LCG.PixelGlow_Start(row, nil, 16, nil, 3, nil, nil, nil, nil, nil, 4)
+        row.desyncGlow = true
+    elseif not shown and row.desyncGlow then
+        LCG.PixelGlow_Stop(row)
+        row.desyncGlow = nil
+    end
 end
 
 -- Keep the percentage entirely on one side of the status-bar fill boundary.
@@ -338,6 +350,7 @@ function WhoDoesWhat:RefreshOverviewView()
     if not view or not view:IsShown() then return end
     local summary = self.Assign.ComputePaladinBuffSummary()
     local _, _, coverageByPaladin = self.Assign.ComputePaladinBuffCoverage()
+    local ppState, ppText = K.GetPallyPowerState(#summary)
     local displayed = {}
     local hideCompleted = self.db.profile.settings.overviewHideCompleted
     for _, paladin in ipairs(summary) do
@@ -388,8 +401,8 @@ function WhoDoesWhat:RefreshOverviewView()
     ppRow:ClearAllPoints()
     ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
         -(CONTENT_TOP + paladinH))
+    SetDesyncGlow(ppRow, ppState == "desynced")
 
-    local ppState, ppText = K.GetPallyPowerState(#summary)
     ppRow.stateIcon:ClearAllPoints()
     ppRow.stateIcon:SetPoint("LEFT", 3, 0)
     ppRow.statusText:ClearAllPoints()
