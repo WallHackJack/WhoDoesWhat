@@ -20,11 +20,12 @@ local MARGIN = 12
 local SCROLLBAR_W = 26
 local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
 
-local SECTION_GAP = 10
-local SECTION_TITLE_H = 26 -- box interior reserved for the title + divider
+local SECTION_GAP = 4
+local SECTION_TITLE_H = 22 -- box interior reserved for the title + divider
 local BOX_PAD = 8
+local BOX_BOTTOM_PAD = 2
 local ROW_H = 30
-local EMPTY_H = 20 -- rows-area height for an empty bucket's hint line
+local EMPTY_H = 14 -- rows-area height for an empty bucket's hint line
 local DROPDOWN_WIDTH = 130
 local ADDON_COL_W = 38
 local WARNING_ICON_SIZE = 18
@@ -223,7 +224,7 @@ local function CreateRow(f, section, index)
 
     local addonStatus = CreateFrame("Frame", nil, row)
     addonStatus:SetSize(ADDON_COL_W, ROW_H)
-    addonStatus:SetPoint("RIGHT", dropdown, "LEFT", 10, 0)
+    addonStatus:SetPoint("RIGHT", row, "RIGHT", -(DROPDOWN_WIDTH + 33), 0)
     local addonIcon = addonStatus:CreateTexture(nil, "OVERLAY")
     addonIcon:SetSize(16, 16)
     addonIcon:SetPoint("CENTER")
@@ -273,6 +274,7 @@ function RefreshRoster(f)
             local installed = m.name == UnitName("player")
                 or WhoDoesWhat.syncPeers[m.name] == true
             row.addonIcon:SetTexture(installed and READY_ICON or NOT_READY_ICON)
+            row.addonIcon:SetSize(16, installed and 13 or 16)
 
             if role then
                 UIDropDownMenu_SetText(row.dropdown, RoleText(role, m.classInfo))
@@ -303,7 +305,7 @@ function RefreshRoster(f)
         state.emptyHint:SetShown(#members == 0)
 
         local rowsH = (#members > 0) and (#members * ROW_H) or EMPTY_H
-        state.box:SetHeight(BOX_PAD + SECTION_TITLE_H + rowsH + BOX_PAD)
+        state.box:SetHeight(BOX_PAD + SECTION_TITLE_H + rowsH + BOX_BOTTOM_PAD)
     end
     UpdateContentHeight(f)
 end
@@ -359,7 +361,7 @@ local function EnsureRolesFrame()
         local addonTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         addonTitle:SetWidth(ADDON_COL_W)
         addonTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT",
-            -(BOX_PAD + DROPDOWN_WIDTH + 8), -BOX_PAD)
+            -(BOX_PAD + DROPDOWN_WIDTH + 33), -BOX_PAD)
         addonTitle:SetJustifyH("CENTER")
         addonTitle:SetText("WDW")
 
