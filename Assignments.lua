@@ -1256,15 +1256,15 @@ local function IsEligibleCoreBuffTarget(m, buff, disconnected)
             and buff.excludedClasses[m.classInfo.name])
 end
 
--- Live coverage for the non-paladin bars in WDW Status. Only real, connected
+-- Live coverage for the non-paladin checks in WDW Status. Only real, connected
 -- raiders count; pets, fake-development members, and the Non-raider role are
 -- excluded. Each row may further exclude classes through Data.lua metadata.
 local function ComputeCoreRaidBuffCoverage()
     local disconnected = DisconnectedGroupTargets()
     local members = GetEligibleMembers(nil)
     local correct, total, rows = 0, 0, {}
-    for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
-        local buff = WhoDoesWhat.CoreRaidBuffs[key]
+    for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+        local buff = WhoDoesWhat.StatusBarChecks[key]
         -- A class-provided status row is irrelevant when that class is not in
         -- the active raider pool. Food has no provider class and always stays.
         if not buff.className or #MembersOfClass(buff.className) > 0 then

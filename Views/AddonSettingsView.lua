@@ -9,8 +9,8 @@ local settingsFrame = nil
 local NAV_X = 14
 local NAV_W = 104
 local CONTENT_X = 134
-local CONTENT_W = 290
-local FRAME_W = 440
+local CONTENT_W = 410
+local FRAME_W = 560
 local FRAME_H = 512
 --@do-not-package@
 FRAME_H = 542
@@ -18,6 +18,9 @@ FRAME_H = 542
 local CHECKBOX_ROW_H = 52
 local FIRST_PALADIN_LABEL = "(use first paladin)"
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
+local STATUS_SCOPE_LABELS = {
+    always = "Always", raid = "Raid Only", party = "Party Only",
+}
 
 local function RefreshBuffingTestPaladinDropdown(f)
     WhoDoesWhat:GetBuffingBarTestPaladin()
@@ -61,6 +64,25 @@ local function AddHeading(f, x, y, text, r, g, b)
     return y + 28
 end
 
+local function RefreshStatusBuffRows(f)
+    for key, row in pairs(f.statusBuffRows or {}) do
+        local enabled, neverHide, scope = WhoDoesWhat:GetStatusBarCheckOptions(key)
+        row.enabled:SetChecked(enabled)
+        row.neverHide:SetChecked(neverHide)
+        UIDropDownMenu_SetText(row.scopeDD,
+            STATUS_SCOPE_LABELS[scope] or STATUS_SCOPE_LABELS.always)
+    end
+end
+
+local function SetStatusBuffOption(f, key, option, value)
+    local settings = WhoDoesWhat.db.profile.settings
+    settings.statusBarChecks = settings.statusBarChecks or {}
+    settings.statusBarChecks[key] = settings.statusBarChecks[key] or {}
+    settings.statusBarChecks[key][option] = value
+    RefreshStatusBuffRows(f)
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
 -- Build the settings window once and reuse it. Section buttons down the left
 -- keep each page to one narrow column and work consistently across clients.
 local function EnsureSettingsFrame()
@@ -70,7 +92,10 @@ local function EnsureSettingsFrame()
     local y0 = f.titleBarHeight + 20
     local pages = {}
     local buttons = {}
-    local sectionLabels = { "General", "Status Bars", "Paladin Bar", "Warlocks", "Testing", "Developer" }
+    local sectionLabels = {
+        "General", "Status Bars", "Status Buffs", "Paladin Bar",
+        "Warlocks", "Testing", "Developer",
+    }
 
     local function SelectSection(index)
         for i, page in ipairs(pages) do
@@ -177,8 +202,84 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:RefreshStatusBarsView()
         end, 14)
 
+    -- ---- Status Buffs ----
+    local statusBuffPage = pages[3]
+    yL = y0
+    yL = AddHeading(statusBuffPage, CONTENT_X, yL, "Status Buffs", 0.96, 0.55, 0.73)
+    local statusBuffDesc = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    statusBuffDesc:SetPoint("TOPLEFT", CONTENT_X + 4, -yL)
+    statusBuffDesc:SetWidth(CONTENT_W - 4)
+    statusBuffDesc:SetJustifyH("LEFT")
+    statusBuffDesc:SetTextColor(0.6, 0.6, 0.6)
+    statusBuffDesc:SetText("Pick checks for WDW Status. Never Hide overrides Hide completed buffs; choose one group scope per row.")
+    yL = yL + 38
+
+    local headers = {
+        { "Buff", 0, 160 }, { "Status Bars", 165, 60 },
+        { "Never Hide", 225, 65 }, { "Show In", 296, 100 },
+    }
+    for _, header in ipairs(headers) do
+        local text = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        text:SetPoint("TOPLEFT", CONTENT_X + header[2], -yL)
+        text:SetSize(header[3], 26)
+        text:SetJustifyH(header[2] == 0 and "LEFT" or "CENTER")
+        text:SetText(header[1])
+    end
+    yL = yL + 28
+    f.statusBuffRows = {}
+    for rowIndex, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+        local rowKey = key
+        local definition = WhoDoesWhat.StatusBarChecks[rowKey]
+        local row = {}
+        f.statusBuffRows[rowKey] = row
+
+        local icon = statusBuffPage:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", CONTENT_X, -(yL + 3))
+        icon:SetTexture(definition.icon)
+        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        local name = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        name:SetPoint("LEFT", icon, "RIGHT", 3, 0)
+        name:SetWidth(150)
+        name:SetJustifyH("LEFT")
+        name:SetWordWrap(false)
+        name:SetText(definition.name)
+
+        row.enabled = CreateFrame("CheckButton", nil, statusBuffPage, "UICheckButtonTemplate")
+        row.enabled:SetSize(24, 24)
+        row.enabled:SetPoint("TOPLEFT", CONTENT_X + 183, -yL)
+        row.enabled:SetScript("OnClick", function(self)
+            SetStatusBuffOption(f, rowKey, "enabled", self:GetChecked() and true or false)
+        end)
+        row.neverHide = CreateFrame("CheckButton", nil, statusBuffPage, "UICheckButtonTemplate")
+        row.neverHide:SetSize(24, 24)
+        row.neverHide:SetPoint("TOPLEFT", CONTENT_X + 246, -yL)
+        row.neverHide:SetScript("OnClick", function(self)
+            SetStatusBuffOption(f, rowKey, "neverHide", self:GetChecked() and true or false)
+        end)
+        row.scopeDD = CreateFrame("Frame", "WhoDoesWhatStatusBuffScopeDD" .. rowIndex,
+            statusBuffPage, "UIDropDownMenuTemplate")
+        row.scopeDD:SetPoint("LEFT", row.neverHide, "RIGHT", 8, 0)
+        UIDropDownMenu_SetWidth(row.scopeDD, 100)
+        UIDropDownMenu_Initialize(row.scopeDD, function(_, level)
+            local _, _, saved = WhoDoesWhat:GetStatusBarCheckOptions(rowKey)
+            for _, scope in ipairs({ "always", "raid", "party" }) do
+                local scopeName = scope
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = STATUS_SCOPE_LABELS[scopeName]
+                info.checked = saved == scopeName
+                info.func = function()
+                    SetStatusBuffOption(f, rowKey, "scope", scopeName)
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        yL = yL + 32
+    end
+    RefreshStatusBuffRows(f)
+
     -- ---- Paladin ----
-    local paladinPage = pages[3]
+    local paladinPage = pages[4]
     yL = y0
     yL = AddHeading(paladinPage, CONTENT_X, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
 
@@ -244,7 +345,7 @@ local function EnsureSettingsFrame()
         end)
 
     -- ---- Warlock ----
-    local warlockPage = pages[4]
+    local warlockPage = pages[5]
     yL = y0
     yL = AddHeading(warlockPage, CONTENT_X, yL, "Warlock Curses", 0.72, 0.45, 1)
     local magicCurseLabel = IS_CLASSIC_ERA and "Auto assign elements and shadow"
@@ -269,7 +370,7 @@ local function EnsureSettingsFrame()
         end)
 
     -- ---- Developer ----
-    local developerPage = pages[6]
+    local developerPage = pages[7]
     local yR = y0
     yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
     f.devModeCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
@@ -332,7 +433,7 @@ local function EnsureSettingsFrame()
 --@end-do-not-package@
 
     -- ---- Testing ----
-    local testingPage = pages[5]
+    local testingPage = pages[6]
     yR = y0
     yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
     f.fakeRaidCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
@@ -442,6 +543,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
         settings.overviewShowPallyPower ~= false)
     f.overviewHideCompletedCheck:SetChecked(settings.overviewHideCompleted)
     f.overviewRequireMaxRankCheck:SetChecked(settings.overviewRequireMaxRank)
+    RefreshStatusBuffRows(f)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logOperationsCheck:SetChecked(settings.logOperations)

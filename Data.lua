@@ -278,6 +278,66 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
 }
 
+-- Every optional non-paladin row available to WDW Status. Core raid buffs are
+-- enabled by default for compatibility; additional checks are opt-in.
+WhoDoesWhat.StatusBarCheckOrder = {
+    "fortitude", "gift", "food", "shadowProtection", "intellect",
+}
+WhoDoesWhat.StatusBarChecks = {}
+for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
+    local buff = WhoDoesWhat.CoreRaidBuffs[key]
+    buff.defaultEnabled = true
+    WhoDoesWhat.StatusBarChecks[key] = buff
+end
+WhoDoesWhat.StatusBarChecks.thorns = {
+    name = "Thorns",
+    icon = "Interface\\Icons\\Spell_Nature_Thorns",
+    auraNames = { "Thorns" },
+    className = "Druid",
+    defaultEnabled = false,
+}
+WhoDoesWhat.StatusBarChecks.alive = {
+    name = "Alive",
+    icon = "Interface\\RaidFrame\\ReadyCheck-Ready",
+    colorRGB = { r = 0.2, g = 0.9, b = 0.2 },
+    defaultEnabled = false,
+}
+if not features.isClassicEra then
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "sated"
+    WhoDoesWhat.StatusBarChecks.sated = {
+        name = "Sated",
+        icon = "Interface\\Icons\\Spell_Nature_ShamanRage",
+        auraNames = { "Sated", "Exhaustion" },
+        harmful = true,
+        colorRGB = { r = 0.95, g = 0.45, b = 0.15 },
+        defaultEnabled = false,
+    }
+end
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "alive"
+if not features.isClassicEra then
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "drumsUsed"
+    WhoDoesWhat.StatusBarChecks.drumsUsed = {
+        name = "Drums Used",
+        icon = "Interface\\Icons\\INV_Misc_Drum_05",
+        auraNames = { "Tinnitus" },
+        harmful = true,
+        colorRGB = { r = 0.85, g = 0.55, b = 0.2 },
+        defaultEnabled = false,
+    }
+end
+
+function WhoDoesWhat:GetStatusBarCheckOptions(key)
+    local definition = self.StatusBarChecks[key]
+    if not definition then return false, false, "always" end
+    local all = self.db.profile.settings.statusBarChecks
+    local saved = all and all[key]
+    local enabled = definition.defaultEnabled
+    if saved and saved.enabled ~= nil then enabled = saved.enabled end
+    return enabled, saved and saved.neverHide == true,
+        (saved and saved.scope) or "always"
+end
+
 -- Warlock raid curses metadata, using the highest rank available on this
 -- client. Classic Era keeps Curse of Shadow separate; TBC folds its schools
 -- into Curse of the Elements.

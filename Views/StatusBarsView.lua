@@ -363,6 +363,14 @@ local function ShowPallyPowerRow(ppState)
         or not ppState or ppState == "desynced"
 end
 
+local function StatusCheckInScope(scope)
+    if scope == "raid" then return IsInRaid() end
+    if scope == "party" then
+        return not IsInRaid() and GetNumSubgroupMembers() > 0
+    end
+    return true
+end
+
 local function MinimumWidth(ppState)
     return ShowPallyPowerRow(ppState) and (not ppState or ppState == "desynced")
         and MIN_W or NO_PP_MIN_W
@@ -544,14 +552,12 @@ function WhoDoesWhat:RefreshStatusBarsView()
     local summary = self.Assign.ComputePaladinBuffSummary()
     local paladinCorrect, paladinTotal, coverageByPaladin =
         self.Assign.ComputePaladinBuffCoverage()
-    local coreCorrect, coreTotal, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
-    local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
-    local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
-    view.totalPercent:SetText("(" .. totalPercent .. "%)")
+    local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
     local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
     local showPallyPower = ShowPallyPowerRow(ppState)
     local displayed = {}
     local hideCompleted = self.db.profile.settings.overviewHideCompleted
+    local coreCorrect, coreTotal = 0, 0
     for _, paladin in ipairs(summary) do
         local coverage = coverageByPaladin[paladin.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct >= coverage.total
@@ -566,9 +572,16 @@ function WhoDoesWhat:RefreshStatusBarsView()
         end
     end
     for _, coverage in ipairs(coreCoverage) do
+        local enabled, neverHide, scope = self:GetStatusBarCheckOptions(coverage.key)
+        local inScope = StatusCheckInScope(scope)
         local complete = coverage.total > 0 and coverage.correct >= coverage.total
-        if coverage.total > 0 and not (hideCompleted and complete) then
-            local buff = WhoDoesWhat.CoreRaidBuffs[coverage.key]
+        if enabled and inScope and coverage.total > 0 then
+            coreCorrect = coreCorrect + coverage.correct
+            coreTotal = coreTotal + coverage.total
+        end
+        if enabled and inScope and coverage.total > 0
+            and not (hideCompleted and complete and not neverHide) then
+            local buff = WhoDoesWhat.StatusBarChecks[coverage.key]
             displayed[#displayed + 1] = {
                 name = coverage.name,
                 icon = coverage.icon,
@@ -577,6 +590,9 @@ function WhoDoesWhat:RefreshStatusBarsView()
             }
         end
     end
+    local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
+    local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
+    view.totalPercent:SetText("(" .. totalPercent .. "%)")
 
     local ppHeight = showPallyPower and ROW_H or 0
     local showEmptyCheck = #displayed == 0 and not showPallyPower

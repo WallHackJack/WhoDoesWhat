@@ -212,6 +212,7 @@ local defaults = {
             overviewHideCompleted = false,
             overviewRequireMaxRank = false,
             overviewWidth = 220,
+            statusBarChecks = {},
         },
     },
 }

@@ -35,6 +35,7 @@ local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
 -- Modern aura API (present on the Anniversary client); nil on anything older,
 -- where ScanUnit falls back to indexed UnitBuff.
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
+local GetDebuffDataByIndex = C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex
 
 -- name -> { buffs = { [buffKey] = true }, sources = { [buffKey] = name|false },
 -- connected = bool }. false means the aura is present but its caster was not
@@ -54,9 +55,10 @@ local state = {}
 -- X" (the same name minus the "Greater " prefix), so a raider on either form
 -- reads as covered. The prefix strip is English -- fine for the Anniversary
 -- client; a localized build would need the normal-rank ids instead.
-local nameToKey
+local nameToKey, debuffNameToKey
 local function BuildNameMap()
     nameToKey = {}
+    debuffNameToKey = {}
     for key, buff in pairs(WhoDoesWhat.PaladinBuffs) do
         local greaterName = GetSpellInfo(buff.spellId)
         if greaterName then
@@ -64,9 +66,10 @@ local function BuildNameMap()
             nameToKey[(greaterName:gsub("^Greater ", ""))] = key
         end
     end
-    for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
-        for _, auraName in ipairs(buff.auraNames) do
-            nameToKey[auraName] = key
+    for key, check in pairs(WhoDoesWhat.StatusBarChecks) do
+        local map = check.harmful and debuffNameToKey or nameToKey
+        for _, auraName in ipairs(check.auraNames or {}) do
+            map[auraName] = key
         end
     end
 end
@@ -152,6 +155,25 @@ local function ForEachBuff(unit, fn)
     end
 end
 
+local function ForEachDebuff(unit, fn)
+    local i = 1
+    if GetDebuffDataByIndex then
+        while true do
+            local aura = GetDebuffDataByIndex(unit, i)
+            if not aura then break end
+            if aura.name then fn(aura.name, aura.sourceUnit) end
+            i = i + 1
+        end
+    else
+        while true do
+            local auraName, _, _, _, _, _, sourceUnit = UnitDebuff(unit, i)
+            if not auraName then break end
+            fn(auraName, sourceUnit)
+            i = i + 1
+        end
+    end
+end
+
 -- Did the freshly-scanned buff set differ from what we had stored?
 local function Differs(prev, buffs, sources, connected)
     if not prev or prev.connected ~= connected then return true end
@@ -165,9 +187,8 @@ local function Differs(prev, buffs, sources, connected)
     return false
 end
 
--- Scan one unit's active blessings into state[name]; returns whether anything
--- changed. The aura list is available for group members at any range, so a
--- blessing simply not appearing here is a genuine "missing", not a range gap.
+-- Scan one unit's tracked status auras into state[name]; returns whether
+-- anything changed. Aura presence is available at any group-member range.
 local function ScanUnit(unit, name)
     local buffs, sources = {}, {}
     ForEachBuff(unit, function(auraName, sourceUnit)
@@ -177,10 +198,27 @@ local function ScanUnit(unit, name)
             sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
         end
     end)
+    ForEachDebuff(unit, function(auraName, sourceUnit)
+        local key = debuffNameToKey[auraName]
+        if key then
+            buffs[key] = true
+            sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
+        end
+    end)
+    if not UnitIsDeadOrGhost(unit) then buffs.alive = true end
     local connected = UnitIsConnected(unit) ~= false
     local changed = Differs(state[name], buffs, sources, connected)
     state[name] = { buffs = buffs, sources = sources, connected = connected }
     return changed
+end
+
+local function ScanAlive(unit, name)
+    local current = state[name]
+    if not current then return ScanUnit(unit, name) end
+    local alive = not UnitIsDeadOrGhost(unit)
+    if (current.buffs.alive == true) == alive then return false end
+    current.buffs.alive = alive and true or nil
+    return true
 end
 
 -- ---------------------------------------------------------------------------
@@ -281,12 +319,18 @@ driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("GROUP_ROSTER_UPDATE")
 driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("UNIT_AURA")
+driver:RegisterEvent("UNIT_HEALTH")
 driver:SetScript("OnEvent", function(_, event, unit)
-    if event == "UNIT_AURA" then
+    if event == "UNIT_AURA" or event == "UNIT_HEALTH" then
         if IsGroupUnit(unit) then
             if not nameToKey then BuildNameMap() end
             local name = UnitToKey(unit)
-            if name and ScanUnit(unit, name) then NotifyChanged() end
+            local changed
+            if name then
+                changed = event == "UNIT_HEALTH" and ScanAlive(unit, name)
+                    or event == "UNIT_AURA" and ScanUnit(unit, name)
+            end
+            if changed then NotifyChanged() end
         end
     else
         BuffTracking:RefreshAll()
