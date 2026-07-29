@@ -20,12 +20,11 @@ local MARGIN = 12
 local SCROLLBAR_W = 26
 local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
 
-local SECTION_GAP = 4
-local SECTION_TITLE_H = 22 -- box interior reserved for the title + divider
+local SECTION_GAP = 10
+local SECTION_TITLE_H = 26 -- box interior reserved for the title + divider
 local BOX_PAD = 8
-local BOX_BOTTOM_PAD = 2
 local ROW_H = 30
-local EMPTY_H = 14 -- rows-area height for an empty bucket's hint line
+local EMPTY_H = 20 -- rows-area height for an empty bucket's hint line
 local DROPDOWN_WIDTH = 130
 local ADDON_COL_W = 38
 local WARNING_ICON_SIZE = 18
@@ -36,7 +35,7 @@ local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local SECTIONS = {
     { key = "tank",   title = "Tanks",   empty = "No tanks assigned yet." },
     { key = "healer", title = "Healers", empty = "No healers assigned yet." },
-    { key = "dps",    title = "DPS",     empty = "No DPS assigned yet." },
+    { key = "dps",    title = "DPS",     empty = "No DPS assigned yet.", titleH = 22 },
     { key = "none",   title = "No Role", empty = "Everyone has a role." },
 }
 
@@ -145,7 +144,8 @@ local function CreateRow(f, section, index)
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
     row:SetSize(box:GetWidth() - BOX_PAD * 2, ROW_H)
-    row:SetPoint("TOPLEFT", BOX_PAD, -(BOX_PAD + SECTION_TITLE_H + (index - 1) * ROW_H))
+    row:SetPoint("TOPLEFT", BOX_PAD,
+        -(BOX_PAD + (section.titleH or SECTION_TITLE_H) + (index - 1) * ROW_H))
 
     if index > 1 then
         local divider = row:CreateTexture(nil, "ARTWORK")
@@ -305,7 +305,8 @@ function RefreshRoster(f)
         state.emptyHint:SetShown(#members == 0)
 
         local rowsH = (#members > 0) and (#members * ROW_H) or EMPTY_H
-        state.box:SetHeight(BOX_PAD + SECTION_TITLE_H + rowsH + BOX_BOTTOM_PAD)
+        state.box:SetHeight(BOX_PAD + (section.titleH or SECTION_TITLE_H)
+            + rowsH + BOX_PAD)
     end
     UpdateContentHeight(f)
 end
@@ -372,7 +373,8 @@ local function EnsureRolesFrame()
         line:SetPoint("TOPRIGHT", -BOX_PAD, -(BOX_PAD + 16))
 
         local hint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        hint:SetPoint("TOPLEFT", BOX_PAD + 4, -(BOX_PAD + SECTION_TITLE_H + 4))
+        hint:SetPoint("TOPLEFT", BOX_PAD + 4,
+            -(BOX_PAD + (section.titleH or SECTION_TITLE_H) + 4))
         hint:SetTextColor(0.55, 0.55, 0.55)
         hint:SetText(section.empty)
 
