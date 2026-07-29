@@ -401,12 +401,12 @@ local function ClearTankAssignments()
     WhoDoesWhat:LogOperation("Tank Assignments cleared.")
 end
 
--- Misdirect Reset: wipe every row; the auto-row reconcile rebuilds one blank
+-- Misdirect clear: wipe every row; the auto-row reconcile rebuilds one blank
 -- row per hunter on the next repaint.
-local function ResetMisdirectAssignments()
+local function ClearMisdirectAssignments()
     if not WhoDoesWhat:RequireEditPermission() then return end
     wipe(WhoDoesWhat.db.profile.mdAssignments)
-    WhoDoesWhat:LogOperation("Misdirect Assignments reset: one empty row per hunter.")
+    WhoDoesWhat:LogOperation("Misdirect Assignments cleared.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -1832,9 +1832,9 @@ WhoDoesWhat.Assign = {
     CollectMisdirectWhispers = CollectMisdirectWhispers,
     CollectCurseWhispers = CollectCurseWhispers,
     MassWhisper = MassWhisper,
-    -- section resets / auto-assigns (the views' header buttons)
+    -- section clears / auto-assigns (the views' header buttons)
     ClearTankAssignments = ClearTankAssignments,
-    ResetMisdirectAssignments = ResetMisdirectAssignments,
+    ClearMisdirectAssignments = ClearMisdirectAssignments,
     AutoAssignWarlockCurses = AutoAssignWarlockCurses,
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,

@@ -1,15 +1,15 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Misdirect Assignments section: one row per hunter, auto-managed from the
--- roster (EnsureAutoRows) -- no Add/[x], the hunter cell is a fixed label;
+-- roster (EnsureAutoRows) -- no Add/per-row [x], the hunter cell is a fixed label;
 -- you only fill in each hunter's tank:
 --
 --   [hunter]  for  [tank v]  on  [marker v] (!) [mail]
 --
 -- The marker defaults to (and follows) the tank's first tank-marker -- the
 -- setters in AssignmentsActions.lua keep it synced when tank markers move --
--- but stays hand-overridable here. The header Reset wipes back to one blank
--- row per hunter (ResetMisdirectAssignments).
+-- but stays hand-overridable here. The header [x] clears every misdirect;
+-- auto-row reconciliation then restores one blank row per hunter.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -146,9 +146,11 @@ function Refresh(f) -- forward declared above
     EnsureAutoRows(SECTION)
     local entries = GetEntries(SECTION)
 
+    local hasAssignments = false
     for i, entry in ipairs(entries) do
         local row = state.rows[i] or CreateRow(f, i)
         row:Show()
+        if entry.target or entry.marker then hasAssignments = true end
 
         row.playerLabel:SetShown(editable)
         row.playerLabel:SetText(PlayerTextWithRole(entry.player, 16))
@@ -187,7 +189,8 @@ function Refresh(f) -- forward declared above
     end
 
     state.emptyHint:SetShown(#entries == 0)
-    state.resetBtn:SetShown(editable)
+    state.clearBtn:SetShown(editable)
+    state.clearBtn:SetEnabled(hasAssignments)
     K.LayoutHeaderChain(state.headerChain)
 
     local rowsH = (#entries > 0) and (#entries * K.ROW_H) or K.DYN_EMPTY_H
@@ -203,20 +206,31 @@ local function Build(f, content)
         mailCollect = A.CollectMisdirectWhispers,
     })
 
-    -- Header "Reset": every misdirect back to a blank row, behind a confirm
-    -- popup.
-    local resetBtn = K.AddHeaderTextButton(chrome.box, chrome.mailBtn, "Reset",
-        "Reset " .. SECTION.title,
-        "Clear every misdirect back to an empty row per hunter.",
-        function()
-            StaticPopup_Hide("WHODOESWHAT_RESET_SECTION") -- re-arm for this section
-            StaticPopup_Show("WHODOESWHAT_RESET_SECTION", SECTION.noun .. "s", nil,
-                function()
-                    A.ResetMisdirectAssignments()
-                    Refresh(f)
-                end)
-        end) -- hidden without edit permission
-    K.ChainHeaderButton(chrome, resetBtn)
+    -- Header [x]: clear every misdirect behind the shared confirmation;
+    -- hunter rows repopulate blank on refresh.
+    local clearBtn = K.CreateCloseButton(chrome.box, nil, 0.25)
+    clearBtn:SetPoint("RIGHT", chrome.mailBtn, "LEFT", -2, 0)
+    clearBtn:SetScript("OnClick", function()
+        StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
+        StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
+            function()
+                A.ClearMisdirectAssignments()
+                Refresh(f)
+            end)
+    end)
+    clearBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self:IsEnabled() then
+            GameTooltip:SetText("Clear misdirect assignments", 1, 1, 1)
+            GameTooltip:AddLine("Clear every misdirect back to default (asks first).",
+                0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:SetText("Nothing to clear", 0.6, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    table.insert(chrome.headerChain, 1, clearBtn)
 
     local hint = K.CreateEmptyHint(chrome.box)
     hint:SetText("No hunters in the group.")
@@ -224,7 +238,7 @@ local function Build(f, content)
     f.mdSection = {
         box = chrome.box,
         headerChain = chrome.headerChain,
-        resetBtn = resetBtn,
+        clearBtn = clearBtn,
         emptyHint = hint,
         rows = {},
     }

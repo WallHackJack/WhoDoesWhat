@@ -459,7 +459,7 @@ function K.UpdateHeaderMailButtons(f)
     end
 end
 
--- Small text button in a section's title strip (Auto, Reset, Add (+), ...),
+-- Small text button in a section's title strip (Auto, Add (+), ...),
 -- provisionally chained left of anchorTo -- LayoutHeaderChain re-anchors on
 -- every refresh. The tooltip swaps its body for btn.disabledReason while the
 -- button is disabled, so a dead button explains itself.
@@ -611,17 +611,6 @@ end
 StaticPopupDialogs["WHODOESWHAT_CLEAR_SECTION"] = {
     text = "Remove all %s?",
     button1 = "Clear All",
-    button2 = "Cancel",
-    OnAccept = function(self) self.data() end,
-    timeout = 0,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
--- Reset-a-section confirm, same shape as the clear-all dialog.
-StaticPopupDialogs["WHODOESWHAT_RESET_SECTION"] = {
-    text = "Reset all %s to their defaults?",
-    button1 = "Reset",
     button2 = "Cancel",
     OnAccept = function(self) self.data() end,
     timeout = 0,
