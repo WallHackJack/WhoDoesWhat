@@ -214,9 +214,8 @@ local function EnsureFrame()
         f.warningText = nil
         f.secondaryBtn:SetText("Recheck")
         WhoDoesWhat:SyncToPallyPower()
-        RenderDiffs(f) -- SyncToPallyPower writes the live tables synchronously,
-                       -- so the recheck now reads as in sync.
         WhoDoesWhat:RefreshMainAssignmentsView() -- clear the section's warning
+        f:Hide()
     end)
     sendBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")

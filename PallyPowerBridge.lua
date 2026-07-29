@@ -190,20 +190,19 @@ local seenPetNames = {}
 -- the live tables and broadcasts it, and CheckPallyPowerSync compares the
 -- live tables against it. Returns
 -- assignments[pshort][classId], normal[pshort][classId][target], the summary
--- counts, plus the active PallyPower class ids and raider names.
+-- counts, plus each active PallyPower target's class id.
 local function BuildDesired(self, pp, paladins)
     local assignments, normal = {}, {}
 
     -- Raider -> PallyPower class id. Classes PallyPower doesn't track on this
     -- client (vanilla PallyPower has no Shaman slot, say) just get skipped.
-    local classIdOf, activeClassIds, activeTargets = {}, {}, {}
+    local classIdOf, activeTargets = {}, {}
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         if not IsFakeName(m.name) then
             local cid = pp.ClassToID and pp.ClassToID[m.classInfo.name:upper()]
             classIdOf[m.name] = cid
             if cid and not self:IsNonRaider(m.name) then
-                activeClassIds[cid] = true
-                activeTargets[ShortName(m.name)] = true
+                activeTargets[ShortName(m.name)] = cid
             end
         end
     end
@@ -218,7 +217,6 @@ local function BuildDesired(self, pp, paladins)
     end
     local petRealName = LivePetNames()
     local petClassId = pp.ClassToID and pp.ClassToID["WARRIOR"]
-    if next(petOwner) and petClassId then activeClassIds[petClassId] = true end
 
     local buffPlan = self.Assign.GetPaladinBuffPlan()
     local plan = buffPlan.grid
@@ -248,7 +246,7 @@ local function BuildDesired(self, pp, paladins)
         local owner = petOwner[raider]
         local cid = owner and petClassId or classIdOf[raider]
         local target = owner and ShortName(petRealName[owner]) or ShortName(raider)
-        if owner and target then activeTargets[target] = true end
+        if owner and target and cid then activeTargets[target] = cid end
         for paladin, buffKey in pairs(cells) do
             local pshort = ShortName(paladin)
             local bless = BuffKeyToBlessingId(buffKey)
@@ -272,7 +270,7 @@ local function BuildDesired(self, pp, paladins)
     end
 
     return assignments, normal, classCount, singleCount, skipped,
-        activeClassIds, activeTargets
+        activeTargets
 end
 
 function WhoDoesWhat:SyncToPallyPower()
@@ -352,15 +350,13 @@ function WhoDoesWhat:SyncToPallyPower()
     end
 end
 
--- Read-only drift check: does PallyPower's LIVE board still match what a full
--- SyncToPallyPower would write? A paladin joining/leaving or turning
--- Non-raider reshapes the whole grid but touches nothing in PallyPower (only
--- single-raider role changes push, via PushPlayerBuffToPallyPower), so the two
--- silently diverge. Rather than auto-rewriting the whole board out from under
--- everyone, the UI surfaces this as a warning icon + a Check window and lets
--- the user Send the plan when ready. Compares the desired vs. live Greater
--- assignments and Normal exceptions for the group paladins and returns a list
--- of structured difference entries the diff view formats (empty = in sync):
+-- Read-only drift check: does PallyPower give every active target the blessing
+-- the current WDW plan wants? Compare effective blessings after Normal
+-- overrides rather than the raw Greater/Normal table shape: the same coverage
+-- can have several valid encodings, especially after one raider changes role.
+-- Real coverage drift still surfaces as a warning icon + a Check window and
+-- lets the user Send the canonical full plan when ready. Returns structured
+-- difference entries for the diff view (empty = in sync):
 --   { paladin, target, targetIcon, targetRole, isClass, want, wantName,
 --     wantIcon, have, haveName, haveIcon }
 -- want/have are blessing ids (0 = none).
@@ -376,17 +372,10 @@ local function DiffEntry(pshort, target, isClass, want, have, targetInfo)
     }
 end
 
--- Icons/labels used by the comparison view. Keep this sourced from Data.lua:
--- class-wide rows use the class icon, raiders use their assigned role, and
+-- Icons/labels used by the comparison view. Keep this sourced from Data.lua;
 -- current or previously seen hunter pets use the pet pseudo-role.
 local function DiffTargetInfo(self)
-    local classes, targets = {}, {}
-    for _, classInfo in ipairs(self.Classes) do
-        classes[classInfo.name] = {
-            icon = classInfo.classIcon,
-            role = classInfo.name .. " class",
-        }
-    end
+    local targets, pets = {}, {}
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         local roleId = self:GetAssignedRole(m.name)
         local role = roleId and self.RolesAndCategories[roleId]
@@ -409,8 +398,9 @@ local function DiffTargetInfo(self)
                 role = self.HunterPetRole.name,
             }
         end
+        pets[petName] = true
     end
-    return classes, targets
+    return targets, pets
 end
 
 function WhoDoesWhat:CheckPallyPowerSync()
@@ -421,45 +411,31 @@ function WhoDoesWhat:CheckPallyPowerSync()
     local paladins = GroupPaladins(self)
     if #paladins == 0 then return nil, "no-paladins" end
 
-    local assignments, normal, _, _, _, activeClassIds, activeTargets =
+    local assignments, normal, _, _, _, activeTargets =
         BuildDesired(self, pp, paladins)
-    local classInfo, targetInfo = DiffTargetInfo(self)
+    local targetInfo, petTargets = DiffTargetInfo(self)
+    local might = BuffKeyToBlessingId("might")
+    local kings = BuffKeyToBlessingId("kings")
     local diffs = {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
-
-        -- Greater blessings only matter for classes currently in the group;
-        -- PallyPower commonly retains harmless values in absent class slots.
         local liveA = PallyPower_Assignments[pshort] or {}
         local wantA = assignments[pshort] or {}
-        for c in pairs(activeClassIds) do
-            local want, live = wantA[c] or 0, liveA[c] or 0
-            if want ~= live then
-                local target = ClassIdName(c)
-                diffs[#diffs + 1] = DiffEntry(pshort, target, true, want, live,
-                    classInfo[target])
-            end
-        end
-
-        -- Normal exceptions: walk the union of live + desired targets, but
-        -- ignore PallyPower rows belonging to raiders no longer in the group.
         local liveN = PallyPower_NormalAssignments[pshort] or {}
         local wantN = normal[pshort] or {}
-        local cids = {}
-        for cid in pairs(liveN) do cids[cid] = true end
-        for cid in pairs(wantN) do cids[cid] = true end
-        for cid in pairs(cids) do
-            local lt, wt = liveN[cid] or {}, wantN[cid] or {}
-            local names = {}
-            for n in pairs(lt) do names[n] = true end
-            for n in pairs(wt) do names[n] = true end
-            for n in pairs(names) do
-                local want, live = wt[n] or 0, lt[n] or 0
-                if (activeTargets[n] or wt[n] ~= nil)
-                    and want ~= live then
-                    diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live,
-                        targetInfo[n])
-                end
+        for target, cid in pairs(activeTargets) do
+            local want = wantN[cid] and wantN[cid][target]
+            if not want or want == 0 then want = wantA[cid] or 0 end
+            local live = liveN[cid] and liveN[cid][target]
+            if not live or live == 0 then live = liveA[cid] or 0 end
+
+            -- Pet identities and rows are transient. None/Might/Kings are all
+            -- safe; only an explicit unrelated blessing needs intervention.
+            local acceptedPetBuff = petTargets[target]
+                and (live == 0 or live == might or live == kings)
+            if want ~= live and not acceptedPetBuff then
+                diffs[#diffs + 1] = DiffEntry(pshort, target, false, want, live,
+                    targetInfo[target])
             end
         end
     end
@@ -472,12 +448,12 @@ end
 -- override, so a safe change is at most one row per paladin.
 --
 -- Safety: `priorDiffs` is CheckPallyPowerSync's result from BEFORE the role
--- mutation. We auto-send only from an aligned board and only when the new
--- plan's differences are this target's Normal overrides. A role change can
--- alter raid-wide demand/primaries, and an already-drifted PallyPower board is
--- a bad baseline; either case opens the full Differences window with
--- Ignore/Send instead. Combat-safe: PallyPower parses NASSIGN in combat and
--- refreshes its protected layout after combat.
+-- mutation. We auto-send only from an aligned board and only when the changed
+-- raider's effective blessings moved. A role change can alter raid-wide
+-- demand/primaries, and an already-drifted PallyPower board is a bad baseline;
+-- either case opens the full Differences window with Ignore/Send instead.
+-- Combat-safe: PallyPower parses NASSIGN in combat and refreshes its protected
+-- layout after combat.
 function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
     local pp = _G.PallyPower
     if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
