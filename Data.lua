@@ -176,6 +176,55 @@ for key, spellId in pairs(features.paladinBuffSpellIds) do
     WhoDoesWhat.PaladinBuffs[key].spellId = spellId
 end
 
+-- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
+-- rank-independent and include both the single-target and group versions.
+-- Core coverage is players-only; excludedClasses narrows Intellect to classes
+-- that benefit from mana without encoding spec-level policy.
+WhoDoesWhat.CoreRaidBuffOrder = {
+    "fortitude", "gift", "food", "shadowProtection", "intellect",
+}
+WhoDoesWhat.CoreRaidBuffs = {
+    fortitude = {
+        name = "Fortitude",
+        icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
+        auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
+        className = "Priest",
+        improvedTalent = {
+            name = "Improved Power Word: Fortitude",
+            tab = 1, tier = 2, column = 2, maxRank = 2,
+        },
+    },
+    gift = {
+        name = "Gift of the Wild",
+        icon = "Interface\\Icons\\Spell_Nature_Regeneration",
+        auraNames = { "Mark of the Wild", "Gift of the Wild" },
+        className = "Druid",
+        improvedTalent = {
+            name = "Improved Mark of the Wild",
+            tab = 3, tier = 1, column = 2, maxRank = 5,
+        },
+    },
+    food = {
+        name = "Food",
+        icon = "Interface\\Icons\\INV_Misc_Fork&Knife",
+        auraNames = { "Well Fed" },
+        colorRGB = { r = 1, g = 0.82, b = 0 },
+    },
+    shadowProtection = {
+        name = "Shadow Protection",
+        icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
+        auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
+        className = "Priest",
+    },
+    intellect = {
+        name = "Intellect",
+        icon = "Interface\\Icons\\Spell_Holy_MagicalSentry",
+        auraNames = { "Arcane Intellect", "Arcane Brilliance" },
+        className = "Mage",
+        excludedClasses = { Warrior = true, Rogue = true },
+    },
+}
+
 -- Warlock raid curses metadata, using the highest rank available on this
 -- client. Classic Era keeps Curse of Shadow separate; TBC folds its schools
 -- into Curse of the Elements.

@@ -10,8 +10,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- view and the paladin-info view read the roster through -- appends
 -- FakeRaid.ROSTER when the toggle is on. The fakes' *roles* live in
 -- db.profile.assignments and the paladins' buff-talent ranks in
--- db.profile.paladinBuffTalents and warlocks' Improved Healthstone ranks in
--- db.profile.warlockHealthstoneTalents, keyed by fake name like real players.
+-- db.profile.paladinBuffTalents, warlocks' Improved Healthstone ranks, and
+-- Priest/Druid improved-buff ranks, keyed by fake name like real players.
 --
 -- The roster is deliberately shaped for buff testing: 3 tanks (one of each
 -- kind), 5 healers (one of each healer kind), a DPS spread to fill, and 3
@@ -37,11 +37,15 @@ local FakeRaid = WhoDoesWhat.FakeRaid
 -- Non-paladin members always present: 2 tanks + 4 healers.
 FakeRaid.CORE = {
     { name = "Ironhide",     class = "WARRIOR", role = "warrior_prot" },
-    { name = "Bearback",     class = "DRUID",   role = "druid_feral_tank" },
-    { name = "Lightwell",    class = "PRIEST",  role = "priest_holy" },
-    { name = "Painsuppress", class = "PRIEST",  role = "priest_disc" },
+    { name = "Bearback",     class = "DRUID",   role = "druid_feral_tank",
+      coreBuffTalents = { gift = 0 } },
+    { name = "Lightwell",    class = "PRIEST",  role = "priest_holy",
+      coreBuffTalents = { fortitude = 0 } },
+    { name = "Painsuppress", class = "PRIEST",  role = "priest_disc",
+      coreBuffTalents = { fortitude = 2 } },
     { name = "Tidecaller",   class = "SHAMAN",  role = "shaman_resto" },
-    { name = "Lifebloom",    class = "DRUID",   role = "druid_resto" },
+    { name = "Lifebloom",    class = "DRUID",   role = "druid_resto",
+      coreBuffTalents = { gift = 5 } },
 }
 
 -- Paladins in inclusion order for fakeRaidPaladinCount: the Prot tank is the
@@ -136,6 +140,7 @@ end
 local function RefreshViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
+    WhoDoesWhat:RefreshImprovedBuffGridView()
     WhoDoesWhat:RefreshPaladinBuffGridView()
 end
 
@@ -154,6 +159,9 @@ function WhoDoesWhat:ReapplyFakeRaid()
         end
         if fm.healthstoneRank ~= nil then
             profile.warlockHealthstoneTalents[fm.name] = fm.healthstoneRank
+        end
+        if fm.coreBuffTalents then
+            profile.coreBuffTalents[fm.name] = CopyTable(fm.coreBuffTalents)
         end
     end
 end
@@ -176,6 +184,7 @@ function WhoDoesWhat:SetFakeRaidEnabled(value)
             profile.talentSpecs[fm.name] = nil
             profile.paladinBuffTalents[fm.name] = nil
             profile.warlockHealthstoneTalents[fm.name] = nil
+            profile.coreBuffTalents[fm.name] = nil
         end)
     end
 
@@ -203,6 +212,7 @@ function WhoDoesWhat:SetFakeRaidPaladinCount(n)
             profile.talentSpecs[fm.name] = nil
             profile.paladinBuffTalents[fm.name] = nil
             profile.warlockHealthstoneTalents[fm.name] = nil
+            profile.coreBuffTalents[fm.name] = nil
         end)
         self:ReapplyFakeRaid()
         RefreshViews()

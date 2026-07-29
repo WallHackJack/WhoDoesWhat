@@ -109,18 +109,25 @@ local function EnsureSettingsFrame()
     yL = y0
     yL = AddHeading(statusPage, CONTENT_X, yL, "Status Bars", 0.96, 0.55, 0.73)
     f.overviewCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL, "Enable WDW Status",
-        "Show every paladin's live blessing coverage. Alt-drag to move; Alt-drag its right edge to resize.",
+        "Show live paladin and core raid-buff coverage. Alt-drag to move; Alt-drag its right edge to resize.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewEnabled = value
             WhoDoesWhat:UpdateOverviewViewVisibility()
         end)
     f.overviewHideCompletedCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
         "Hide completed buffs",
-        "Hide a paladin's row once all of their assigned buffs are active.",
+        "Hide a status row once all of its required buffs are active.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewHideCompleted = value
             WhoDoesWhat:RefreshOverviewView()
         end)
+    f.overviewRequireMaxRankCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
+        "Require max-ranked improved buffs",
+        "Count Fortitude and Gift/Mark only when their caster has the maximum improvement talent rank. Unknown casters do not count as complete.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.overviewRequireMaxRank = value
+            WhoDoesWhat:RefreshOverviewView()
+        end, 14)
 
     -- ---- Paladin ----
     local paladinPage = pages[3]
@@ -344,6 +351,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.overviewCheck:SetChecked(settings.overviewEnabled)
     f.overviewHideCompletedCheck:SetChecked(settings.overviewHideCompleted)
+    f.overviewRequireMaxRankCheck:SetChecked(settings.overviewRequireMaxRank)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logOperationsCheck:SetChecked(settings.logOperations)

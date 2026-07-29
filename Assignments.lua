@@ -81,7 +81,7 @@ local function GetEligibleMembers(onlyClassName)
             local classInfo = GetClassInfoByToken(fm.class)
             if classInfo and (devMode or not onlyClassName or classInfo.name == onlyClassName)
                 and not (onlyClassName and WhoDoesWhat:IsNonRaider(fm.name)) then
-                members[#members + 1] = { name = fm.name, classInfo = classInfo }
+                members[#members + 1] = { name = fm.name, classInfo = classInfo, isFake = true }
             end
         end
     end
@@ -1133,6 +1133,101 @@ local function ComputePaladinBuffCoverage()
     return correct, total, byPaladin
 end
 
+local function IsEligibleCoreBuffTarget(m, buff, disconnected)
+    return not m.isFake and not WhoDoesWhat:IsNonRaider(m.name)
+        and not disconnected[m.name]
+        and not (buff.excludedClasses
+            and buff.excludedClasses[m.classInfo.name])
+end
+
+-- Live coverage for the non-paladin bars in WDW Status. Only real, connected
+-- raiders count; pets, fake-development members, and the Non-raider role are
+-- excluded. Each row may further exclude classes through Data.lua metadata.
+local function ComputeCoreRaidBuffCoverage()
+    local disconnected = DisconnectedGroupTargets()
+    local members = GetEligibleMembers(nil)
+    local correct, total, rows = 0, 0, {}
+    for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
+        local buff = WhoDoesWhat.CoreRaidBuffs[key]
+        -- A class-provided status row is irrelevant when that class is not in
+        -- the active raider pool. Food has no provider class and always stays.
+        if not buff.className or #MembersOfClass(buff.className) > 0 then
+            local row = {
+                key = key, name = buff.name, icon = buff.icon,
+                correct = 0, total = 0,
+            }
+            for _, m in ipairs(members) do
+                if IsEligibleCoreBuffTarget(m, buff, disconnected) then
+                    row.total = row.total + 1
+                    total = total + 1
+                    local covered
+                    if buff.improvedTalent
+                        and WhoDoesWhat.db.profile.settings.overviewRequireMaxRank then
+                        covered = WhoDoesWhat:GetImprovedBuffState(m.name, key) == "max"
+                    else
+                        covered = WhoDoesWhat:HasBuff(m.name, key) == true
+                    end
+                    if covered then
+                        row.correct = row.correct + 1
+                        correct = correct + 1
+                    end
+                end
+            end
+            rows[#rows + 1] = row
+        end
+    end
+    return correct, total, rows
+end
+
+-- Provider talent ranks and per-raider improved-buff state for the main
+-- Improved Buffs summary and its full grid. "correct" always means the aura
+-- came from a max-ranked provider, independent of the compact-bar setting.
+local function ComputeImprovedBuffCoverage()
+    local disconnected = DisconnectedGroupTargets()
+    local members = GetEligibleMembers(nil)
+    local rows = {}
+    for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
+        local buff = WhoDoesWhat.CoreRaidBuffs[key]
+        local talent = buff.improvedTalent
+        if talent then
+            local row = {
+                key = key, name = buff.name, icon = buff.icon,
+                className = buff.className, talent = talent,
+                correct = 0, total = 0, providers = {}, targets = {},
+            }
+            for _, provider in ipairs(GetEligibleMembers(buff.className)) do
+                if provider.classInfo.name == buff.className then
+                    row.providers[#row.providers + 1] = {
+                        name = provider.name,
+                        rank = WhoDoesWhat:GetCoreBuffTalent(provider.name, key),
+                    }
+                end
+            end
+            table.sort(row.providers, function(a, b)
+                if a.rank == nil and b.rank ~= nil then return false end
+                if a.rank ~= nil and b.rank == nil then return true end
+                if a.rank ~= b.rank then return (a.rank or -1) > (b.rank or -1) end
+                return a.name < b.name
+            end)
+            for _, m in ipairs(members) do
+                if IsEligibleCoreBuffTarget(m, buff, disconnected) then
+                    local status, source, rank, maxRank =
+                        WhoDoesWhat:GetImprovedBuffState(m.name, key)
+                    row.targets[#row.targets + 1] = {
+                        name = m.name, classInfo = m.classInfo,
+                        status = status, source = source,
+                        rank = rank, maxRank = maxRank or talent.maxRank,
+                    }
+                    row.total = row.total + 1
+                    if status == "max" then row.correct = row.correct + 1 end
+                end
+            end
+            rows[#rows + 1] = row
+        end
+    end
+    return rows
+end
+
 -- The plan aggregated per paladin: how many raiders each paladin blesses
 -- with each buff. Returns an array of
 --   { name, total, buffs = { { key, count }, ... } }
@@ -1746,6 +1841,8 @@ WhoDoesWhat.Assign = {
     ComputeBuffGrid = ComputeBuffGrid,
     IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
+    ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
+    ComputeImprovedBuffCoverage = ComputeImprovedBuffCoverage,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

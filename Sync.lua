@@ -12,8 +12,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     Assignments.lua) -- so there are no paladin rows to sync; the talent
 --     facts below are what keep every client's computation in agreement.
 --     IsSyncedStaticRow still filters the keys as a safety.
---   - talent ranks: paladins broadcast their OWN four buff ranks and warlocks
---     broadcast their Improved Healthstone rank. All are read from the
+--   - talent ranks: players broadcast their OWN class utility ranks: paladin
+--     blessing talents, Improved Healthstone, Improved Fortitude, and Improved
+--     Mark of the Wild. All are read from the
 --     sender's native
 --     talent API -- the one source that is always in range and never hits the
 --     shuffled-index bug (see TalentScanning.lua). Receivers drop the ranks
@@ -28,7 +29,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   - Leaving the group wipes the whole board (roles included): assignments
 --     are group business, and a stale board from the last raid only misleads.
 --     The talent caches (talentSpecs / paladinBuffTalents /
---     warlockHealthstoneTalents) survive -- they're
+--     warlockHealthstoneTalents / coreBuffTalents) survive -- they're
 --     facts about characters, not group decisions, and they let roles refill
 --     instantly when a group reforms.
 --   - Joining a group makes the LEADER the source of truth: the joiner says
@@ -423,6 +424,12 @@ local function OwnHealthstoneRank()
     return WhoDoesWhat.db.profile.warlockHealthstoneTalents[UnitName("player")]
 end
 
+local function OwnCoreBuffRanks()
+    local class = select(2, UnitClass("player"))
+    if class ~= "DRUID" and class ~= "PRIEST" then return nil end
+    return WhoDoesWhat.db.profile.coreBuffTalents[UnitName("player")]
+end
+
 local function StoreRanks(senderKey, ranks)
     if type(ranks) ~= "table" then return end
     local stored = {}
@@ -442,6 +449,24 @@ local function StoreHealthstoneRank(senderKey, rank)
     WhoDoesWhat.db.profile.warlockHealthstoneTalents[senderKey] = rank
     LogSync("healthstone talent rank stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
+end
+
+local function StoreCoreBuffRanks(senderKey, ranks)
+    if type(ranks) ~= "table" then return end
+    local stored = {}
+    for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
+        if buff.improvedTalent and ranks[key] ~= nil then
+            local rank = tonumber(ranks[key]) or 0
+            stored[key] = math.floor(math.max(0,
+                math.min(buff.improvedTalent.maxRank, rank)))
+        end
+    end
+    if not next(stored) then return end
+    WhoDoesWhat.db.profile.coreBuffTalents[senderKey] = stored
+    LogSync("core buff-talent ranks stored for", senderKey)
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshImprovedBuffGridView()
+    WhoDoesWhat:RefreshOverviewView()
 end
 
 -- ---------------------------------------------------------------------------
@@ -477,9 +502,13 @@ function Sync:BroadcastOwnRanksSoon()
         ranksTimer = nil
         local ranks = OwnRanks()
         local healthstone = OwnHealthstoneRank()
+        local coreRanks = OwnCoreBuffRanks()
         local channel = GroupChannel()
-        if (ranks or healthstone ~= nil) and channel then
-            self:Send({ t = "RANKS", ranks = ranks, healthstone = healthstone }, channel)
+        if (ranks or healthstone ~= nil or coreRanks) and channel then
+            self:Send({
+                t = "RANKS", ranks = ranks, healthstone = healthstone,
+                coreRanks = coreRanks,
+            }, channel)
         end
     end, RANKS_DEBOUNCE)
 end
@@ -561,6 +590,7 @@ function Sync:RequestPeerPresence()
         t = "HELLO",
         ranks = OwnRanks(),
         healthstone = OwnHealthstoneRank(),
+        coreRanks = OwnCoreBuffRanks(),
     }, channel)
 end
 
@@ -759,8 +789,9 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     elseif msg.t == "HELLO" then
         StoreRanks(senderKey, msg.ranks)
         StoreHealthstoneRank(senderKey, msg.healthstone)
-        -- The leader answers with the authoritative board; every paladin
-        -- and warlock answers with utility ranks so the joiner's views fill in.
+        StoreCoreBuffRanks(senderKey, msg.coreRanks)
+        -- The leader answers with the authoritative board; every utility-buff
+        -- provider answers with ranks so the joiner's views fill in.
         local answered = false
         if UnitIsGroupLeader("player") then
             self:Send({ t = "STATE", rev = lastRev, state = Snapshot() }, "WHISPER", sender)
@@ -768,11 +799,13 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         end
         local ranks = OwnRanks()
         local healthstone = OwnHealthstoneRank()
-        if ranks or healthstone ~= nil then
+        local coreRanks = OwnCoreBuffRanks()
+        if ranks or healthstone ~= nil or coreRanks then
             self:Send({
                 t = "RANKS",
                 ranks = ranks,
                 healthstone = healthstone,
+                coreRanks = coreRanks,
             }, "WHISPER", sender)
             answered = true
         end
@@ -781,6 +814,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     elseif msg.t == "RANKS" then
         StoreRanks(senderKey, msg.ranks)
         StoreHealthstoneRank(senderKey, msg.healthstone)
+        StoreCoreBuffRanks(senderKey, msg.coreRanks)
 
     elseif msg.t == "VERSION" then
         -- Version was recorded before message dispatch; no payload needed.
@@ -870,6 +904,11 @@ function Sync:OnEnable()
         end
     end)
     hooksecurefunc(WhoDoesWhat, "ScanWarlockHealthstoneTalent", function(_, guid)
+        if guid == UnitGUID("player") then
+            Sync:BroadcastOwnRanksSoon()
+        end
+    end)
+    hooksecurefunc(WhoDoesWhat, "ScanCoreBuffTalents", function(_, guid)
         if guid == UnitGUID("player") then
             Sync:BroadcastOwnRanksSoon()
         end

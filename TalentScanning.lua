@@ -111,6 +111,29 @@ function WhoDoesWhat:GetWarlockHealthstoneTalent(playerName)
     return self.db and self.db.profile.warlockHealthstoneTalents[playerName] or nil
 end
 
+-- Save the improvement rank for any raid-wide buff supplied by this class.
+-- As with paladin ranks, only the local player or a fresh inspect has native
+-- talent data in the right order; WDW sync carries each provider's own rank
+-- to the rest of the group.
+function WhoDoesWhat:ScanCoreBuffTalents(guid, playerKey, class, isInspect)
+    if not (isInspect or guid == UnitGUID("player")) then return end
+
+    local group = GetActiveTalentGroup(isInspect) or 1
+    local ranks = {}
+    for key, buff in pairs(self.CoreRaidBuffs) do
+        local talent = buff.improvedTalent
+        if talent and string.upper(buff.className) == class then
+            ranks[key] = NativeRankAt(talent, isInspect, group)
+        end
+    end
+    self.db.profile.coreBuffTalents[playerKey] = ranks
+end
+
+function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
+    local ranks = self.db and self.db.profile.coreBuffTalents[playerName]
+    return ranks and ranks[buffKey] or nil
+end
+
 -- Manual "Rescan" (Paladin Info + Grid window). The auto-scanning only ever sees a
 -- paladin's talents when the library manages to inspect them in range or they
 -- broadcast, so a paladin who's been out of range reads stale ranks (most
@@ -121,7 +144,7 @@ end
 -- ScanPaladinBuffTalents when it lands); out-of-range ones keep their
 -- last-known ranks until they come closer. No-op quietly if the library didn't
 -- load. Prints a one-line summary; the boxes repaint as inspects arrive.
-function WhoDoesWhat:RescanPaladinTalents()
+local function RescanUtilityTalents(self, wantedClasses, label)
     if not (Inspector and self.db) then return end
 
     local units = {}
@@ -135,7 +158,8 @@ function WhoDoesWhat:RescanPaladinTalents()
     local playerGUID = UnitGUID("player")
     local total, inRange = 0, 0
     for _, unit in ipairs(units) do
-        if UnitExists(unit) and select(2, UnitClass(unit)) == "PALADIN" then
+        local class = UnitExists(unit) and select(2, UnitClass(unit))
+        if class and wantedClasses[class] then
             total = total + 1
             local guid = UnitGUID(unit)
 
@@ -158,13 +182,24 @@ function WhoDoesWhat:RescanPaladinTalents()
     end
 
     if total == 0 then
-        self:Print("Rescan: no paladins in the group.")
+        self:Print("Rescan: no " .. label .. "s in the group.")
     else
         self:LogOperation(string.format(
-            "Rescanning %d paladin%s (%d in range, refreshing now).",
-            total, total == 1 and "" or "s", inRange))
+            "Rescanning %d %s%s (%d in range, refreshing now).",
+            total, label, total == 1 and "" or "s", inRange))
     end
+end
+
+function WhoDoesWhat:RescanPaladinTalents()
+    RescanUtilityTalents(self, { PALADIN = true }, "paladin")
     self:RefreshPaladinBuffGridView()
+end
+
+function WhoDoesWhat:RescanImprovedBuffTalents()
+    RescanUtilityTalents(self, { DRUID = true, PRIEST = true }, "improved-buff provider")
+    self:RefreshMainAssignmentsView()
+    self:RefreshImprovedBuffGridView()
+    self:RefreshOverviewView()
 end
 
 -- Both flags are test scaffolding for the talent sync and are off during normal
@@ -314,6 +349,11 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     elseif class == "WARLOCK" then
         self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
+    elseif class == "DRUID" or class == "PRIEST" then
+        self:ScanCoreBuffTalents(guid, key, class, isInspect)
+        self:RefreshMainAssignmentsView()
+        self:RefreshImprovedBuffGridView()
+        self:RefreshOverviewView()
     end
 end
 

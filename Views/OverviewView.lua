@@ -1,10 +1,11 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local K = WhoDoesWhat.SectionKit
 
--- Movable compact overview of every paladin's live blessing coverage:
+-- Movable compact overview of paladin and core raid-buff coverage:
 --
 --   [role icon] [Paladin name                     % / check]
 --               [dark red ---------------------------> paladin pink]
+--   [buff icon] [Fortitude                        % / check]
 --   [   PP    ] [sync status                       actions]
 --
 -- It shares the Paladin Buffing Bar's small window chrome and Alt-drag
@@ -28,20 +29,21 @@ local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local LCG = LibStub("LibCustomGlow-1.0", true)
 
 local paladinClass
+local classColors = {}
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+    classColors[classInfo.name] = classInfo.colorRGB
     if classInfo.name == "Paladin" then
         paladinClass = classInfo
-        break
     end
 end
 
-local function CoverageColor(correct, total)
+local function CoverageColor(correct, total, endpoint)
     if total == 0 then return 0.4, 0.4, 0.4 end
     local t = math.min((correct / total) / 0.8, 1)
-    local pink = paladinClass.colorRGB
-    return 0.35 + (pink.r - 0.35) * t,
-        0.04 + (pink.g - 0.04) * t,
-        0.08 + (pink.b - 0.08) * t
+    endpoint = endpoint or paladinClass.colorRGB
+    return 0.35 + (endpoint.r - 0.35) * t,
+        0.04 + (endpoint.g - 0.04) * t,
+        0.08 + (endpoint.b - 0.08) * t
 end
 
 local function ClampPosition(x, y)
@@ -353,7 +355,10 @@ end
 function WhoDoesWhat:RefreshOverviewView()
     if not view or not view:IsShown() then return end
     local summary = self.Assign.ComputePaladinBuffSummary()
-    local correct, total, coverageByPaladin = self.Assign.ComputePaladinBuffCoverage()
+    local paladinCorrect, paladinTotal, coverageByPaladin =
+        self.Assign.ComputePaladinBuffCoverage()
+    local coreCorrect, coreTotal, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
+    local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
     local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     view.totalPercent:SetText("(" .. totalPercent .. "%)")
     local ppState, ppText = K.GetPallyPowerState(#summary)
@@ -363,50 +368,38 @@ function WhoDoesWhat:RefreshOverviewView()
         local coverage = coverageByPaladin[paladin.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct >= coverage.total
         if not (hideCompleted and complete) then
-            displayed[#displayed + 1] = { paladin = paladin, coverage = coverage }
+            displayed[#displayed + 1] = {
+                name = paladin.name,
+                icon = RoleIcon(paladin.name),
+                coverage = coverage,
+                colorRGB = paladinClass.colorRGB,
+            }
+        end
+    end
+    for _, coverage in ipairs(coreCoverage) do
+        local complete = coverage.total > 0 and coverage.correct >= coverage.total
+        if coverage.total > 0 and not (hideCompleted and complete) then
+            local buff = WhoDoesWhat.CoreRaidBuffs[coverage.key]
+            displayed[#displayed + 1] = {
+                name = coverage.name,
+                icon = coverage.icon,
+                coverage = coverage,
+                colorRGB = buff.colorRGB or classColors[buff.className],
+            }
         end
     end
 
-    local paladinH = (#displayed > 0) and (#displayed * ROW_H) or 18
-    local contentH = paladinH + ROW_H
+    local rowsH = (#displayed > 0) and (#displayed * ROW_H) or 18
+    local contentH = ROW_H + rowsH
     view:SetSize(self.db.profile.settings.overviewWidth or DEFAULT_W,
         CONTENT_TOP + contentH + PAD + INSET)
     if not view.moving and not view.resizing then LoadPosition() end
 
-    for i, entry in ipairs(displayed) do
-        local row = view.rows[i] or CreateRow(i)
-        local paladin = entry.paladin
-        local coverage = entry.coverage
-        row.icon:SetTexture(RoleIcon(paladin.name))
-        row.name:SetText(paladin.name)
-        row.correct = coverage.correct
-        row.total = coverage.total
-        row.status:SetMinMaxValues(0, math.max(coverage.total, 1))
-        row.status:SetValue(coverage.correct)
-        row.status:SetStatusBarColor(CoverageColor(coverage.correct, coverage.total))
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-            -(CONTENT_TOP + (i - 1) * ROW_H))
-        row:Show()
-        LayoutProgressLabel(row)
-    end
-    for i = #displayed + 1, #view.rows do view.rows[i]:Hide() end
-
-    if #summary == 0 then
-        view.hint:SetText("No paladins in the group.")
-        view.hint:Show()
-    elseif #displayed == 0 then
-        view.hint:SetText("All paladin buffs complete.")
-        view.hint:Show()
-    else
-        view.hint:Hide()
-    end
-
+    -- PallyPower sync always leads the status list.
     local ppRow = view.ppRow or CreatePallyPowerRow()
     view.ppRow = ppRow
     ppRow:ClearAllPoints()
-    ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-        -(CONTENT_TOP + paladinH))
+    ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -CONTENT_TOP)
     SetDesyncGlow(ppRow, ppState == "desynced")
 
     ppRow.stateIcon:ClearAllPoints()
@@ -440,6 +433,36 @@ function WhoDoesWhat:RefreshOverviewView()
         ppRow.fixBtn:Show()
     end
     ppRow:Show()
+
+    for i, entry in ipairs(displayed) do
+        local row = view.rows[i] or CreateRow(i)
+        local coverage = entry.coverage
+        row.icon:SetTexture(entry.icon)
+        row.name:SetText(entry.name)
+        row.correct = coverage.correct
+        row.total = coverage.total
+        row.status:SetMinMaxValues(0, math.max(coverage.total, 1))
+        row.status:SetValue(coverage.correct)
+        row.status:SetStatusBarColor(CoverageColor(
+            coverage.correct, coverage.total, entry.colorRGB))
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
+            -(CONTENT_TOP + ROW_H + (i - 1) * ROW_H))
+        row:Show()
+        LayoutProgressLabel(row)
+    end
+    for i = #displayed + 1, #view.rows do view.rows[i]:Hide() end
+
+    if #displayed == 0 then
+        view.hint:ClearAllPoints()
+        view.hint:SetPoint("TOP", view, "TOP", 0,
+            -(CONTENT_TOP + ROW_H + 3))
+        view.hint:SetText("All buffs passing checks!")
+        view.hint:SetTextColor(0.3, 1, 0.3)
+        view.hint:Show()
+    else
+        view.hint:Hide()
+    end
 end
 
 function WhoDoesWhat:UpdateOverviewViewVisibility()

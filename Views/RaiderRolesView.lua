@@ -29,6 +29,8 @@ local DROPDOWN_WIDTH = 130
 local ADDON_COL_W = 38
 local WARNING_ICON_SIZE = 18
 local CLASS_ICON_SIZE = 20
+local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 
 local SECTIONS = {
     { key = "tank",   title = "Tanks",   empty = "No tanks assigned yet." },
@@ -219,14 +221,16 @@ local function CreateRow(f, section, index)
     end)
     row.dropdown = dropdown
 
-    local addonFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    addonFS:SetWidth(ADDON_COL_W)
-    addonFS:SetPoint("RIGHT", dropdown, "LEFT", 10, 0)
-    addonFS:SetJustifyH("CENTER")
-    row.addonFS = addonFS
+    local addonStatus = CreateFrame("Frame", nil, row)
+    addonStatus:SetSize(ADDON_COL_W, ROW_H)
+    addonStatus:SetPoint("RIGHT", dropdown, "LEFT", 10, 0)
+    local addonIcon = addonStatus:CreateTexture(nil, "OVERLAY")
+    addonIcon:SetSize(16, 16)
+    addonIcon:SetPoint("CENTER")
+    row.addonIcon = addonIcon
 
     local warn = CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", addonFS, "LEFT", -2, 2)
+    warn:SetPoint("RIGHT", addonStatus, "LEFT", -2, 2)
     row.warnIcon = warn
 
     nameFS:SetPoint("RIGHT", warn, "LEFT", -4, 0)
@@ -268,7 +272,7 @@ function RefreshRoster(f)
             row.nameFS:SetText("|cff" .. m.classInfo.colorHex .. m.name .. "|r")
             local installed = m.name == UnitName("player")
                 or WhoDoesWhat.syncPeers[m.name] == true
-            row.addonFS:SetText(installed and "|cff40ff40Yes|r" or "|cffff6060No|r")
+            row.addonIcon:SetTexture(installed and READY_ICON or NOT_READY_ICON)
 
             if role then
                 UIDropDownMenu_SetText(row.dropdown, RoleText(role, m.classInfo))
@@ -355,7 +359,7 @@ local function EnsureRolesFrame()
         local addonTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         addonTitle:SetWidth(ADDON_COL_W)
         addonTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT",
-            -(BOX_PAD + DROPDOWN_WIDTH + 12), -BOX_PAD)
+            -(BOX_PAD + DROPDOWN_WIDTH + 8), -BOX_PAD)
         addonTitle:SetJustifyH("CENTER")
         addonTitle:SetText("WDW")
 

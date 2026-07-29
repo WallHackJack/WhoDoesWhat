@@ -9,6 +9,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- pairs, built from the shared primitives in Views/SectionKit.lua):
 --
 --   left column   PaladinBuffsSection  computed summary + local buff rules
+--                 ImprovedBuffsSection max-rank Fortitude / Gift coverage
 --                 WarlockCursesSection fixed row per curse
 --   right column  TankSection          one auto row per marked tank
 --                 CCSection            user-grown rows (the template for future
@@ -59,7 +60,9 @@ local RIGHT_COLUMN_W = CONTENT_W - COLUMN_GAP - LEFT_COLUMN_W
 -- Within a column this is also the anchor-chain order.
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
-    local sections = { SV.Tank, SV.PaladinBuffs, SV.WarlockCurses, SV.CC }
+    local sections = {
+        SV.Tank, SV.PaladinBuffs, SV.ImprovedBuffs, SV.WarlockCurses, SV.CC,
+    }
     if WhoDoesWhat.ClientFeatures.misdirectAssignments then
         sections[#sections + 1] = SV.Misdirect
     end

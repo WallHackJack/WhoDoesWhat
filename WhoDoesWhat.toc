@@ -61,10 +61,12 @@ Views\Sections\TankSection.lua
 Views\Sections\CCSection.lua
 Views\Sections\MisdirectSection.lua
 Views\Sections\PaladinBuffsSection.lua
+Views\Sections\ImprovedBuffsSection.lua
 Views\Sections\WarlockCursesSection.lua
 Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
 Views\PaladinBuffGridView.lua
+Views\ImprovedBuffGridView.lua
 Views\PaladinBuffingBarView.lua
 Views\OverviewView.lua
 Views\PallyPowerLogView.lua

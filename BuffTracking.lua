@@ -1,9 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Live tracking of which paladin blessings are ACTUALLY active on each raider
--- right now, as opposed to the planned coverage ComputeBuffGrid derives. This
--- is a shared data layer: the buff grid consumes it to red-flag missing
--- blessings, and future assignment-view features read the same state.
+-- Live tracking of which supported raid buffs are ACTUALLY active on each
+-- raider. This is a shared data layer: the paladin grid consumes blessings to
+-- red-flag missing assignments, while WDW Status consumes the core raid buffs.
 --
 -- The approach mirrors NovaConsumesHelper / NovaRaidCompanion, which track raid
 -- buffs the same way and work well on this client:
@@ -12,7 +11,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   * Event-driven: UNIT_AURA re-scans just the unit whose auras changed, so a
 --     nearby (re)buff shows instantly; a slow full-group poll backstops it for
 --     anything UNIT_AURA doesn't deliver (it fires unreliably for distant
---     units). Blessings last 30 minutes, so a few seconds of lag is fine.
+--     units). These buffs last minutes, so a few seconds of lag is fine.
 --
 -- Range (TBC 2.5.5): unlike retail, the aura LIST for a group member is
 -- available regardless of range -- what goes stale out of range is the
@@ -37,13 +36,15 @@ local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
 -- where ScanUnit falls back to indexed UnitBuff.
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 
--- name -> { buffs = { [buffKey] = true }, connected = bool }. Absence of an
+-- name -> { buffs = { [buffKey] = true }, sources = { [buffKey] = name|false },
+-- connected = bool }. false means the aura is present but its caster was not
+-- exposed by the client. Absence of an
 -- entry means "not yet scanned" (unknown); an entry with an empty buffs table
--- means scanned and confirmed to have none of the blessings we track.
+-- means scanned and confirmed to have none of the buffs we track.
 local state = {}
 
 -- ---------------------------------------------------------------------------
--- Aura name -> PaladinBuffs key
+-- Aura name -> tracked buff key
 -- ---------------------------------------------------------------------------
 
 -- Built lazily from GetSpellInfo: the localized name of a blessing is
@@ -61,6 +62,11 @@ local function BuildNameMap()
         if greaterName then
             nameToKey[greaterName] = key
             nameToKey[(greaterName:gsub("^Greater ", ""))] = key
+        end
+    end
+    for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
+        for _, auraName in ipairs(buff.auraNames) do
+            nameToKey[auraName] = key
         end
     end
 end
@@ -126,31 +132,32 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Walk a unit's buffs, newest API first (C_UnitAuras), indexed UnitBuff as the
--- fallback. Calls fn(auraName) for each; stops at the first empty slot.
-local function ForEachBuffName(unit, fn)
+-- fallback. Calls fn(auraName, sourceUnit) for each.
+local function ForEachBuff(unit, fn)
     local i = 1
     if GetBuffDataByIndex then
         while true do
             local aura = GetBuffDataByIndex(unit, i)
             if not aura then break end
-            if aura.name then fn(aura.name) end
+            if aura.name then fn(aura.name, aura.sourceUnit) end
             i = i + 1
         end
     else
         while true do
-            local auraName = UnitBuff(unit, i)
+            local auraName, _, _, _, _, _, sourceUnit = UnitBuff(unit, i)
             if not auraName then break end
-            fn(auraName)
+            fn(auraName, sourceUnit)
             i = i + 1
         end
     end
 end
 
 -- Did the freshly-scanned buff set differ from what we had stored?
-local function Differs(prev, buffs, connected)
+local function Differs(prev, buffs, sources, connected)
     if not prev or prev.connected ~= connected then return true end
     for key in pairs(buffs) do
         if not prev.buffs[key] then return true end
+        if not prev.sources or prev.sources[key] ~= sources[key] then return true end
     end
     for key in pairs(prev.buffs) do
         if not buffs[key] then return true end
@@ -162,14 +169,17 @@ end
 -- changed. The aura list is available for group members at any range, so a
 -- blessing simply not appearing here is a genuine "missing", not a range gap.
 local function ScanUnit(unit, name)
-    local buffs = {}
-    ForEachBuffName(unit, function(auraName)
+    local buffs, sources = {}, {}
+    ForEachBuff(unit, function(auraName, sourceUnit)
         local key = nameToKey[auraName]
-        if key then buffs[key] = true end
+        if key then
+            buffs[key] = true
+            sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
+        end
     end)
     local connected = UnitIsConnected(unit) ~= false
-    local changed = Differs(state[name], buffs, connected)
-    state[name] = { buffs = buffs, connected = connected }
+    local changed = Differs(state[name], buffs, sources, connected)
+    state[name] = { buffs = buffs, sources = sources, connected = connected }
     return changed
 end
 
@@ -186,7 +196,8 @@ local function NotifyChanged()
     C_Timer.After(NOTIFY_DEBOUNCE, function()
         notifyPending = false
         WhoDoesWhat:RefreshMainAssignmentsView()
-        -- RefreshPaladinBuffGridView also nudges the buffing bar.
+        WhoDoesWhat:RefreshImprovedBuffGridView()
+        -- RefreshPaladinBuffGridView also nudges both compact status views.
         WhoDoesWhat:RefreshPaladinBuffGridView()
     end)
 end
@@ -228,6 +239,37 @@ function WhoDoesWhat:HasBuff(name, key)
     local s = state[name]
     if not s then return nil end
     return s.buffs[key] == true
+end
+
+-- The group-member name that applied a tracked aura, or nil when the aura is
+-- missing/unknown or the client did not expose its source.
+function WhoDoesWhat:GetBuffSource(name, key)
+    local s = state[name]
+    local source = s and s.sources and s.sources[key]
+    return source or nil
+end
+
+-- Status of a talent-improved core buff on one target. The aura itself has no
+-- separate "improved" spell id, so max/partial/base is inferred from its
+-- source player and that player's scanned talent rank.
+function WhoDoesWhat:GetImprovedBuffState(name, key)
+    local has = self:HasBuff(name, key)
+    if has ~= true then return has == false and "missing" or "unknown" end
+
+    local buff = self.CoreRaidBuffs[key]
+    local talent = buff and buff.improvedTalent
+    if not talent then return "present" end
+
+    local source = self:GetBuffSource(name, key)
+    if not source then return "unknown" end
+    local rank = self:GetCoreBuffTalent(source, key)
+    if rank == nil then return "unknown", source end
+    if rank >= talent.maxRank then
+        return "max", source, rank, talent.maxRank
+    elseif rank > 0 then
+        return "partial", source, rank, talent.maxRank
+    end
+    return "base", source, rank, talent.maxRank
 end
 
 -- ---------------------------------------------------------------------------
