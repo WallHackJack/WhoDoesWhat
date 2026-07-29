@@ -272,6 +272,10 @@ local function EnsureView()
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
     titleText:SetText("WDW Status")
+    local totalPercent = title:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    totalPercent:SetPoint("LEFT", titleText, "RIGHT", 4, 0)
+    totalPercent:SetText("(0%)")
+    view.totalPercent = totalPercent
     AttachAltDrag(title)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -349,7 +353,9 @@ end
 function WhoDoesWhat:RefreshOverviewView()
     if not view or not view:IsShown() then return end
     local summary = self.Assign.ComputePaladinBuffSummary()
-    local _, _, coverageByPaladin = self.Assign.ComputePaladinBuffCoverage()
+    local correct, total, coverageByPaladin = self.Assign.ComputePaladinBuffCoverage()
+    local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
+    view.totalPercent:SetText("(" .. totalPercent .. "%)")
     local ppState, ppText = K.GetPallyPowerState(#summary)
     local displayed = {}
     local hideCompleted = self.db.profile.settings.overviewHideCompleted
