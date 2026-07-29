@@ -34,7 +34,7 @@ function WhoDoesWhat:PaladinHasPallyPower(name)
 end
 
 -- Ask PallyPower clients to identify themselves. Each paladin answers REQ
--- with SELF; CHAT_MSG_ADDON below records those replies for the info pane.
+-- with SELF; CHAT_MSG_ADDON below records those replies for raider tooltips.
 function WhoDoesWhat:RequestPallyPowerPeers()
     local channel
     if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then

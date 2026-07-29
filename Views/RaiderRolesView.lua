@@ -1,8 +1,9 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local K = WhoDoesWhat.SectionKit
 
 -- Raider Roles window ("Raider Roles" button on the main view): every group
--- member in one list, bucketed by their assigned role's tank/healer/dps
--- classification and sorted by class then name within a bucket. Each row
+-- member in one of four role grids, bucketed by their assigned role's
+-- tank/healer/dps classification and sorted by class then name. Each row
 -- carries the same role dropdown the unit right-click menu offers, WDW
 -- presence, plus the (!) alert while the player has no usable role.
 --
@@ -20,9 +21,8 @@ local MARGIN = 12
 local SCROLLBAR_W = 26
 local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
 
-local SECTION_GAP = 10
-local SECTION_TITLE_H = 26 -- box interior reserved for the title + divider
-local BOX_PAD = 8
+local GRID_GAP = 10
+local GRID_HEADER_H = 26
 local ROW_H = 30
 local EMPTY_H = 20 -- rows-area height for an empty bucket's hint line
 local DROPDOWN_WIDTH = 130
@@ -35,7 +35,7 @@ local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local SECTIONS = {
     { key = "tank",   title = "Tanks",   empty = "No tanks assigned yet." },
     { key = "healer", title = "Healers", empty = "No healers assigned yet." },
-    { key = "dps",    title = "DPS",     empty = "No DPS assigned yet.", titleH = 22 },
+    { key = "dps",    title = "DPS",     empty = "No DPS assigned yet." },
     { key = "none",   title = "No Role", empty = "Everyone has a role." },
 }
 
@@ -134,7 +134,7 @@ end
 
 local RefreshRoster -- forward declared; row callbacks repaint through it
 
--- Build pooled row #index inside a section box. The position is fixed;
+-- Build pooled row #index inside a role grid. The position is fixed;
 -- RefreshRoster maps a member onto it (row.member) and hides surplus rows, so
 -- the dropdown reads row.member at open time.
 local function CreateRow(f, section, index)
@@ -143,17 +143,12 @@ local function CreateRow(f, section, index)
 
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetSize(box:GetWidth() - BOX_PAD * 2, ROW_H)
-    row:SetPoint("TOPLEFT", BOX_PAD,
-        -(BOX_PAD + (section.titleH or SECTION_TITLE_H) + (index - 1) * ROW_H))
+    row:SetSize(box:GetWidth(), ROW_H)
+    row:SetPoint("TOPLEFT", 0, -(GRID_HEADER_H + (index - 1) * ROW_H))
 
-    if index > 1 then
-        local divider = row:CreateTexture(nil, "ARTWORK")
-        divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
-        divider:SetHeight(1)
-        divider:SetPoint("TOPLEFT", 2, 0)
-        divider:SetPoint("TOPRIGHT", -2, 0)
-    end
+    local stripe = row:CreateTexture(nil, "BACKGROUND")
+    stripe:SetAllPoints()
+    row.stripe = stripe
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(CLASS_ICON_SIZE, CLASS_ICON_SIZE)
@@ -165,6 +160,16 @@ local function CreateRow(f, section, index)
     nameFS:SetJustifyH("LEFT")
     row.nameFS = nameFS
 
+    local nameHover = CreateFrame("Frame", nil, row)
+    nameHover:SetHeight(ROW_H)
+    nameHover:SetPoint("LEFT", 4, 0)
+    nameHover:EnableMouse(true)
+    nameHover:SetScript("OnEnter", function(self)
+        WhoDoesWhat:ShowRaiderTooltip(self, self.memberName)
+    end)
+    nameHover:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
+    row.nameHover = nameHover
+
     -- UIDropDownMenu carries ~15px of transparent padding each side; overhang
     -- the row edge so the visible box lands flush right (same trick as the
     -- main view's rows).
@@ -172,6 +177,7 @@ local function CreateRow(f, section, index)
         "WhoDoesWhatRaiderRoleDD_" .. section.key .. index, row, "UIDropDownMenuTemplate")
     dropdown:SetPoint("RIGHT", row, "RIGHT", 14, -2)
     UIDropDownMenu_SetWidth(dropdown, DROPDOWN_WIDTH)
+    K.LeftAlignDropdown(dropdown)
     UIDropDownMenu_Initialize(dropdown, function(_, level)
         local m = row.member
         if not m then return end
@@ -240,18 +246,18 @@ local function CreateRow(f, section, index)
     return row
 end
 
--- Recompute the scroll child's height from the stacked boxes.
+-- Recompute the scroll child's height from the stacked grids.
 local function UpdateContentHeight(f)
     local h = 0
     for _, section in ipairs(SECTIONS) do
-        h = h + f.sections[section.key].box:GetHeight() + SECTION_GAP
+        h = h + f.sections[section.key].box:GetHeight() + GRID_GAP
     end
     f.content:SetHeight(math.max(h, 1))
     f.scroll:UpdateScrollChildRect()
 end
 
--- Map the current group onto the pooled rows, retitle each box with its
--- count, and resize everything. The boxes are anchor-chained, so height
+-- Map the current group onto the pooled rows, retitle each grid with its
+-- count, and resize everything. The grids are anchor-chained, so height
 -- changes ripple down on their own.
 function RefreshRoster(f)
     local buckets = BucketedMembers()
@@ -267,14 +273,27 @@ function RefreshRoster(f)
             row:Show()
 
             local role, roleId = AssignedRole(m.name)
+            local unit = UnitForName(m.name)
+            local connected = m.isFake
+                or (unit and UnitIsConnected(unit) ~= false) or false
+            local rowColors = connected and m.classInfo.gridRowColors
+                or WhoDoesWhat.DisconnectedGridRowColors
+            local rowColor = rowColors[i % 2 == 1 and 1 or 2]
+            row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
             -- Role's spec icon when we have one; the class icon is the fallback
             -- for roleless / unresolved-role members.
             row.classIcon:SetTexture((role and role.icon) or m.classInfo.classIcon)
-            row.nameFS:SetText("|cff" .. m.classInfo.colorHex .. m.name .. "|r")
+            row.classIcon:SetDesaturated(not connected)
+            row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
+                .. m.name .. "|r")
+            row.nameHover.memberName = m.name
+            row.nameHover:SetWidth(CLASS_ICON_SIZE + 8 + row.nameFS:GetStringWidth())
             local installed = m.name == UnitName("player")
                 or WhoDoesWhat.syncPeers[m.name] == true
-            row.addonIcon:SetTexture(installed and READY_ICON or NOT_READY_ICON)
-            row.addonIcon:SetSize(16, installed and 13 or 16)
+            row.addonIcon:SetTexture(not connected and WhoDoesWhat.WARNING_ICON
+                or (installed and READY_ICON or NOT_READY_ICON))
+            row.addonIcon:SetSize(not connected and WARNING_ICON_SIZE or 16,
+                not connected and WARNING_ICON_SIZE or (installed and 13 or 16))
 
             if role then
                 UIDropDownMenu_SetText(row.dropdown, RoleText(role, m.classInfo))
@@ -291,6 +310,7 @@ function RefreshRoster(f)
             else
                 UIDropDownMenu_DisableDropDown(row.dropdown)
             end
+            row.dropdown:SetAlpha(connected and 1 or 0.55)
 
             row.warnIcon.tooltipText = roleId
                 and (m.name .. "'s saved role no longer exists. Pick a new one.")
@@ -301,18 +321,18 @@ function RefreshRoster(f)
         for i = #members + 1, #state.rows do
             state.rows[i]:Hide()
             state.rows[i].member = nil
+            state.rows[i].nameHover.memberName = nil
         end
         state.emptyHint:SetShown(#members == 0)
 
         local rowsH = (#members > 0) and (#members * ROW_H) or EMPTY_H
-        state.box:SetHeight(BOX_PAD + (section.titleH or SECTION_TITLE_H)
-            + rowsH + BOX_PAD)
+        state.box:SetHeight(GRID_HEADER_H + rowsH)
     end
     UpdateContentHeight(f)
 end
 
 -- Build the window once and reuse it: shared chrome, a scroll column, and the
--- four bucket boxes (rows come from RefreshRoster).
+-- four role grids (rows come from RefreshRoster).
 local function EnsureRolesFrame()
     if rolesFrame then return rolesFrame end
 
@@ -337,44 +357,41 @@ local function EnsureRolesFrame()
     f.sections = {}
     local prevBox
     for _, section in ipairs(SECTIONS) do
-        local box = CreateFrame("Frame", nil, content, "BackdropTemplate")
+        local box = CreateFrame("Frame", nil, content)
         box:SetFrameLevel(content:GetFrameLevel() + 1)
         box:SetWidth(CONTENT_W)
         if prevBox then
-            box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -SECTION_GAP)
+            box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
         else
             box:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
         end
-        box:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        box:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
-        box:SetBackdropBorderColor(0.4, 0.4, 0.4)
         prevBox = box
 
         local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        title:SetPoint("TOPLEFT", BOX_PAD + 2, -BOX_PAD)
+        title:SetPoint("TOPLEFT", 4, -4)
         title:SetText(section.title)
 
         local addonTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         addonTitle:SetWidth(ADDON_COL_W)
         addonTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT",
-            -(BOX_PAD + DROPDOWN_WIDTH + 33), -BOX_PAD)
+            -(DROPDOWN_WIDTH + 33), -5)
         addonTitle:SetJustifyH("CENTER")
         addonTitle:SetText("WDW")
+
+        local roleTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        roleTitle:SetWidth(DROPDOWN_WIDTH)
+        roleTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -5)
+        roleTitle:SetJustifyH("LEFT")
+        roleTitle:SetText("Role")
 
         local line = box:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(0.4, 0.4, 0.4, 0.6)
         line:SetHeight(1)
-        line:SetPoint("TOPLEFT", BOX_PAD, -(BOX_PAD + 16))
-        line:SetPoint("TOPRIGHT", -BOX_PAD, -(BOX_PAD + 16))
+        line:SetPoint("TOPLEFT", 0, -25)
+        line:SetPoint("TOPRIGHT", 0, -25)
 
         local hint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        hint:SetPoint("TOPLEFT", BOX_PAD + 4,
-            -(BOX_PAD + (section.titleH or SECTION_TITLE_H) + 4))
+        hint:SetPoint("TOPLEFT", 4, -(GRID_HEADER_H + 4))
         hint:SetTextColor(0.55, 0.55, 0.55)
         hint:SetText(section.empty)
 
@@ -383,6 +400,7 @@ local function EnsureRolesFrame()
 
     -- Track joins/leaves live while the window is open.
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
+    f:RegisterEvent("UNIT_CONNECTION")
     f:SetScript("OnEvent", function(self)
         if self:IsShown() then
             RefreshRoster(self)
@@ -414,6 +432,7 @@ function WhoDoesWhat:OpenRaiderRolesView()
     self:LogUiBuilding("Opening Raider Roles View...")
     RefreshRoster(f)
     f:Show()
+    self:RequestPallyPowerPeers()
     self:GetModule("Sync"):RequestPeerPresence()
     f:Raise()
 end

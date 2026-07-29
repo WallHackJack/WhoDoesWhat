@@ -301,7 +301,7 @@ local function Build(f, content)
         function()
             A.AutoAssignWarlockCurses()
             WhoDoesWhat:RefreshMainAssignmentsView()
-            -- The info + grid window mirrors the paladin-buff picks; keep it live.
+            -- The buff grid mirrors the paladin-buff picks; keep it live.
             WhoDoesWhat:RefreshPaladinBuffGridView()
         end)
     K.ChainHeaderButton(chrome, autoBtn)

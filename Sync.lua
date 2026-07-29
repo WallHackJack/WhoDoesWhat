@@ -449,6 +449,7 @@ local function StoreHealthstoneRank(senderKey, rank)
     WhoDoesWhat.db.profile.warlockHealthstoneTalents[senderKey] = rank
     LogSync("healthstone talent rank stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshRaiderTooltip()
 end
 
 local function StoreCoreBuffRanks(senderKey, ranks)

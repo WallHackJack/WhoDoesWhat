@@ -435,5 +435,6 @@ function WhoDoesWhat:OpenMainAssignmentsView()
     PruneDepartedAssignments()
     RefreshAll(f)
     f:Show()
+    self:RequestPallyPowerPeers()
     f:Raise()
 end

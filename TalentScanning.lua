@@ -134,7 +134,7 @@ function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
     return ranks and ranks[buffKey] or nil
 end
 
--- Manual "Rescan" (Paladin Info + Grid window). The auto-scanning only ever sees a
+-- Manual "Rescan" (Paladin Buff Grid window). The auto-scanning only ever sees a
 -- paladin's talents when the library manages to inspect them in range or they
 -- broadcast, so a paladin who's been out of range reads stale ranks (most
 -- visibly Kings/Sanctuary showing untalented when they're not). This forces a
@@ -143,7 +143,7 @@ end
 -- paladins get a fresh inspect (DoInspect -> TALENTS_READY ->
 -- ScanPaladinBuffTalents when it lands); out-of-range ones keep their
 -- last-known ranks until they come closer. No-op quietly if the library didn't
--- load. Prints a one-line summary; the boxes repaint as inspects arrive.
+-- load. Prints a one-line summary; open paladin tooltips repaint as inspects arrive.
 local function RescanUtilityTalents(self, wantedClasses, label)
     if not (Inspector and self.db) then return end
 
@@ -341,7 +341,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
 
     -- Paladins additionally get their buff talents read out, feeding the
     -- paladin-buff dropdown preferences and auto-assign in the main view, plus
-    -- the info + grid window that spells the ranks out.
+    -- the shared raider tooltip that spells the ranks out.
     if class == "PALADIN" then
         self:ScanPaladinBuffTalents(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
@@ -349,6 +349,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     elseif class == "WARLOCK" then
         self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
+        self:RefreshRaiderTooltip()
     elseif class == "DRUID" or class == "PRIEST" then
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
         self:RefreshMainAssignmentsView()

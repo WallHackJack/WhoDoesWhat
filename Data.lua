@@ -1,5 +1,10 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
+WhoDoesWhat.DisconnectedGridRowColors = {
+    { r = 0.48, g = 0.48, b = 0.48, a = 0.16 },
+    { r = 0.30, g = 0.30, b = 0.30, a = 0.14 },
+}
+
 -- Define the structured TBC classes, their roles, and colors
 -- Add this directly to your Roles.lua or where WhoDoesWhat.Classes is declared
 WhoDoesWhat.Classes = {
@@ -8,6 +13,10 @@ WhoDoesWhat.Classes = {
         classIcon = 135328, -- FileDataID for class_warrior
         colorHex = "C69B6D",
         colorRGB = { r = 0.78, g = 0.61, b = 0.43 },
+        gridRowColors = {
+            { r = 0.78, g = 0.61, b = 0.43, a = 0.12 },
+            { r = 0.78, g = 0.61, b = 0.43, a = 0.06 },
+        },
         roles = {
             { name = "Fury", icon = 132347, id = "warrior_fury", wowRole = "dps" },
             { name = "Arms", icon = 132333, id = "warrior_arms", wowRole = "dps" },
@@ -23,6 +32,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626003, -- FileDataID for ClassIcon_Paladin
         colorHex = "F48CBA",
         colorRGB = { r = 0.96, g = 0.55, b = 0.73 },
+        gridRowColors = {
+            { r = 0.96, g = 0.55, b = 0.73, a = 0.12 },
+            { r = 0.96, g = 0.55, b = 0.73, a = 0.06 },
+        },
         roles = {
             { name = "Tank", icon = 135893, id = "paladin_prot", wowRole = "tank" },
             { name = "Holy", icon = 135907, id = "paladin_holy", wowRole = "healer" },
@@ -34,6 +47,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626000, -- FileDataID for ClassIcon_Hunter
         colorHex = "AAD372",
         colorRGB = { r = 0.67, g = 0.83, b = 0.45 },
+        gridRowColors = {
+            { r = 0.67, g = 0.83, b = 0.45, a = 0.12 },
+            { r = 0.67, g = 0.83, b = 0.45, a = 0.06 },
+        },
         roles = {
             { name = "Beast Mastery", icon = 132164, id = "hunter_bm", wowRole = "dps" },
             { name = "Survival", icon = 132215, id = "hunter_surv", wowRole = "dps" },
@@ -48,6 +65,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626005, -- FileDataID for ClassIcon_Rogue
         colorHex = "FFF468",
         colorRGB = { r = 1.00, g = 0.96, b = 0.41 },
+        gridRowColors = {
+            { r = 1.00, g = 0.96, b = 0.41, a = 0.12 },
+            { r = 1.00, g = 0.96, b = 0.41, a = 0.06 },
+        },
         roles = {
             { name = "Combat", icon = 132306, id = "rogue_combat", wowRole = "dps" },          -- Ability_Rogue_SliceDice
             { name = "Assassination", icon = 132292, id = "rogue_assassin", wowRole = "dps" }, -- Ability_Rogue_Eviscerate
@@ -62,6 +83,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626004, -- FileDataID for ClassIcon_Priest
         colorHex = "FFFFFF",
         colorRGB = { r = 1.00, g = 1.00, b = 1.00 },
+        gridRowColors = {
+            { r = 1.00, g = 1.00, b = 1.00, a = 0.12 },
+            { r = 1.00, g = 1.00, b = 1.00, a = 0.06 },
+        },
         roles = {
             { name = "Discipline", icon = 135987, id = "priest_disc", wowRole = "healer" }, -- Spell_Holy_WordFortitude
             { name = "Holy", icon = 135920, id = "priest_holy", wowRole = "healer" },       -- Spell_Holy_HolyBolt
@@ -73,6 +98,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626006, -- FileDataID for ClassIcon_Shaman
         colorHex = "0070DD",
         colorRGB = { r = 0.00, g = 0.44, b = 0.87 },
+        gridRowColors = {
+            { r = 0.00, g = 0.44, b = 0.87, a = 0.12 },
+            { r = 0.00, g = 0.44, b = 0.87, a = 0.06 },
+        },
         roles = {
             { name = "Elemental", icon = 136048, id = "shaman_ele", wowRole = "dps" },    -- Spell_Nature_Lightning
             { name = "Enhancement", icon = 136051, id = "shaman_enh", wowRole = "dps" },  -- Spell_Nature_LightningShield
@@ -84,6 +113,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626001, -- FileDataID for ClassIcon_Mage
         colorHex = "3FC7EB",
         colorRGB = { r = 0.25, g = 0.78, b = 0.92 },
+        gridRowColors = {
+            { r = 0.25, g = 0.78, b = 0.92, a = 0.12 },
+            { r = 0.25, g = 0.78, b = 0.92, a = 0.06 },
+        },
         roles = {
             { name = "Arcane", icon = 135932, id = "mage_arcane", wowRole = "dps" }, -- Spell_Holy_MagicalSentry
             { name = "Fire", icon = 135810, id = "mage_fire", wowRole = "dps" },     -- Spell_Fire_FireBolt02
@@ -98,6 +131,10 @@ WhoDoesWhat.Classes = {
         classIcon = 626007, -- FileDataID for ClassIcon_Warlock
         colorHex = "8788EE",
         colorRGB = { r = 0.53, g = 0.53, b = 0.93 },
+        gridRowColors = {
+            { r = 0.53, g = 0.53, b = 0.93, a = 0.12 },
+            { r = 0.53, g = 0.53, b = 0.93, a = 0.06 },
+        },
         roles = {
             { name = "Affliction", icon = 136145, id = "warlock_affl", wowRole = "dps" },   -- Spell_Shadow_DeathCoil
             { name = "Demonology", icon = 136172, id = "warlock_demo", wowRole = "dps" },    -- Spell_Shadow_Metamorphosis
@@ -114,6 +151,10 @@ WhoDoesWhat.Classes = {
         classIcon = 625999, -- FileDataID for ClassIcon_Druid
         colorHex = "FF7C0A",
         colorRGB = { r = 1.00, g = 0.49, b = 0.04 },
+        gridRowColors = {
+            { r = 1.00, g = 0.49, b = 0.04, a = 0.12 },
+            { r = 1.00, g = 0.49, b = 0.04, a = 0.06 },
+        },
         roles = {
             { name = "Feral DPS", icon = 132115, id = "druid_feral_dps", wowRole = "dps" },  -- Ability_Druid_CatForm
             { name = "Feral Tank", icon = 132276, id = "druid_feral_tank", wowRole = "tank" }, -- Ability_Racial_BearForm

@@ -374,7 +374,7 @@ end
 local function PallyBuffSlotEnter(self)
     if not self.buffKey then return end
     local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT", 12, 12)
     GameTooltip:SetText(buff.name_long, 1, 1, 1)
     GameTooltip:AddLine("Casting on " .. self.buffCount
         .. (self.buffCount == 1 and " raider" or " raiders"), 0.8, 0.8, 0.8)
@@ -393,8 +393,8 @@ local function CoverageTextColor(correct, total)
     return 1 - t, 1, 0
 end
 
--- Pooled summary row #index: fixed name column on the left, then adjacent buff
--- icons. Each slot is mouse-enabled so it can tooltip the blessing.
+-- Pooled summary row #index: role/name owns the shared paladin tooltip; each
+-- adjacent buff icon keeps its blessing-specific tooltip.
 local function CreatePallyRow(state, index)
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
@@ -409,6 +409,15 @@ local function CreatePallyRow(state, index)
     name:SetWidth(K.NAME_LABEL_W)
     name:SetJustifyH("LEFT")
     row.nameText = name
+
+    local nameHover = CreateFrame("Frame", nil, row)
+    nameHover:SetSize(K.NAME_LABEL_W, PALLY_ROW_H)
+    nameHover:SetPoint("LEFT", 4, 0)
+    nameHover:EnableMouse(true)
+    nameHover:SetScript("OnEnter", function(self)
+        WhoDoesWhat:ShowRaiderTooltip(self, row.paladinName)
+    end)
+    nameHover:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
 
     row.slots = {}
     for i = 1, PALLY_MAX_BUFFS do
@@ -463,6 +472,7 @@ function Refresh(f) -- forward declared above
     for i, p in ipairs(summary) do
         local row = state.rows[i] or CreatePallyRow(state, i)
         state.rows[i] = row
+        row.paladinName = p.name
         row:Show()
         row.mailBtn:SetShown(editable)
         row.moreText:SetShown(#p.buffs > PALLY_MAX_BUFFS)
@@ -487,6 +497,7 @@ function Refresh(f) -- forward declared above
     end
     for i = #summary + 1, #state.rows do
         state.rows[i]:Hide()
+        state.rows[i].paladinName = nil
     end
 
     state.emptyHint:SetShown(#summary == 0)
@@ -641,10 +652,8 @@ local function Build(f, content)
     local box = chrome.box
 
     local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Full Grid", "Paladin Full Grid",
-        "Open the paladin window: every paladin's buff-talent ranks on"
-        .. " the left, and the buff grid -- every raider against every"
-        .. " paladin, with the blessing each paladin gives them -- on"
-        .. " the right.", function()
+        "Open the buff grid: every raider against every paladin, with"
+        .. " the blessing each paladin gives them.", function()
             WhoDoesWhat:OpenPaladinBuffGridView()
         end)
     K.ChainHeaderButton(chrome, gridBtn)

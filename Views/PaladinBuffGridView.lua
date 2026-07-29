@@ -1,12 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Paladin Info + Grid ("Full Grid" button on the main view): one window,
--- two panes, no scrolling -- the window sizes itself to its content each
--- refresh. The left pane is one box per group paladin with their four
--- buff-talent ranks in a 2x2 square plus their WDW/PallyPower availability
--- (the old Paladin Info window, folded in and condensed). The right pane is
--- the buff grid: every raiding group
--- member down the left with their role icon (Non-raiders are left out
+-- Paladin Buff Grid ("Full Grid" button on the main view): every raiding
+-- group member down the left with their role icon (Non-raiders are left out
 -- entirely), every paladin across the top, and at each intersection the
 -- buff that paladin gives that raider. At SPLIT_AT_ROWS raiders (or more) the
 -- grid splits into two side-by-side blocks (balanced halves), each with its
@@ -19,52 +14,31 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- click-to-customize is the plan for later, which is why the cells are
 -- already buttons.
 --
--- Talent data arrives asynchronously (LibClassicInspector), so a freshly-seen
--- paladin's talent lines read a gray "?" until their data lands; the title
--- bar's Rescan button force-inspects every reachable paladin.
+-- The title bar's Rescan button force-inspects every reachable paladin because
+-- talent data arrives asynchronously through LibClassicInspector.
 --
--- The paladin names are drawn vertically (90 degrees) so a column only needs
--- to be an icon wide. FontStrings can't be rotated directly; the trick is a
--- zero-duration Rotation animation that never ends (huge end delay), which
--- holds the string at its rotated angle indefinitely. Hidden frames stop
--- their animations, so every refresh re-Plays them -- and the window always
--- refreshes on open.
+-- Each paladin column is headed by their role icon with an outlined initial;
+-- hovering it opens the shared paladin detail tooltip.
 
 local gridFrame = nil
 
-local MIN_FRAME_W = 500 -- floor for the title text + title-bar buttons; width tracks columns
+local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width tracks columns
 local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
 local MARGIN = 12
 
 local NAME_COL_W = 150 -- role icon + raider name
 local COL_W = 26       -- one paladin column
 local ROW_H = 22
-local ROLE_ICON_SIZE = 16
+local ROLE_ICON_SIZE = 18
 local CELL_SIZE = 20
-local CELL_ICON_SIZE = 16
-local HEADER_H = 90    -- room for the angled names
+local CELL_ICON_SIZE = 18
+local HEADER_H = 28
 
 -- Grid blocks: at this many raiders (or more) the rows split into two
 -- side-by-side blocks (balanced halves) rather than making the window taller.
 local SPLIT_AT_ROWS = 20
 local BLOCK_GAP = 14
-
--- Left pane: the per-paladin info boxes; the grid pane starts at GRID_X.
-local INFO_COL_W = 270
-local PANE_GAP = 10
-local GRID_X = MARGIN + INFO_COL_W + PANE_GAP
-local INFO_BOX_PAD = 8
-local INFO_GAP = 10 -- vertical gap between paladin boxes
--- Vertical layout inside a paladin box (offsets from the box top): the name
--- line, a divider, then the four talent lines in a 2x2 square (two per row,
--- so only two line-heights).
-local INFO_NAME_Y = INFO_BOX_PAD
-local INFO_DIVIDER_Y = INFO_BOX_PAD + 20
-local INFO_TALENT_Y0 = INFO_BOX_PAD + 26
-local INFO_LINE_H = 16
-local INFO_ADDON_DIVIDER_Y = INFO_TALENT_Y0 + 2 * INFO_LINE_H + 2
-local INFO_ADDON_Y = INFO_ADDON_DIVIDER_Y + 7
-local INFO_BOX_H = INFO_ADDON_Y + INFO_LINE_H + INFO_BOX_PAD
+local GRID_X = MARGIN
 
 -- Group members sorted class > role > name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
@@ -111,155 +85,6 @@ local function GroupPaladins()
     return out
 end
 
--- ---------------------------------------------------------------------------
--- Left pane: per-paladin info boxes
--- ---------------------------------------------------------------------------
-
--- The four talent-affected blessings, in the order the box lists them
--- (Sanctuary last -- it's the nichest of the four). The 1-point talents
--- (max 1) *grant* their blessing outright -- an untalented paladin can't cast
--- Kings or Sanctuary at all -- while the graded ones improve a baseline
--- blessing every paladin already has. Salvation and Light have no talent, so
--- they aren't listed here.
-local TALENT_LINES = {
-    { key = "kings",  max = 1 },
-    { key = "might",  max = 5 },
-    { key = "wisdom", max = 2 },
-    { key = "sanctuary", max = 1 },
-}
-
--- Inline icon markup for a buff key, at the given pixel size.
-local function BuffIcon(key, size)
-    return "|T" .. WhoDoesWhat.PaladinBuffs[key].iconId .. ":" .. size .. ":" .. size .. ":0:0|t"
-end
-
--- One talent line's text: icon + blessing name + a colored status. nil rank
--- (talents not seen yet) reads a gray "?" -- the lines share a 2x2 square,
--- so the status has half a box width at most; an untalented gated blessing
--- collapses to a red X + red name (they can't cast it at all); a graded one
--- shows "n/max" colored by fullness.
-local function TalentLineText(line, rank)
-    local buff = WhoDoesWhat.PaladinBuffs[line.key]
-    local lead = BuffIcon(line.key, 14) .. " " .. buff.name_long
-
-    if rank == nil then
-        return lead .. ": |cff909090?|r"
-    end
-    if line.max == 1 then
-        if rank >= 1 then
-            return lead .. ": |cff40ff40Talented|r"
-        end
-        return "|cffff6060X|r " .. BuffIcon(line.key, 14)
-            .. " |cffff6060" .. buff.name_long .. "|r"
-    end
-
-    local color
-    if rank >= line.max then
-        color = "40ff40" -- full ranks: green
-    elseif rank > 0 then
-        color = "ffd000" -- partial: gold
-    else
-        color = "909090" -- none: gray (baseline blessing still castable)
-    end
-    return lead .. ": |cff" .. color .. rank .. "/" .. line.max .. "|r"
-end
-
--- Build pooled info box #index. Its fontstrings are filled by RefreshInfoPane;
--- the boxes are anchor-chained so a changing count ripples down on its own.
-local function CreateInfoBox(f, index)
-    local box = CreateFrame("Frame", nil, f, "BackdropTemplate")
-    box:SetFrameLevel(f:GetFrameLevel() + 1)
-    box:SetWidth(INFO_COL_W)
-    box:SetHeight(INFO_BOX_H)
-    local prev = f.infoBoxes[index - 1]
-    if prev then
-        box:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -INFO_GAP)
-    else
-        box:SetPoint("TOPLEFT", f, "TOPLEFT", MARGIN, -f.infoTop)
-    end
-    box:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    box:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
-    box:SetBackdropBorderColor(0.4, 0.4, 0.4)
-
-    local nameFS = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    nameFS:SetPoint("TOPLEFT", INFO_BOX_PAD + 2, -INFO_NAME_Y)
-    box.nameFS = nameFS
-
-    local line = box:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.4, 0.4, 0.4, 0.6)
-    line:SetHeight(1)
-    line:SetPoint("TOPLEFT", INFO_BOX_PAD, -INFO_DIVIDER_Y)
-    line:SetPoint("TOPRIGHT", -INFO_BOX_PAD, -INFO_DIVIDER_Y)
-
-    -- The four talent lines as a 2x2 square, row-major (kings | might over
-    -- wisdom | sanctuary), each line owning half the box width.
-    box.talentFS = {}
-    local halfW = (INFO_COL_W - INFO_BOX_PAD * 2) / 2
-    for i = 1, #TALENT_LINES do
-        local col = (i - 1) % 2
-        local rowI = math.floor((i - 1) / 2)
-        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", INFO_BOX_PAD + 4 + col * halfW,
-            -(INFO_TALENT_Y0 + rowI * INFO_LINE_H))
-        fs:SetJustifyH("LEFT")
-        box.talentFS[i] = fs
-    end
-
-    local addonLine = box:CreateTexture(nil, "ARTWORK")
-    addonLine:SetColorTexture(0.4, 0.4, 0.4, 0.6)
-    addonLine:SetHeight(1)
-    addonLine:SetPoint("TOPLEFT", INFO_BOX_PAD, -INFO_ADDON_DIVIDER_Y)
-    addonLine:SetPoint("TOPRIGHT", -INFO_BOX_PAD, -INFO_ADDON_DIVIDER_Y)
-
-    box.addonFS = {}
-    for i = 1, 2 do
-        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", INFO_BOX_PAD + 4 + (i - 1) * halfW, -INFO_ADDON_Y)
-        fs:SetJustifyH("LEFT")
-        box.addonFS[i] = fs
-    end
-
-    f.infoBoxes[index] = box
-    return box
-end
-
-local function AddonStatusText(label, installed)
-    return "|cff" .. (installed and "40ff40" or "ff6060") .. label
-        .. ": " .. (installed and "Yes" or "No") .. "|r"
-end
-
--- Map the current paladins onto pooled info boxes and hide the surplus.
-local function RefreshInfoPane(f, paladins)
-    for i, m in ipairs(paladins) do
-        local box = f.infoBoxes[i] or CreateInfoBox(f, i)
-        box:Show()
-        box.nameFS:SetText("|cff" .. m.classInfo.colorHex .. m.name .. "|r")
-
-        local talents = WhoDoesWhat:GetPaladinBuffTalents(m.name)
-        for j, line in ipairs(TALENT_LINES) do
-            box.talentFS[j]:SetText(TalentLineText(line, talents and talents[line.key]))
-        end
-        box.addonFS[1]:SetText(AddonStatusText("PallyPower",
-            WhoDoesWhat:PaladinHasPallyPower(m.name)))
-        box.addonFS[2]:SetText(AddonStatusText("WDW",
-            m.name == UnitName("player") or WhoDoesWhat.syncPeers[m.name] == true))
-    end
-    for i = #paladins + 1, #f.infoBoxes do
-        f.infoBoxes[i]:Hide()
-    end
-
-    f.infoHint:SetShown(#paladins == 0)
-end
-
--- ---------------------------------------------------------------------------
--- Right pane: the buff grid
--- ---------------------------------------------------------------------------
-
 -- A raider's row icon: their assigned role's icon, their class icon while
 -- they have no (resolvable) role. Pets always show the pet pseudo-role's
 -- icon -- they have no assignment to look up.
@@ -275,23 +100,28 @@ local function RoleIconFor(m)
     return m.classInfo.classIcon
 end
 
--- One angled header name, pooled flat across blocks (RefreshGrid positions
--- it each pass). Anchored by its (pre-rotation) bottom-left at the column's
--- base on the header divider; rotating +90 around that same corner swings
--- the text straight up (vertical, reading bottom-to-top).
+-- One compact paladin header, pooled flat across blocks.
 local function CreateHeaderCell(f, index)
-    local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    fs:SetJustifyH("LEFT")
+    local header = CreateFrame("Button", nil, f)
+    header:SetSize(CELL_SIZE, CELL_SIZE)
 
-    local ag = fs:CreateAnimationGroup()
-    local rot = ag:CreateAnimation("Rotation")
-    rot:SetDegrees(75)
-    rot:SetDuration(0)
-    rot:SetEndDelay(2147483647) -- hold the angle "forever"
-    rot:SetOrigin("BOTTOMLEFT", 0, 0)
+    local icon = header:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    header.icon = icon
 
-    f.headerCells[index] = { fs = fs, ag = ag }
-    return f.headerCells[index]
+    local initial = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    initial:SetPoint("CENTER")
+    local font, size = initial:GetFont()
+    if font then initial:SetFont(font, size + 1, "OUTLINE") end
+    header.initial = initial
+
+    header:SetScript("OnEnter", function(self)
+        WhoDoesWhat:ShowRaiderTooltip(self, self.paladin)
+    end)
+    header:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
+
+    f.headerCells[index] = header
+    return header
 end
 
 -- One grid cell (a button already, for the later click-to-customize).
@@ -302,14 +132,17 @@ local function CreateCell(f, row, c)
     cell:SetPoint("LEFT", row, "LEFT",
         NAME_COL_W + (c - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
 
-    -- Red backdrop, shown when this raider is confirmed to be MISSING the
-    -- blessing this cell plans for them (BuffTracking.lua). Behind the icon so
-    -- the planned buff still reads through it; hidden while they have it or
-    -- while their state is unknown -- not yet scanned or no real unit (see
-    -- WhoDoesWhat:HasBuff).
-    local missing = cell:CreateTexture(nil, "BACKGROUND")
+    -- Bright border, shown when this raider is confirmed to be MISSING the
+    -- blessing this cell plans for them (BuffTracking.lua). The icon is also
+    -- desaturated so missing reads differently without animation or fading.
+    local missing = CreateFrame("Frame", nil, cell, "BackdropTemplate")
     missing:SetAllPoints()
-    missing:SetColorTexture(0.8, 0.1, 0.1, 0.4)
+    missing:SetFrameLevel(cell:GetFrameLevel() + 1)
+    missing:SetBackdrop({
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 2,
+    })
+    missing:SetBackdropBorderColor(1, 0.05, 0.05, 1)
     missing:Hide()
     cell.missing = missing
 
@@ -346,10 +179,10 @@ local function CreateCell(f, row, c)
     return cell
 end
 
--- One pooled raider row: alternate-row stripe (toggled by the refresh, since
--- a row's block-local position moves as the group changes), role icon,
--- class-colored name; the buff cells hang off it per column. RefreshGrid
--- anchors it into its block each pass.
+-- One pooled raider row: class-tinted alternating background (set by the
+-- refresh, since a row's block-local position moves as the group changes),
+-- role icon, class-colored name; the buff cells hang off it per column.
+-- RefreshGrid anchors it into its block each pass.
 local function CreateRow(f, index)
     local row = CreateFrame("Frame", nil, f)
     row:SetFrameLevel(f:GetFrameLevel() + 1)
@@ -357,7 +190,6 @@ local function CreateRow(f, index)
 
     local stripe = row:CreateTexture(nil, "BACKGROUND")
     stripe:SetAllPoints()
-    stripe:SetColorTexture(1, 1, 1, 0.04)
     row.stripe = stripe
 
     local icon = row:CreateTexture(nil, "ARTWORK")
@@ -376,13 +208,11 @@ local function CreateRow(f, index)
 end
 
 -- Map the current group onto the pooled widgets and size the window to its
--- content: width tracks the paladin count and block count, height whichever
--- pane is taller. No scrolling anywhere.
+-- content: width tracks the paladin count and block count. No scrolling.
 local function RefreshGrid(f)
     local members = SortedMembers()
     local paladins = GroupPaladins()
-
-    RefreshInfoPane(f, paladins)
+    local disconnected = WhoDoesWhat.Assign.DisconnectedGroupTargets()
 
     local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
     local rowsPerBlock = math.ceil(#members / numBlocks)
@@ -394,23 +224,27 @@ local function RefreshGrid(f)
     f:SetWidth(math.max(MIN_FRAME_W,
         GRID_X + numBlocks * blockW + (numBlocks - 1) * BLOCK_GAP + MARGIN))
 
-    -- Angled paladin names above every block, from one flat pool.
+    -- Role-icon paladin headers above every block, from one flat pool.
     local hc = 0
     for b = 1, numBlocks do
         for c, p in ipairs(paladins) do
             hc = hc + 1
-            local cell = f.headerCells[hc] or CreateHeaderCell(f, hc)
-            cell.fs:ClearAllPoints()
-            cell.fs:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + NAME_COL_W + (c - 1) * COL_W + COL_W / 2 - 5, -(f.headerBottom + 6))
-            cell.fs:SetText("|cff" .. p.classInfo.colorHex .. p.name .. "|r")
-            cell.fs:Show()
-            cell.ag:Stop()
-            cell.ag:Play() -- re-apply the angle (hidden frames stop animations)
+            local header = f.headerCells[hc] or CreateHeaderCell(f, hc)
+            header:ClearAllPoints()
+            header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
+                BlockX(b) + NAME_COL_W + (c - 1) * COL_W
+                    + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
+            header.paladin = p.name
+            header.icon:SetTexture(RoleIconFor(p))
+            header.initial:SetText(p.name:sub(1, 1))
+            header.initial:SetTextColor(p.classInfo.colorRGB.r,
+                p.classInfo.colorRGB.g, p.classInfo.colorRGB.b)
+            header:Show()
         end
     end
     for i = hc + 1, #f.headerCells do
-        f.headerCells[i].fs:Hide()
+        f.headerCells[i]:Hide()
+        f.headerCells[i].paladin = nil
     end
 
     -- One "Raider" label per visible block.
@@ -442,10 +276,16 @@ local function RefreshGrid(f)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", f, "TOPLEFT",
             BlockX(b), -(f.headerBottom + 4 + (localRow - 1) * ROW_H))
-        row.stripe:SetShown(localRow % 2 == 1)
+        local connected = m.isFake or not disconnected[m.name]
+        local rowColors = connected and m.classInfo.gridRowColors
+            or WhoDoesWhat.DisconnectedGridRowColors
+        local rowColor = rowColors[localRow % 2 == 1 and 1 or 2]
+        row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
         row:Show()
         row.roleIcon:SetTexture(RoleIconFor(m))
-        row.nameFS:SetText("|cff" .. m.classInfo.colorHex .. m.name .. "|r")
+        row.roleIcon:SetDesaturated(not connected)
+        row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
+            .. m.name .. "|r")
 
         local cellsFor = plan[m.name] or {}
         for c = 1, #paladins do
@@ -464,12 +304,14 @@ local function RefreshGrid(f)
                 cell.isGreater = nil
                 cell.icon:Hide()
             end
-            -- Red only when the raider is confirmed to lack the planned buff;
-            -- unknown and simulated-paladin cells never flag.
-            cell.missing:SetShown(cell.buffKey ~= nil
+            -- Gray + red outline only when the raider is confirmed to lack
+            -- the planned buff; unknown and simulated cells never flag.
+            local isMissing = cell.buffKey ~= nil
                 and not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(cell.paladin, m.name)
-                and WhoDoesWhat:HasBuff(m.name, cell.buffKey) == false)
-            cell:Show()
+                and WhoDoesWhat:HasBuff(m.name, cell.buffKey) == false
+            cell.missing:SetShown(isMissing)
+            cell.icon:SetDesaturated(isMissing)
+            cell:SetShown(connected)
         end
         for c = #paladins + 1, #row.cells do
             row.cells[c]:Hide()
@@ -479,26 +321,20 @@ local function RefreshGrid(f)
         f.rows[i]:Hide()
     end
 
-    -- Height to the taller pane, chrome included.
-    local infoH = f.infoTop + #paladins * (INFO_BOX_H + INFO_GAP) + MARGIN
     local gridH = f.headerBottom + 4 + rowsPerBlock * ROW_H + MARGIN
-    f:SetHeight(math.max(infoH, gridH, MIN_FRAME_H))
+    f:SetHeight(math.max(gridH, MIN_FRAME_H))
 end
 
--- Build the window once and reuse it: shared chrome, the info pane on the
--- left, and on the right the header strip for the angled names plus the
--- raider-row blocks. Everything parents straight onto the window -- no
--- scroll frames; RefreshGrid sizes the window to the content instead.
+-- Build the window once and reuse it. Everything parents straight onto the
+-- window; RefreshGrid sizes it to the content.
 local function EnsureGridFrame()
     if gridFrame then return gridFrame end
 
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatPaladinBuffGridFrame",
-        MIN_FRAME_W, MIN_FRAME_H, "WhoDoesWhat - Paladin Info + Grid")
+        MIN_FRAME_W, MIN_FRAME_H, "WhoDoesWhat - Paladin Buff Grid")
 
     -- "Rescan" in the title bar: force a fresh inspect of every reachable
-    -- paladin (see WhoDoesWhat:RescanPaladinTalents). Talent data only arrives
-    -- for paladins the library can inspect in range, so this is the fix when a
-    -- box reads the wrong ranks (typically Kings/Sanctuary as untalented).
+    -- paladin (see WhoDoesWhat:RescanPaladinTalents).
     local rescan = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     rescan:SetSize(60, 18)
     rescan:SetPoint("TOPRIGHT", -28, -6)
@@ -514,25 +350,8 @@ local function EnsureGridFrame()
     end)
     rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Left pane origin: where the first info box hangs (CreateInfoBox).
-    f.infoTop = f.titleBarHeight + 10
-
-    local infoHint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    infoHint:SetPoint("TOPLEFT", MARGIN + 4, -(f.infoTop + 4))
-    infoHint:SetTextColor(0.55, 0.55, 0.55)
-    infoHint:SetText("No paladins in the group.")
-    f.infoHint = infoHint
-
-    -- Vertical divider between the panes, centered in PANE_GAP. Anchored to
-    -- the window bottom, so it follows the computed height.
-    local vline = f:CreateTexture(nil, "ARTWORK")
-    vline:SetColorTexture(0.4, 0.4, 0.4, 0.6)
-    vline:SetWidth(1)
-    vline:SetPoint("TOPLEFT", GRID_X - PANE_GAP / 2, -f.infoTop)
-    vline:SetPoint("BOTTOMLEFT", GRID_X - PANE_GAP / 2, MARGIN)
-
-    -- Everything in the grid header hangs off this: the y where the angled
-    -- names stand and the rows begin.
+    -- Everything in the grid header hangs off this: the y where the paladin
+    -- role icons stand and the rows begin.
     f.headerBottom = f.titleBarHeight + 8 + HEADER_H
 
     -- One "Raider" label per possible block; RefreshGrid positions and shows
@@ -558,14 +377,14 @@ local function EnsureGridFrame()
     hint:SetText("No paladins in the group.")
     f.emptyHint = hint
 
-    WhoDoesWhat:LogUiBuilding("Building paladin info + grid content.")
+    WhoDoesWhat:LogUiBuilding("Building paladin buff grid content.")
 
     f.headerCells = {}
     f.rows = {}
-    f.infoBoxes = {}
 
     -- Track joins/leaves live while the window is open.
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
+    f:RegisterEvent("UNIT_CONNECTION")
     f:SetScript("OnEvent", function(self)
         if self:IsShown() then
             RefreshGrid(self)
@@ -576,7 +395,7 @@ local function EnsureGridFrame()
     return f
 end
 
--- Repaint (both panes) if the window is up. Called from outside the view when
+-- Repaint the grid if the window is up. Called from outside the view when
 -- buff assignments change (SetAssignment / auto-assign) or talent data
 -- arrives (TalentScanning.lua, Sync.lua). This is the de-facto "buff plan
 -- changed" hook, so it also nudges the compact status views -- every plan-
@@ -586,24 +405,24 @@ function WhoDoesWhat:RefreshPaladinBuffGridView()
     if gridFrame and gridFrame:IsShown() then
         RefreshGrid(gridFrame)
     end
+    self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
     self:RefreshOverviewView()
 end
 
--- Toggle the info + grid window open/closed. Shown before the refresh so the
+-- Toggle the grid window open/closed. Shown before the refresh so the
 -- header-name rotation animations play against a visible frame.
 function WhoDoesWhat:OpenPaladinBuffGridView()
     local f = EnsureGridFrame()
 
     if f:IsShown() then
-        self:LogUiBuilding("Paladin Info + Grid View open, closing it.")
+        self:LogUiBuilding("Paladin Buff Grid View open, closing it.")
         f:Hide()
         return
     end
 
-    self:LogUiBuilding("Opening Paladin Info + Grid View...")
+    self:LogUiBuilding("Opening Paladin Buff Grid View...")
     f:Show()
-    self:RequestPallyPowerPeers()
     RefreshGrid(f)
     f:Raise()
 end

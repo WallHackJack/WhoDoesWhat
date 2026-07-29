@@ -1720,7 +1720,7 @@ local function SetAssignment(rowId, playerName)
     end
 
     WhoDoesWhat:RefreshMainAssignmentsView()
-    -- The info + grid window mirrors the paladin-buff picks; keep it live.
+    -- The buff grid mirrors the paladin-buff picks; keep it live.
     WhoDoesWhat:RefreshPaladinBuffGridView()
 end
 
@@ -1945,6 +1945,7 @@ WhoDoesWhat.Assign = {
     GetPaladinBuffPlan = ComputePaladinBuffPlan,
     ComputeBuffGrid = ComputeBuffGrid,
     IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
+    DisconnectedGroupTargets = DisconnectedGroupTargets,
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
     ComputeImprovedBuffCoverage = ComputeImprovedBuffCoverage,
