@@ -144,8 +144,8 @@ WhoDoesWhat.PaladinBuffs = {
         normalSpellId = 20217 -- Blessing of Kings
     },
     might = {
-        icon = "Interface\\Icons\\Spell_Holy_FistOfJustice",
-        iconId = 135906,
+        icon = 135908, -- Spell_Holy_GreaterBlessingofKings (Greater Might in this client)
+        iconId = 135908,
         name_short = "Might",
         name_long = "Might",
         spellId = 27141, -- Greater Blessing of Might (Rank 3)
@@ -160,8 +160,8 @@ WhoDoesWhat.PaladinBuffs = {
         normalSpellId = 27144 -- Blessing of Light (Rank 4)
     },
     wisdom = {
-        icon = "Interface\\Icons\\Spell_Holy_SealOfWisdom",
-        iconId = 135970,
+        icon = 135912, -- Spell_Holy_GreaterBlessingofWisdom
+        iconId = 135912,
         name_short = "Wisdom",
         name_long = "Wisdom",
         spellId = 27143, -- Greater Blessing of Wisdom (Rank 3)

@@ -27,7 +27,7 @@ local BTN_SIZE = 28
 local BTN_GAP = 3
 local COUNT_H = 10     -- room under a button for its count text
 local PLAYER_MENU_W = 180
-local PLAYER_HEADER_H = 28
+local PLAYER_HEADER_H = 24
 local PLAYER_W = PLAYER_MENU_W - INSET * 2
 local PLAYER_H = 22
 local PLAYER_GAP = 0
@@ -210,9 +210,20 @@ local function JobIsReady(job, nameToUnit)
     return false
 end
 
--- Start/stop the Nova-style pixel-glow border on a button, tracking state so
--- the animation isn't restarted every refresh.
+-- Wide rows pulse their existing 1px outline; square class buttons keep the
+-- Nova-style pixel glow. Track state so refreshes don't restart animations.
 local function SetButtonGlow(btn, on, color, inset)
+    if btn.outlinePulse then
+        if on and not btn.glowing then
+            btn.outlinePulse:Play()
+            btn.glowing = true
+        elseif not on and btn.glowing then
+            btn.outlinePulse:Stop()
+            btn.outline:SetAlpha(1)
+            btn.glowing = false
+        end
+        return
+    end
     if not LCG then return end
     if on then
         if not btn.glowing then
@@ -269,20 +280,33 @@ end
 local function UpdatePlayerAura(p)
     local expirationTime, found = FindPlayerBlessing(p)
     local missing = p.castUnit and not found
+    local inRange = not p.castUnit or TargetInRange(p.castUnit, p.normalSpellId)
     local remaining = found and expirationTime and expirationTime > 0
         and math.max(expirationTime - GetTime(), 0) or nil
     p.missing:SetShown(missing)
-    SetButtonGlow(p, missing and p:GetParent():IsShown(), MISSING_GLOW_COLOR, 1)
-    if found or not p.castUnit then
+    SetButtonGlow(p, missing and inRange and p:GetParent():IsShown(), MISSING_GLOW_COLOR, 1)
+    if not inRange then
+        p.bg:SetColorTexture(0.14, 0.09, 0.09, 0.96)
+        p.outline:SetColorTexture(0.055, 0.035, 0.035, 1)
+    elseif found or not p.castUnit then
         if remaining and remaining < 300
             and WhoDoesWhat.db.profile.settings.buffingMenuWarnExpiring then
             p.bg:SetColorTexture(0.38, 0.29, 0.03, 0.96)
+            p.outline:SetColorTexture(0.16, 0.11, 0.01, 1)
         else
             p.bg:SetColorTexture(0.08, 0.28, 0.08, 0.96)
+            p.outline:SetColorTexture(0.02, 0.11, 0.02, 1)
         end
     else
         p.bg:SetColorTexture(0.34, 0.07, 0.07, 0.96)
+        p.outline:SetColorTexture(1, 0.45, 0.04, 1)
     end
+    p.icon:SetDesaturated(not inRange)
+    p.specIcon:SetDesaturated(not inRange)
+    local textShade = inRange and 1 or 0.6
+    local color = p.nameColor
+    p.name:SetTextColor(color.r * textShade, color.g * textShade, color.b * textShade)
+    p.timer:SetTextColor(textShade, textShade, textShade)
     if remaining then
         local minutes = math.floor(remaining / 60)
         p.timer:SetFormattedText("%d:%02d", minutes, math.floor(remaining - minutes * 60))
@@ -297,8 +321,21 @@ local function CreatePlayerButton(btn, index)
     p:RegisterForClicks("AnyUp", "AnyDown")
     p:SetSize(PLAYER_W, PLAYER_H)
 
-    local bg = p:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
+    local outline = p:CreateTexture(nil, "BACKGROUND", nil, 0)
+    outline:SetAllPoints()
+    p.outline = outline
+
+    local outlinePulse = outline:CreateAnimationGroup()
+    outlinePulse:SetLooping("BOUNCE")
+    local pulseAlpha = outlinePulse:CreateAnimation("Alpha")
+    pulseAlpha:SetFromAlpha(0.35)
+    pulseAlpha:SetToAlpha(1)
+    pulseAlpha:SetDuration(0.9)
+    p.outlinePulse = outlinePulse
+
+    local bg = p:CreateTexture(nil, "BACKGROUND", nil, 1)
+    bg:SetPoint("TOPLEFT", 1, -1)
+    bg:SetPoint("BOTTOMRIGHT", -1, 1)
     p.bg = bg
 
     local icon = p:CreateTexture(nil, "ARTWORK")
@@ -307,10 +344,18 @@ local function CreatePlayerButton(btn, index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     p.icon = icon
 
-    local name = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    name:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    local specIcon = p:CreateTexture(nil, "ARTWORK")
+    specIcon:SetSize(PLAYER_H - 4, PLAYER_H - 4)
+    specIcon:SetPoint("LEFT", icon, "RIGHT", 3, 0)
+    specIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    p.specIcon = specIcon
+
+    local name = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", specIcon, "RIGHT", 5, 0)
     name:SetPoint("RIGHT", -55, 0)
-    name:SetJustifyH("RIGHT")
+    name:SetJustifyH("LEFT")
+    local font, size = name:GetFont()
+    if font then name:SetFont(font, size, "OUTLINE") end
     p.name = name
 
     local timer = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -326,7 +371,11 @@ local function CreatePlayerButton(btn, index)
     missing:Hide()
     p.missing = missing
 
-    p:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2")
+    local highlight = p:CreateTexture(nil, "BACKGROUND", nil, 2)
+    highlight:SetPoint("TOPLEFT", 1, -1)
+    highlight:SetPoint("BOTTOMRIGHT", -1, 1)
+    highlight:SetColorTexture(1, 1, 1, 0.1)
+    p:SetHighlightTexture(highlight)
     p:SetScript("PostClick", function(self, mouseButton)
         if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks or not self.member then return end
         WhoDoesWhat:Print("Buffing bar player click: " .. tostring(mouseButton)
@@ -338,39 +387,74 @@ end
 
 local function ConfigurePlayerMenu(btn, job, nameToUnit)
     local menu = btn.playerMenu
-    menu:SetAttribute("Display", #job.raiders > 0 and 1 or 0)
-    menu:SetSize(PLAYER_MENU_W, INSET * 2 + PLAYER_HEADER_H + PLAYER_GAP
-        + math.max(#job.raiders, 1) * PLAYER_H
-        + math.max(#job.raiders - 1, 0) * PLAYER_GAP)
-    menu.count:SetText(job.covered .. "/" .. job.total)
-    menu.count:SetTextColor(CountColor(job.covered, job.total))
-    for i, member in ipairs(job.raiders) do
-        local p = btn.playerButtons[i] or CreatePlayerButton(btn, i)
+    local shown, covered = 0, 0
+    local color = job.classInfo.colorRGB
+    menu:SetBackdropColor(0.04 + color.r * 0.18,
+        0.04 + color.g * 0.18, 0.04 + color.b * 0.18, 0.97)
+    menu.headerBg:SetColorTexture(0.02 + color.r * 0.16,
+        0.02 + color.g * 0.16, 0.02 + color.b * 0.16, 1)
+    local members = {}
+    for i, member in ipairs(job.raiders) do members[i] = member end
+    table.sort(members, function(a, b)
+        if (a.isPet or false) ~= (b.isPet or false) then return not a.isPet end
+        if a.isGreater ~= b.isGreater then return a.isGreater end
+        local ac = (a.classInfo or job.classInfo).name
+        local bc = (b.classInfo or job.classInfo).name
+        if ac ~= bc then return ac < bc end
+        local ar = a.isPet and math.huge or WhoDoesWhat:RoleSortRank(a.name)
+        local br = b.isPet and math.huge or WhoDoesWhat:RoleSortRank(b.name)
+        if ar ~= br then return ar < br end
+        return a.name < b.name
+    end)
+    for _, member in ipairs(members) do
         local unit = CastUnit(member, nameToUnit)
-        local normalMeta = WhoDoesWhat.PaladinBuffs[member.key]
-        local greater = job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)
-        local normal = normalMeta and GetSpellInfo(normalMeta.normalSpellId)
+        local connectionUnit = member.isPet and nameToUnit[member.owner] or unit
+        if not connectionUnit or UnitIsConnected(connectionUnit) ~= false then
+            shown = shown + 1
+            if member.has == true then covered = covered + 1 end
+            local p = btn.playerButtons[shown] or CreatePlayerButton(btn, shown)
+            local normalMeta = WhoDoesWhat.PaladinBuffs[member.key]
+            local greater = job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)
+            local normal = normalMeta and GetSpellInfo(normalMeta.normalSpellId)
 
-        p.member, p.job, p.castUnit = member, job, unit
-        p.greaterName, p.normalName = greater, normal
-        p.icon:SetTexture(normalMeta and normalMeta.normalIcon)
-        p.name:SetText((member.name:gsub("%-.*$", "")) .. (member.isPet and " (Pet)" or ""))
-        p:SetAlpha(1)
-        p:SetAttribute("type1", unit and greater and "spell" or nil)
-        p:SetAttribute("spell1", unit and greater or nil)
-        p:SetAttribute("unit1", unit)
-        p:SetAttribute("type2", unit and normal and "spell" or nil)
-        p:SetAttribute("spell2", unit and normal or nil)
-        p:SetAttribute("unit2", unit)
-        UpdatePlayerAura(p)
-        p:Show()
+            p.member, p.job, p.castUnit = member, job, unit
+            p.greaterName, p.normalName = greater, normal
+            p.normalSpellId = normalMeta and normalMeta.normalSpellId
+            p.icon:SetTexture(member.isGreater and job.greaterBuff.icon
+                or (normalMeta and normalMeta.normalIcon))
+            if member.isPet then
+                p.specIcon:SetTexture(WhoDoesWhat.HunterPetRole.icon)
+            else
+                local roleId = WhoDoesWhat:GetAssignedRole(member.name)
+                local role = roleId and select(2, WhoDoesWhat:FindRoleById(roleId))
+                p.specIcon:SetTexture((role and role.icon) or job.classInfo.classIcon)
+            end
+            p.name:SetText(member.name:gsub("%-.*$", ""))
+            p.nameColor = (member.classInfo or job.classInfo).colorRGB
+            p:SetAlpha(1)
+            p:SetAttribute("type1", unit and greater and "spell" or nil)
+            p:SetAttribute("spell1", unit and greater or nil)
+            p:SetAttribute("unit1", unit)
+            p:SetAttribute("type2", unit and normal and "spell" or nil)
+            p:SetAttribute("spell2", unit and normal or nil)
+            p:SetAttribute("unit2", unit)
+            UpdatePlayerAura(p)
+            p:Show()
+        end
     end
-    for i = #job.raiders + 1, #btn.playerButtons do
+    menu:SetAttribute("Display", shown > 0 and 1 or 0)
+    menu:SetSize(PLAYER_MENU_W, INSET * 2 + PLAYER_HEADER_H + PLAYER_GAP
+        + math.max(shown, 1) * PLAYER_H + math.max(shown - 1, 0) * PLAYER_GAP)
+    menu.count:SetText(covered .. "/" .. shown)
+    menu.count:SetTextColor(CountColor(covered, shown))
+    for i = shown + 1, #btn.playerButtons do
         local p = btn.playerButtons[i]
         SetButtonGlow(p, false)
         p:Hide()
         p.member, p.job, p.castUnit = nil, nil, nil
         p.greaterName, p.normalName = nil, nil
+        p.normalSpellId = nil
+        p.nameColor = nil
         p:SetAttribute("type1", nil)
         p:SetAttribute("type2", nil)
     end
@@ -486,6 +570,7 @@ local function CreateButton(index)
     headerBg:SetPoint("TOPRIGHT", -INSET, -INSET)
     headerBg:SetHeight(PLAYER_HEADER_H)
     headerBg:SetColorTexture(0.09, 0.09, 0.11, 1)
+    playerMenu.headerBg = headerBg
 
     local clickHint = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     clickHint:SetPoint("TOPLEFT", headerBg, "TOPLEFT", 4, -2)
@@ -493,7 +578,7 @@ local function CreateButton(index)
     clickHint:SetTextColor(0.4, 0.7, 1)
     clickHint:SetJustifyH("LEFT")
 
-    local menuCount = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local menuCount = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     menuCount:SetPoint("RIGHT", headerBg, "RIGHT", -4, 0)
     playerMenu.count = menuCount
 
@@ -799,7 +884,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         bar:SetSize(200, CONTENT_TOP + 18 + INSET)
     else
         bar:SetSize(INSET * 2 + PAD * 2 + n * BTN_SIZE + (n - 1) * BTN_GAP,
-            CONTENT_TOP + BTN_SIZE + COUNT_H + INSET)
+            CONTENT_TOP + BTN_SIZE + COUNT_H + INSET + 1)
     end
     WirePlayerMenus()
     for i = 1, n do PositionPlayerMenu(bar.buttons[i]) end

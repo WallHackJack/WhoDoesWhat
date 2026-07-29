@@ -115,10 +115,10 @@ end
 -- out with them -- the class-filtered roster already drops both). Pets are
 -- not assignable and never stored: they exist purely for the paladin-buff
 -- math, each carrying the hunter_pets pseudo-role's wants so pet coverage
--- is derived automatically. Keyed/displayed as "<Hunter>'s Pet" (real
--- character names can't contain an apostrophe, so the keys can't collide
--- with a raider); entries carry owner + isPet for the buff grid view and
--- the PallyPower bridge.
+-- is derived automatically. Keyed as "<Hunter>'s Pet" (real character names
+-- can't contain an apostrophe, so the keys can't collide with a raider); live
+-- views may display the pet's real name, falling back to its hunter. Entries
+-- carry owner + isPet for the buff grid view and the PallyPower bridge.
 local function GetPetMembers()
     local out = {}
     for _, m in ipairs(GetEligibleMembers("Hunter")) do
@@ -783,9 +783,10 @@ end
 -- Per-raider buff plan (the buff grid's cells + the main window's paladin
 -- summary rows)
 --
--- There is no stored per-buff assignment: coverage is derived, fresh on
--- every call, from the roster + roles + talents + the custom rules above,
--- so it can never go stale against them. Every (non-non-raider) paladin
+-- There is no stored per-buff assignment: coverage is derived from the roster
+-- + roles + talents + the custom rules above. The complete derived plan is
+-- cached by those inputs so every view reads the same snapshot and the exact
+-- matcher runs only when an input changes. Every (non-non-raider) paladin
 -- takes part.
 --
 -- Each raider's paladins-to-buffs matching is solved as a whole (a tiny
@@ -969,8 +970,82 @@ end
 local GRID_POS_VALUE = {}
 for i = 1, 6 do GRID_POS_VALUE[i] = (7 - i) * (7 - i) * 1000 end
 
-local function ComputeBuffGrid()
+local cachedBuffPlanKey, cachedBuffPlan
+
+-- Cheap deterministic key for every input to the expensive matching below.
+-- This avoids a brittle list of invalidation calls across roster, talent,
+-- role-customization, sync, fake-raid, and local-rule mutation paths.
+local function BuffPlanKey(ignored, prioritized)
+    local parts = {}
+    local function Add(value) parts[#parts + 1] = tostring(value or "") end
+
+    for _, rule in ipairs(GetBuffRules()) do
+        Add("rule")
+        Add(rule.buff); Add(rule.kind); Add(rule.scope); Add(rule.value)
+    end
+    for _, m in ipairs(GetEligibleMembers(nil)) do
+        local roleId = WhoDoesWhat:GetAssignedRole(m.name)
+        Add("member"); Add(m.name); Add(m.classInfo.name); Add(roleId)
+        if not WhoDoesWhat:IsNonRaider(m.name) then
+            Add(table.concat(RuleAdjustedOrder(m, ignored, prioritized), ","))
+        end
+    end
+    for _, name in ipairs(MembersOfClass("Paladin")) do
+        Add("paladin"); Add(name)
+        for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+            Add(BuffTalentRank(name, key))
+        end
+    end
+    return table.concat(parts, "\31")
+end
+
+-- Collapse per-target cells into one class Greater per paladin. Real class
+-- members decide; virtual pets vote only when the Warrior bucket has no real
+-- assignments. Ties follow canonical blessing order.
+local function ComputeGreaterAssignments(plan, targetClass, petTargets)
+    local votes = {}
+    for raider, cells in pairs(plan) do
+        local className = targetClass[raider]
+        for paladin, key in pairs(cells) do
+            votes[paladin] = votes[paladin] or {}
+            local bucket = votes[paladin][className]
+            if not bucket then
+                bucket = { all = {}, real = {} }
+                votes[paladin][className] = bucket
+            end
+            bucket.all[key] = (bucket.all[key] or 0) + 1
+            if not petTargets[raider] then
+                bucket.real[key] = (bucket.real[key] or 0) + 1
+            end
+        end
+    end
+
+    local canonicalIndex = {}
+    for i, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do canonicalIndex[key] = i end
+    local greaterByPaladin = {}
+    for paladin, byClass in pairs(votes) do
+        local greater = {}
+        for className, bucket in pairs(byClass) do
+            local tally = next(bucket.real) and bucket.real or bucket.all
+            local bestKey, bestCount
+            for key, count in pairs(tally) do
+                if not bestKey or count > bestCount
+                    or (count == bestCount and canonicalIndex[key] < canonicalIndex[bestKey]) then
+                    bestKey, bestCount = key, count
+                end
+            end
+            greater[className] = bestKey
+        end
+        greaterByPaladin[paladin] = greater
+    end
+    return greaterByPaladin
+end
+
+local function ComputePaladinBuffPlan()
     local ignored, prioritized, preferred = CompileBuffRules()
+    local cacheKey = BuffPlanKey(ignored, prioritized)
+    if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
+
     local pool = MembersOfClass("Paladin") -- sorted names
     local primary, forced = ComputePrimaries(pool, ignored, prioritized, preferred)
 
@@ -990,7 +1065,7 @@ local function ComputeBuffGrid()
     -- reaching it and the picks that did. Each paladin either sits out (mask
     -- unchanged) or takes one free position they can cast. Masks are walked
     -- numerically so equal-score ties resolve the same way every refresh.
-    local function SolveRaider(order)
+    local function SolveRaider(order, unavailable)
         local dp = { [0] = { score = 0, picks = {} } }
         for p = 1, #pool do
             local name = pool[p]
@@ -1003,28 +1078,30 @@ local function ComputeBuffGrid()
                     if not cur or st.score > cur.score then
                         ndp[mask] = st
                     end
-                    for i = 1, #order do
-                        local ibit = bit.lshift(1, i - 1)
-                        local key = order[i]
-                        if bit.band(mask, ibit) == 0 and CanCast(name, key) then
-                            -- The +15 primary stickiness outweighs one talent
-                            -- rank but not two: near-ties consolidate on the
-                            -- primary owner, real rank gaps still win. A
-                            -- prefer-rule pair scores +100 instead -- past
-                            -- any possible rank gap (max 50), so the user's
-                            -- pick holds; position values still dominate, so
-                            -- nobody is force-fed a buff they don't want.
-                            local score = st.score + GRID_POS_VALUE[i]
-                                + (BuffTalentRank(name, key) or 0) * 10
-                                + (forced[name] == key and 100
-                                    or primary[name] == key and 15 or 0)
-                            local nmask = mask + ibit
-                            local prev = ndp[nmask]
-                            if not prev or score > prev.score then
-                                local picks = {}
-                                for pp, ii in pairs(st.picks) do picks[pp] = ii end
-                                picks[p] = i
-                                ndp[nmask] = { score = score, picks = picks }
+                    if not (unavailable and unavailable[name]) then
+                        for i = 1, #order do
+                            local ibit = bit.lshift(1, i - 1)
+                            local key = order[i]
+                            if bit.band(mask, ibit) == 0 and CanCast(name, key) then
+                                -- The +15 primary stickiness outweighs one talent
+                                -- rank but not two: near-ties consolidate on the
+                                -- primary owner, real rank gaps still win. A
+                                -- prefer-rule pair scores +100 instead -- past
+                                -- any possible rank gap (max 50), so the user's
+                                -- pick holds; position values still dominate, so
+                                -- nobody is force-fed a buff they don't want.
+                                local score = st.score + GRID_POS_VALUE[i]
+                                    + (BuffTalentRank(name, key) or 0) * 10
+                                    + (forced[name] == key and 100
+                                        or primary[name] == key and 15 or 0)
+                                local nmask = mask + ibit
+                                local prev = ndp[nmask]
+                                if not prev or score > prev.score then
+                                    local picks = {}
+                                    for pp, ii in pairs(st.picks) do picks[pp] = ii end
+                                    picks[p] = i
+                                    ndp[nmask] = { score = score, picks = picks }
+                                end
                             end
                         end
                     end
@@ -1048,25 +1125,64 @@ local function ComputeBuffGrid()
         return cells
     end
 
-    local plan = {}
+    local plan, targetClass, petTargets = {}, {}, {}
     for _, m in ipairs(GetEligibleMembers(nil)) do
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
             local order = RuleAdjustedOrder(m, ignored, prioritized)
             plan[m.name] = SolveRaider(order)
+            targetClass[m.name] = m.classInfo.name
         end
     end
 
-    -- Each hunter's pet rides along as a virtual raider under the same exact
-    -- matching, wanting only the pet order. A pet is its OWN blessing target
-    -- (the owner's class-wide Greater Blessing never reaches it), so these
-    -- cells show which paladin should single-buff each pet; the PallyPower
-    -- bridge pushes them as per-pet Normal blessings.
+    -- First establish real Warrior Greaters, then build each pet row around
+    -- that inherited coverage. Remaining wants are exactly matched across the
+    -- unused paladins as Lesser exceptions. With no real Warrior assignment,
+    -- the ordinary pet solve below defines a pets-only Greater bucket.
+    local realGreater = ComputeGreaterAssignments(plan, targetClass, petTargets)
     for _, pet in ipairs(GetPetMembers()) do
         local order = PetBuffOrder(ignored)
-        plan[pet.name] = SolveRaider(order)
+        local cells, used, covered = {}, {}, {}
+        for _, paladin in ipairs(pool) do
+            local key = realGreater[paladin]
+                and realGreater[paladin].Warrior
+            if key and not covered[key] then
+                for _, wanted in ipairs(order) do
+                    if wanted == key then
+                        cells[paladin] = key
+                        used[paladin] = true
+                        covered[key] = true
+                        break
+                    end
+                end
+            end
+        end
+        local remaining = {}
+        for _, key in ipairs(order) do
+            if not covered[key] then remaining[#remaining + 1] = key end
+        end
+        for paladin, key in pairs(SolveRaider(remaining, used)) do
+            cells[paladin] = key
+        end
+        plan[pet.name] = cells
+        targetClass[pet.name] = "Warrior"
+        petTargets[pet.name] = true
     end
-    return plan
+
+    -- Class Greater decisions are part of the shared plan, not view state.
+    local greaterByPaladin = ComputeGreaterAssignments(plan, targetClass, petTargets)
+
+    cachedBuffPlanKey = cacheKey
+    cachedBuffPlan = {
+        grid = plan,
+        greaterByPaladin = greaterByPaladin,
+        targetClass = targetClass,
+    }
+    return cachedBuffPlan
+end
+
+local function ComputeBuffGrid()
+    return ComputePaladinBuffPlan().grid
 end
 
 local function IsSimulatedPaladinBuff(paladin, raider)
@@ -1663,18 +1779,19 @@ end
 -- majority blessing is the class Greater (one cast buffs the whole class) and
 -- the dissenters are per-player Normal exceptions.
 --
--- Hunter pets bucket under WARRIORS to match the client, but every pet cell is
--- a separate 10-minute Normal blessing in the right-click cycle. The Warrior
--- button appears for pets even with no warriors present.
+-- Hunter pets bucket under WARRIORS to match the client. They inherit the
+-- Warrior Greater when it matches their cell; only dissenters enter the
+-- right-click Lesser cycle. The Warrior button appears for pets even with no
+-- warriors present.
 --
 -- Returns an array of per-class jobs (class-name sorted). Each member (raider
 -- or pet) carries display name, buff key, live state, and -- for pets -- the
 -- pet unit token to cast on:
 --   { classInfo, greaterKey, greaterBuff, hasPets, hasNonPets,
 --     normals  = { { name, key, buff, isPet, petUnit }, ... },  -- right-click
---     raiders  = { { name, key, has, isPet, petUnit }, ... },   -- count/range/left
+--     raiders  = { { name, key, has, isGreater, classInfo, isPet, owner, petUnit }, ... },
 --     total, covered }
-local function GetPaladinBuffJobs(paladinName)
+local function GetPaladinBuffJobs(paladinName, buffPlan)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local canonIndex = {}
     for i, key in ipairs(canonical) do canonIndex[key] = i end
@@ -1684,7 +1801,8 @@ local function GetPaladinBuffJobs(paladinName)
         classOf[m.name] = m.classInfo
     end
 
-    local plan = ComputeBuffGrid()
+    buffPlan = buffPlan or ComputePaladinBuffPlan()
+    local plan = buffPlan.grid
     -- className -> { classInfo, members = {...}, hasPets, hasNonPets }
     local byClass = {}
     local function bucket(ci)
@@ -1698,13 +1816,15 @@ local function GetPaladinBuffJobs(paladinName)
         local key, ci = cells[paladinName], classOf[raider]
         if key and ci then
             local c = bucket(ci)
-            c.members[#c.members + 1] = { statusName = raider, display = raider, key = key }
+            c.members[#c.members + 1] = {
+                statusName = raider, display = raider, key = key, classInfo = ci,
+            }
             c.hasNonPets = true
         end
     end
 
-    -- Hunter pets share PallyPower's Warrior bucket but remain individual
-    -- Normal-blessing targets.
+    -- Hunter pets share the Warrior bucket; dissenters remain individual
+    -- Lesser-blessing targets.
     local warriorCI = GetClassInfoByToken("WARRIOR")
     if warriorCI then
         local petInfo = GetPetUnitInfo()
@@ -1715,8 +1835,8 @@ local function GetPaladinBuffJobs(paladinName)
                 local info = petInfo[pet.owner]
                 c.members[#c.members + 1] = {
                     statusName = pet.name, -- BuffTracking key: "<Owner>'s Pet"
-                    display = (info and info.name) or pet.name,
-                    key = key, isPet = true, owner = pet.owner,
+                    display = (info and info.name) or pet.owner,
+                    key = key, isPet = true, owner = pet.owner, classInfo = pet.classInfo,
                     petUnit = info and info.unit,
                 }
                 c.hasPets = true
@@ -1726,26 +1846,8 @@ local function GetPaladinBuffJobs(paladinName)
 
     local jobs = {}
     for _, c in pairs(byClass) do
-        -- The class Greater = majority blessing; ties break canonical. Real
-        -- members decide it (pets don't vote for the Warrior Greater), falling
-        -- back to the pets for a pets-only bucket (no warriors present).
-        local anyReal = false
-        for _, m in ipairs(c.members) do
-            if not m.isPet then anyReal = true; break end
-        end
-        local tally = {}
-        for _, m in ipairs(c.members) do
-            if (not m.isPet) or (not anyReal) then
-                tally[m.key] = (tally[m.key] or 0) + 1
-            end
-        end
-        local greaterKey, bestN
-        for key, count in pairs(tally) do
-            if not greaterKey or count > bestN
-                or (count == bestN and (canonIndex[key] or 99) < (canonIndex[greaterKey] or 99)) then
-                greaterKey, bestN = key, count
-            end
-        end
+        local greaterKey = buffPlan.greaterByPaladin[paladinName]
+            and buffPlan.greaterByPaladin[paladinName][c.classInfo.name]
 
         local job = {
             classInfo = c.classInfo,
@@ -1761,11 +1863,13 @@ local function GetPaladinBuffJobs(paladinName)
             local has = WhoDoesWhat:HasBuff(m.statusName, m.key)
             job.raiders[#job.raiders + 1] = {
                 name = m.display, key = m.key, has = has,
-                isPet = m.isPet, petUnit = m.petUnit,
+                isGreater = m.key == greaterKey,
+                isPet = m.isPet, owner = m.owner, petUnit = m.petUnit,
+                classInfo = m.classInfo,
             }
             job.total = job.total + 1
             if has == true then job.covered = job.covered + 1 end
-            if m.isPet or m.key ~= greaterKey then
+            if m.key ~= greaterKey then
                 job.normals[#job.normals + 1] = {
                     name = m.display, key = m.key, buff = WhoDoesWhat.PaladinBuffs[m.key],
                     isPet = m.isPet, petUnit = m.petUnit,
@@ -1838,6 +1942,7 @@ WhoDoesWhat.Assign = {
     AutoAssignWarlockCurses = AutoAssignWarlockCurses,
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,
+    GetPaladinBuffPlan = ComputePaladinBuffPlan,
     ComputeBuffGrid = ComputeBuffGrid,
     IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,

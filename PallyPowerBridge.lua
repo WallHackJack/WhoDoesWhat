@@ -183,11 +183,12 @@ local seenPetNames = {}
 
 -- Compute the PallyPower assignment tables our grid implies, WITHOUT touching
 -- the live globals or the wire: majority buff per paladin/class becomes the
--- class (Greater) assignment, dissenters and hunter pets ride along as Normal
--- exceptions. This is the single source of truth for "what a full sync would
--- write" -- SyncToPallyPower copies the result into the live tables and
--- broadcasts it, and CheckPallyPowerSync compares the live tables against it
--- (with the pet tolerance documented below). Returns
+-- class (Greater) assignment, and dissenters ride along as Normal exceptions.
+-- The assignment model supplies the shared Greater decision, including the
+-- Warrior bucket inherited by pets. This is the single source of truth for
+-- "what a full sync would write" -- SyncToPallyPower copies the result into
+-- the live tables and broadcasts it, and CheckPallyPowerSync compares the
+-- live tables against it. Returns
 -- assignments[pshort][classId], normal[pshort][classId][target], the summary
 -- counts, plus the active PallyPower class ids and raider names.
 local function BuildDesired(self, pp, paladins)
@@ -207,13 +208,8 @@ local function BuildDesired(self, pp, paladins)
         end
     end
 
-    -- The virtual pet rows (one per hunter, Assignments.lua). A hunter pet is
-    -- a SEPARATE blessing target -- the owner's class-wide Greater Blessing
-    -- never reaches it -- so pets take no part in any class-greater tally
-    -- below. Each is instead pushed as its own single-target Normal blessing,
-    -- keyed by the pet's real unit name (resolved from the live pet units) and
-    -- filed under the class id this client lists pets under (Warrior). Pets we
-    -- can't name (out of range) and fake hunters' pets are skipped.
+    -- Virtual pets use PallyPower's Warrior bucket. Matching pets inherit that
+    -- class Greater; only dissenters need a named Normal exception.
     local petOwner = {}
     for _, pet in ipairs(self.Assign.GetPetMembers()) do
         if not IsFakeName(pet.owner) then
@@ -222,38 +218,11 @@ local function BuildDesired(self, pp, paladins)
     end
     local petRealName = LivePetNames()
     local petClassId = pp.ClassToID and pp.ClassToID["WARRIOR"]
+    if next(petOwner) and petClassId then activeClassIds[petClassId] = true end
 
-    -- Tally the grid per paladin/class: votes[pallyShort][classId][blessId]
-    -- counts raiders, buffOf remembers each raider's exact cell for the
-    -- exception pass.
-    local plan = self.Assign.ComputeBuffGrid()
-    local votes, buffOf = {}, {}
-    local skipped = 0
-    for raider, cells in pairs(plan) do
-        if not petOwner[raider] then
-            local cid = classIdOf[raider]
-            for paladin, buffKey in pairs(cells) do
-                local pshort = ShortName(paladin)
-                local bless = BuffKeyToBlessingId(buffKey)
-                if cid and bless and not IsFakeName(paladin) then
-                    votes[pshort] = votes[pshort] or {}
-                    votes[pshort][cid] = votes[pshort][cid] or {}
-                    votes[pshort][cid][bless] = (votes[pshort][cid][bless] or 0) + 1
-                    buffOf[pshort] = buffOf[pshort] or {}
-                    buffOf[pshort][cid] = buffOf[pshort][cid] or {}
-                    buffOf[pshort][cid][ShortName(raider)] = bless
-                elseif not IsFakeName(paladin) then
-                    skipped = skipped + 1
-                end
-            end
-        end
-    end
-
-    -- Rebuild the group paladins' rows: majority buff becomes the class
-    -- (Greater) assignment, dissenters become Normal exceptions. Ties break on
-    -- the lower blessing id so repeat builds are deterministic (and the check
-    -- never flags a stable board as drifted).
-    local classCount, singleCount = 0, 0
+    local buffPlan = self.Assign.GetPaladinBuffPlan()
+    local plan = buffPlan.grid
+    local classCount, singleCount, skipped = 0, 0, 0
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
         assignments[pshort] = {}
@@ -262,40 +231,39 @@ local function BuildDesired(self, pp, paladins)
         end
         normal[pshort] = {}
 
-        for cid, tally in pairs(votes[pshort] or {}) do
-            local majority, majorityCount = nil, 0
-            for bless, count in pairs(tally) do
-                if count > majorityCount
-                    or (count == majorityCount and bless < majority) then
-                    majority, majorityCount = bless, count
-                end
-            end
-            assignments[pshort][cid] = majority
-            classCount = classCount + 1
-
-            for raider, bless in pairs(buffOf[pshort][cid]) do
-                if bless ~= majority then
-                    normal[pshort][cid] = normal[pshort][cid] or {}
-                    normal[pshort][cid][raider] = bless
-                    singleCount = singleCount + 1
-                end
+        for className, buffKey in pairs(buffPlan.greaterByPaladin[pname] or {}) do
+            local cid = pp.ClassToID and pp.ClassToID[className:upper()]
+            local bless = BuffKeyToBlessingId(buffKey)
+            if cid and bless then
+                assignments[pshort][cid] = bless
+                classCount = classCount + 1
+            else
+                skipped = skipped + 1
             end
         end
     end
 
-    -- PallyPower groups pets under Warrior on this client, but each planned
-    -- pet cell is still a 10-minute, single-target Normal blessing.
-    for petName, owner in pairs(petOwner) do
-        local realName = petRealName[owner]
-        local realShort = ShortName(realName)
-        for paladin, buffKey in pairs(plan[petName] or {}) do
+    -- Add only targets whose cell differs from their shared class Greater.
+    for raider, cells in pairs(plan) do
+        local owner = petOwner[raider]
+        local cid = owner and petClassId or classIdOf[raider]
+        local target = owner and ShortName(petRealName[owner]) or ShortName(raider)
+        if owner and target then activeTargets[target] = true end
+        for paladin, buffKey in pairs(cells) do
             local pshort = ShortName(paladin)
             local bless = BuffKeyToBlessingId(buffKey)
-            if not IsFakeName(paladin) then
-                if realShort and petClassId and bless and normal[pshort] then
-                    normal[pshort][petClassId] = normal[pshort][petClassId] or {}
-                    normal[pshort][petClassId][realShort] = bless
-                    singleCount = singleCount + 1
+            if not IsFakeName(paladin) and assignments[pshort] then
+                if cid and bless then
+                    local greater = assignments[pshort][cid]
+                    if bless ~= greater then
+                        if target then
+                            normal[pshort][cid] = normal[pshort][cid] or {}
+                            normal[pshort][cid][target] = bless
+                            singleCount = singleCount + 1
+                        else
+                            skipped = skipped + 1
+                        end
+                    end
                 else
                     skipped = skipped + 1
                 end
@@ -412,7 +380,7 @@ end
 -- class-wide rows use the class icon, raiders use their assigned role, and
 -- current or previously seen hunter pets use the pet pseudo-role.
 local function DiffTargetInfo(self)
-    local classes, targets, pets = {}, {}, {}
+    local classes, targets = {}, {}
     for _, classInfo in ipairs(self.Classes) do
         classes[classInfo.name] = {
             icon = classInfo.classIcon,
@@ -440,10 +408,9 @@ local function DiffTargetInfo(self)
                 icon = self.HunterPetRole.icon,
                 role = self.HunterPetRole.name,
             }
-            pets[petName] = true
         end
     end
-    return classes, targets, pets
+    return classes, targets
 end
 
 function WhoDoesWhat:CheckPallyPowerSync()
@@ -456,9 +423,7 @@ function WhoDoesWhat:CheckPallyPowerSync()
 
     local assignments, normal, _, _, _, activeClassIds, activeTargets =
         BuildDesired(self, pp, paladins)
-    local classInfo, targetInfo, petTargets = DiffTargetInfo(self)
-    local might = BuffKeyToBlessingId("might")
-    local kings = BuffKeyToBlessingId("kings")
+    local classInfo, targetInfo = DiffTargetInfo(self)
     local diffs = {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
@@ -490,14 +455,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
             for n in pairs(wt) do names[n] = true end
             for n in pairs(names) do
                 local want, live = wt[n] or 0, lt[n] or 0
-                -- Pet rows are identity-sensitive in PallyPower and commonly
-                -- appear/disappear as None around summons. For drift purposes,
-                -- any absence/Might/Kings value is acceptable; only a different
-                -- explicit PallyPower blessing is actionable.
-                local acceptedPetBuff = petTargets[n]
-                    and (live == 0 or live == might or live == kings)
                 if (activeTargets[n] or wt[n] ~= nil)
-                    and want ~= live and not acceptedPetBuff then
+                    and want ~= live then
                     diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live,
                         targetInfo[n])
                 end
@@ -566,8 +525,8 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
     local classId = pp.ClassToID and pp.ClassToID[member.classInfo.name:upper()]
     if not classId then return end
 
-    -- This raider's blessing per paladin, from the freshly recomputed grid
-    -- (empty when uncovered, e.g. after being marked Non-raider).
+    -- This raider's blessing per paladin from the current shared plan (empty
+    -- when uncovered, e.g. after being marked Non-raider).
     local cells = self.Assign.ComputeBuffGrid()[playerName] or {}
 
     local entries = {}

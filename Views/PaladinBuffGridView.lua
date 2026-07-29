@@ -323,7 +323,9 @@ local function CreateCell(f, row, c)
         if self.buffKey then
             GameTooltip:SetText(self.paladin, 1, 1, 1)
             GameTooltip:AddLine("Blesses " .. self.raider .. " with "
-                .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long .. ".",
+                .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
+                .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long
+                .. (self.isGreater and "." or " (Lesser)."),
                 0.8, 0.8, 0.8, true)
             if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
                 and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
@@ -425,8 +427,10 @@ local function RefreshGrid(f)
 
     f.emptyHint:SetShown(#paladins == 0)
 
-    -- The computed per-raider coverage (see Assignments.lua).
-    local plan = WhoDoesWhat.Assign.ComputeBuffGrid()
+    -- One shared assignment-model snapshot supplies both cells and their
+    -- Greater/Lesser classification (see Assignments.lua).
+    local buffPlan = WhoDoesWhat.Assign.GetPaladinBuffPlan()
+    local plan = buffPlan.grid
 
     for i, m in ipairs(members) do
         local row = f.rows[i] or CreateRow(f, i)
@@ -450,9 +454,14 @@ local function RefreshGrid(f)
             cell.raider = m.name
             cell.buffKey = cellsFor[cell.paladin]
             if cell.buffKey then
-                cell.icon:SetTexture(WhoDoesWhat.PaladinBuffs[cell.buffKey].iconId)
+                local buff = WhoDoesWhat.PaladinBuffs[cell.buffKey]
+                local greater = buffPlan.greaterByPaladin[cell.paladin]
+                cell.isGreater = greater
+                    and greater[buffPlan.targetClass[m.name]] == cell.buffKey
+                cell.icon:SetTexture(cell.isGreater and buff.icon or buff.normalIcon)
                 cell.icon:Show()
             else
+                cell.isGreater = nil
                 cell.icon:Hide()
             end
             -- Red only when the raider is confirmed to lack the planned buff;
