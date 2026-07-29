@@ -132,48 +132,60 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135910,
         name_short = "Salv",
         name_long = "Salvation",
-        spellId = 25895 -- Greater Blessing of Salvation
+        spellId = 25895, -- Greater Blessing of Salvation
+        normalSpellId = 1038 -- Blessing of Salvation
     },
     kings = {
         icon = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
         iconId = 135993,
         name_short = "Kings",
         name_long = "Kings",
-        spellId = 25898 -- Greater Blessing of Kings
+        spellId = 25898, -- Greater Blessing of Kings
+        normalSpellId = 20217 -- Blessing of Kings
     },
     might = {
         icon = "Interface\\Icons\\Spell_Holy_FistOfJustice",
         iconId = 135906,
         name_short = "Might",
         name_long = "Might",
-        spellId = 27141 -- Greater Blessing of Might (Rank 3)
+        spellId = 27141, -- Greater Blessing of Might (Rank 3)
+        normalSpellId = 27140 -- Blessing of Might (Rank 7)
     },
     light = {
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing02",
         iconId = 135943,
         name_short = "Light",
         name_long = "Light",
-        spellId = 27145 -- Greater Blessing of Light (Rank 2)
+        spellId = 27145, -- Greater Blessing of Light (Rank 2)
+        normalSpellId = 27144 -- Blessing of Light (Rank 4)
     },
     wisdom = {
         icon = "Interface\\Icons\\Spell_Holy_SealOfWisdom",
         iconId = 135970,
         name_short = "Wisdom",
         name_long = "Wisdom",
-        spellId = 27143 -- Greater Blessing of Wisdom (Rank 3)
+        spellId = 27143, -- Greater Blessing of Wisdom (Rank 3)
+        normalSpellId = 27142 -- Blessing of Wisdom (Rank 6)
     },
     sanctuary = {
         icon = "Interface\\Icons\\Spell_Nature_LightningShield",
         iconId = 136051,
         name_short = "Sanc",
         name_long = "Sanctuary",
-        spellId = 27169 -- Greater Blessing of Sanctuary (Rank 2)
+        spellId = 27169, -- Greater Blessing of Sanctuary (Rank 2)
+        normalSpellId = 27168 -- Blessing of Sanctuary (Rank 5)
     }
 }
 
 local features = WhoDoesWhat.ClientFeatures
 for key, spellId in pairs(features.paladinBuffSpellIds) do
     WhoDoesWhat.PaladinBuffs[key].spellId = spellId
+end
+for key, spellId in pairs(features.paladinNormalBuffSpellIds) do
+    WhoDoesWhat.PaladinBuffs[key].normalSpellId = spellId
+end
+for _, buff in pairs(WhoDoesWhat.PaladinBuffs) do
+    buff.normalIcon = GetSpellTexture(buff.normalSpellId) or buff.icon
 end
 
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately

@@ -47,6 +47,13 @@ WhoDoesWhat.ClientFeatures = {
         wisdom = 25918,
         sanctuary = 25899,
     } or {},
+    -- Highest single-target Blessing ranks available in Classic Era.
+    paladinNormalBuffSpellIds = isClassicEra and {
+        might = 25291,
+        light = 19979,
+        wisdom = 25290,
+        sanctuary = 20914,
+    } or {},
 
     -- Stable CC keys from Data.lua that this client does not have.
     excludedCCSpells = isClassicEra and {

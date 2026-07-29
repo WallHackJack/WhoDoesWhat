@@ -5,7 +5,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- each showing the class icon and a coloured "buffed/total" count. Left-click
 -- casts the class's Greater Blessing on a class member (buffs the whole class);
 -- right-click cycles that class's individual Normal-blessing exceptions -- see
--- the secure-casting section below.
+-- the secure-casting section below. Hovering a class button opens a secure
+-- per-player menu: left-click casts that class Greater on the chosen unit and
+-- right-click casts the unit's planned Normal blessing.
 --
 -- Whose jobs it renders (ResolveBarPaladin): normally the local player when
 -- they're a paladin; in test mode, the paladin picked in the settings dropdown
@@ -24,6 +26,14 @@ local TITLE_H = 12     -- title strip height
 local BTN_SIZE = 28
 local BTN_GAP = 3
 local COUNT_H = 10     -- room under a button for its count text
+local PLAYER_MENU_W = 180
+local PLAYER_HEADER_H = 28
+local PLAYER_W = PLAYER_MENU_W - INSET * 2
+local PLAYER_H = 22
+local PLAYER_GAP = 0
+local MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+local MISSING_GLOW_COLOR = { 1, 0.05, 0.05, 1 }
+local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 
 -- y from the bar's top down to where the button row begins.
 local CONTENT_TOP = INSET + TITLE_H + 2
@@ -116,6 +126,7 @@ local function AttachAltDrag(region)
         -- the chosen way (StartMoving may have left a different anchor).
         SavePosition()
         LoadPosition()
+        WhoDoesWhat:RefreshPaladinBuffingBar()
     end)
 end
 
@@ -127,6 +138,11 @@ function WhoDoesWhat:SetBuffingBarGrow(mode)
         SavePosition()
         LoadPosition()
     end
+    self:RefreshPaladinBuffingBar()
+end
+
+function WhoDoesWhat:SetBuffingMenuGrow(mode)
+    self.db.profile.settings.buffingMenuGrow = mode
     self:RefreshPaladinBuffingBar()
 end
 
@@ -196,11 +212,14 @@ end
 
 -- Start/stop the Nova-style pixel-glow border on a button, tracking state so
 -- the animation isn't restarted every refresh.
-local function SetButtonGlow(btn, on)
+local function SetButtonGlow(btn, on, color, inset)
     if not LCG then return end
     if on then
         if not btn.glowing then
-            LCG.PixelGlow_Start(btn, nil, 16, nil, 3, nil, nil, nil, nil, nil, 4)
+            local offset, border = nil, true
+            if inset then offset, border = -inset, false end
+            LCG.PixelGlow_Start(btn, color, 16, nil, 3, nil,
+                offset, offset, border, nil, 4)
             btn.glowing = true
         end
     elseif btn.glowing then
@@ -222,40 +241,187 @@ local function CountColor(covered, total)
     return 1, 0.82, 0.2
 end
 
--- Status mark + colour for a live buff state (true/false/nil).
-local function StatusMark(has)
-    if has == true then return "|cff40ff40+|r ", 0.8, 0.8, 0.8 end
-    if has == false then return "|cffff6060x|r ", 1, 0.5, 0.5 end
-    return "|cff909090?|r ", 0.6, 0.6, 0.6
-end
-
-local function BuildTooltip(self)
-    local job = self.job
-    if not job then return end
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    local title = job.classInfo.name
-    if job.hasPets and not job.hasNonPets then
-        title = "Hunter Pets"
-    elseif job.hasPets then
-        title = title .. " + Pets"
-    end
-    GameTooltip:SetText("|cff" .. job.classInfo.colorHex .. title .. "|r", 1, 1, 1)
-    local r, g, b = CountColor(job.covered, job.total)
-    GameTooltip:AddLine(job.covered .. " / " .. job.total .. " buffed", r, g, b)
-    if job.greaterBuff then
-        GameTooltip:AddLine("Left-click: Greater Blessing of "
-            .. job.greaterBuff.name_long .. " (whole class)", 0.4, 0.7, 1, true)
-    end
-    if #job.normals > 0 then
-        GameTooltip:AddLine("Right-click: cycle individual blessings", 0.4, 0.7, 1, true)
-        GameTooltip:AddLine(" ")
-        for _, nrm in ipairs(job.normals) do
-            local mark, cr, cg, cb = StatusMark(WhoDoesWhat:HasBuff(nrm.name, nrm.key))
-            GameTooltip:AddLine(mark .. nrm.name .. "  |cff808080("
-                .. nrm.buff.name_long .. ")|r", cr, cg, cb)
+local function FindPlayerBlessing(p)
+    if not p.castUnit then return nil, false end
+    local i = 1
+    if GetBuffDataByIndex then
+        while true do
+            local aura = GetBuffDataByIndex(p.castUnit, i)
+            if not aura then break end
+            if aura.name == p.greaterName or aura.name == p.normalName then
+                return aura.expirationTime, true
+            end
+            i = i + 1
+        end
+    else
+        while true do
+            local name, _, _, _, _, expirationTime = UnitBuff(p.castUnit, i)
+            if not name then break end
+            if name == p.greaterName or name == p.normalName then
+                return expirationTime, true
+            end
+            i = i + 1
         end
     end
-    GameTooltip:Show()
+    return nil, false
+end
+
+local function UpdatePlayerAura(p)
+    local expirationTime, found = FindPlayerBlessing(p)
+    local missing = p.castUnit and not found
+    local remaining = found and expirationTime and expirationTime > 0
+        and math.max(expirationTime - GetTime(), 0) or nil
+    p.missing:SetShown(missing)
+    SetButtonGlow(p, missing and p:GetParent():IsShown(), MISSING_GLOW_COLOR, 1)
+    if found or not p.castUnit then
+        if remaining and remaining < 300
+            and WhoDoesWhat.db.profile.settings.buffingMenuWarnExpiring then
+            p.bg:SetColorTexture(0.38, 0.29, 0.03, 0.96)
+        else
+            p.bg:SetColorTexture(0.08, 0.28, 0.08, 0.96)
+        end
+    else
+        p.bg:SetColorTexture(0.34, 0.07, 0.07, 0.96)
+    end
+    if remaining then
+        local minutes = math.floor(remaining / 60)
+        p.timer:SetFormattedText("%d:%02d", minutes, math.floor(remaining - minutes * 60))
+    else
+        p.timer:SetText("")
+    end
+end
+
+local function CreatePlayerButton(btn, index)
+    local p = CreateFrame("Button", btn:GetName() .. "Player" .. index, btn.playerMenu,
+        "SecureActionButtonTemplate")
+    p:RegisterForClicks("AnyUp", "AnyDown")
+    p:SetSize(PLAYER_W, PLAYER_H)
+
+    local bg = p:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    p.bg = bg
+
+    local icon = p:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(PLAYER_H - 4, PLAYER_H - 4)
+    icon:SetPoint("LEFT", 2, 0)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    p.icon = icon
+
+    local name = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    name:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    name:SetPoint("RIGHT", -55, 0)
+    name:SetJustifyH("RIGHT")
+    p.name = name
+
+    local timer = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    timer:SetPoint("RIGHT", -19, 0)
+    timer:SetWidth(36)
+    timer:SetJustifyH("RIGHT")
+    p.timer = timer
+
+    local missing = p:CreateTexture(nil, "OVERLAY")
+    missing:SetSize(16, 16)
+    missing:SetPoint("RIGHT", -2, 0)
+    missing:SetTexture(MISSING_ICON)
+    missing:Hide()
+    p.missing = missing
+
+    p:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2")
+    p:SetScript("PostClick", function(self, mouseButton)
+        if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks or not self.member then return end
+        WhoDoesWhat:Print("Buffing bar player click: " .. tostring(mouseButton)
+            .. " -> " .. self.member.name .. ".")
+    end)
+    btn.playerButtons[index] = p
+    return p
+end
+
+local function ConfigurePlayerMenu(btn, job, nameToUnit)
+    local menu = btn.playerMenu
+    menu:SetAttribute("Display", #job.raiders > 0 and 1 or 0)
+    menu:SetSize(PLAYER_MENU_W, INSET * 2 + PLAYER_HEADER_H + PLAYER_GAP
+        + math.max(#job.raiders, 1) * PLAYER_H
+        + math.max(#job.raiders - 1, 0) * PLAYER_GAP)
+    menu.count:SetText(job.covered .. "/" .. job.total)
+    menu.count:SetTextColor(CountColor(job.covered, job.total))
+    for i, member in ipairs(job.raiders) do
+        local p = btn.playerButtons[i] or CreatePlayerButton(btn, i)
+        local unit = CastUnit(member, nameToUnit)
+        local normalMeta = WhoDoesWhat.PaladinBuffs[member.key]
+        local greater = job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)
+        local normal = normalMeta and GetSpellInfo(normalMeta.normalSpellId)
+
+        p.member, p.job, p.castUnit = member, job, unit
+        p.greaterName, p.normalName = greater, normal
+        p.icon:SetTexture(normalMeta and normalMeta.normalIcon)
+        p.name:SetText((member.name:gsub("%-.*$", "")) .. (member.isPet and " (Pet)" or ""))
+        p:SetAlpha(1)
+        p:SetAttribute("type1", unit and greater and "spell" or nil)
+        p:SetAttribute("spell1", unit and greater or nil)
+        p:SetAttribute("unit1", unit)
+        p:SetAttribute("type2", unit and normal and "spell" or nil)
+        p:SetAttribute("spell2", unit and normal or nil)
+        p:SetAttribute("unit2", unit)
+        UpdatePlayerAura(p)
+        p:Show()
+    end
+    for i = #job.raiders + 1, #btn.playerButtons do
+        local p = btn.playerButtons[i]
+        SetButtonGlow(p, false)
+        p:Hide()
+        p.member, p.job, p.castUnit = nil, nil, nil
+        p.greaterName, p.normalName = nil, nil
+        p:SetAttribute("type1", nil)
+        p:SetAttribute("type2", nil)
+    end
+end
+
+-- Use the saved direction when it fits; otherwise use the roomier side. The
+-- popup is also clamped for unusually short screens or very large class pools.
+local function PositionPlayerMenu(btn)
+    local menu = btn.playerMenu
+    local preferred = WhoDoesWhat.db.profile.settings.buffingMenuGrow or "DOWN"
+    local screenTop = UIParent:GetTop() or UIParent:GetHeight()
+    local screenBottom = UIParent:GetBottom() or 0
+    local above = screenTop - (btn:GetTop() or screenTop)
+    local below = (btn:GetBottom() or screenBottom) - screenBottom
+    local needed = menu:GetHeight()
+    local direction = preferred
+    if preferred == "UP" and above < needed and below > above then
+        direction = "DOWN"
+    elseif preferred == "DOWN" and below < needed and above > below then
+        direction = "UP"
+    end
+
+    menu:ClearAllPoints()
+    if direction == "UP" then
+        menu:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 0)
+    else
+        menu:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, 0)
+    end
+    for i, p in ipairs(btn.playerButtons) do
+        p:ClearAllPoints()
+        p:SetPoint("TOPLEFT", menu, "TOPLEFT", INSET,
+            -(INSET + PLAYER_HEADER_H + PLAYER_GAP
+                + (i - 1) * (PLAYER_H + PLAYER_GAP)))
+    end
+end
+
+local function WirePlayerMenus()
+    if bar.menusWired == #bar.buttons then return end
+    for _, btn in ipairs(bar.buttons) do
+        btn:Execute("otherMenus = newtable()")
+        for _, other in ipairs(bar.buttons) do
+            if other ~= btn then
+                SecureHandlerSetFrameRef(btn, "otherMenu", other.playerMenu)
+                btn:Execute([[
+                    local menu = self:GetFrameRef("otherMenu")
+                    otherMenus[#otherMenus + 1] = menu
+                ]])
+            end
+        end
+    end
+    bar.menusWired = #bar.buttons
 end
 
 -- Pooled button #index; RefreshBar fills .job and positions it. Secure so it
@@ -263,7 +429,8 @@ end
 -- WrapScript (ConfigureButtonCast), SecureActionButtonTemplate the macro cast.
 local function CreateButton(index)
     local btn = CreateFrame("Button", "WhoDoesWhatBuffingBarButton" .. index, bar,
-        "SecureHandlerStateTemplate, SecureActionButtonTemplate")
+        "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, "
+        .. "SecureHandlerStateTemplate, SecureActionButtonTemplate")
     -- Secure action buttons obey ActionButtonUseKeyDown. Register both so the
     -- cast works with either client setting (PallyPower does the same).
     btn:RegisterForClicks("AnyUp", "AnyDown")
@@ -300,8 +467,59 @@ local function CreateButton(index)
     count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
     btn.count = count
 
-    btn:SetScript("OnEnter", BuildTooltip)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local playerMenu = CreateFrame("Frame", btn:GetName() .. "PlayerMenu", btn,
+        "SecureHandlerShowHideTemplate, BackdropTemplate")
+    playerMenu:SetFrameStrata("DIALOG")
+    playerMenu:SetClampedToScreen(true)
+    playerMenu:EnableMouse(true)
+    playerMenu:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 16,
+        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
+    })
+    playerMenu:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
+    playerMenu:SetBackdropBorderColor(0.4, 0.4, 0.4)
+
+    local headerBg = playerMenu:CreateTexture(nil, "ARTWORK")
+    headerBg:SetPoint("TOPLEFT", INSET, -INSET)
+    headerBg:SetPoint("TOPRIGHT", -INSET, -INSET)
+    headerBg:SetHeight(PLAYER_HEADER_H)
+    headerBg:SetColorTexture(0.09, 0.09, 0.11, 1)
+
+    local clickHint = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    clickHint:SetPoint("TOPLEFT", headerBg, "TOPLEFT", 4, -2)
+    clickHint:SetText("Left-click = Greater\nRight-click = Lesser")
+    clickHint:SetTextColor(0.4, 0.7, 1)
+    clickHint:SetJustifyH("LEFT")
+
+    local menuCount = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    menuCount:SetPoint("RIGHT", headerBg, "RIGHT", -4, 0)
+    playerMenu.count = menuCount
+
+    playerMenu:Hide()
+    btn.playerMenu = playerMenu
+    btn.playerButtons = {}
+    playerMenu:HookScript("OnShow", function()
+        for _, p in ipairs(btn.playerButtons) do
+            if p:IsShown() then UpdatePlayerAura(p) end
+        end
+    end)
+    playerMenu:HookScript("OnHide", function()
+        for _, p in ipairs(btn.playerButtons) do SetButtonGlow(p, false) end
+    end)
+    SecureHandlerSetFrameRef(btn, "playerMenu", playerMenu)
+    btn:Execute("otherMenus = newtable()")
+    btn:SetAttribute("_onenter", [[
+        for _, menu in ipairs(otherMenus) do menu:Hide() end
+        local menu = self:GetFrameRef("playerMenu")
+        if menu:GetAttribute("Display") == 1 then
+            menu:Show()
+            menu:RegisterAutoHide(0.25)
+            menu:AddToAutoHide(self)
+        end
+    ]])
+
     btn:SetScript("PostClick", function(self, mouseButton)
         if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks then return end
         local job = self.job
@@ -499,6 +717,11 @@ local function EnsureBar()
                 local ready = JobIsReady(job, nameToUnit)
                 btn.icon:SetDesaturated(not ready)
                 SetButtonGlow(btn, ready)
+                if btn.playerMenu:IsShown() then
+                    for _, p in ipairs(btn.playerButtons) do
+                        if p:IsShown() then UpdatePlayerAura(p) end
+                    end
+                end
             end
         end
     end)
@@ -514,6 +737,9 @@ end
 -- widgets; visibility is handled by UpdatePaladinBuffingBarVisibility.
 function WhoDoesWhat:RefreshPaladinBuffingBar()
     if not bar or not bar:IsShown() then return end
+    -- Keep visible jobs and their protected click targets in lockstep; the
+    -- PLAYER_REGEN_ENABLED event performs this refresh after combat.
+    if InCombatLockdown() then return end
     local paladin = ResolveBarPaladin()
     local allJobs = paladin and self.Assign.GetPaladinBuffJobs(paladin) or {}
     -- Drop classes with no real raiders to buff (read 0/0) -- nothing to show.
@@ -534,6 +760,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         end
         btn.job = job
         ConfigureButtonCast(btn, job, nameToUnit)
+        ConfigurePlayerMenu(btn, job, nameToUnit)
         -- Pets-only (no warriors) shows the pet icon; a mixed class shows its
         -- class icon with a small pet badge.
         if job.hasPets and not job.hasNonPets and WhoDoesWhat.HunterPetRole then
@@ -557,6 +784,8 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     end
     for i = #jobs + 1, #bar.buttons do
         SetButtonGlow(bar.buttons[i], false)
+        bar.buttons[i].playerMenu:SetAttribute("Display", 0)
+        bar.buttons[i].playerMenu:Hide()
         bar.buttons[i]:Hide()
         bar.buttons[i].job = nil
     end
@@ -572,6 +801,8 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         bar:SetSize(INSET * 2 + PAD * 2 + n * BTN_SIZE + (n - 1) * BTN_GAP,
             CONTENT_TOP + BTN_SIZE + COUNT_H + INSET)
     end
+    WirePlayerMenus()
+    for i = 1, n do PositionPlayerMenu(bar.buttons[i]) end
 end
 
 -- Show or hide the whole bar based on the master/test toggles, then repaint.

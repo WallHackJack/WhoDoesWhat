@@ -199,6 +199,11 @@ local defaults = {
             -- Which way the buffing bar grows as blessings are added: "RIGHT"
             -- (anchor its left edge) or "LEFT" (anchor its right edge).
             buffingBarGrow = "RIGHT",
+            -- Preferred direction for the per-player menu shown by hovering a
+            -- class button. The view flips it when that side lacks screen room.
+            buffingMenuGrow = "DOWN",
+            -- Highlight active blessings yellow during their final five minutes.
+            buffingMenuWarnExpiring = true,
             -- Movable per-paladin live blessing coverage window.
             overviewEnabled = false,
             overviewHideCompleted = false,

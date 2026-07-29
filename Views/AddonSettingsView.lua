@@ -164,6 +164,37 @@ local function EnsureSettingsFrame()
     end)
     f.buffingGrowDD = growDD
 
+    local menuGrowLabel = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    menuGrowLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 34))
+    menuGrowLabel:SetText("Player menu grows:")
+    local menuGrowLabels = { DOWN = "Down", UP = "Up" }
+    local menuGrowDD = CreateFrame("Frame", "WhoDoesWhatBuffingMenuGrowDD", paladinPage,
+        "UIDropDownMenuTemplate")
+    menuGrowDD:SetPoint("LEFT", menuGrowLabel, "RIGHT", -6, -2)
+    UIDropDownMenu_SetWidth(menuGrowDD, 80)
+    UIDropDownMenu_Initialize(menuGrowDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.buffingMenuGrow or "DOWN"
+        for _, mode in ipairs({ "DOWN", "UP" }) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = menuGrowLabels[mode]
+            info.checked = (saved == mode)
+            info.func = function()
+                WhoDoesWhat:SetBuffingMenuGrow(mode)
+                UIDropDownMenu_SetText(menuGrowDD, menuGrowLabels[mode])
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.buffingMenuGrowDD = menuGrowDD
+
+    f.buffingMenuExpiringCheck, yL = AddCheckboxRow(paladinPage, CONTENT_X, yL + 68,
+        "Warn below five minutes",
+        "Color player rows yellow when their active blessing has less than five minutes remaining.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.buffingMenuWarnExpiring = value
+            WhoDoesWhat:RefreshPaladinBuffingBar()
+        end)
+
     -- ---- Warlock ----
     local warlockPage = pages[4]
     yL = y0
@@ -346,6 +377,9 @@ function WhoDoesWhat:OpenAddonSettingsView()
     local settings = self.db.profile.settings
     f.buffingBarCheck:SetChecked(settings.buffingBarEnabled)
     UIDropDownMenu_SetText(f.buffingGrowDD, settings.buffingBarGrow == "LEFT" and "Left" or "Right")
+    UIDropDownMenu_SetText(f.buffingMenuGrowDD,
+        settings.buffingMenuGrow == "UP" and "Up" or "Down")
+    f.buffingMenuExpiringCheck:SetChecked(settings.buffingMenuWarnExpiring)
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
