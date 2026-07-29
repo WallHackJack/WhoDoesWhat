@@ -44,7 +44,7 @@ local function AddCheckboxRow(f, x, y, labelText, descText, apply, extra)
 
     local desc = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     desc:SetPoint("TOPLEFT", check, "BOTTOMLEFT", 26, 2)
-    desc:SetWidth(CONTENT_W - 26)
+    desc:SetWidth(CONTENT_W - 26 - (x - CONTENT_X))
     desc:SetJustifyH("LEFT")
     desc:SetTextColor(0.6, 0.6, 0.6)
     desc:SetText(descText)
@@ -109,24 +109,72 @@ local function EnsureSettingsFrame()
     yL = y0
     yL = AddHeading(statusPage, CONTENT_X, yL, "Status Bars", 0.96, 0.55, 0.73)
     f.overviewCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL, "Enable WDW Status",
-        "Show live paladin and core raid-buff coverage. Alt-drag to move; Alt-drag its right edge to resize.",
+        "Show live paladin and core raid-buff coverage. Alt-drag to move; Alt-drag its marked edge to resize.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewEnabled = value
-            WhoDoesWhat:UpdateOverviewViewVisibility()
+            WhoDoesWhat:UpdateStatusBarsViewVisibility()
+        end)
+    local anchorLabels = {
+        TOPLEFT = "Top Left", TOPRIGHT = "Top Right",
+        BOTTOMLEFT = "Bottom Left", BOTTOMRIGHT = "Bottom Right",
+    }
+    local anchorLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    anchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    anchorLabel:SetText("Anchor point:")
+    local anchorDD = CreateFrame("Frame", "WhoDoesWhatStatusBarsAnchorDD", statusPage,
+        "UIDropDownMenuTemplate")
+    anchorDD:SetPoint("LEFT", anchorLabel, "RIGHT", -6, -2)
+    UIDropDownMenu_SetWidth(anchorDD, 110)
+    UIDropDownMenu_Initialize(anchorDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
+        for _, anchor in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = anchorLabels[anchor]
+            info.checked = (saved == anchor)
+            info.func = function()
+                WhoDoesWhat:SetStatusBarsAnchor(anchor)
+                UIDropDownMenu_SetText(anchorDD, anchorLabels[anchor])
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    local anchorDesc = statusPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    anchorDesc:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 28))
+    anchorDesc:SetWidth(CONTENT_W - 4)
+    anchorDesc:SetJustifyH("LEFT")
+    anchorDesc:SetTextColor(0.6, 0.6, 0.6)
+    anchorDesc:SetText("The window grows away from this corner as rows or width change.")
+    f.overviewAnchorDD = anchorDD
+    f.overviewAnchorLabels = anchorLabels
+    yL = yL + 58
+    f.overviewPallyPowerCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
+        "Show PallyPower desync row",
+        "Show PallyPower sync status and its Diff/Fix actions at the top of WDW Status.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.overviewShowPallyPower = value
+            f.overviewPallyPowerOnlyDesyncedCheck:SetEnabled(value)
+            WhoDoesWhat:RefreshStatusBarsView()
+        end)
+    f.overviewPallyPowerOnlyDesyncedCheck, yL = AddCheckboxRow(statusPage,
+        CONTENT_X + 24, yL, "Only while desynced",
+        "Hide the PallyPower row while it is synced or inactive; show it when differences need attention.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.overviewPallyPowerOnlyDesynced = value
+            WhoDoesWhat:RefreshStatusBarsView()
         end)
     f.overviewHideCompletedCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
         "Hide completed buffs",
         "Hide a status row once all of its required buffs are active.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewHideCompleted = value
-            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshStatusBarsView()
         end)
     f.overviewRequireMaxRankCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
         "Require max-ranked improved buffs",
-        "Count Fortitude and Gift/Mark only when their caster has the maximum improvement talent rank. Unknown casters do not count as complete.",
+        "Require the maximum improvement rank when any provider may have it. If every provider is confirmed untalented, the regular buff counts.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewRequireMaxRank = value
-            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshStatusBarsView()
         end, 14)
 
     -- ---- Paladin ----
@@ -384,6 +432,14 @@ function WhoDoesWhat:OpenAddonSettingsView()
     RefreshBuffingTestPaladinDropdown(f)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.overviewCheck:SetChecked(settings.overviewEnabled)
+    local overviewAnchor = settings.overviewAnchor or "TOPLEFT"
+    UIDropDownMenu_SetText(f.overviewAnchorDD,
+        f.overviewAnchorLabels[overviewAnchor] or f.overviewAnchorLabels.TOPLEFT)
+    f.overviewPallyPowerCheck:SetChecked(settings.overviewShowPallyPower)
+    f.overviewPallyPowerOnlyDesyncedCheck:SetChecked(
+        settings.overviewPallyPowerOnlyDesynced)
+    f.overviewPallyPowerOnlyDesyncedCheck:SetEnabled(
+        settings.overviewShowPallyPower ~= false)
     f.overviewHideCompletedCheck:SetChecked(settings.overviewHideCompleted)
     f.overviewRequireMaxRankCheck:SetChecked(settings.overviewRequireMaxRank)
     f.devModeCheck:SetChecked(settings.developerMode)

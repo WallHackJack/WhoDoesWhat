@@ -239,7 +239,7 @@ WhoDoesWhat.CoreRaidBuffOrder = {
 WhoDoesWhat.CoreRaidBuffs = {
     fortitude = {
         name = "Fortitude",
-        icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
+        icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
         auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
         className = "Priest",
         improvedTalent = {
@@ -249,7 +249,7 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
     gift = {
         name = "Gift of the Wild",
-        icon = "Interface\\Icons\\Spell_Nature_Regeneration",
+        icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
         auraNames = { "Mark of the Wild", "Gift of the Wild" },
         className = "Druid",
         improvedTalent = {
@@ -258,20 +258,20 @@ WhoDoesWhat.CoreRaidBuffs = {
         },
     },
     food = {
-        name = "Food",
-        icon = "Interface\\Icons\\INV_Misc_Fork&Knife",
+        name = "Food Buff",
+        icon = 136000, -- Spell_Misc_Food
         auraNames = { "Well Fed" },
         colorRGB = { r = 1, g = 0.82, b = 0 },
     },
     shadowProtection = {
-        name = "Shadow Protection",
+        name = "Shadow",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
         className = "Priest",
     },
     intellect = {
         name = "Intellect",
-        icon = "Interface\\Icons\\Spell_Holy_MagicalSentry",
+        icon = "Interface\\Icons\\Spell_Holy_ArcaneIntellect",
         auraNames = { "Arcane Intellect", "Arcane Brilliance" },
         className = "Mage",
         excludedClasses = { Warrior = true, Rogue = true },

@@ -206,6 +206,9 @@ local defaults = {
             buffingMenuWarnExpiring = true,
             -- Movable per-paladin live blessing coverage window.
             overviewEnabled = false,
+            overviewShowPallyPower = true,
+            overviewPallyPowerOnlyDesynced = false,
+            overviewAnchor = "TOPLEFT",
             overviewHideCompleted = false,
             overviewRequireMaxRank = false,
             overviewWidth = 220,

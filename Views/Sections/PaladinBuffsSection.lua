@@ -629,7 +629,7 @@ local function CreatePallyPowerArea(box)
         "Write the optimized WDW blessing plan into PallyPower and broadcast it.", function()
             WhoDoesWhat:SyncToPallyPower()
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshStatusBarsView()
         end)
     fix:SetPoint("RIGHT", area, "RIGHT", 0, 0)
 

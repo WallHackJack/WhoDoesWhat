@@ -199,7 +199,7 @@ function WhoDoesWhat:RescanImprovedBuffTalents()
     RescanUtilityTalents(self, { DRUID = true, PRIEST = true }, "improved-buff provider")
     self:RefreshMainAssignmentsView()
     self:RefreshImprovedBuffGridView()
-    self:RefreshOverviewView()
+    self:RefreshStatusBarsView()
 end
 
 -- Both flags are test scaffolding for the talent sync and are off during normal
@@ -354,7 +354,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
         self:RefreshMainAssignmentsView()
         self:RefreshImprovedBuffGridView()
-        self:RefreshOverviewView()
+        self:RefreshStatusBarsView()
     end
 end
 

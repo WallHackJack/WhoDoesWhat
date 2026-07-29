@@ -586,11 +586,11 @@ local function Append(dir, who, msg)
     if WhoDoesWhat.PallyPowerLogAppended then
         WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
     end
-    if not statusRefreshPending and WhoDoesWhat.RefreshOverviewView then
+    if not statusRefreshPending and WhoDoesWhat.RefreshStatusBarsView then
         statusRefreshPending = true
         C_Timer.After(0.1, function()
             statusRefreshPending = nil
-            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshStatusBarsView()
             WhoDoesWhat:RefreshMainAssignmentsView()
         end)
     end

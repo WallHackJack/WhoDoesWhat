@@ -1268,6 +1268,20 @@ local function ComputeCoreRaidBuffCoverage()
         -- A class-provided status row is irrelevant when that class is not in
         -- the active raider pool. Food has no provider class and always stays.
         if not buff.className or #MembersOfClass(buff.className) > 0 then
+            local requireMax = buff.improvedTalent
+                and WhoDoesWhat.db.profile.settings.overviewRequireMaxRank
+            local improvedAvailable = false
+            if requireMax then
+                -- Unknown ranks may still be improved; relax only when every
+                -- eligible provider is confirmed untalented.
+                for _, provider in ipairs(MembersOfClass(buff.className)) do
+                    local rank = WhoDoesWhat:GetCoreBuffTalent(provider, key)
+                    if rank == nil or rank > 0 then
+                        improvedAvailable = true
+                        break
+                    end
+                end
+            end
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
@@ -1277,8 +1291,7 @@ local function ComputeCoreRaidBuffCoverage()
                     row.total = row.total + 1
                     total = total + 1
                     local covered
-                    if buff.improvedTalent
-                        and WhoDoesWhat.db.profile.settings.overviewRequireMaxRank then
+                    if requireMax and improvedAvailable then
                         covered = WhoDoesWhat:GetImprovedBuffState(m.name, key) == "max"
                     else
                         covered = WhoDoesWhat:HasBuff(m.name, key) == true

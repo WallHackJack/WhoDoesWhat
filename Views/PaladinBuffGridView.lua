@@ -407,7 +407,7 @@ function WhoDoesWhat:RefreshPaladinBuffGridView()
     end
     self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
-    self:RefreshOverviewView()
+    self:RefreshStatusBarsView()
 end
 
 -- Toggle the grid window open/closed. Shown before the refresh so the

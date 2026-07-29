@@ -467,7 +467,7 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     LogSync("core buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshImprovedBuffGridView()
-    WhoDoesWhat:RefreshOverviewView()
+    WhoDoesWhat:RefreshStatusBarsView()
 end
 
 -- ---------------------------------------------------------------------------

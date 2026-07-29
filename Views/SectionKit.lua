@@ -206,11 +206,15 @@ function K.CreatePallyPowerActionButton(parent, text, width, tooltipTitle, toolt
     local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("CENTER", 0, 0)
     label:SetText(text)
+    btn.label = label
     btn:SetScript("OnClick", OnClick)
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText(tooltipTitle, 1, 1, 1)
         GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true)
+        if self.tooltipDetail then
+            GameTooltip:AddLine(self.tooltipDetail, 1, 0.55, 0.55, true)
+        end
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -224,8 +228,8 @@ function K.GetPallyPowerState(paladinCount)
     if reason == "no-paladins" then return "inactive", "No Paladins, Inactive" end
     if diffs == nil then return "inactive", "PallyPower Not Loaded, Inactive" end
     if #diffs == 0 then return "synced", "Optimized and synced" end
-    return "desynced", #diffs .. " buff" .. (#diffs == 1 and "" or "s")
-        .. " out of sync"
+    return "desynced", #diffs .. " Buff" .. (#diffs == 1 and "" or "s")
+        .. " out of sync", #diffs
 end
 
 -- Warning (!) icon; the refresh passes set .tooltipText and show/hide it.

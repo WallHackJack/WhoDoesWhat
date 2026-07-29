@@ -1,7 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local K = WhoDoesWhat.SectionKit
 
--- Movable compact overview of paladin and core raid-buff coverage:
+-- Movable compact status-bars view of paladin and core raid-buff coverage:
 --
 --   [role icon] [Paladin name                     % / check]
 --               [dark red ---------------------------> paladin pink]
@@ -21,12 +21,30 @@ local CONTENT_TOP = INSET + TITLE_H + 3
 local ROW_H = 19
 local ICON_SIZE = 18
 local BAR_H = 18
+local EMPTY_ICON_SIZE = math.floor(BAR_H * 0.8 + 0.5)
 local DEFAULT_W = 220
-local MIN_W = 170
-local HANDLE_W = 10
-local HANDLE_SPACE = 8
+local MIN_W = 90
+local NO_PP_MIN_W = 65
+local HIDE_NAMES_W = 105
+local COMPACT_PP_W = 150
+local SHORT_PP_W = 125
+local COUNT_ONLY_PP_W = 105
+local ULTRA_COMPACT_W = 115
+local HANDLE_W = 4
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local LCG = LibStub("LibCustomGlow-1.0", true)
+
+local function StatusBarsAnchor()
+    return WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
+end
+
+local function IsRightAnchor(anchor)
+    return string.find(anchor, "RIGHT", 1, true) ~= nil
+end
+
+local function IsBottomAnchor(anchor)
+    return string.find(anchor, "BOTTOM", 1, true) ~= nil
+end
 
 local paladinClass
 local classColors = {}
@@ -46,25 +64,38 @@ local function CoverageColor(correct, total, endpoint)
         0.08 + (endpoint.b - 0.08) * t
 end
 
-local function ClampPosition(x, y)
+local function ClampPosition(x, y, anchor)
     local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
-    x = math.max(0, math.min(x, math.max(0, parentW - view:GetWidth())))
-    y = math.max(math.min(view:GetHeight(), parentH), math.min(y, parentH))
+    if IsRightAnchor(anchor) then
+        x = math.max(math.min(view:GetWidth(), parentW), math.min(x, parentW))
+    else
+        x = math.max(0, math.min(x, math.max(0, parentW - view:GetWidth())))
+    end
+    if IsBottomAnchor(anchor) then
+        y = math.max(0, math.min(y, math.max(0, parentH - view:GetHeight())))
+    else
+        y = math.max(math.min(view:GetHeight(), parentH), math.min(y, parentH))
+    end
     return x, y
 end
 
 local function SavePosition()
     if not view then return end
-    local x, y = view:GetLeft(), view:GetTop()
+    local anchor = StatusBarsAnchor()
+    local x = IsRightAnchor(anchor) and view:GetRight() or view:GetLeft()
+    local y = IsBottomAnchor(anchor) and view:GetBottom() or view:GetTop()
     if x and y then
-        x, y = ClampPosition(x, y)
-        WhoDoesWhat.db.profile.settings.overviewPos = { x = x, y = y }
+        x, y = ClampPosition(x, y, anchor)
+        WhoDoesWhat.db.profile.settings.overviewPos = {
+            x = x, y = y, anchor = anchor,
+        }
     end
 end
 
 local function LoadPosition()
     local settings = WhoDoesWhat.db.profile.settings
     local p = settings.overviewPos
+    local anchor = StatusBarsAnchor()
     view:ClearAllPoints()
     if p and p.x and p.y then
         -- Migrate either coordinate format used by the discarded scale grip.
@@ -76,10 +107,20 @@ local function LoadPosition()
             p.x = p.x * settings.overviewScale
             p.y = p.y * settings.overviewScale
         end
-        p.x, p.y = ClampPosition(p.x, p.y)
-        view:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", p.x, p.y)
+        local oldAnchor = p.anchor or "TOPLEFT"
+        if IsRightAnchor(oldAnchor) ~= IsRightAnchor(anchor) then
+            p.x = p.x + (IsRightAnchor(anchor) and view:GetWidth()
+                or -view:GetWidth())
+        end
+        if IsBottomAnchor(oldAnchor) ~= IsBottomAnchor(anchor) then
+            p.y = p.y + (IsBottomAnchor(anchor) and -view:GetHeight()
+                or view:GetHeight())
+        end
+        p.anchor = anchor
+        p.x, p.y = ClampPosition(p.x, p.y, anchor)
+        view:SetPoint(anchor, UIParent, "BOTTOMLEFT", p.x, p.y)
     else
-        view:SetPoint("CENTER", UIParent, "CENTER", 0, -80)
+        view:SetPoint(anchor, UIParent, "CENTER", 0, -80)
     end
     settings.overviewScale = nil
 end
@@ -130,6 +171,8 @@ local function LayoutProgressLabel(row)
     local complete = row.total > 0 and row.correct >= row.total
     row.name:ClearAllPoints()
     row.name:SetPoint("LEFT", row.status, "LEFT", 2, 0)
+    row.name:SetShown(view:GetWidth() >= HIDE_NAMES_W)
+    row.initial:SetShown(row.isPaladin and view:GetWidth() < HIDE_NAMES_W)
 
     if complete then
         row.percent:Hide()
@@ -158,14 +201,57 @@ local function LayoutProgressLabel(row)
     row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
 end
 
+local function LayoutPallyPowerActions(row)
+    local width = view:GetWidth()
+    local compact = width < COMPACT_PP_W
+    row.diffBtn:SetWidth(compact and 16 or 30)
+    row.diffBtn.label:SetText(compact and "?" or "Diff")
+    row.fixBtn:SetWidth(compact and 16 or 26)
+    row.fixBtn.label:SetText(compact and "F" or "Fix")
+    if row.actionFont then
+        local size = row.actionFontSize + (compact and 2 or 0)
+        row.diffBtn.label:SetFont(row.actionFont, size, row.actionFontFlags)
+        row.fixBtn.label:SetFont(row.actionFont, size, row.actionFontFlags)
+    end
+    row.inactiveMark:SetShown(width < MIN_W and row.ppState == "inactive")
+    if row.ppState ~= "desynced" and width < MIN_W then
+        row.statusText:Hide()
+    elseif row.ppState ~= "desynced" then
+        row.statusText:SetText(row.ppText)
+        row.statusText:Show()
+    elseif width >= COMPACT_PP_W then
+        row.statusText:SetText(row.ppText)
+        row.statusText:Show()
+    elseif width >= SHORT_PP_W then
+        row.statusText:SetText(row.ppDiffCount .. " Buff"
+            .. (row.ppDiffCount == 1 and "" or "s"))
+        row.statusText:Show()
+    elseif width >= COUNT_ONLY_PP_W then
+        row.statusText:SetText(row.ppDiffCount)
+        row.statusText:Show()
+    else
+        row.statusText:Hide()
+    end
+end
+
 local function CreateRow(index)
     local row = CreateFrame("Frame", nil, view)
-    row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2 - HANDLE_SPACE, ROW_H)
+    row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("TOPLEFT", 0, 0)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     row.icon = icon
+
+    local initial = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    initial:SetPoint("CENTER", icon, "CENTER")
+    local font, size = initial:GetFont()
+    if font then initial:SetFont(font, size + 1, "OUTLINE") end
+    initial:SetTextColor(paladinClass.colorRGB.r,
+        paladinClass.colorRGB.g, paladinClass.colorRGB.b)
+    initial:Hide()
+    row.initial = initial
 
     local status = CreateFrame("StatusBar", nil, row)
     status:SetHeight(BAR_H)
@@ -180,9 +266,14 @@ local function CreateRow(index)
 
     local name = status:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
+    font, size = name:GetFont()
+    if font then name:SetFont(font, size, "OUTLINE") end
     row.name = name
 
     local percent = status:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    font, size = percent:GetFont()
+    if font then percent:SetFont(font, size, "OUTLINE") end
     row.percent = percent
 
     local completeIcon = status:CreateTexture(nil, "OVERLAY")
@@ -197,7 +288,7 @@ end
 
 local function CreatePallyPowerRow()
     local row = CreateFrame("Frame", nil, view)
-    row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2 - HANDLE_SPACE, ROW_H)
+    row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
 
     local badge = K.CreatePallyPowerBadge(row, ICON_SIZE)
     badge:SetPoint("TOPLEFT", 0, 0)
@@ -215,17 +306,40 @@ local function CreatePallyPowerRow()
     icon:SetPoint("LEFT", 3, 0)
     row.stateIcon = icon
 
+    local inactiveMark = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    inactiveMark:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    inactiveMark:SetText("-")
+    inactiveMark:SetTextColor(0.5, 0.5, 0.5)
+    inactiveMark:Hide()
+    row.inactiveMark = inactiveMark
+
+    local iconHit = CreateFrame("Frame", nil, body)
+    iconHit:SetAllPoints(icon)
+    iconHit:EnableMouse(true)
+    iconHit:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("PallyPower out of sync", 1, 0.55, 0.55)
+        GameTooltip:AddLine(row.ppText or "", 1, 1, 1)
+        GameTooltip:AddLine("Inspect the differences or apply the current WDW plan using the actions to the right.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    iconHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    iconHit:Hide()
+    row.stateIconHit = iconHit
+
     local status = body:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     status:SetHeight(BAR_H)
     status:SetPoint("LEFT", icon, "RIGHT", 2, 0)
     status:SetJustifyH("LEFT")
+    status:SetWordWrap(false)
     row.statusText = status
 
     local fix = K.CreatePallyPowerActionButton(body, "Fix", 26,
         "Fix PallyPower", "Write the current WDW blessing plan into PallyPower.", function()
             WhoDoesWhat:SyncToPallyPower()
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshOverviewView()
+            WhoDoesWhat:RefreshStatusBarsView()
         end)
     fix:SetPoint("RIGHT", -2, 0)
     row.fixBtn = fix
@@ -237,23 +351,75 @@ local function CreatePallyPowerRow()
         end)
     diff:SetPoint("RIGHT", fix, "LEFT", -2, 0)
     row.diffBtn = diff
+    row.actionFont, row.actionFontSize, row.actionFontFlags = fix.label:GetFont()
 
     return row
+end
+
+local function ShowPallyPowerRow(ppState)
+    local settings = WhoDoesWhat.db.profile.settings
+    if settings.overviewShowPallyPower == false then return false end
+    return not settings.overviewPallyPowerOnlyDesynced
+        or not ppState or ppState == "desynced"
+end
+
+local function MinimumWidth(ppState)
+    return ShowPallyPowerRow(ppState) and (not ppState or ppState == "desynced")
+        and MIN_W or NO_PP_MIN_W
+end
+
+local function ApplyResizeBounds(ppState)
+    local minWidth = MinimumWidth(ppState)
+    if view.SetResizeBounds then
+        view:SetResizeBounds(minWidth, 1)
+    elseif view.SetMinResize then
+        view:SetMinResize(minWidth, 1)
+    end
+end
+
+local function LayoutHeader()
+    local percentageOnly = view:GetWidth() < MIN_W
+    view.titleText:SetShown(not percentageOnly)
+    view.totalPercent:ClearAllPoints()
+    if percentageOnly then
+        view.totalPercent:SetPoint("CENTER", view.title, "CENTER", 0, 0)
+    else
+        view.titleText:SetText(view:GetWidth() < ULTRA_COMPACT_W
+            and "Status" or "WDW Status")
+        view.totalPercent:SetPoint("LEFT", view.titleText, "RIGHT", 4, 0)
+    end
+end
+
+local function LayoutResizeHandle()
+    if not view or not view.resizeHandle then return end
+    local left = IsRightAnchor(StatusBarsAnchor())
+    local handle, line = view.resizeHandle, view.resizeHandleLine
+    handle:ClearAllPoints()
+    line:ClearAllPoints()
+    if left then
+        handle:SetPoint("TOPLEFT", 1, -(INSET + TITLE_H + 2))
+        handle:SetPoint("BOTTOMLEFT", 1, INSET + 1)
+        line:SetPoint("LEFT", 2, 0)
+    else
+        handle:SetPoint("TOPRIGHT", -1, -(INSET + TITLE_H + 2))
+        handle:SetPoint("BOTTOMRIGHT", -1, INSET + 1)
+        line:SetPoint("RIGHT", -2, 0)
+    end
+end
+
+local function ResizeEdge()
+    return IsRightAnchor(StatusBarsAnchor()) and "LEFT" or "RIGHT"
 end
 
 local function EnsureView()
     if view then return view end
 
-    view = CreateFrame("Frame", "WhoDoesWhatOverview", UIParent, "BackdropTemplate")
+    view = CreateFrame("Frame", "WhoDoesWhatStatusBars", UIParent, "BackdropTemplate")
     view:SetFrameStrata("MEDIUM")
     view:SetClampedToScreen(true)
     view:SetMovable(true)
     view:SetResizable(true)
-    if view.SetResizeBounds then
-        view:SetResizeBounds(MIN_W, 1)
-    elseif view.SetMinResize then
-        view:SetMinResize(MIN_W, 1)
-    end
+    ApplyResizeBounds()
     view:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -268,12 +434,14 @@ local function EnsureView()
     title:SetHeight(TITLE_H)
     title:SetPoint("TOPLEFT", INSET, -INSET)
     title:SetPoint("TOPRIGHT", -INSET, -INSET)
+    view.title = title
     local titleBg = title:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
     titleBg:SetColorTexture(0.09, 0.09, 0.11, 1)
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
     titleText:SetText("WDW Status")
+    view.titleText = titleText
     local totalPercent = title:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     totalPercent:SetPoint("LEFT", titleText, "RIGHT", 4, 0)
     totalPercent:SetText("(0%)")
@@ -283,24 +451,36 @@ local function EnsureView()
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("WDW Status", 1, 1, 1)
         GameTooltip:AddLine("Alt-drag to move.", 0.7, 0.7, 0.7)
-        GameTooltip:AddLine("Alt-drag the right edge to resize.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Alt-drag the marked edge to resize.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     title:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- A quiet right-edge resize handle fits the flat status-bar style better
+    -- A quiet edge resize handle fits the flat status-bar style better
     -- than the chat window's diagonal corner grip.
     local handle = CreateFrame("Button", nil, view)
-    handle:SetPoint("TOPRIGHT", -1, -(INSET + TITLE_H + 2))
-    handle:SetPoint("BOTTOMRIGHT", -1, INSET + 1)
     handle:SetWidth(HANDLE_W)
+    view.resizeHandle = handle
     local handleLine = handle:CreateTexture(nil, "ARTWORK")
     handleLine:SetSize(2, 28)
-    handleLine:SetPoint("RIGHT", -2, 0)
     handleLine:SetColorTexture(0.35, 0.35, 0.35, 0.8)
+    view.resizeHandleLine = handleLine
+    LayoutResizeHandle()
     local highlight = handle:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
     highlight:SetColorTexture(1, 1, 1, 0.06)
+    local function ShowResizeTooltip(self)
+        local width = math.floor(view:GetWidth() + 0.5)
+        if self.tooltipWidth == width then return end
+        self.tooltipWidth = width
+        GameTooltip:SetOwner(self, IsRightAnchor(StatusBarsAnchor())
+            and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
+        GameTooltip:ClearLines()
+        GameTooltip:SetText("Resize WDW Status", 1, 1, 1)
+        GameTooltip:AddLine("(" .. width .. "px)", 1, 0.82, 0)
+        GameTooltip:AddLine("Hold Alt and drag horizontally.", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end
     local function FinishResize(self)
         if not view.resizing then return end
         view.resizing = nil
@@ -311,48 +491,55 @@ local function EnsureView()
     end
     handle:SetScript("OnMouseDown", function(self, button)
         if button ~= "LeftButton" or not IsAltKeyDown() then return end
-        view:StartSizing("RIGHT")
+        view:StartSizing(ResizeEdge())
         view.resizing = true
     end)
     handle:SetScript("OnUpdate", function(self)
-        if view.resizing and not IsAltKeyDown() then FinishResize(self) end
+        if view.resizing and not IsAltKeyDown() then
+            FinishResize(self)
+        elseif view.resizing then
+            ShowResizeTooltip(self)
+        end
     end)
     handle:SetScript("OnMouseUp", FinishResize)
     handle:SetScript("OnEnter", function(self)
         handleLine:SetColorTexture(0.8, 0.8, 0.8, 1)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Resize WDW Status", 1, 1, 1)
-        GameTooltip:AddLine("Hold Alt and drag horizontally.", 0.7, 0.7, 0.7)
-        GameTooltip:Show()
+        self.tooltipWidth = nil
+        ShowResizeTooltip(self)
     end)
     handle:SetScript("OnLeave", function()
         handleLine:SetColorTexture(0.35, 0.35, 0.35, 0.8)
         GameTooltip:Hide()
+        handle.tooltipWidth = nil
     end)
 
-    local hint = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("TOP", 0, -CONTENT_TOP)
-    hint:SetText("No paladins in the group.")
-    hint:SetTextColor(0.6, 0.6, 0.6)
-    view.hint = hint
+    local emptyCheck = view:CreateTexture(nil, "OVERLAY")
+    emptyCheck:SetSize(EMPTY_ICON_SIZE, EMPTY_ICON_SIZE)
+    emptyCheck:SetTexture(READY_ICON)
+    emptyCheck:Hide()
+    view.emptyCheck = emptyCheck
     view.rows = {}
     view:SetScript("OnSizeChanged", function(self)
-        local rowW = self:GetWidth() - INSET * 2 - PAD * 2 - HANDLE_SPACE
+        LayoutHeader()
+        local rowW = self:GetWidth() - INSET * 2 - PAD * 2
         for _, row in ipairs(self.rows) do
             row:SetWidth(rowW)
             if row:IsShown() then LayoutProgressLabel(row) end
         end
-        if self.ppRow then self.ppRow:SetWidth(rowW) end
+        if self.ppRow then
+            self.ppRow:SetWidth(rowW)
+            LayoutPallyPowerActions(self.ppRow)
+        end
     end)
 
     view:RegisterEvent("GROUP_ROSTER_UPDATE")
     view:SetScript("OnEvent", function(self)
-        if self:IsShown() then WhoDoesWhat:RefreshOverviewView() end
+        if self:IsShown() then WhoDoesWhat:RefreshStatusBarsView() end
     end)
     return view
 end
 
-function WhoDoesWhat:RefreshOverviewView()
+function WhoDoesWhat:RefreshStatusBarsView()
     if not view or not view:IsShown() then return end
     local summary = self.Assign.ComputePaladinBuffSummary()
     local paladinCorrect, paladinTotal, coverageByPaladin =
@@ -361,7 +548,8 @@ function WhoDoesWhat:RefreshOverviewView()
     local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
     local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     view.totalPercent:SetText("(" .. totalPercent .. "%)")
-    local ppState, ppText = K.GetPallyPowerState(#summary)
+    local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
+    local showPallyPower = ShowPallyPowerRow(ppState)
     local displayed = {}
     local hideCompleted = self.db.profile.settings.overviewHideCompleted
     for _, paladin in ipairs(summary) do
@@ -371,6 +559,7 @@ function WhoDoesWhat:RefreshOverviewView()
             displayed[#displayed + 1] = {
                 name = paladin.name,
                 icon = RoleIcon(paladin.name),
+                isPaladin = true,
                 coverage = coverage,
                 colorRGB = paladinClass.colorRGB,
             }
@@ -389,56 +578,74 @@ function WhoDoesWhat:RefreshOverviewView()
         end
     end
 
-    local rowsH = (#displayed > 0) and (#displayed * ROW_H) or 18
-    local contentH = ROW_H + rowsH
-    view:SetSize(self.db.profile.settings.overviewWidth or DEFAULT_W,
+    local ppHeight = showPallyPower and ROW_H or 0
+    local showEmptyCheck = #displayed == 0 and not showPallyPower
+    local rowsH = (#displayed + (showEmptyCheck and 1 or 0)) * ROW_H
+    local contentH = ppHeight + rowsH
+    ApplyResizeBounds(ppState)
+    local minWidth = MinimumWidth(ppState)
+    view:SetSize(math.max(self.db.profile.settings.overviewWidth or DEFAULT_W, minWidth),
         CONTENT_TOP + contentH + PAD + INSET)
+    LayoutHeader()
     if not view.moving and not view.resizing then LoadPosition() end
 
-    -- PallyPower sync always leads the status list.
-    local ppRow = view.ppRow or CreatePallyPowerRow()
-    view.ppRow = ppRow
-    ppRow:ClearAllPoints()
-    ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -CONTENT_TOP)
-    SetDesyncGlow(ppRow, ppState == "desynced")
+    if showPallyPower then
+        -- PallyPower sync leads the status list when enabled.
+        local ppRow = view.ppRow or CreatePallyPowerRow()
+        view.ppRow = ppRow
+        ppRow.ppState, ppRow.ppText, ppRow.ppDiffCount =
+            ppState, ppText, ppDiffCount
+        ppRow.diffBtn.tooltipDetail = ppText
+        ppRow.fixBtn.tooltipDetail = ppText
+        ppRow:ClearAllPoints()
+        ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -CONTENT_TOP)
+        SetDesyncGlow(ppRow, ppState == "desynced")
 
-    ppRow.stateIcon:ClearAllPoints()
-    ppRow.stateIcon:SetPoint("LEFT", 3, 0)
-    ppRow.statusText:ClearAllPoints()
-    if ppState == "inactive" then
-        ppRow.stateIcon:Hide()
-        ppRow.statusText:SetPoint("LEFT", 4, 0)
-        ppRow.statusText:SetPoint("RIGHT", -3, 0)
-        ppRow.statusText:SetText(ppText)
-        ppRow.statusText:SetTextColor(0.6, 0.6, 0.6)
-        ppRow.diffBtn:Hide()
-        ppRow.fixBtn:Hide()
-    elseif ppState == "synced" then
-        ppRow.stateIcon:SetTexture(READY_ICON)
-        ppRow.stateIcon:Show()
-        ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
-        ppRow.statusText:SetPoint("RIGHT", -3, 0)
-        ppRow.statusText:SetText(ppText)
-        ppRow.statusText:SetTextColor(0.3, 1, 0.3)
-        ppRow.diffBtn:Hide()
-        ppRow.fixBtn:Hide()
+        ppRow.stateIcon:ClearAllPoints()
+        ppRow.stateIcon:SetPoint("LEFT", ppState == "desynced" and 4 or 3,
+            ppState == "desynced" and -1 or 0)
+        ppRow.stateIconHit:SetShown(ppState == "desynced")
+        ppRow.statusText:ClearAllPoints()
+        if ppState == "inactive" then
+            ppRow.stateIcon:Hide()
+            ppRow.statusText:SetPoint("LEFT", 4, 0)
+            ppRow.statusText:SetPoint("RIGHT", -3, 0)
+            ppRow.statusText:SetTextColor(0.6, 0.6, 0.6)
+            ppRow.diffBtn:Hide()
+            ppRow.fixBtn:Hide()
+        elseif ppState == "synced" then
+            ppRow.stateIcon:SetTexture(READY_ICON)
+            ppRow.stateIcon:Show()
+            ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
+            ppRow.statusText:SetPoint("RIGHT", -3, 0)
+            ppRow.statusText:SetTextColor(0.3, 1, 0.3)
+            ppRow.diffBtn:Hide()
+            ppRow.fixBtn:Hide()
+        else
+            ppRow.stateIcon:SetTexture(self.WARNING_ICON)
+            ppRow.stateIcon:Show()
+            ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
+            ppRow.statusText:SetPoint("RIGHT", ppRow.diffBtn, "LEFT", -3, 0)
+            ppRow.statusText:SetTextColor(1, 0.55, 0.55)
+            ppRow.diffBtn:Show()
+            ppRow.fixBtn:Show()
+        end
+        LayoutPallyPowerActions(ppRow)
+        ppRow:Show()
     else
-        ppRow.stateIcon:SetTexture(self.WARNING_ICON)
-        ppRow.stateIcon:Show()
-        ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
-        ppRow.statusText:SetPoint("RIGHT", ppRow.diffBtn, "LEFT", -3, 0)
-        ppRow.statusText:SetText(ppText)
-        ppRow.statusText:SetTextColor(1, 0.55, 0.55)
-        ppRow.diffBtn:Show()
-        ppRow.fixBtn:Show()
+        if view.ppRow then
+            SetDesyncGlow(view.ppRow, false)
+            view.ppRow:Hide()
+        end
     end
-    ppRow:Show()
 
     for i, entry in ipairs(displayed) do
         local row = view.rows[i] or CreateRow(i)
         local coverage = entry.coverage
         row.icon:SetTexture(entry.icon)
         row.name:SetText(entry.name)
+        row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
+        row.isPaladin = entry.isPaladin
         row.correct = coverage.correct
         row.total = coverage.total
         row.status:SetMinMaxValues(0, math.max(coverage.total, 1))
@@ -447,36 +654,46 @@ function WhoDoesWhat:RefreshOverviewView()
             coverage.correct, coverage.total, entry.colorRGB))
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-            -(CONTENT_TOP + ROW_H + (i - 1) * ROW_H))
+            -(CONTENT_TOP + ppHeight + (i - 1) * ROW_H))
         row:Show()
         LayoutProgressLabel(row)
     end
     for i = #displayed + 1, #view.rows do view.rows[i]:Hide() end
 
-    if #displayed == 0 then
-        view.hint:ClearAllPoints()
-        view.hint:SetPoint("TOP", view, "TOP", 0,
-            -(CONTENT_TOP + ROW_H + 3))
-        view.hint:SetText("All buffs passing checks!")
-        view.hint:SetTextColor(0.3, 1, 0.3)
-        view.hint:Show()
-    else
-        view.hint:Hide()
-    end
+    view.emptyCheck:ClearAllPoints()
+    view.emptyCheck:SetPoint("TOP", view, "TOP", 0,
+        -(CONTENT_TOP + (ROW_H - EMPTY_ICON_SIZE) / 2))
+    view.emptyCheck:SetShown(showEmptyCheck)
 end
 
-function WhoDoesWhat:UpdateOverviewViewVisibility()
+function WhoDoesWhat:SetStatusBarsAnchor(anchor)
+    if anchor ~= "TOPLEFT" and anchor ~= "TOPRIGHT"
+        and anchor ~= "BOTTOMLEFT" and anchor ~= "BOTTOMRIGHT" then return end
+    local settings = self.db.profile.settings
+    local oldAnchor = settings.overviewAnchor or "TOPLEFT"
+    if not view and settings.overviewPos and not settings.overviewPos.anchor then
+        settings.overviewPos.anchor = oldAnchor
+    end
+    settings.overviewAnchor = anchor
+    if not view then return end
+    SavePosition()
+    LayoutResizeHandle()
+    LoadPosition()
+    self:RefreshStatusBarsView()
+end
+
+function WhoDoesWhat:UpdateStatusBarsViewVisibility()
     if not self.db.profile.settings.overviewEnabled then
         if view then view:Hide() end
         return
     end
     EnsureView():Show()
-    self:RefreshOverviewView()
+    self:RefreshStatusBarsView()
 end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_ENTERING_WORLD")
 loader:SetScript("OnEvent", function()
-    WhoDoesWhat:UpdateOverviewViewVisibility()
-    C_Timer.After(2, function() WhoDoesWhat:UpdateOverviewViewVisibility() end)
+    WhoDoesWhat:UpdateStatusBarsViewVisibility()
+    C_Timer.After(2, function() WhoDoesWhat:UpdateStatusBarsViewVisibility() end)
 end)
