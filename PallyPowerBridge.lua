@@ -188,17 +188,22 @@ local seenPetNames = {}
 -- write" -- SyncToPallyPower copies the result into the live tables and
 -- broadcasts it, and CheckPallyPowerSync compares the live tables against it
 -- (with the pet tolerance documented below). Returns
--- assignments[pshort][classId], normal[pshort][classId][target] and the
--- summary counts.
+-- assignments[pshort][classId], normal[pshort][classId][target], the summary
+-- counts, plus the active PallyPower class ids and raider names.
 local function BuildDesired(self, pp, paladins)
     local assignments, normal = {}, {}
 
     -- Raider -> PallyPower class id. Classes PallyPower doesn't track on this
     -- client (vanilla PallyPower has no Shaman slot, say) just get skipped.
-    local classIdOf = {}
+    local classIdOf, activeClassIds, activeTargets = {}, {}, {}
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         if not IsFakeName(m.name) then
-            classIdOf[m.name] = pp.ClassToID and pp.ClassToID[m.classInfo.name:upper()]
+            local cid = pp.ClassToID and pp.ClassToID[m.classInfo.name:upper()]
+            classIdOf[m.name] = cid
+            if cid and not self:IsNonRaider(m.name) then
+                activeClassIds[cid] = true
+                activeTargets[ShortName(m.name)] = true
+            end
         end
     end
 
@@ -298,7 +303,8 @@ local function BuildDesired(self, pp, paladins)
         end
     end
 
-    return assignments, normal, classCount, singleCount, skipped
+    return assignments, normal, classCount, singleCount, skipped,
+        activeClassIds, activeTargets
 end
 
 function WhoDoesWhat:SyncToPallyPower()
@@ -448,7 +454,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
     local paladins = GroupPaladins(self)
     if #paladins == 0 then return nil, "no-paladins" end
 
-    local assignments, normal = BuildDesired(self, pp, paladins)
+    local assignments, normal, _, _, _, activeClassIds, activeTargets =
+        BuildDesired(self, pp, paladins)
     local classInfo, targetInfo, petTargets = DiffTargetInfo(self)
     local might = BuffKeyToBlessingId("might")
     local kings = BuffKeyToBlessingId("kings")
@@ -456,10 +463,11 @@ function WhoDoesWhat:CheckPallyPowerSync()
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
 
-        -- Greater (class) blessings, slot by slot.
+        -- Greater blessings only matter for classes currently in the group;
+        -- PallyPower commonly retains harmless values in absent class slots.
         local liveA = PallyPower_Assignments[pshort] or {}
         local wantA = assignments[pshort] or {}
-        for c = 1, PALLYPOWER_MAXCLASSES do
+        for c in pairs(activeClassIds) do
             local want, live = wantA[c] or 0, liveA[c] or 0
             if want ~= live then
                 local target = ClassIdName(c)
@@ -468,9 +476,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
             end
         end
 
-        -- Normal (per-target) exceptions: walk the union of live + desired
-        -- targets under each class so an exception that only one side has still
-        -- reads as a difference (want/live 0 = "none").
+        -- Normal exceptions: walk the union of live + desired targets, but
+        -- ignore PallyPower rows belonging to raiders no longer in the group.
         local liveN = PallyPower_NormalAssignments[pshort] or {}
         local wantN = normal[pshort] or {}
         local cids = {}
@@ -489,7 +496,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
                 -- explicit PallyPower blessing is actionable.
                 local acceptedPetBuff = petTargets[n]
                     and (live == 0 or live == might or live == kings)
-                if want ~= live and not acceptedPetBuff then
+                if (activeTargets[n] or wt[n] ~= nil)
+                    and want ~= live and not acceptedPetBuff then
                     diffs[#diffs + 1] = DiffEntry(pshort, n, false, want, live,
                         targetInfo[n])
                 end
