@@ -3,8 +3,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Raider Roles window ("Raider Roles" button on the main view): every group
 -- member in one list, bucketed by their assigned role's tank/healer/dps
 -- classification and sorted by class then name within a bucket. Each row
--- carries the same role dropdown the unit right-click menu offers, plus the
--- (!) alert while the player has no usable role.
+-- carries the same role dropdown the unit right-click menu offers, WDW
+-- presence, plus the (!) alert while the player has no usable role.
 --
 -- The "No Role" bucket also collects players whose role has no tank/healer/
 -- dps classification (custom roles left unclassified); only players with no
@@ -26,6 +26,7 @@ local BOX_PAD = 8
 local ROW_H = 30
 local EMPTY_H = 20 -- rows-area height for an empty bucket's hint line
 local DROPDOWN_WIDTH = 130
+local ADDON_COL_W = 38
 local WARNING_ICON_SIZE = 18
 local CLASS_ICON_SIZE = 20
 
@@ -218,9 +219,17 @@ local function CreateRow(f, section, index)
     end)
     row.dropdown = dropdown
 
+    local addonFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    addonFS:SetWidth(ADDON_COL_W)
+    addonFS:SetPoint("RIGHT", dropdown, "LEFT", 10, 0)
+    addonFS:SetJustifyH("CENTER")
+    row.addonFS = addonFS
+
     local warn = CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", dropdown, "LEFT", 12, 2)
+    warn:SetPoint("RIGHT", addonFS, "LEFT", -2, 2)
     row.warnIcon = warn
+
+    nameFS:SetPoint("RIGHT", warn, "LEFT", -4, 0)
 
     state.rows[index] = row
     return row
@@ -257,6 +266,9 @@ function RefreshRoster(f)
             -- for roleless / unresolved-role members.
             row.classIcon:SetTexture((role and role.icon) or m.classInfo.classIcon)
             row.nameFS:SetText("|cff" .. m.classInfo.colorHex .. m.name .. "|r")
+            local installed = m.name == UnitName("player")
+                or WhoDoesWhat.syncPeers[m.name] == true
+            row.addonFS:SetText(installed and "|cff40ff40Yes|r" or "|cffff6060No|r")
 
             if role then
                 UIDropDownMenu_SetText(row.dropdown, RoleText(role, m.classInfo))
@@ -340,6 +352,13 @@ local function EnsureRolesFrame()
         title:SetPoint("TOPLEFT", BOX_PAD + 2, -BOX_PAD)
         title:SetText(section.title)
 
+        local addonTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        addonTitle:SetWidth(ADDON_COL_W)
+        addonTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT",
+            -(BOX_PAD + DROPDOWN_WIDTH + 12), -BOX_PAD)
+        addonTitle:SetJustifyH("CENTER")
+        addonTitle:SetText("WDW")
+
         local line = box:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(0.4, 0.4, 0.4, 0.6)
         line:SetHeight(1)
@@ -387,5 +406,6 @@ function WhoDoesWhat:OpenRaiderRolesView()
     self:LogUiBuilding("Opening Raider Roles View...")
     RefreshRoster(f)
     f:Show()
+    self:GetModule("Sync"):RequestPeerPresence()
     f:Raise()
 end

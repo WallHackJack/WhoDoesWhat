@@ -547,14 +547,21 @@ function Sync:OnGroupJoined()
         end
     end, JOIN_SYNC_TIMEOUT)
 
+    self:RequestPeerPresence()
+end
+
+-- Ask every WDW client in the group to answer. HELLO is deliberately reused:
+-- released clients already answer it with STATE, RANKS, or VERSION depending
+-- on their role/class, so the Raider Roles presence column works across
+-- addon versions without another wire message.
+function Sync:RequestPeerPresence()
     local channel = GroupChannel()
-    if channel then
-        self:Send({
-            t = "HELLO",
-            ranks = OwnRanks(),
-            healthstone = OwnHealthstoneRank(),
-        }, channel)
-    end
+    if not channel then return end
+    self:Send({
+        t = "HELLO",
+        ranks = OwnRanks(),
+        healthstone = OwnHealthstoneRank(),
+    }, channel)
 end
 
 function Sync:OnGroupLeft()
@@ -711,7 +718,9 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched
     -- version (below). Permissions.lua checks the current leader against
     -- this to stand the editing rule down when the leader can't own it.
+    local newlySeen = WhoDoesWhat.syncPeers[senderKey] ~= true
     WhoDoesWhat.syncPeers[senderKey] = true
+    if newlySeen then WhoDoesWhat:RefreshRaiderRolesView() end
 
     if msg.p ~= PROTOCOL then
         if not warnedProtocol then
