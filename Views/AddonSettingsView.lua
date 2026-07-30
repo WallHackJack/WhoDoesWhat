@@ -1,8 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Addon settings window. Checkbox state persists in db.profile.settings;
--- chat-log toggles also mirror into their runtime flags immediately so
--- logging reacts without a reload.
+-- Addon settings window. Checkbox state persists in db.profile.settings except
+-- detailed sync logging, which is deliberately session-only and resets off.
 
 local settingsFrame = nil
 
@@ -400,10 +399,9 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
         end)
     f.logSyncTrafficCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
-        "Print detailed WhoDoesWhat addon-message diagnostics to chat. Traffic is always retained in Logs.",
+        "Capture WDW/PallyPower traffic and print WDW sync diagnostics to chat. Session-only; resets off on reload.",
         function(value)
-            WhoDoesWhat.db.profile.settings.logSyncTraffic = value
-            WhoDoesWhat.LOG_SYNC = value
+            WhoDoesWhat:SetSyncLoggingEnabled(value)
             WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
         end, 14)
     f.logBuffingClicksCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
@@ -548,7 +546,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logOperationsCheck:SetChecked(settings.logOperations)
     f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)
-    f.logSyncTrafficCheck:SetChecked(settings.logSyncTraffic)
+    f.logSyncTrafficCheck:SetChecked(self.LOG_SYNC)
     f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)
     f.logRolePromotionCheck:SetChecked(settings.logRolePromotion)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
@@ -562,4 +560,10 @@ function WhoDoesWhat:OpenAddonSettingsView()
     self:LogUiBuilding("Opening Addon Settings View...")
     f:Show()
     f:Raise()
+end
+
+function WhoDoesWhat:RefreshAddonSettingsLoggingCheck()
+    if settingsFrame and settingsFrame.logSyncTrafficCheck then
+        settingsFrame.logSyncTrafficCheck:SetChecked(self.LOG_SYNC)
+    end
 end

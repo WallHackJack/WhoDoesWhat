@@ -67,10 +67,21 @@ local PROTOCOL = 3
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
+local PEER_REQUEST_COOLDOWN = 30
 
--- Traffic is always retained for the Sync Log view. These helpers only
--- control optional developer chat output.
+-- Session-only by design: /reload turns traffic capture and verbose sync chat
+-- back off. The Sync Log and Developer settings expose the same toggle.
 WhoDoesWhat.LOG_SYNC = false
+
+function WhoDoesWhat:SetSyncLoggingEnabled(enabled)
+    enabled = enabled and true or false
+    self.LOG_SYNC = enabled
+    if self.db then self.db.profile.settings.logSyncTraffic = enabled end
+    if self.RefreshSyncLogLoggingCheck then self:RefreshSyncLogLoggingCheck() end
+    if self.RefreshAddonSettingsLoggingCheck then
+        self:RefreshAddonSettingsLoggingCheck()
+    end
+end
 
 local function LogSync(...)
     if WhoDoesWhat.LOG_SYNC then
@@ -145,7 +156,9 @@ local function IsSyncedStaticRow(rowId)
     return not WhoDoesWhat.PaladinBuffs[rowId]
 end
 
--- Deep-copy the synced state into one plain table, ready to serialize.
+-- A read-only view of the synced state, ready for immediate fingerprinting or
+-- serialization. Those operations are synchronous, so copying the live tables
+-- every two-second poll would only create garbage.
 local function Snapshot()
     local p = WhoDoesWhat.db.profile
     local static = {}
@@ -153,10 +166,10 @@ local function Snapshot()
         if IsSyncedStaticRow(id) then static[id] = name end
     end
     return {
-        roles = CopyTable(p.assignments),
-        tank = CopyTable(p.tankAssignments),
-        cc = CopyTable(p.ccAssignments),
-        md = CopyTable(p.mdAssignments),
+        roles = p.assignments,
+        tank = p.tankAssignments,
+        cc = p.ccAssignments,
+        md = p.mdAssignments,
         static = static,
         perms = { mode = p.permissions.mode, assistant = p.permissions.assistant },
     }
@@ -227,8 +240,8 @@ local function Canon(v)
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
-local function Fingerprint()
-    return Canon(Snapshot())
+local function Fingerprint(state)
+    return Canon(state or Snapshot())
 end
 
 -- ---------------------------------------------------------------------------
@@ -263,6 +276,7 @@ local function DescribeMessage(msg)
 end
 
 local function AppendTraffic(dir, who, msg, channel, encoded)
+    if not WhoDoesWhat.LOG_SYNC then return end
     local trimmed = false
     if #syncLog >= MAX_LOG then
         for _ = 1, 100 do table.remove(syncLog, 1) end
@@ -274,7 +288,6 @@ local function AppendTraffic(dir, who, msg, channel, encoded)
         who = who,
         channel = channel,
         msg = DescribeMessage(msg),
-        decoded = Canon(msg),
         encoded = encoded,
     }
     syncLog[#syncLog + 1] = entry
@@ -311,6 +324,13 @@ local function Decode(text)
     return msg
 end
 
+-- The log only pays to decode and canonicalize an entry when its decoded view
+-- is actually selected.
+function WhoDoesWhat:DecodeSyncLogEntry(encoded)
+    local msg = Decode(encoded)
+    return msg and Canon(msg) or "<payload could not be decoded>"
+end
+
 -- ---------------------------------------------------------------------------
 -- Module state
 -- ---------------------------------------------------------------------------
@@ -339,6 +359,8 @@ local peerVersions = {}
 -- only; see PollLocalChanges). Tracked so applying a remote board doesn't
 -- echo the role right back out.
 local lastOwnRoleSent = nil
+local lastPeerRequestAt = nil
+local lastPeerRequestChannel = nil
 
 local function IsNewerVersion(candidate, current)
     local a, b = {}, {}
@@ -484,9 +506,10 @@ function Sync:Send(msg, channel, target)
 end
 
 -- Broadcast the full board to the group (no-op solo).
-function Sync:BroadcastState()
+function Sync:BroadcastState(state, fingerprint)
     local channel = GroupChannel()
     if not channel then return end
+    state = state or Snapshot()
     -- Wall-clock-seeded Lamport rev: a plain counter resets to 0 on reload,
     -- and every broadcast from the fresh session would lose to the old
     -- session's higher revs sitting in everyone's lastRev -- silently
@@ -494,8 +517,8 @@ function Sync:BroadcastState()
     -- still orders multiple edits within the same second.
     lastRev = math.max(lastRev + 1, GetServerTime and GetServerTime() or time())
     lastRevSender = UnitName("player")
-    lastSyncedFP = Fingerprint()
-    self:Send({ t = "STATE", rev = lastRev, state = Snapshot() }, channel)
+    lastSyncedFP = fingerprint or Fingerprint(state)
+    self:Send({ t = "STATE", rev = lastRev, state = state }, channel)
 end
 
 function Sync:BroadcastOwnRanksSoon()
@@ -523,8 +546,10 @@ function Sync:PollLocalChanges()
     if not GroupChannel() or awaitingSync then return end
 
     if WhoDoesWhat:CanEditAssignments() then
-        if Fingerprint() ~= lastSyncedFP then
-            self:BroadcastState()
+        local state = Snapshot()
+        local fingerprint = Fingerprint(state)
+        if fingerprint ~= lastSyncedFP then
+            self:BroadcastState(state, fingerprint)
             LogSync("local board changed; broadcast rev", lastRev)
         end
         return
@@ -578,16 +603,21 @@ function Sync:OnGroupJoined()
         end
     end, JOIN_SYNC_TIMEOUT)
 
-    self:RequestPeerPresence()
+    self:RequestPeerPresence(true)
 end
 
 -- Ask every WDW client in the group to answer. HELLO is deliberately reused:
 -- released clients already answer it with STATE, RANKS, or VERSION depending
 -- on their role/class, so the Raider Roles presence column works across
 -- addon versions without another wire message.
-function Sync:RequestPeerPresence()
+function Sync:RequestPeerPresence(force)
     local channel = GroupChannel()
     if not channel then return end
+    local now = GetTime()
+    if not force and lastPeerRequestChannel == channel and lastPeerRequestAt
+        and now - lastPeerRequestAt < PEER_REQUEST_COOLDOWN then return end
+    lastPeerRequestAt = now
+    lastPeerRequestChannel = channel
     self:Send({
         t = "HELLO",
         ranks = OwnRanks(),
@@ -612,6 +642,8 @@ function Sync:OnGroupLeft()
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
+    lastPeerRequestAt = nil
+    lastPeerRequestChannel = nil
 
     -- The fake testing roster (FakeRaid.lua) isn't part of any real group;
     -- leaving one shouldn't eat it. Re-inject after the wipe.

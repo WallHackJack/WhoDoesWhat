@@ -164,7 +164,7 @@ local defaults = {
             logOperations = false,
             -- Print automatic WhoDoesWhat board/role sync status to chat.
             logSyncStatus = false,
-            -- Print detailed WhoDoesWhat addon-message diagnostics to chat.
+            -- Session-only sync traffic capture and detailed chat diagnostics.
             logSyncTraffic = false,
             -- Print Paladin Buffing Bar click diagnostics to chat.
             logBuffingBarClicks = false,
@@ -223,7 +223,7 @@ function WhoDoesWhat:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
     self.LOG_OPERATIONS = self.db.profile.settings.logOperations
-    self.LOG_SYNC = self.db.profile.settings.logSyncTraffic
+    self:SetSyncLoggingEnabled(false)
 
     -- One-off migrations: buffAssignments briefly held the paladin buff picks
     -- before raidAssignments generalized it -- drop it outright. Then paladin

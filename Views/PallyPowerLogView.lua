@@ -57,10 +57,17 @@ local function FormatEntry(e, kind)
     end
     local body
     if kind == "pp" then
-        body = display.pp == "raw" and e.msg or WhoDoesWhat:TranslatePallyPowerMessage(e.msg)
+        if display.pp == "raw" then
+            body = e.msg
+        else
+            e.translated = e.translated or WhoDoesWhat:TranslatePallyPowerMessage(e.msg)
+            body = e.translated
+        end
     elseif display.wdw == "encoded" then
-        body = Hex(e.encoded)
+        e.encodedHex = e.encodedHex or Hex(e.encoded)
+        body = e.encodedHex
     elseif display.wdw == "decoded" then
+        e.decoded = e.decoded or WhoDoesWhat:DecodeSyncLogEntry(e.encoded)
         body = e.decoded
     else
         body = e.msg
@@ -73,9 +80,13 @@ local function RenderAll(f)
     f.smf:Clear()
     local entries = source == "pp" and WhoDoesWhat.PallyPowerLog or WhoDoesWhat.SyncLog
     if #entries == 0 then
-        f.smf:AddMessage(source == "pp"
-            and "|cff909090No PallyPower traffic seen yet.|r"
-            or "|cff909090No WhoDoesWhat sync traffic seen yet.|r")
+        if not WhoDoesWhat.LOG_SYNC then
+            f.smf:AddMessage("|cff909090Logging is off. Enable Log to capture new traffic.|r")
+        else
+            f.smf:AddMessage(source == "pp"
+                and "|cff909090No PallyPower traffic seen yet.|r"
+                or "|cff909090No WhoDoesWhat sync traffic seen yet.|r")
+        end
         return
     end
     for _, e in ipairs(entries) do
@@ -119,6 +130,28 @@ local function EnsureLogFrame()
         wipe(source == "pp" and WhoDoesWhat.PallyPowerLog or WhoDoesWhat.SyncLog)
         RenderAll(f)
     end)
+
+    local logging = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    logging:SetSize(20, 20)
+    logging:SetPoint("RIGHT", clear, "LEFT", -22, 0)
+    logging:SetChecked(WhoDoesWhat.LOG_SYNC)
+    logging:SetScript("OnClick", function(self)
+        WhoDoesWhat:SetSyncLoggingEnabled(self:GetChecked())
+    end)
+    logging:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Sync traffic logging", 1, 1, 1)
+        GameTooltip:AddLine("Capture WhoDoesWhat and PallyPower traffic and print WDW"
+            .. " sync diagnostics to chat. Resets off on reload.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    logging:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local loggingLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    loggingLabel:SetPoint("LEFT", logging, "RIGHT", 0, 0)
+    loggingLabel:SetText("Log")
+    logging:SetHitRectInsets(0, -loggingLabel:GetStringWidth() - 4, 0, 0)
+    f.loggingCheck = logging
 
     local sourceDD = CreateFrame("Frame", "WhoDoesWhatSyncLogSourceDD", f,
         "UIDropDownMenuTemplate")
@@ -207,6 +240,13 @@ function WhoDoesWhat:SyncLogAppended(entry, trimmed)
         RenderAll(logFrame)
     else
         logFrame.smf:AddMessage(FormatEntry(entry, "wdw"))
+    end
+end
+
+function WhoDoesWhat:RefreshSyncLogLoggingCheck()
+    if logFrame and logFrame.loggingCheck then
+        logFrame.loggingCheck:SetChecked(self.LOG_SYNC)
+        RenderAll(logFrame)
     end
 end
 

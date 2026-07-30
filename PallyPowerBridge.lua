@@ -17,7 +17,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- when the sender is a raid leader/assist (or they run Free Assignment), so
 -- the button warns when we push without that authority.
 --
--- Log: every PLPWR message in or out lands in WhoDoesWhat.PallyPowerLog.
+-- Log: while session logging is enabled, every PLPWR message in or out lands
+-- in WhoDoesWhat.PallyPowerLog.
 -- Outgoing is caught with a hooksecurefunc on ChatThrottleLib (all of
 -- PallyPower's sends funnel through it, whispers included); incoming rides
 -- CHAT_MSG_ADDON, skipping our own group-broadcast echo since the hook
@@ -27,7 +28,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local Bridge = WhoDoesWhat:NewModule("PallyPowerBridge", "AceEvent-3.0")
 
 local PP_PREFIX = "PLPWR"
+local PEER_REQUEST_COOLDOWN = 10
 WhoDoesWhat.pallyPowerPeers = {}
+local lastPeerRequestAt
+local lastPeerRequestChannel
 
 function WhoDoesWhat:PaladinHasPallyPower(name)
     if name == UnitName("player") then return _G.PallyPower ~= nil end
@@ -46,6 +50,11 @@ function WhoDoesWhat:RequestPallyPowerPeers()
         channel = "PARTY"
     end
     if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        local now = GetTime()
+        if lastPeerRequestChannel == channel and lastPeerRequestAt
+            and now - lastPeerRequestAt < PEER_REQUEST_COOLDOWN then return end
+        lastPeerRequestAt = now
+        lastPeerRequestChannel = channel
         C_ChatInfo.SendAddonMessage(PP_PREFIX, "REQ", channel)
     end
 end
@@ -747,16 +756,18 @@ WhoDoesWhat.PallyPowerLog = log
 local statusRefreshPending
 
 local function Append(dir, who, msg)
-    local trimmed = false
-    if #log >= MAX_LOG then
-        -- Shed the oldest chunk in one go so the shift isn't per-message.
-        for _ = 1, 100 do table.remove(log, 1) end
-        trimmed = true
-    end
-    local entry = { t = date("%H:%M:%S"), dir = dir, who = who, msg = msg }
-    log[#log + 1] = entry
-    if WhoDoesWhat.PallyPowerLogAppended then
-        WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
+    if WhoDoesWhat.LOG_SYNC then
+        local trimmed = false
+        if #log >= MAX_LOG then
+            -- Shed the oldest chunk in one go so the shift isn't per-message.
+            for _ = 1, 100 do table.remove(log, 1) end
+            trimmed = true
+        end
+        local entry = { t = date("%H:%M:%S"), dir = dir, who = who, msg = msg }
+        log[#log + 1] = entry
+        if WhoDoesWhat.PallyPowerLogAppended then
+            WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
+        end
     end
     if not statusRefreshPending and WhoDoesWhat.RefreshStatusBarsView then
         statusRefreshPending = true
@@ -924,6 +935,10 @@ function Bridge:PetRosterChanged()
             wipe(observedBoard.assignments)
             wipe(observedBoard.normal)
             QueueMirrorRefresh()
+        end
+        if not IsInGroup() then
+            lastPeerRequestAt = nil
+            lastPeerRequestChannel = nil
         end
         local live = LivePetNames()
         local changed = false
