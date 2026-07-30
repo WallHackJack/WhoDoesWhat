@@ -451,7 +451,7 @@ end
 -- mutation. We auto-send only from an aligned board and only when the changed
 -- raider's effective blessings moved. A role change can alter raid-wide
 -- demand/primaries, and an already-drifted PallyPower board is a bad baseline;
--- either case opens the full Differences window with Ignore/Send instead.
+-- either case leaves PallyPower untouched for the passive status UI to report.
 -- Combat-safe: PallyPower parses NASSIGN in combat and refreshes its protected
 -- layout after combat.
 function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
@@ -473,21 +473,6 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
         end
     end
     if (priorDiffs and #priorDiffs > 0) or broad > 0 then
-        local reason
-        if priorDiffs and #priorDiffs > 0 then
-            reason = string.format(
-                "%s's role changed, but PallyPower was already out of sync."
-                .. " The current plan has %d difference(s). Review them below,"
-                .. " then Send the full plan or Ignore it.",
-                playerName, #diffs)
-        else
-            reason = string.format(
-                "%s's role change affects %d assignment(s) beyond that"
-                .. " raider's own buffs. Review the %d total change(s) below,"
-                .. " then Send the full plan or Ignore it.",
-                playerName, broad, #diffs)
-        end
-        self:OpenPallyPowerDiffView(reason)
         return
     end
 
@@ -704,20 +689,17 @@ function Bridge:OnEnable()
     end
 end
 
--- Recheck when a pet identity appears. None/Might/Kings are tolerated by the
--- shared comparison; an explicit invalid blessing opens the review/send view.
+-- Refresh the passive plan/status UI when a pet identity appears or disappears.
 function Bridge:PetRosterChanged()
     if petCheckPending then return end
     petCheckPending = true
     C_Timer.After(0.25, function()
         petCheckPending = false
         local live = LivePetNames()
-        local identified = {}
         local changed = false
         for owner, petName in pairs(live) do
             if knownPetNames[owner] ~= petName then
                 changed = true
-                identified[ShortName(petName)] = true
             end
             seenPetNames[ShortName(petName)] = true
         end
@@ -725,23 +707,9 @@ function Bridge:PetRosterChanged()
             if not live[owner] then changed = true break end
         end
         knownPetNames = live
-        if changed then WhoDoesWhat:RefreshMainAssignmentsView() end
-        if not next(identified) or not CanBroadcastAssignments() then return end
-
-        local diffs = WhoDoesWhat:CheckPallyPowerSync()
-        if not diffs then return end
-        local petDiffs = 0
-        for _, d in ipairs(diffs) do
-            if not d.isClass and identified[d.target] then
-                petDiffs = petDiffs + 1
-            end
-        end
-        if petDiffs > 0 then
-            WhoDoesWhat:OpenPallyPowerDiffView(string.format(
-                "PallyPower has %d invalid hunter-pet assignment(s). Pets may"
-                .. " only use Might or Kings. Review them below, then Send"
-                .. " the full plan or Ignore it.",
-                petDiffs))
+        if changed then
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            WhoDoesWhat:RefreshPaladinBuffGridView()
         end
     end)
 end
