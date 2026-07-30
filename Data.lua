@@ -324,7 +324,7 @@ WhoDoesWhat.StatusBarChecks.thorns = {
 }
 WhoDoesWhat.StatusBarChecks.alive = {
     name = "Alive",
-    icon = "Interface\\RaidFrame\\ReadyCheck-Ready",
+    icon = 132331,
     colorRGB = { r = 0.2, g = 0.9, b = 0.2 },
     defaultEnabled = false,
 }

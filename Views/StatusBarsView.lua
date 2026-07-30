@@ -277,7 +277,7 @@ local function CreateRow(index)
     row.percent = percent
 
     local completeIcon = status:CreateTexture(nil, "OVERLAY")
-    completeIcon:SetSize(14, 14)
+    completeIcon:SetSize(14, math.floor(14 * 0.8 + 0.5))
     completeIcon:SetTexture(READY_ICON)
     completeIcon:Hide()
     row.completeIcon = completeIcon
