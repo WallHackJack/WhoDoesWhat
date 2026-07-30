@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local features = WhoDoesWhat.ClientFeatures
 
 WhoDoesWhat.DisconnectedGridRowColors = {
     { r = 0.48, g = 0.48, b = 0.48, a = 0.16 },
@@ -165,6 +166,32 @@ WhoDoesWhat.Classes = {
     }
 }
 
+-- Additional tank roles live in the normal class metadata so every role
+-- picker and lookup sees the same definitions. Only the three raid-encounter
+-- roles are TBC-specific; the paladin tank split is shared.
+for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+    if classInfo.name == "Paladin" then
+        classInfo.roles[1].name = "Main Tank"
+        table.insert(classInfo.roles, 2,
+            { name = "Trash Tank", icon = 135893, id = "paladin_prot_trash", wowRole = "tank" })
+    elseif not features.isClassicEra then
+        if classInfo.name == "Hunter" then
+            table.insert(classInfo.roles,
+                { name = "Hunter Tank", icon = 132164, id = "hunter_tank", wowRole = "tank" })
+            table.insert(classInfo.categories,
+                { name = "Tank", icon = 132164, id = "cat_hunter_tank", allSubRoles = { "hunter_tank" } })
+        elseif classInfo.name == "Mage" then
+            table.insert(classInfo.roles,
+                { name = "Mage Tank", icon = 135846, id = "mage_tank", wowRole = "tank" })
+            table.insert(classInfo.categories,
+                { name = "Tank", icon = 135846, id = "cat_mage_tank", allSubRoles = { "mage_tank" } })
+        elseif classInfo.name == "Druid" then
+            table.insert(classInfo.roles, 4,
+                { name = "Boomkin Tank", icon = 136096, id = "druid_balance_tank", wowRole = "tank" })
+        end
+    end
+end
+
 -- Paladin Raid Buffs Metadata. spellId defaults to the TBC max-rank Greater
 -- Blessing and is overridden below for clients with different ranks.
 WhoDoesWhat.PaladinBuffs = {
@@ -218,7 +245,6 @@ WhoDoesWhat.PaladinBuffs = {
     }
 }
 
-local features = WhoDoesWhat.ClientFeatures
 for key, spellId in pairs(features.paladinBuffSpellIds) do
     WhoDoesWhat.PaladinBuffs[key].spellId = spellId
 end
@@ -513,11 +539,13 @@ WhoDoesWhat.PaladinBuffBansByRole = {
     mage_arcane = { might = true },
     mage_fire = { might = true },
     mage_frost = { might = true },
+    mage_tank = { might = true },
     warlock_affl = { might = true },
     warlock_demo = { might = true },
     warlock_destro = { might = true },
     warlock_firetank = { might = true },
     druid_balance = { might = true },
+    druid_balance_tank = { might = true },
     druid_resto = { might = true },
     druid_dreamstate = { might = true },
 }
@@ -588,6 +616,22 @@ WhoDoesWhat.PaladinBuffDefaults = {
         roles = { "hunter_pets" },
     },
 }
+
+if not features.isClassicEra then
+    table.insert(WhoDoesWhat.PaladinBuffDefaults, {
+        order = { "salv", "kings", "wisdom", "light", "sanctuary", "might" },
+        roles = { "mage_tank", "druid_balance_tank" },
+    })
+    table.insert(WhoDoesWhat.PaladinBuffDefaults, {
+        order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
+        roles = { "hunter_tank" },
+    })
+end
+
+table.insert(WhoDoesWhat.PaladinBuffDefaults, {
+    order = { "kings", "sanctuary", "wisdom", "light", "might", "salv" },
+    roles = { "paladin_prot_trash" },
+})
 
 -- The hunter-pet pseudo-role: never assignable and never customizable --
 -- every hunter's pet simply carries it. Assignments.lua derives one virtual

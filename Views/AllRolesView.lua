@@ -33,6 +33,37 @@ local OPTIONS_H = 32
 local CONTENT_TOP = OPTIONS_TOP + OPTIONS_H + 8 -- y (from top) where the columns start
 
 
+local function CustomizedRoleCount()
+    local count = 0
+    for _ in pairs(WhoDoesWhat.db.profile.roleCustomizations) do
+        count = count + 1
+    end
+    return count
+end
+
+
+local function ResetAllRoleCustomizations()
+    local count = CustomizedRoleCount()
+    if count == 0 then return end
+    wipe(WhoDoesWhat.db.profile.roleCustomizations)
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RebuildAllRolesView()
+    WhoDoesWhat:LogOperation("Reset " .. count .. " role customizations to defaults.")
+end
+
+
+StaticPopupDialogs["WHODOESWHAT_RESET_ALL_ROLES"] = {
+    text = "Reset all %d customized roles to their defaults?",
+    button1 = "Reset All",
+    button2 = "Cancel",
+    OnAccept = ResetAllRoleCustomizations,
+    timeout = 0,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+
 -- Add a precise-height vertical spacer. A SimpleGroup normally re-sizes itself
 -- to its (zero) content during layout, which fights the parent's stacking; the
 -- noAutoHeight flag makes its LayoutFinished bail out, so our SetHeight sticks.
@@ -178,6 +209,17 @@ local function EnsureMainFrame()
     end)
     f.expandCheck = check
 
+    local resetAll = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    resetAll:SetSize(110, 22)
+    resetAll:SetPoint("RIGHT", optionsBox, "RIGHT", -8, 0)
+    resetAll:SetScript("OnClick", function()
+        local count = CustomizedRoleCount()
+        if count == 0 then return end
+        StaticPopup_Hide("WHODOESWHAT_RESET_ALL_ROLES")
+        StaticPopup_Show("WHODOESWHAT_RESET_ALL_ROLES", count)
+    end)
+    f.resetAllButton = resetAll
+
     mainFrame = f
     return f
 end
@@ -202,6 +244,9 @@ end
 -- attach no raw frames to them, so nothing leaks across rebuilds.
 local function BuildContent()
     local f = EnsureMainFrame()
+    local customizedCount = CustomizedRoleCount()
+    f.resetAllButton:SetText("Reset all (" .. customizedCount .. ")")
+    f.resetAllButton:SetEnabled(customizedCount > 0)
 
     if contentGroup then
         AceGUI:Release(contentGroup)
