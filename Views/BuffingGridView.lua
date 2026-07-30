@@ -1,7 +1,9 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Buffing Grid ("Buffing Grid" button on the main view): raid-wide buff
--- status columns followed by every paladin's planned blessing for each raider.
+-- status columns followed by every paladin's blessing for each raider. The
+-- blessing columns can show WDW's plan, WDW's PLPWR wire mirror, or the live
+-- tables of a co-installed PallyPower addon.
 -- At SPLIT_AT_ROWS raiders (or more) the grid splits into balanced side-by-side
 -- blocks instead of growing taller.
 --
@@ -47,6 +49,7 @@ local ROLE_ICON_SIZE = 18
 local CELL_SIZE = 20
 local CELL_ICON_SIZE = 18
 local HEADER_H = 28
+local SOURCE_ROW_H = 24
 local CORE_CELL_ICON_SIZE = 16
 local CORE_MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local PALADIN_SECTION_GAP = 12
@@ -345,9 +348,17 @@ local function CreatePaladinCell(row, c)
             end
         else
             GameTooltip:SetText(self.paladin, 1, 1, 1)
-            GameTooltip:AddLine("Nothing for " .. self.raider .. ": every blessing"
-                .. " they want at this paladin count is already covered, or needs"
-                .. " a talent " .. self.paladin .. " doesn't have.", 0.6, 0.6, 0.6, true)
+            if self.gridSource == "wdw" then
+                GameTooltip:AddLine("Nothing for " .. self.raider .. ": every blessing"
+                    .. " they want at this paladin count is already covered, or needs"
+                    .. " a talent " .. self.paladin .. " doesn't have.",
+                    0.6, 0.6, 0.6, true)
+            else
+                local source = self.gridSource == "addon"
+                    and "the local PallyPower addon" or "observed PallyPower traffic"
+                GameTooltip:AddLine("No assignment for " .. self.raider .. " in "
+                    .. source .. ".", 0.6, 0.6, 0.6, true)
+            end
         end
         GameTooltip:Show()
     end)
@@ -384,6 +395,18 @@ local function CreateRow(f, index)
     row.paladinCells = {}
     f.rows[index] = row
     return row
+end
+
+local function UpdateSourceChecks(f)
+    if not f.sourceChecks then return end
+    if f.gridSource == "addon" and not _G.PallyPower then f.gridSource = "wdw" end
+    for source, check in pairs(f.sourceChecks) do
+        local enabled = source ~= "addon" or _G.PallyPower ~= nil
+        check:SetEnabled(enabled)
+        check:SetChecked(f.gridSource == source)
+        local color = enabled and 0.9 or 0.45
+        check.label:SetTextColor(color, color, color)
+    end
 end
 
 -- Map the current group onto the pooled widgets and size the window to its
@@ -477,9 +500,19 @@ local function RefreshGrid(f)
         GRID_X + NAME_COL_W + #coreKeys * COL_W + paladinGap + 6,
         -(f.headerBottom - 6))
 
-    -- One shared assignment-model snapshot supplies both cells and their
-    -- Greater/Lesser classification (see Assignments.lua).
-    local buffPlan = WhoDoesWhat.Assign.GetPaladinBuffPlan()
+    -- All three sources expose the assignment-model snapshot shape expected
+    -- below, so the rendering path remains shared.
+    local buffPlan
+    if f.gridSource == "observed" then
+        buffPlan = WhoDoesWhat:GetPallyPowerBuffPlan("observed")
+    elseif f.gridSource == "addon" then
+        buffPlan = WhoDoesWhat:GetPallyPowerBuffPlan("addon")
+    end
+    if not buffPlan then
+        f.gridSource = "wdw"
+        buffPlan = WhoDoesWhat.Assign.GetPaladinBuffPlan()
+    end
+    UpdateSourceChecks(f)
     local plan = buffPlan.grid
 
     for i, m in ipairs(members) do
@@ -545,6 +578,7 @@ local function RefreshGrid(f)
             PositionPaladinCell(cell, row, #coreKeys, c)
             cell.paladin = paladins[c].name
             cell.raider = m.name
+            cell.gridSource = f.gridSource
             cell.buffKey = cellsFor[cell.paladin]
             if cell.buffKey then
                 local buff = WhoDoesWhat.PaladinBuffs[cell.buffKey]
@@ -602,9 +636,57 @@ local function EnsureGridFrame()
     end)
     rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10))
+    sourceCaption:SetText("Assignments:")
+
+    f.gridSource = "wdw"
+    f.sourceChecks = {}
+    local sourceOptions = {
+        { key = "wdw", label = "WDW", x = 80,
+            tip = "Show WhoDoesWhat's computed blessing plan." },
+        { key = "observed", label = "PP Mirror", x = 136,
+            tip = "Show assignments reconstructed only from observed PLPWR traffic." },
+        { key = "addon", label = "PP Addon", x = 218,
+            tip = "Show the live assignment tables from the co-installed PallyPower addon." },
+    }
+    for _, option in ipairs(sourceOptions) do
+        local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        check:SetSize(20, 20)
+        check:SetPoint("TOPLEFT", option.x, -(f.titleBarHeight + 6))
+        check.source = option.key
+        check.tooltipText = option.tip
+        check:SetMotionScriptsWhileDisabled(true)
+
+        local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", check, "RIGHT", -2, 0)
+        label:SetText(option.label)
+        check.label = label
+        check:SetHitRectInsets(0, -label:GetStringWidth() - 4, 0, 0)
+
+        check:SetScript("OnClick", function(self)
+            if self.source == "addon" and not _G.PallyPower then return end
+            f.gridSource = self.source
+            if self.source == "observed" then WhoDoesWhat:RequestPallyPowerPeers() end
+            RefreshGrid(f)
+        end)
+        check:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:SetText(self.label:GetText(), 1, 1, 1)
+            GameTooltip:AddLine(self.tooltipText, 0.8, 0.8, 0.8, true)
+            if self.source == "addon" and not _G.PallyPower then
+                GameTooltip:AddLine("PallyPower is not loaded.", 1, 0.4, 0.4, true)
+            end
+            GameTooltip:Show()
+        end)
+        check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        f.sourceChecks[option.key] = check
+    end
+    UpdateSourceChecks(f)
+
     -- Everything in the grid header hangs off this: the y where the paladin
     -- role icons stand and the rows begin.
-    f.headerBottom = f.titleBarHeight + 8 + HEADER_H
+    f.headerBottom = f.titleBarHeight + 8 + SOURCE_ROW_H + HEADER_H
 
     -- One "Raider" label per possible block; RefreshGrid positions and shows
     -- however many blocks are in use.
@@ -673,6 +755,7 @@ function WhoDoesWhat:OpenBuffingGridView()
 
     self:LogUiBuilding("Opening Buffing Grid View...")
     f:Show()
+    self:RequestPallyPowerPeers()
     RefreshGrid(f)
     f:Raise()
 end

@@ -5,8 +5,20 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- switchable here without opening competing debug windows.
 
 local logFrame = nil
-local showRaw = false
 local source = "wdw"
+local SOURCE_LABELS = { wdw = "WhoDoesWhat", pp = "PallyPower" }
+local display = { wdw = "summary", pp = "summary" }
+local DISPLAY_OPTIONS = {
+    wdw = {
+        { key = "summary", label = "Summary" },
+        { key = "decoded", label = "Decoded payload" },
+        { key = "encoded", label = "Raw encoded (hex)" },
+    },
+    pp = {
+        { key = "summary", label = "Summary" },
+        { key = "raw", label = "Raw payload" },
+    },
+}
 
 local FRAME_W = 640
 local FRAME_H = 340
@@ -23,6 +35,17 @@ local function ColoredWho(name)
     return "|cffc0c0c0" .. name .. "|r"
 end
 
+local function Hex(text)
+    return string.format("%d bytes: %s", #text,
+        (text:gsub(".", function(c) return string.format("%02X", string.byte(c)) end)))
+end
+
+local function DisplayLabel(kind)
+    for _, option in ipairs(DISPLAY_OPTIONS[kind]) do
+        if option.key == display[kind] then return option.label end
+    end
+end
+
 local function FormatEntry(e, kind)
     local dirTag, who
     if e.dir == "out" then
@@ -34,9 +57,13 @@ local function FormatEntry(e, kind)
     end
     local body
     if kind == "pp" then
-        body = showRaw and e.msg or WhoDoesWhat:TranslatePallyPowerMessage(e.msg)
+        body = display.pp == "raw" and e.msg or WhoDoesWhat:TranslatePallyPowerMessage(e.msg)
+    elseif display.wdw == "encoded" then
+        body = Hex(e.encoded)
+    elseif display.wdw == "decoded" then
+        body = e.decoded
     else
-        body = showRaw and e.raw or e.msg
+        body = e.msg
     end
     local channel = e.channel and (" |cff707070[" .. e.channel .. "]|r") or ""
     return "|cff888888" .. e.t .. "|r " .. dirTag .. " " .. who .. channel .. "  " .. body
@@ -58,8 +85,17 @@ end
 
 local function SelectSource(f, selected)
     source = selected
-    f.wdwBtn:SetEnabled(source ~= "wdw")
-    f.ppBtn:SetEnabled(source ~= "pp")
+    UIDropDownMenu_SetSelectedValue(f.sourceDD, source)
+    UIDropDownMenu_SetText(f.sourceDD, SOURCE_LABELS[source])
+    UIDropDownMenu_SetSelectedValue(f.displayDD, display[source])
+    UIDropDownMenu_SetText(f.displayDD, DisplayLabel(source))
+    RenderAll(f)
+end
+
+local function SelectDisplay(f, selected)
+    display[source] = selected
+    UIDropDownMenu_SetSelectedValue(f.displayDD, selected)
+    UIDropDownMenu_SetText(f.displayDD, DisplayLabel(source))
     RenderAll(f)
 end
 
@@ -84,32 +120,39 @@ local function EnsureLogFrame()
         RenderAll(f)
     end)
 
-    -- Raw toggle: show the wire text instead of the translations.
-    local raw = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    raw:SetSize(20, 20)
-    raw:SetPoint("RIGHT", clear, "LEFT", -40, 0)
-    raw:SetChecked(showRaw)
-    raw:SetScript("OnClick", function(self)
-        showRaw = self:GetChecked() and true or false
-        RenderAll(f)
+    local sourceDD = CreateFrame("Frame", "WhoDoesWhatSyncLogSourceDD", f,
+        "UIDropDownMenuTemplate")
+    sourceDD:SetPoint("TOPLEFT", MARGIN - 15, -(f.titleBarHeight + 1))
+    UIDropDownMenu_SetWidth(sourceDD, 125)
+    UIDropDownMenu_Initialize(sourceDD, function(_, level)
+        for _, key in ipairs({ "wdw", "pp" }) do
+            local selected = key
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = SOURCE_LABELS[selected]
+            info.value = selected
+            info.checked = source == selected
+            info.func = function() SelectSource(f, selected) end
+            UIDropDownMenu_AddButton(info, level)
+        end
     end)
-    local rawLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    rawLabel:SetPoint("RIGHT", raw, "LEFT", 0, 0)
-    rawLabel:SetText("Raw")
+    f.sourceDD = sourceDD
 
-    local wdwBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    wdwBtn:SetSize(92, 18)
-    wdwBtn:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 8))
-    wdwBtn:SetText("WhoDoesWhat")
-    wdwBtn:SetScript("OnClick", function() SelectSource(f, "wdw") end)
-    f.wdwBtn = wdwBtn
-
-    local ppBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    ppBtn:SetSize(82, 18)
-    ppBtn:SetPoint("LEFT", wdwBtn, "RIGHT", 5, 0)
-    ppBtn:SetText("PallyPower")
-    ppBtn:SetScript("OnClick", function() SelectSource(f, "pp") end)
-    f.ppBtn = ppBtn
+    local displayDD = CreateFrame("Frame", "WhoDoesWhatSyncLogDisplayDD", f,
+        "UIDropDownMenuTemplate")
+    displayDD:SetPoint("LEFT", sourceDD, "RIGHT", -25, 0)
+    UIDropDownMenu_SetWidth(displayDD, 145)
+    UIDropDownMenu_Initialize(displayDD, function(_, level)
+        for _, option in ipairs(DISPLAY_OPTIONS[source]) do
+            local selected = option.key
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = option.label
+            info.value = selected
+            info.checked = display[source] == selected
+            info.func = function() SelectDisplay(f, selected) end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.displayDD = displayDD
 
     local smf = CreateFrame("ScrollingMessageFrame", nil, f)
     smf:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 34))

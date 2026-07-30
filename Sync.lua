@@ -262,7 +262,7 @@ local function DescribeMessage(msg)
     return "unknown message type " .. tostring(msg.t)
 end
 
-local function AppendTraffic(dir, who, msg, channel)
+local function AppendTraffic(dir, who, msg, channel, encoded)
     local trimmed = false
     if #syncLog >= MAX_LOG then
         for _ = 1, 100 do table.remove(syncLog, 1) end
@@ -274,7 +274,8 @@ local function AppendTraffic(dir, who, msg, channel)
         who = who,
         channel = channel,
         msg = DescribeMessage(msg),
-        raw = Canon(msg),
+        decoded = Canon(msg),
+        encoded = encoded,
     }
     syncLog[#syncLog + 1] = entry
     if WhoDoesWhat.SyncLogAppended then
@@ -475,8 +476,10 @@ end
 function Sync:Send(msg, channel, target)
     msg.p = PROTOCOL
     msg.v = self:GetReportedAddonVersion()
-    self:SendCommMessage(COMM_PREFIX, Encode(msg), channel, target)
-    AppendTraffic("out", target and SenderKey(target) or UnitName("player"), msg, channel)
+    local encoded = Encode(msg)
+    self:SendCommMessage(COMM_PREFIX, encoded, channel, target)
+    AppendTraffic("out", target and SenderKey(target) or UnitName("player"), msg, channel,
+        encoded)
     LogSync("sent", msg.t, "via", channel, target or "")
 end
 
@@ -741,7 +744,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
 
     local msg = Decode(text)
     if not msg then return end
-    AppendTraffic("in", senderKey, msg, distribution)
+    AppendTraffic("in", senderKey, msg, distribution, text)
     RecordPeerVersion(senderKey, msg.v)
 
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched

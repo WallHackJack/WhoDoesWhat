@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- /wdw           - toggle the main window
+-- /wdw r         - toggle the buffing grid
 -- /wdw sync      - manual resync: leaders push their board, everyone else
 --                  pulls the leader's (same flow as joining the group)
 -- /wdw ppsync    - push the computed buff grid into PallyPower and broadcast
@@ -9,6 +10,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- /wdw pplog     - toggle the PallyPower traffic log window
 function WhoDoesWhat:ToggleMainUI(input)
     input = input and input:trim():lower() or ""
+    if input == "r" then
+        self:OpenBuffingGridView()
+        return
+    end
     if input == "sync" then
         self:GetModule("Sync"):ForceSync()
         return

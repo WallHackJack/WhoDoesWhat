@@ -1,7 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Bridge to the PallyPower addon: push our computed buff grid into it, and
--- eavesdrop on its addon-channel chatter for the log window.
+-- eavesdrop on its addon-channel chatter for the log window and read-only
+-- assignment mirror.
 --
 -- Sync (SyncToPallyPower): PallyPower's model is one Greater Blessing per
 -- class per paladin, with per-player Normal-blessing exceptions layered on
@@ -62,6 +63,26 @@ local BLESSING_ID_WRATH = {
     wisdom = 1, might = 2, kings = 3, sanctuary = 4,
 }
 
+-- PallyPower's wire ids for the current client. These belong to the protocol,
+-- not the co-installed addon: the observed-board view must work without its
+-- globals. Era uses slot 9 for pets; TBC uses it for Shamans.
+local IS_WRATH = WOW_PROJECT_WRATH_CLASSIC
+    and WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
+local IS_ERA = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
+local PP_MAX_CLASSES = IS_WRATH and 10 or 9
+local PP_CLASS_ID = {
+    Warrior = 1, Rogue = 2, Priest = 3, Druid = 4, Paladin = 5,
+    Hunter = 6, Mage = 7, Warlock = 8,
+}
+if IS_WRATH then
+    PP_CLASS_ID.Shaman = 9
+    PP_CLASS_ID.DeathKnight = 10
+elseif IS_ERA then
+    PP_CLASS_ID.Pet = 9
+elseif not IS_ERA then
+    PP_CLASS_ID.Shaman = 9
+end
+
 -- Short display names by blessing id, for the log translations.
 local BLESSING_NAME = {
     "Wisdom", "Might", "Kings", "Salvation", "Light", "Sanctuary", "Sacrifice", "Horn",
@@ -72,6 +93,15 @@ local function BuffKeyToBlessingId(key)
     local pp = _G.PallyPower
     if pp and pp.isWrath then return BLESSING_ID_WRATH[key] end
     return BLESSING_ID[key]
+end
+
+local function BlessingIdToBuffKey(id)
+    id = tonumber(id)
+    if not id or id == 0 then return nil end
+    local map = IS_WRATH and BLESSING_ID_WRATH or BLESSING_ID
+    for key, value in pairs(map) do
+        if value == id then return key end
+    end
 end
 
 local function BlessingName(id)
@@ -111,6 +141,111 @@ end
 -- PallyPower keys everything by realm-stripped names.
 local function ShortName(name)
     return name and name:match("^([^%-]+)") or name
+end
+
+-- The wire mirror is deliberately session-only. REQ/SELF reconstructs it
+-- from the PallyPower clients currently in the group.
+local observedBoard = { assignments = {}, normal = {} }
+WhoDoesWhat.PallyPowerMirror = observedBoard
+
+local function SenderCanAssignOthers(sender)
+    sender = ShortName(sender)
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local name, rank = GetRaidRosterInfo(i)
+            if name and ShortName(name) == sender then return rank and rank > 0 end
+        end
+    elseif IsInGroup() then
+        local units = { "player" }
+        for i = 1, GetNumSubgroupMembers() do units[#units + 1] = "party" .. i end
+        for _, unit in ipairs(units) do
+            if ShortName(GetUnitName(unit, true)) == sender then
+                return UnitIsGroupLeader(unit)
+            end
+        end
+    end
+    return false
+end
+
+local function SetClassRow(board, name, row)
+    name = ShortName(name)
+    board.assignments[name] = {}
+    for classId = 1, PP_MAX_CLASSES do
+        local value = row:sub(classId, classId)
+        board.assignments[name][classId] = tonumber(value) or 0
+    end
+end
+
+local function CanApplyAssignment(sender, paladin, senderHasAuthority)
+    return ShortName(sender) == ShortName(paladin) or senderHasAuthority
+end
+
+-- Apply only the PLPWR messages that can change the blessing grid. Aura,
+-- cooldown, symbol, and UI messages are intentionally outside this mirror.
+local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
+    sender = ShortName(sender)
+    local senderHasAuthority = authorityOverride
+    if senderHasAuthority == nil then
+        senderHasAuthority = SenderCanAssignOthers(sender)
+    end
+
+    local selfRow = message:match("^SELF [0-9a-fn]*@([0-9n]*)")
+    if selfRow then
+        SetClassRow(board, sender, selfRow)
+        -- SendSelf follows SELF with every current NASSIGN row, so discard the
+        -- previous exceptions before that authoritative replay arrives.
+        board.normal[sender] = {}
+        return true
+    end
+
+    local paladin, row = message:match("^PASSIGN (%S+)@([0-9n]*)")
+    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+        SetClassRow(board, paladin, row)
+        return true
+    end
+
+    local classId, blessing
+    paladin, classId, blessing = message:match("^ASSIGN (%S+) (%d+) (%d+)")
+    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+        paladin, classId = ShortName(paladin), tonumber(classId)
+        board.assignments[paladin] = board.assignments[paladin] or {}
+        board.assignments[paladin][classId] = tonumber(blessing) or 0
+        return true
+    end
+
+    paladin, blessing = message:match("^MASSIGN (%S+) (%d+)")
+    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+        local rowText = string.rep(tostring(tonumber(blessing) or 0), PP_MAX_CLASSES)
+        SetClassRow(board, paladin, rowText)
+        return true
+    end
+
+    local body = message:match("^NASSIGN (.+)")
+    if body then
+        local changed = false
+        for pname, cid, target, value in
+            body:gmatch("([^@ ]+) ([^@ ]+) ([^@ ]+) ([^@ ]+)") do
+            if CanApplyAssignment(sender, pname, senderHasAuthority) then
+                pname, cid = ShortName(pname), tonumber(cid)
+                value = tonumber(value)
+                if cid and value then
+                    board.normal[pname] = board.normal[pname] or {}
+                    board.normal[pname][cid] = board.normal[pname][cid] or {}
+                    board.normal[pname][cid][ShortName(target)] = value ~= 0
+                        and value or nil
+                    changed = true
+                end
+            end
+        end
+        return changed
+    end
+
+    if message:find("^CLEAR") and senderHasAuthority then
+        wipe(board.assignments)
+        wipe(board.normal)
+        return true
+    end
+    return false
 end
 
 -- The fake testing roster must never leak onto the wire; PallyPower is real
@@ -180,6 +315,82 @@ end
 -- Keep dismissed pet names recognizable in later comparisons: PallyPower can
 -- retain their Normal rows after the unit token disappears.
 local seenPetNames = {}
+
+-- Convert either the observed wire board or the co-installed addon's live
+-- tables into the same plan shape consumed by Views/BuffingGridView.lua.
+local function BoardToBuffPlan(self, assignments, normal)
+    local plan = { grid = {}, greaterByPaladin = {}, targetClass = {} }
+    local paladins = self:GetGroupMembers("Paladin")
+
+    for _, paladin in ipairs(paladins) do
+        if paladin.classInfo.name == "Paladin" then
+            local pshort = ShortName(paladin.name)
+            local row = assignments[pshort] or {}
+            local greater = {}
+            for className, classId in pairs(PP_CLASS_ID) do
+                greater[className] = BlessingIdToBuffKey(row[classId])
+            end
+            plan.greaterByPaladin[paladin.name] = greater
+        end
+    end
+
+    local function AddTarget(displayName, className, wireName)
+        local classId = PP_CLASS_ID[className]
+        local cells = {}
+        plan.grid[displayName] = cells
+        plan.targetClass[displayName] = className
+        if not classId then return end
+
+        for _, paladin in ipairs(paladins) do
+            if paladin.classInfo.name == "Paladin" then
+                local pshort = ShortName(paladin.name)
+                local row = assignments[pshort] or {}
+                local exceptions = normal[pshort] and normal[pshort][classId]
+                local blessing = wireName and exceptions
+                    and (exceptions[ShortName(wireName)] or exceptions[wireName]) or nil
+                if not blessing or blessing == 0 then blessing = row[classId] end
+                local key = BlessingIdToBuffKey(blessing)
+                if key then cells[paladin.name] = key end
+            end
+        end
+    end
+
+    for _, member in ipairs(self:GetGroupMembers(nil)) do
+        if not self:IsNonRaider(member.name) then
+            AddTarget(member.name, member.classInfo.name, member.name)
+        end
+    end
+
+    local petNames = LivePetNames()
+    for _, pet in ipairs(self.Assign.GetPetMembers()) do
+        AddTarget(pet.name, IS_ERA and "Pet" or "Warrior", petNames[pet.owner])
+    end
+    return plan
+end
+
+-- source: "observed" for WDW's wire mirror, "addon" for PallyPower's live
+-- globals. Returns nil only when the requested co-installed addon is absent.
+function WhoDoesWhat:GetPallyPowerBuffPlan(source)
+    if source == "addon" then
+        if not (_G.PallyPower and _G.PallyPower_Assignments
+            and _G.PallyPower_NormalAssignments) then return nil end
+        return BoardToBuffPlan(self, PallyPower_Assignments,
+            PallyPower_NormalAssignments)
+    end
+    return BoardToBuffPlan(self, observedBoard.assignments, observedBoard.normal)
+end
+
+-- Small parser check, callable through LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat").
+function WhoDoesWhat:TestPallyPowerMirror()
+    local board = { assignments = {}, normal = {} }
+    assert(ApplyPallyPowerMessage(board, "Alice", "SELF nnnnnn@3n2nnnnnn", false))
+    assert(board.assignments.Alice[1] == 3 and board.assignments.Alice[3] == 2)
+    assert(ApplyPallyPowerMessage(board, "Alice",
+        "NASSIGN Alice 1 Bob 2@Alice 1 Cara 0", false))
+    assert(board.normal.Alice[1].Bob == 2 and board.normal.Alice[1].Cara == nil)
+    assert(not ApplyPallyPowerMessage(board, "Bob", "PASSIGN Alice@111111111", false))
+    self:Print("PallyPower mirror parser check passed.")
+end
 
 -- Compute the PallyPower assignment tables our grid implies, WITHOUT touching
 -- the live globals or the wire: majority buff per paladin/class becomes the
@@ -657,6 +868,16 @@ end
 
 local knownPetNames = {}
 local petCheckPending = false
+local mirrorRefreshPending = false
+
+local function QueueMirrorRefresh()
+    if mirrorRefreshPending then return end
+    mirrorRefreshPending = true
+    C_Timer.After(0.1, function()
+        mirrorRefreshPending = false
+        WhoDoesWhat:RefreshBuffingGridView()
+    end)
+end
 
 function Bridge:OnEnable()
     -- Without PallyPower loaded nobody registered the prefix, and unregistered
@@ -682,6 +903,9 @@ function Bridge:OnEnable()
         hooksecurefunc(_G.ChatThrottleLib, "SendAddonMessage",
             function(_, _, prefix, text, chattype, target)
                 if prefix == PP_PREFIX then
+                    if ApplyPallyPowerMessage(observedBoard, UnitName("player"), text) then
+                        QueueMirrorRefresh()
+                    end
                     Append("out", target and ("whisper:" .. ShortName(tostring(target)))
                         or (chattype or "GROUP"), text)
                 end
@@ -695,6 +919,12 @@ function Bridge:PetRosterChanged()
     petCheckPending = true
     C_Timer.After(0.25, function()
         petCheckPending = false
+        if not IsInGroup()
+            and (next(observedBoard.assignments) or next(observedBoard.normal)) then
+            wipe(observedBoard.assignments)
+            wipe(observedBoard.normal)
+            QueueMirrorRefresh()
+        end
         local live = LivePetNames()
         local changed = false
         for owner, petName in pairs(live) do
@@ -718,9 +948,11 @@ function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)
     if prefix ~= PP_PREFIX then return end
     local who = Ambiguate(sender, "none")
     if who == UnitName("player") then return end -- own echo; the send hook logged it
+    if ApplyPallyPowerMessage(observedBoard, who, message) then
+        QueueMirrorRefresh()
+    end
     if message:find("^SELF ") then
         WhoDoesWhat.pallyPowerPeers[who] = true
-        WhoDoesWhat:RefreshBuffingGridView()
     end
     Append("in", who, message)
 end

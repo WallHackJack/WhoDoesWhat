@@ -40,6 +40,7 @@ Any permitted edit broadcasts the whole board to every WhoDoesWhat user in the g
 | Command | Effect |
 | --- | --- |
 | `/wdw` | Toggle the main assignments window |
+| `/wdw r` | Toggle the buffing grid window |
 | `/wdw sync` | Manual resync — leaders push their board, members pull the leader's |
 | `/wdw ppsync` | Push the computed blessing grid into PallyPower and broadcast it |
 | `/wdw pplog` | Toggle the PallyPower traffic log window |
