@@ -1,11 +1,9 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Paladin Buff Grid ("Full Grid" button on the main view): every raiding
--- group member down the left with their role icon (Non-raiders are left out
--- entirely), every paladin across the top, and at each intersection the
--- buff that paladin gives that raider. At SPLIT_AT_ROWS raiders (or more) the
--- grid splits into two side-by-side blocks (balanced halves), each with its
--- own header names, instead of growing taller.
+-- Buffing Grid ("Buffing Grid" button on the main view): raid-wide buff
+-- status columns followed by every paladin's planned blessing for each raider.
+-- At SPLIT_AT_ROWS raiders (or more) the grid splits into balanced side-by-side
+-- blocks instead of growing taller.
 --
 -- The grid cells come from ComputeBuffGrid (Assignments.lua): coverage is
 -- computed per raider from the roster, roles and talents -- blessings are
@@ -14,13 +12,29 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- click-to-customize is the plan for later, which is why the cells are
 -- already buttons.
 --
--- The title bar's Rescan button force-inspects every reachable paladin because
--- talent data arrives asynchronously through LibClassicInspector.
+-- The title bar's Rescan button force-inspects every reachable Paladin, Priest,
+-- and Druid because talent data arrives asynchronously through the inspector.
 --
 -- Each paladin column is headed by their role icon with an outlined initial;
 -- hovering it opens the shared paladin detail tooltip.
 
 local gridFrame = nil
+local A = WhoDoesWhat.Assign
+
+-- Provider-class columns disappear when that class is absent; Food remains.
+local CORE_BUFF_KEYS = { "gift", "fortitude", "intellect", "food" }
+local CORE_BUFF_TITLES = {
+    gift = "Mark / Gift of the Wild",
+    fortitude = "Fortitude",
+    intellect = "Arcane Intellect / Brilliance",
+    food = "Well Fed",
+}
+local CORE_BUFF_DESCRIPTIONS = {
+    gift = "Increases armor, attributes, and resistances.",
+    fortitude = "Increases Stamina and maximum health.",
+    intellect = "Increases Intellect, mana, and spell critical chance.",
+    food = "Provides a Well Fed stat bonus from food.",
+}
 
 local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width tracks columns
 local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
@@ -33,12 +47,67 @@ local ROLE_ICON_SIZE = 18
 local CELL_SIZE = 20
 local CELL_ICON_SIZE = 18
 local HEADER_H = 28
+local CORE_CELL_ICON_SIZE = 16
+local CORE_MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+local PALADIN_SECTION_GAP = 12
 
 -- Grid blocks: at this many raiders (or more) the rows split into two
 -- side-by-side blocks (balanced halves) rather than making the window taller.
 local SPLIT_AT_ROWS = 20
 local BLOCK_GAP = 14
 local GRID_X = MARGIN
+
+local function VisibleCoreBuffKeys()
+    local keys = {}
+    for _, key in ipairs(CORE_BUFF_KEYS) do
+        local buff = WhoDoesWhat.CoreRaidBuffs[key]
+        if not buff.className or #A.MembersOfClass(buff.className) > 0 then
+            keys[#keys + 1] = key
+        end
+    end
+    return keys
+end
+
+local function RankColor(rank, maxRank)
+    if rank == nil then return 0.55, 0.55, 0.55 end
+    if rank >= maxRank then return 0.25, 1, 0.25 end
+    if rank > 0 then return 1, 0.82, 0 end
+    return 1, 0.4, 0.4
+end
+
+local function ImprovedProviders(key, disconnected)
+    local buff = WhoDoesWhat.CoreRaidBuffs[key]
+    local talent = buff and buff.improvedTalent
+    local providers = {}
+    if not talent then return providers end
+    for _, member in ipairs(A.GetEligibleMembers(buff.className)) do
+        if member.classInfo.name == buff.className then
+            providers[#providers + 1] = {
+                name = member.name,
+                rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key),
+                available = member.isFake or not disconnected[member.name],
+            }
+        end
+    end
+    table.sort(providers, function(a, b)
+        if a.rank == nil and b.rank ~= nil then return false end
+        if a.rank ~= nil and b.rank == nil then return true end
+        if a.rank ~= b.rank then return (a.rank or -1) > (b.rank or -1) end
+        return a.name < b.name
+    end)
+    return providers
+end
+
+local function BestAvailableProvider(providers)
+    local best
+    for _, provider in ipairs(providers) do
+        if provider.available and provider.rank ~= nil
+            and (not best or provider.rank > best.rank) then
+            best = provider
+        end
+    end
+    return best
+end
 
 -- Group members sorted class > role > name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
@@ -100,8 +169,39 @@ local function RoleIconFor(m)
     return m.classInfo.classIcon
 end
 
+-- One icon raid-buff header, pooled flat across blocks.
+local function CreateCoreHeader(f, index)
+    local header = CreateFrame("Button", nil, f)
+    header:SetSize(CELL_SIZE, CELL_SIZE)
+    local icon = header:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    header.icon = icon
+    header:SetScript("OnEnter", function(self)
+        local buff = WhoDoesWhat.CoreRaidBuffs[self.buffKey]
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(CORE_BUFF_TITLES[self.buffKey], 1, 1, 1)
+        GameTooltip:AddLine(CORE_BUFF_DESCRIPTIONS[self.buffKey],
+            0.8, 0.8, 0.8, true)
+        if buff.improvedTalent then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(buff.improvedTalent.name .. " providers:", 1, 0.82, 0)
+            for _, provider in ipairs(self.providers or {}) do
+                local rank = provider.rank == nil and "?" or provider.rank
+                local suffix = provider.available and "" or " (offline)"
+                GameTooltip:AddLine(provider.name .. ": " .. rank .. "/"
+                    .. buff.improvedTalent.maxRank .. suffix,
+                    RankColor(provider.rank, buff.improvedTalent.maxRank))
+            end
+        end
+        GameTooltip:Show()
+    end)
+    header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.coreHeaders[index] = header
+    return header
+end
+
 -- One compact paladin header, pooled flat across blocks.
-local function CreateHeaderCell(f, index)
+local function CreatePaladinHeader(f, index)
     local header = CreateFrame("Button", nil, f)
     header:SetSize(CELL_SIZE, CELL_SIZE)
 
@@ -120,17 +220,95 @@ local function CreateHeaderCell(f, index)
     end)
     header:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
 
-    f.headerCells[index] = header
+    f.paladinHeaders[index] = header
     return header
+end
+
+local function PositionCell(cell, row, column)
+    cell:ClearAllPoints()
+    cell:SetPoint("LEFT", row, "LEFT",
+        NAME_COL_W + (column - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
+end
+
+local function PositionPaladinCell(cell, row, coreCount, paladinColumn)
+    cell:ClearAllPoints()
+    cell:SetPoint("LEFT", row, "LEFT",
+        NAME_COL_W + coreCount * COL_W + PALADIN_SECTION_GAP
+            + (paladinColumn - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
+end
+
+local function CreateCoreCell(row, column)
+    local cell = CreateFrame("Button", nil, row)
+    cell:SetSize(CELL_SIZE, CELL_SIZE)
+    PositionCell(cell, row, column)
+
+    local missing = cell:CreateTexture(nil, "ARTWORK")
+    missing:SetTexture(CORE_MISSING_ICON)
+    missing:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
+    missing:SetPoint("CENTER")
+    missing:Hide()
+    cell.missing = missing
+
+    local warning = cell:CreateTexture(nil, "ARTWORK")
+    warning:SetTexture(WhoDoesWhat.WARNING_ICON)
+    warning:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
+    warning:SetPoint("CENTER")
+    warning:Hide()
+    cell.warning = warning
+
+    local icon = cell:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
+    icon:SetPoint("CENTER")
+    cell.icon = icon
+
+    cell:SetScript("OnEnter", function(self)
+        local buff = WhoDoesWhat.CoreRaidBuffs[self.buffKey]
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(buff.name .. " - " .. self.raider, 1, 1, 1)
+        if self.notNeeded then
+            GameTooltip:AddLine("Not required for this class.", 0.6, 0.6, 0.6)
+        elseif not self.connected then
+            GameTooltip:AddLine("Aura state is unavailable while this raider is offline.",
+                0.6, 0.6, 0.6, true)
+        elseif self.hasBuff == true then
+            local status, source, rank, maxRank =
+                WhoDoesWhat:GetImprovedBuffState(self.raider, self.buffKey)
+            if status == "max" then
+                GameTooltip:AddLine("Active from " .. source .. " (max rank "
+                    .. rank .. "/" .. maxRank .. ").", 0.3, 1, 0.3, true)
+            elseif status == "partial" or status == "base" then
+                GameTooltip:AddLine("Active from " .. source .. " (" .. rank
+                    .. "/" .. maxRank .. ").", 1, 0.7, 0.2, true)
+            else
+                source = WhoDoesWhat:GetBuffSource(self.raider, self.buffKey)
+                GameTooltip:AddLine(source and ("Active from " .. source .. ".")
+                    or "Active.", 0.3, 1, 0.3, true)
+            end
+            if self.betterProvider then
+                GameTooltip:AddLine("Better available from "
+                    .. self.betterProvider.name .. " ("
+                    .. self.betterProvider.rank .. "/" .. maxRank .. ").",
+                    1, 0.45, 0.2, true)
+            end
+        elseif self.hasBuff == false then
+            GameTooltip:AddLine("Missing this buff.", 1, 0.3, 0.3)
+        else
+            GameTooltip:AddLine("Aura state has not been scanned yet.", 0.6, 0.6, 0.6)
+        end
+        GameTooltip:Show()
+    end)
+    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    row.coreCells[column] = cell
+    return cell
 end
 
 -- One grid cell (a button already, for the later click-to-customize).
 -- Refresh fills cell.paladin / cell.raider / cell.buffKey before showing it.
-local function CreateCell(f, row, c)
+local function CreatePaladinCell(row, c)
     local cell = CreateFrame("Button", nil, row)
     cell:SetSize(CELL_SIZE, CELL_SIZE)
-    cell:SetPoint("LEFT", row, "LEFT",
-        NAME_COL_W + (c - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
+    PositionCell(cell, row, c)
 
     -- Bright border, shown when this raider is confirmed to be MISSING the
     -- blessing this cell plans for them (BuffTracking.lua). The icon is also
@@ -175,7 +353,7 @@ local function CreateCell(f, row, c)
     end)
     cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    row.cells[c] = cell
+    row.paladinCells[c] = cell
     return cell
 end
 
@@ -202,7 +380,8 @@ local function CreateRow(f, index)
     nameFS:SetJustifyH("LEFT")
     row.nameFS = nameFS
 
-    row.cells = {}
+    row.coreCells = {}
+    row.paladinCells = {}
     f.rows[index] = row
     return row
 end
@@ -212,11 +391,19 @@ end
 local function RefreshGrid(f)
     local members = SortedMembers()
     local paladins = GroupPaladins()
+    local coreKeys = VisibleCoreBuffKeys()
     local disconnected = WhoDoesWhat.Assign.DisconnectedGroupTargets()
+    local providerPools, bestProviders = {}, {}
+    for _, key in ipairs(coreKeys) do
+        providerPools[key] = ImprovedProviders(key, disconnected)
+        bestProviders[key] = BestAvailableProvider(providerPools[key])
+    end
 
     local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
     local rowsPerBlock = math.ceil(#members / numBlocks)
-    local blockW = NAME_COL_W + math.max(#paladins, 1) * COL_W
+    local paladinGap = #paladins > 0 and PALADIN_SECTION_GAP or 0
+    local blockW = NAME_COL_W + #coreKeys * COL_W + paladinGap
+        + math.max(#paladins, 1) * COL_W
     local function BlockX(b)
         return GRID_X + (b - 1) * (blockW + BLOCK_GAP)
     end
@@ -224,15 +411,40 @@ local function RefreshGrid(f)
     f:SetWidth(math.max(MIN_FRAME_W,
         GRID_X + numBlocks * blockW + (numBlocks - 1) * BLOCK_GAP + MARGIN))
 
-    -- Role-icon paladin headers above every block, from one flat pool.
-    local hc = 0
+    -- Raid-buff icon headers above every block, from one flat pool.
+    local coreHeaderCount = 0
     for b = 1, numBlocks do
-        for c, p in ipairs(paladins) do
-            hc = hc + 1
-            local header = f.headerCells[hc] or CreateHeaderCell(f, hc)
+        for c, key in ipairs(coreKeys) do
+            coreHeaderCount = coreHeaderCount + 1
+            local header = f.coreHeaders[coreHeaderCount]
+                or CreateCoreHeader(f, coreHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
                 BlockX(b) + NAME_COL_W + (c - 1) * COL_W
+                    + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
+            header.buffKey = key
+            header.providers = providerPools[key]
+            header.icon:SetTexture(WhoDoesWhat.CoreRaidBuffs[key].icon)
+            header:Show()
+        end
+    end
+    for i = coreHeaderCount + 1, #f.coreHeaders do
+        f.coreHeaders[i]:Hide()
+        f.coreHeaders[i].buffKey = nil
+        f.coreHeaders[i].providers = nil
+    end
+
+    -- Role-icon paladin headers follow the raid-buff columns.
+    local paladinHeaderCount = 0
+    for b = 1, numBlocks do
+        for c, p in ipairs(paladins) do
+            paladinHeaderCount = paladinHeaderCount + 1
+            local header = f.paladinHeaders[paladinHeaderCount]
+                or CreatePaladinHeader(f, paladinHeaderCount)
+            header:ClearAllPoints()
+            header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
+                BlockX(b) + NAME_COL_W + #coreKeys * COL_W
+                    + PALADIN_SECTION_GAP + (c - 1) * COL_W
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.paladin = p.name
             header.icon:SetTexture(RoleIconFor(p))
@@ -242,9 +454,9 @@ local function RefreshGrid(f)
             header:Show()
         end
     end
-    for i = hc + 1, #f.headerCells do
-        f.headerCells[i]:Hide()
-        f.headerCells[i].paladin = nil
+    for i = paladinHeaderCount + 1, #f.paladinHeaders do
+        f.paladinHeaders[i]:Hide()
+        f.paladinHeaders[i].paladin = nil
     end
 
     -- One "Raider" label per visible block.
@@ -260,6 +472,10 @@ local function RefreshGrid(f)
     end
 
     f.emptyHint:SetShown(#paladins == 0)
+    f.emptyHint:ClearAllPoints()
+    f.emptyHint:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
+        GRID_X + NAME_COL_W + #coreKeys * COL_W + paladinGap + 6,
+        -(f.headerBottom - 6))
 
     -- One shared assignment-model snapshot supplies both cells and their
     -- Greater/Lesser classification (see Assignments.lua).
@@ -287,9 +503,46 @@ local function RefreshGrid(f)
         row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
             .. m.name .. "|r")
 
+        for c, key in ipairs(coreKeys) do
+            local cell = row.coreCells[c] or CreateCoreCell(row, c)
+            PositionCell(cell, row, c)
+            local buff = WhoDoesWhat.CoreRaidBuffs[key]
+            local notNeeded = buff.excludedClasses
+                and buff.excludedClasses[m.classInfo.name] or false
+            local has
+            if not m.isPet and not notNeeded then
+                has = WhoDoesWhat:HasBuff(m.name, key)
+            end
+            cell.raider = m.name
+            cell.buffKey = key
+            cell.connected = connected
+            cell.notNeeded = notNeeded
+            cell.hasBuff = has
+            local betterProvider
+            if connected and has == true and buff.improvedTalent then
+                local status, _, rank =
+                    WhoDoesWhat:GetImprovedBuffState(m.name, key)
+                local best = bestProviders[key]
+                if (status == "base" or status == "partial") and rank
+                    and best and best.rank > rank then
+                    betterProvider = best
+                end
+            end
+            cell.betterProvider = betterProvider
+            cell.icon:SetTexture(buff.icon)
+            cell.icon:SetShown(has == true and not betterProvider)
+            cell.icon:SetDesaturated(not connected)
+            cell.missing:SetShown(not notNeeded and connected
+                and not m.isFake and has == false)
+            cell.warning:SetShown(betterProvider ~= nil)
+            cell:SetShown(not m.isPet)
+        end
+        for c = #coreKeys + 1, #row.coreCells do row.coreCells[c]:Hide() end
+
         local cellsFor = plan[m.name] or {}
         for c = 1, #paladins do
-            local cell = row.cells[c] or CreateCell(f, row, c)
+            local cell = row.paladinCells[c] or CreatePaladinCell(row, c)
+            PositionPaladinCell(cell, row, #coreKeys, c)
             cell.paladin = paladins[c].name
             cell.raider = m.name
             cell.buffKey = cellsFor[cell.paladin]
@@ -313,8 +566,8 @@ local function RefreshGrid(f)
             cell.icon:SetDesaturated(isMissing)
             cell:SetShown(connected)
         end
-        for c = #paladins + 1, #row.cells do
-            row.cells[c]:Hide()
+        for c = #paladins + 1, #row.paladinCells do
+            row.paladinCells[c]:Hide()
         end
     end
     for i = #members + 1, #f.rows do
@@ -330,22 +583,21 @@ end
 local function EnsureGridFrame()
     if gridFrame then return gridFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatPaladinBuffGridFrame",
-        MIN_FRAME_W, MIN_FRAME_H, "WhoDoesWhat - Paladin Buff Grid")
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatBuffingGridFrame",
+        MIN_FRAME_W, MIN_FRAME_H, "WhoDoesWhat - Buffing Grid")
 
-    -- "Rescan" in the title bar: force a fresh inspect of every reachable
-    -- paladin (see WhoDoesWhat:RescanPaladinTalents).
+    -- "Rescan" in the title bar: inspect every reachable buff provider.
     local rescan = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     rescan:SetSize(60, 18)
     rescan:SetPoint("TOPRIGHT", -28, -6)
     rescan:SetText("Rescan")
-    rescan:SetScript("OnClick", function() WhoDoesWhat:RescanPaladinTalents() end)
+    rescan:SetScript("OnClick", function() WhoDoesWhat:RescanBuffingTalents() end)
     rescan:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
         GameTooltip:SetText("Rescan talents", 1, 1, 1)
-        GameTooltip:AddLine("Force a fresh inspect of every paladin in range."
-            .. " Out-of-range paladins keep their last-known ranks until they"
-            .. " come closer.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Force a fresh inspect of every Paladin, Priest, and"
+            .. " Druid in range. Out-of-range providers keep their last-known"
+            .. " ranks until they come closer.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -371,15 +623,14 @@ local function EnsureGridFrame()
     divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-        GRID_X + NAME_COL_W + 6, -(f.headerBottom - 6))
     hint:SetTextColor(0.55, 0.55, 0.55)
     hint:SetText("No paladins in the group.")
     f.emptyHint = hint
 
-    WhoDoesWhat:LogUiBuilding("Building paladin buff grid content.")
+    WhoDoesWhat:LogUiBuilding("Building buffing grid content.")
 
-    f.headerCells = {}
+    f.coreHeaders = {}
+    f.paladinHeaders = {}
     f.rows = {}
 
     -- Track joins/leaves live while the window is open.
@@ -401,7 +652,7 @@ end
 -- changed" hook, so it also nudges the compact status views -- every plan-
 -- mutation site already routes through here, and their refreshes no-op while
 -- hidden.
-function WhoDoesWhat:RefreshPaladinBuffGridView()
+function WhoDoesWhat:RefreshBuffingGridView()
     if gridFrame and gridFrame:IsShown() then
         RefreshGrid(gridFrame)
     end
@@ -410,18 +661,17 @@ function WhoDoesWhat:RefreshPaladinBuffGridView()
     self:RefreshStatusBarsView()
 end
 
--- Toggle the grid window open/closed. Shown before the refresh so the
--- header-name rotation animations play against a visible frame.
-function WhoDoesWhat:OpenPaladinBuffGridView()
+-- Toggle the grid window open/closed.
+function WhoDoesWhat:OpenBuffingGridView()
     local f = EnsureGridFrame()
 
     if f:IsShown() then
-        self:LogUiBuilding("Paladin Buff Grid View open, closing it.")
+        self:LogUiBuilding("Buffing Grid View open, closing it.")
         f:Hide()
         return
     end
 
-    self:LogUiBuilding("Opening Paladin Buff Grid View...")
+    self:LogUiBuilding("Opening Buffing Grid View...")
     f:Show()
     RefreshGrid(f)
     f:Raise()

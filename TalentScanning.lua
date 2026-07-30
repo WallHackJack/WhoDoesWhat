@@ -134,16 +134,10 @@ function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
     return ranks and ranks[buffKey] or nil
 end
 
--- Manual "Rescan" (Paladin Buff Grid window). The auto-scanning only ever sees a
--- paladin's talents when the library manages to inspect them in range or they
--- broadcast, so a paladin who's been out of range reads stale ranks (most
--- visibly Kings/Sanctuary showing untalented when they're not). This forces a
--- fresh inspect of every group paladin the library can reach right now, and
--- re-reads whatever's already cached so the window updates at once. In-range
--- paladins get a fresh inspect (DoInspect -> TALENTS_READY ->
--- ScanPaladinBuffTalents when it lands); out-of-range ones keep their
--- last-known ranks until they come closer. No-op quietly if the library didn't
--- load. Prints a one-line summary; open paladin tooltips repaint as inspects arrive.
+-- Manual "Rescan" (Buffing Grid window). Talent data only becomes current when
+-- the library inspects a provider in range or receives their broadcast, so this
+-- forces a fresh inspect of reachable providers and replays cached data at once.
+-- Out-of-range providers keep their last-known ranks until they come closer.
 local function RescanUtilityTalents(self, wantedClasses, label)
     if not (Inspector and self.db) then return end
 
@@ -166,14 +160,14 @@ local function RescanUtilityTalents(self, wantedClasses, label)
             -- Re-run the pipeline from cache first: this resyncs role
             -- detection (which reads fine from the library's spec totals) and,
             -- for the local player, re-reads buff talents from the client
-            -- directly. Other paladins' buff talents can't be read without a
+            -- directly. Other players' buff talents can't be read without a
             -- live inspect, so those refresh via the DoInspect below instead.
-            -- Gated on a real cache time so an uncached paladin isn't touched.
+            -- Gated on a real cache time so an uncached provider isn't touched.
             if guid == playerGUID or (Inspector:GetLastCacheTime(guid) or 0) ~= 0 then
                 self:OnTalentsReady("TALENTS_READY", guid, false)
             end
 
-            -- Force a fresh inspect where the paladin is reachable; the result
+            -- Force a fresh inspect where the provider is reachable; the result
             -- lands async and repaints through the normal TALENTS_READY path.
             if guid ~= playerGUID and Inspector:DoInspect(unit) ~= 0 then
                 inRange = inRange + 1
@@ -190,16 +184,10 @@ local function RescanUtilityTalents(self, wantedClasses, label)
     end
 end
 
-function WhoDoesWhat:RescanPaladinTalents()
-    RescanUtilityTalents(self, { PALADIN = true }, "paladin")
-    self:RefreshPaladinBuffGridView()
-end
-
-function WhoDoesWhat:RescanImprovedBuffTalents()
-    RescanUtilityTalents(self, { DRUID = true, PRIEST = true }, "improved-buff provider")
-    self:RefreshMainAssignmentsView()
-    self:RefreshImprovedBuffGridView()
-    self:RefreshStatusBarsView()
+function WhoDoesWhat:RescanBuffingTalents()
+    RescanUtilityTalents(self,
+        { PALADIN = true, DRUID = true, PRIEST = true }, "buff provider")
+    self:RefreshBuffingGridView()
 end
 
 -- Both flags are test scaffolding for the talent sync and are off during normal
@@ -345,16 +333,14 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     if class == "PALADIN" then
         self:ScanPaladinBuffTalents(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
-        self:RefreshPaladinBuffGridView()
+        self:RefreshBuffingGridView()
     elseif class == "WARLOCK" then
         self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
         self:RefreshMainAssignmentsView()
         self:RefreshRaiderTooltip()
     elseif class == "DRUID" or class == "PRIEST" then
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
-        self:RefreshMainAssignmentsView()
-        self:RefreshImprovedBuffGridView()
-        self:RefreshStatusBarsView()
+        self:RefreshBuffingGridView()
     end
 end
 

@@ -237,7 +237,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     -- per-raider plan; Non-raider adds/removes rows), so repaint all three.
     self:RefreshMainAssignmentsView()
     self:RefreshRaiderRolesView()
-    self:RefreshPaladinBuffGridView()
+    self:RefreshBuffingGridView()
 end
 
 

@@ -709,7 +709,7 @@ function Bridge:PetRosterChanged()
         knownPetNames = live
         if changed then
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshPaladinBuffGridView()
+            WhoDoesWhat:RefreshBuffingGridView()
         end
     end)
 end
@@ -720,7 +720,7 @@ function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)
     if who == UnitName("player") then return end -- own echo; the send hook logged it
     if message:find("^SELF ") then
         WhoDoesWhat.pallyPowerPeers[who] = true
-        WhoDoesWhat:RefreshPaladinBuffGridView()
+        WhoDoesWhat:RefreshBuffingGridView()
     end
     Append("in", who, message)
 end

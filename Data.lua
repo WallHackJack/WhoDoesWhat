@@ -886,7 +886,7 @@ function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder, allowedCount)
         self.db.profile.roleCustomizations[roleId] = nil
         -- Buff priorities feed both assignment demand and the live Paladin plan.
         self:RefreshMainAssignmentsView()
-        self:RefreshPaladinBuffGridView()
+        self:RefreshBuffingGridView()
         return false
     end
     self.db.profile.roleCustomizations[roleId] = {
@@ -894,7 +894,7 @@ function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder, allowedCount)
         allowedCount = allowedCount,
     }
     self:RefreshMainAssignmentsView()
-    self:RefreshPaladinBuffGridView()
+    self:RefreshBuffingGridView()
     return true
 end
 
@@ -908,7 +908,7 @@ function WhoDoesWhat:ClearRoleCustomization(roleId)
     end
     -- Buff priorities feed both assignment demand and the live Paladin plan.
     self:RefreshMainAssignmentsView()
-    self:RefreshPaladinBuffGridView()
+    self:RefreshBuffingGridView()
 end
 
 -- Create a new custom role with the given display name, owning class (by

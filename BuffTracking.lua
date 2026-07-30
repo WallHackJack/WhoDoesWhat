@@ -234,9 +234,8 @@ local function NotifyChanged()
     C_Timer.After(NOTIFY_DEBOUNCE, function()
         notifyPending = false
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshImprovedBuffGridView()
-        -- RefreshPaladinBuffGridView also nudges both compact status views.
-        WhoDoesWhat:RefreshPaladinBuffGridView()
+        -- RefreshBuffingGridView also nudges both compact status views.
+        WhoDoesWhat:RefreshBuffingGridView()
     end)
 end
 

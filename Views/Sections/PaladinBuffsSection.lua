@@ -163,7 +163,7 @@ local function CreateRuleRow(f, index)
         -- ApplyViewMode refits the window height -- adding/removing a rule
         -- grows/shrinks the box, and the collapsed view must follow.
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshPaladinBuffGridView()
+        WhoDoesWhat:RefreshBuffingGridView()
     end
 
     -- Buff picker: only blessings no other rule already claims.
@@ -651,10 +651,10 @@ local function Build(f, content)
     })
     local box = chrome.box
 
-    local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Full Grid", "Paladin Full Grid",
-        "Open the buff grid: every raider against every paladin, with"
-        .. " the blessing each paladin gives them.", function()
-            WhoDoesWhat:OpenPaladinBuffGridView()
+    local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Buffing Grid", "Buffing Grid",
+        "Open the buffing grid: raid-wide buff status followed by every"
+        .. " paladin's planned blessing for each raider.", function()
+            WhoDoesWhat:OpenBuffingGridView()
         end)
     K.ChainHeaderButton(chrome, gridBtn)
 
@@ -670,7 +670,7 @@ local function Build(f, content)
         wipe(GetBuffRules())
         WhoDoesWhat:LogOperation("Paladin Buffs: all buffing rules removed.")
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshPaladinBuffGridView()
+        WhoDoesWhat:RefreshBuffingGridView()
     end)
     clearRulesBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -710,7 +710,7 @@ local function Build(f, content)
             end
             rules[#rules + 1] = { buff = buff, kind = "prefer" }
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshPaladinBuffGridView()
+            WhoDoesWhat:RefreshBuffingGridView()
         end)
 
     local hint = K.CreateEmptyHint(box)

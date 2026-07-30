@@ -1308,55 +1308,6 @@ local function ComputeCoreRaidBuffCoverage()
     return correct, total, rows
 end
 
--- Provider talent ranks and per-raider improved-buff state for the main
--- Improved Buffs summary and its full grid. "correct" always means the aura
--- came from a max-ranked provider, independent of the compact-bar setting.
-local function ComputeImprovedBuffCoverage()
-    local disconnected = DisconnectedGroupTargets()
-    local members = GetEligibleMembers(nil)
-    local rows = {}
-    for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
-        local buff = WhoDoesWhat.CoreRaidBuffs[key]
-        local talent = buff.improvedTalent
-        if talent then
-            local row = {
-                key = key, name = buff.name, icon = buff.icon,
-                className = buff.className, talent = talent,
-                correct = 0, total = 0, providers = {}, targets = {},
-            }
-            for _, provider in ipairs(GetEligibleMembers(buff.className)) do
-                if provider.classInfo.name == buff.className then
-                    row.providers[#row.providers + 1] = {
-                        name = provider.name,
-                        rank = WhoDoesWhat:GetCoreBuffTalent(provider.name, key),
-                    }
-                end
-            end
-            table.sort(row.providers, function(a, b)
-                if a.rank == nil and b.rank ~= nil then return false end
-                if a.rank ~= nil and b.rank == nil then return true end
-                if a.rank ~= b.rank then return (a.rank or -1) > (b.rank or -1) end
-                return a.name < b.name
-            end)
-            for _, m in ipairs(members) do
-                if IsEligibleCoreBuffTarget(m, buff, disconnected) then
-                    local status, source, rank, maxRank =
-                        WhoDoesWhat:GetImprovedBuffState(m.name, key)
-                    row.targets[#row.targets + 1] = {
-                        name = m.name, classInfo = m.classInfo,
-                        status = status, source = source,
-                        rank = rank, maxRank = maxRank or talent.maxRank,
-                    }
-                    row.total = row.total + 1
-                    if status == "max" then row.correct = row.correct + 1 end
-                end
-            end
-            rows[#rows + 1] = row
-        end
-    end
-    return rows
-end
-
 -- The plan aggregated per paladin: how many raiders each paladin blesses
 -- with each buff. Returns an array of
 --   { name, total, buffs = { { key, count }, ... } }
@@ -1734,7 +1685,7 @@ local function SetAssignment(rowId, playerName)
 
     WhoDoesWhat:RefreshMainAssignmentsView()
     -- The buff grid mirrors the paladin-buff picks; keep it live.
-    WhoDoesWhat:RefreshPaladinBuffGridView()
+    WhoDoesWhat:RefreshBuffingGridView()
 end
 
 -- When a warlock is detected (or respecs) into Affliction, hand them Curse of
@@ -1961,7 +1912,6 @@ WhoDoesWhat.Assign = {
     DisconnectedGroupTargets = DisconnectedGroupTargets,
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
-    ComputeImprovedBuffCoverage = ComputeImprovedBuffCoverage,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

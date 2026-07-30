@@ -133,7 +133,7 @@ end
 local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
-    WhoDoesWhat:RefreshPaladinBuffGridView()
+    WhoDoesWhat:RefreshBuffingGridView()
 end
 
 -- ---------------------------------------------------------------------------
@@ -439,7 +439,7 @@ local function StoreRanks(senderKey, ranks)
     WhoDoesWhat.db.profile.paladinBuffTalents[senderKey] = stored
     LogSync("buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshPaladinBuffGridView()
+    WhoDoesWhat:RefreshBuffingGridView()
 end
 
 local function StoreHealthstoneRank(senderKey, rank)
@@ -465,9 +465,7 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     if not next(stored) then return end
     WhoDoesWhat.db.profile.coreBuffTalents[senderKey] = stored
     LogSync("core buff-talent ranks stored for", senderKey)
-    WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshImprovedBuffGridView()
-    WhoDoesWhat:RefreshStatusBarsView()
+    WhoDoesWhat:RefreshBuffingGridView()
 end
 
 -- ---------------------------------------------------------------------------
