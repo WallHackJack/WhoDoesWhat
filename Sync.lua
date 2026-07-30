@@ -21,7 +21,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     straight into db.profile.paladinBuffTalents. This is what the old NRC
 --     talent-string reference code in this file was for; reading ranks on the
 --     SENDER makes an order-proof wire encoding unnecessary, so four small
---     numbers replace the whole string format. The initial HELLO also carries
+--     numbers replace the whole string format. The leader relays its cached
+--     sender-supplied ranks inside the initial STATE peer directory. The
+--     initial HELLO also carries
 --     the sender's three talent-tree totals so every WDW client can infer the
 --     same role immediately; full talent grids remain LibClassicInspector's job.
 --
@@ -63,7 +65,9 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- each other. 2: tank rows went one-per-tank with a `markers` array (was
 -- one-per-marker with a single `marker`). 3: RANKS/HELLO gained the warlock
 -- Improved Healthstone rank. 4: the initial HELLO gained talent-tree totals.
-local PROTOCOL = 4
+-- 5: leader STATE replies gained the peer directory; peers stopped answering
+-- ordinary HELLO broadcasts individually.
+local PROTOCOL = 5
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -279,9 +283,9 @@ end
 local function DescribeMessage(msg)
     if msg.t == "STATE" then
         local s = msg.state or {}
-        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static)",
+        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static, %d peers)",
             tostring(msg.rev or "?"), Count(s.roles), #(s.tank or {}), #(s.cc or {}),
-            #(s.md or {}), Count(s.static))
+            #(s.md or {}), Count(s.static), Count(msg.peers))
     end
     if msg.t == "HELLO" then
         return msg.talents and "requests the leader's board and shares talent-tree totals"
@@ -375,6 +379,8 @@ local awaitTimer = nil
 local ranksTimer = nil
 local warnedProtocol = false
 local peerVersions = {}
+local peerProtocols = {}
+local needsPeerCollection = true
 
 -- Our own role as last pushed over the ROLE message (unpermitted clients
 -- only; see PollLocalChanges). Tracked so applying a remote board doesn't
@@ -510,6 +516,67 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     WhoDoesWhat:RefreshBuffingGridView()
 end
 
+-- The leader's session directory lets one STATE replace one whisper reply per
+-- peer. It contains only current roster members the leader has seen running
+-- WDW (plus the leader itself); the saved rank caches remain the data source.
+local function PeerDirectory()
+    local p = WhoDoesWhat.db.profile
+    local peers = {}
+    local function Add(unit)
+        local name = UnitKey(unit)
+        if not name then return end
+        local own = UnitIsUnit(unit, "player")
+        if not own and peerProtocols[name] ~= PROTOCOL then return end
+        peers[name] = {
+            version = own and Sync:GetReportedAddonVersion() or peerVersions[name],
+            ranks = own and OwnRanks() or p.paladinBuffTalents[name],
+            healthstone = own and OwnHealthstoneRank() or p.warlockHealthstoneTalents[name],
+            coreRanks = own and OwnCoreBuffRanks() or p.coreBuffTalents[name],
+        }
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do Add("raid" .. i) end
+    else
+        Add("player")
+        for i = 1, GetNumSubgroupMembers() do Add("party" .. i) end
+    end
+    return peers
+end
+
+-- Accept a directory only from the current leader (checked by the caller),
+-- and only for players who are still in our roster. Individual rank writers
+-- keep their existing validation and clamping.
+local function ApplyPeerDirectory(peers)
+    if type(peers) ~= "table" then return end
+    local members = {}
+    local ownName = UnitKey("player")
+    local function Add(unit)
+        local name = UnitKey(unit)
+        if name then members[name] = true end
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do Add("raid" .. i) end
+    else
+        Add("player")
+        for i = 1, GetNumSubgroupMembers() do Add("party" .. i) end
+    end
+
+    local newlySeen = false
+    for name, peer in pairs(peers) do
+        if type(name) == "string" and members[name] and type(peer) == "table"
+            and name ~= ownName then
+            if not WhoDoesWhat.syncPeers[name] then newlySeen = true end
+            WhoDoesWhat.syncPeers[name] = true
+            peerProtocols[name] = PROTOCOL
+            RecordPeerVersion(name, peer.version)
+            StoreRanks(name, peer.ranks)
+            StoreHealthstoneRank(name, peer.healthstone)
+            StoreCoreBuffRanks(name, peer.coreRanks)
+        end
+    end
+    if newlySeen then WhoDoesWhat:RefreshRaiderRolesView() end
+end
+
 -- ---------------------------------------------------------------------------
 -- Sending
 -- ---------------------------------------------------------------------------
@@ -525,7 +592,7 @@ function Sync:Send(msg, channel, target)
 end
 
 -- Broadcast the full board to the group (no-op solo).
-function Sync:BroadcastState(state, fingerprint)
+function Sync:BroadcastState(state, fingerprint, collectPeers)
     local channel = GroupChannel()
     if not channel then return end
     state = state or Snapshot()
@@ -537,7 +604,30 @@ function Sync:BroadcastState(state, fingerprint)
     lastRev = math.max(lastRev + 1, GetServerTime and GetServerTime() or time())
     lastRevSender = UnitName("player")
     lastSyncedFP = fingerprint or Fingerprint(state)
-    self:Send({ t = "STATE", rev = lastRev, state = state }, channel)
+    self:Send({
+        t = "STATE", rev = lastRev, state = state,
+        peers = collectPeers and PeerDirectory() or nil,
+        collectPeers = collectPeers or nil,
+    }, channel)
+end
+
+-- Rebuild session presence after the leader reloads. Unlike the old HELLO
+-- response fanout this happens only for the leader's explicit collection and
+-- uses group broadcasts, so every client learns the same facts at once.
+local function BroadcastOwnPresence()
+    local channel = GroupChannel()
+    if not channel then return end
+    local ranks = OwnRanks()
+    local healthstone = OwnHealthstoneRank()
+    local coreRanks = OwnCoreBuffRanks()
+    if ranks or healthstone ~= nil or coreRanks then
+        Sync:Send({
+            t = "RANKS", ranks = ranks, healthstone = healthstone,
+            coreRanks = coreRanks,
+        }, channel)
+    else
+        Sync:Send({ t = "VERSION" }, channel)
+    end
 end
 
 function Sync:BroadcastOwnRanksSoon()
@@ -659,6 +749,7 @@ function Sync:OnGroupLeft()
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
+    wipe(peerProtocols)
 
     -- The fake testing roster (FakeRaid.lua) isn't part of any real group;
     -- leaving one shouldn't eat it. Re-inject after the wipe.
@@ -691,7 +782,8 @@ function Sync:OnEnteringWorld()
         if not GroupChannel() then return end
         if UnitIsGroupLeader("player") then
             WhoDoesWhat:RequestPallyPowerPeers()
-            self:BroadcastState()
+            self:BroadcastState(nil, nil, needsPeerCollection)
+            needsPeerCollection = false
         else
             self:OnGroupJoined()
         end
@@ -794,6 +886,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     if not msg then return end
     AppendTraffic("in", senderKey, msg, distribution, text)
     RecordPeerVersion(senderKey, msg.v)
+    peerProtocols[senderKey] = msg.p
 
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched
     -- version (below). Permissions.lua checks the current leader against
@@ -813,10 +906,12 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     LogSync("received", msg.t, "from", senderKey, "via", distribution)
 
     if msg.t == "STATE" and type(msg.state) == "table" then
+        local fromLeader = senderKey == LeaderName()
         if distribution == "WHISPER" then
             -- The join flow's leader answer. Anyone else whispering a board
             -- (or a stale leader answer after the timeout) is ignored.
-            if awaitingSync and senderKey == LeaderName() then
+            if awaitingSync and fromLeader then
+                ApplyPeerDirectory(msg.peers)
                 self:ApplyState(msg, senderKey)
             end
             return
@@ -827,6 +922,10 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         if not WhoDoesWhat:PlayerCanEditAssignments(senderKey) then
             LogSync("board from", senderKey, "rejected: no edit permission")
             return
+        end
+        if fromLeader then
+            ApplyPeerDirectory(msg.peers)
+            if msg.collectPeers then BroadcastOwnPresence() end
         end
         -- Group broadcast: last write wins, name as tiebreak (see lastRev).
         local rev = tonumber(msg.rev) or 0
@@ -848,26 +947,31 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         StoreRanks(senderKey, msg.ranks)
         StoreHealthstoneRank(senderKey, msg.healthstone)
         StoreCoreBuffRanks(senderKey, msg.coreRanks)
-        -- The leader answers with the authoritative board; every utility-buff
-        -- provider answers with ranks so the joiner's views fill in.
-        local answered = false
+        -- Everyone consumes the announcement. A compatible leader is the sole
+        -- responder; its directory replaces the old one-whisper-per-peer
+        -- fanout. Stable peers retain that fallback only without a compiler.
         if UnitIsGroupLeader("player") then
-            self:Send({ t = "STATE", rev = lastRev, state = Snapshot() }, "WHISPER", sender)
-            answered = true
-        end
-        local ranks = OwnRanks()
-        local healthstone = OwnHealthstoneRank()
-        local coreRanks = OwnCoreBuffRanks()
-        if ranks or healthstone ~= nil or coreRanks then
             self:Send({
-                t = "RANKS",
-                ranks = ranks,
-                healthstone = healthstone,
-                coreRanks = coreRanks,
+                t = "STATE", rev = lastRev, state = Snapshot(),
+                peers = PeerDirectory(),
             }, "WHISPER", sender)
-            answered = true
+        elseif not awaitingSync and peerProtocols[LeaderName()] ~= PROTOCOL then
+            -- Without a compatible WDW leader there is no compiler. Preserve
+            -- the old presence/rank discovery fallback for stable peers only;
+            -- reloading peers stay silent so simultaneous reloads do not fan
+            -- out at each other.
+            local ranks = OwnRanks()
+            local healthstone = OwnHealthstoneRank()
+            local coreRanks = OwnCoreBuffRanks()
+            if ranks or healthstone ~= nil or coreRanks then
+                self:Send({
+                    t = "RANKS", ranks = ranks, healthstone = healthstone,
+                    coreRanks = coreRanks,
+                }, "WHISPER", sender)
+            else
+                self:Send({ t = "VERSION" }, "WHISPER", sender)
+            end
         end
-        if not answered then self:Send({ t = "VERSION" }, "WHISPER", sender) end
 
     elseif msg.t == "RANKS" then
         StoreRanks(senderKey, msg.ranks)

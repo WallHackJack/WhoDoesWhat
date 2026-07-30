@@ -23,7 +23,7 @@ message:
 ```lua
 {
     t = "HELLO", -- message type
-    p = 4,       -- WDW wire-protocol version
+    p = 5,       -- WDW wire-protocol version
     v = "1.0.6",-- addon version reported by this client
     -- type-specific fields follow
 }
@@ -63,8 +63,7 @@ than sent as explicit `nil` values.
 
 ### `HELLO`
 
-Purpose: announce the sender, ask peers to identify themselves, and ask the
-leader for the authoritative board.
+Purpose: announce the sender and ask the leader for the authoritative board.
 
 Channel: group broadcast.
 
@@ -73,7 +72,7 @@ Initial join/reload shape:
 ```lua
 {
     t = "HELLO",
-    p = 4,
+    p = 5,
     v = "1.0.6",
     talents = { 41, 20, 0 },
     ranks = {                 -- paladin only, once locally known
@@ -99,17 +98,22 @@ inference. No role id is trusted from the message and no new network-member
 cache is introduced; the result goes through the existing `talentSpecs` and
 assignment logic.
 
-Every compatible receiver records the sender's version and WDW presence.
-Current replies are:
+Every compatible receiver records the sender's version, WDW presence, talent
+totals, and utility ranks. When the Blizzard leader runs the compatible WDW
+protocol, ordinary peers remain silent. Only the leader whispers one `STATE`,
+whose peer directory supplies the joiner with the already-known presence,
+versions, and utility ranks for the rest of the raid.
 
-- The group leader whispers one `STATE`.
-- Each utility provider whispers one `RANKS`.
-- A client which sent neither response whispers `VERSION`.
-- A leader who is also a utility provider sends both `STATE` and `RANKS`.
+An ordinary join therefore produces two WDW messages regardless of raid size:
+the group `HELLO` and the leader's whispered `STATE`. UI navigation never
+sends `HELLO`; automatic join/reload and explicit `/wdw sync` are its current
+entry points.
 
-This means one `HELLO` produces approximately one reply per WDW peer. UI
-navigation never sends `HELLO`; automatic join/reload and explicit `/wdw sync`
-are its current entry points, and responders are not globally rate-limited.
+If the Blizzard leader has no compatible WDW, there is no client authorized to
+compile an initial board. Stable peers retain the old `RANKS`/`VERSION`
+whisper replies so the joiner still discovers them while it waits five seconds
+and keeps its local board. Peers which are themselves reloading do not answer,
+preventing a simultaneous reload group from fanning out at itself.
 
 ### `STATE`
 
@@ -120,7 +124,7 @@ Shape:
 ```lua
 {
     t = "STATE",
-    p = 4,
+    p = 5,
     v = "1.0.6",
     rev = 1785432100,
     state = {
@@ -157,6 +161,14 @@ Shape:
             assistant = false,
         },
     },
+    peers = { -- included in the leader's initial whisper
+        ["Player-Realm"] = {
+            version = "1.0.6",
+            ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
+            healthstone = nil,
+            coreRanks = nil,
+        },
+    },
 }
 ```
 
@@ -167,11 +179,18 @@ Paladin blessing rows are deliberately absent. Each client computes blessing
 coverage from roster, roles, rules, and the separately synchronized talent
 ranks. Local customization settings are also absent.
 
+`peers` is outside the shared board and therefore outside its fingerprint. The
+leader includes it in an initial whispered snapshot, using only current roster
+members it has observed running WDW plus itself. Each entry may contain the
+peer's addon version and the leader's last sender-supplied utility ranks. The
+receiver accepts this directory only from its current group leader and only
+for names still in its own roster.
+
 `STATE` has two delivery modes:
 
-- The leader whispers it to a joining/reloading member in response to `HELLO`.
-  The receiver accepts that whisper only while waiting for initial sync and
-  only from the current leader.
+- The leader whispers it, with `peers`, to a joining/reloading member in
+  response to `HELLO`. The receiver accepts that whisper only while waiting
+  for initial sync and only from the current leader.
 - A permitted editor broadcasts it after the board fingerprint changes. Every
   receiver independently checks that the sender may edit assignments.
 
@@ -184,13 +203,14 @@ an apply-and-echo loop.
 
 Purpose: distribute exact, self-observed utility-talent ranks.
 
-Channel: group broadcast after a local utility scan, or whisper in response to
-`HELLO`.
+Channel: group broadcast after a local utility scan or while rebuilding a
+reloaded leader's empty session directory; whisper only for the addonless or
+protocol-incompatible leader fallback.
 
 ```lua
 {
     t = "RANKS",
-    p = 4,
+    p = 5,
     v = "1.0.6",
     ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
     healthstone = 2,
@@ -202,6 +222,8 @@ As with `HELLO`, only fields appropriate to the sender's class normally exist.
 Values are associated with the sender; a player cannot use this message to
 write another player's ranks. Receivers normalize the numeric values;
 healthstone and core-buff ranks are also clamped to their legal ranges.
+The leader may later relay those cached, sender-supplied values in an initial
+`STATE` peer directory; it does not manufacture a second talent scan.
 
 Local utility scans schedule this message after a two-second debounce. The
 timer is not reset by every subsequent talent event: another message can be
@@ -219,7 +241,7 @@ Channel: group broadcast.
 ```lua
 {
     t = "ROLE",
-    p = 4,
+    p = 5,
     v = "1.0.6",
     role = "druid_feral_tank",
 }
@@ -234,15 +256,16 @@ If the player may edit the board, the same role change is part of a full
 
 ### `VERSION`
 
-Purpose: answer presence discovery when the sender has no state or utility
-ranks to return.
+Purpose: announce presence when rebuilding a reloaded leader's empty session
+directory and the sender has no utility ranks to return.
 
-Channel: whisper to the `HELLO` requester.
+Channel: group broadcast during that bounded rebuild; whisper only for the
+addonless or protocol-incompatible leader fallback.
 
 ```lua
 {
     t = "VERSION",
-    p = 4,
+    p = 5,
     v = "1.0.6",
 }
 ```
@@ -262,8 +285,9 @@ There is no type-specific payload; every WDW message already carries `v`.
    and any available utility ranks.
 5. Every WDW client immediately records its presence/version and can infer its
    role from the totals.
-6. The leader whispers `STATE`; other clients whisper `RANKS` or `VERSION` as
-   described above.
+6. A compatible leader whispers one `STATE` containing the board and its peer
+   directory; every other client remains silent. Without one, stable peers
+   reply only with their own `RANKS` or `VERSION`.
 7. The member replaces its local board with the leader snapshot.
 8. If no leader snapshot arrives within five seconds, the member keeps its
    local board and normal synchronization resumes.
@@ -271,8 +295,12 @@ There is no type-specific payload; every WDW message already carries `v`.
 ### Leader reloads
 
 After the three-second entering-world delay, the leader sends one PallyPower
-`REQ` and broadcasts one `STATE`. The leader does not run the member `HELLO`
-pull.
+`REQ` and broadcasts one `STATE`. Because a reload erased its session-only
+peer directory, that state requests one group `RANKS` or `VERSION`
+announcement from each peer. All clients hear those announcements and rebuild
+the same presence/version/rank cache. This is linear in raid size and occurs
+only when the leader's cache is empty; the leader does not run the member
+`HELLO` pull.
 
 ### UI navigation
 
@@ -345,7 +373,7 @@ is intentional:
 | --- | --- |
 | Three tree totals and primary tree | LibClassicInspector cache, initial WDW `HELLO` for immediate join inference |
 | General role inference | WDW's class-to-tree role table |
-| Exact utility-talent ranks | Native row/column scan, then WDW `RANKS` |
+| Exact utility-talent ranks | Native row/column scan, then WDW `RANKS`; leader cache relayed in initial `STATE` |
 | Manual/final board role | WDW `ROLE` or `STATE` |
 
 ## LibClassicInspector traffic
@@ -414,9 +442,15 @@ does not alter broader class demand.
 - The board snapshot built by the poll is reused for its fingerprint and send,
   and sync logging performs expensive decoding only when its decoded view is
   selected.
-- Presence discovery still fans out: one `HELLO` receives approximately one
-  whisper reply per WDW client. Simultaneous raid reloads can therefore
-  approach quadratic reply counts.
+- With a compatible WDW leader, an ordinary member join/reload is fixed-size
+  WDW traffic: one group `HELLO` and one leader `STATE` whisper. The leader's
+  compiled peer directory replaces the former per-peer whisper replies.
+- A cold leader reload performs one bounded, group-wide directory rebuild:
+  one leader `STATE`, then one `RANKS` or `VERSION` announcement per peer.
+  Simultaneous reload traffic is linear rather than quadratic.
+- Without a compatible WDW leader, stable peers still answer `HELLO` so
+  presence and utility ranks remain discoverable; no compiled board exists in
+  that fallback.
 - Window opening and source selection are passive; they do not initiate WDW,
   LibClassicInspector, or PallyPower traffic.
 - LibClassicInspector independently distributes full talent strings. WDW does
