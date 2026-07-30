@@ -9,8 +9,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   - static rows EXCEPT paladin buff keys (today that's the warlock
 --     curses). Paladin blessings aren't assigned at all anymore -- coverage
 --     is computed per client from roster + roles + talents (ComputeBuffGrid,
---     Assignments.lua) -- so there are no paladin rows to sync; the talent
---     facts below are what keep every client's computation in agreement.
+--     Assignments.lua) -- so there are no paladin rows to sync. The shared
+--     paladinStrategy rules and talent facts below keep that computation in
+--     agreement.
 --     IsSyncedStaticRow still filters the keys as a safety.
 --   - talent ranks: players broadcast their OWN class utility ranks: paladin
 --     blessing talents, Improved Healthstone, Improved Fortitude, and Improved
@@ -30,12 +31,11 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     grids remain LibClassicInspector's job.
 --
 -- Conflict model:
---   - Leaving the group wipes the whole board (roles included): assignments
+--   - Leaving the group wipes assignment state (roles included): assignments
 --     are group business, and a stale board from the last raid only misleads.
 --     The talent caches (talentSpecs / paladinBuffTalents /
 --     warlockHealthstoneTalents / coreBuffTalents) survive -- they're
---     facts about characters, not group decisions, and they let roles refill
---     instantly when a group reforms.
+--     character facts rather than the departed raid's assignments.
 --   - Joining a group makes the LEADER the source of truth: the joiner says
 --     HELLO, the leader whispers back a full snapshot, and the joiner's local
 --     board is replaced outright (a popup says so when it overwrote anything).
@@ -71,7 +71,8 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- 5: leader STATE replies gained the peer directory; peers stopped answering
 -- ordinary HELLO broadcasts individually. 6: live third-party inspections
 -- gained OBSERVE, and leader directories gained cached talent observations.
-local PROTOCOL = 6
+-- 7: STATE gained the shared paladinStrategy rules table.
+local PROTOCOL = 7
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -197,6 +198,7 @@ local function Snapshot()
         cc = p.ccAssignments,
         md = p.mdAssignments,
         static = static,
+        paladinStrategy = p.paladinBuffRules,
         perms = { mode = p.permissions.mode, assistant = p.permissions.assistant },
     }
 end
@@ -218,6 +220,7 @@ local function ApplySnapshot(state)
     refill(p.tankAssignments, state.tank)
     refill(p.ccAssignments, state.cc)
     refill(p.mdAssignments, state.md)
+    refill(p.paladinBuffRules, state.paladinStrategy)
 
     local perms = state.perms or WhoDoesWhat.DEFAULT_PERMISSIONS
     p.permissions.mode = perms.mode or WhoDoesWhat.DEFAULT_PERMISSIONS.mode
@@ -236,6 +239,7 @@ end
 local function BoardNonEmpty()
     local p = WhoDoesWhat.db.profile
     if next(p.assignments) then return true end
+    if #p.paladinBuffRules > 0 then return true end
     for id in pairs(p.raidAssignments) do
         if IsSyncedStaticRow(id) then return true end
     end
@@ -287,9 +291,10 @@ end
 local function DescribeMessage(msg)
     if msg.t == "STATE" then
         local s = msg.state or {}
-        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static, %d peers, %d observations)",
+        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static, %d paladin rules, %d peers, %d observations)",
             tostring(msg.rev or "?"), Count(s.roles), #(s.tank or {}), #(s.cc or {}),
-            #(s.md or {}), Count(s.static), Count(msg.peers), Count(msg.observations))
+            #(s.md or {}), Count(s.static), #(s.paladinStrategy or {}),
+            Count(msg.peers), Count(msg.observations))
     end
     if msg.t == "HELLO" then
         return msg.talents and "requests the leader's board and shares talent-tree totals"
@@ -888,6 +893,7 @@ function Sync:OnGroupLeft()
     wipe(p.ccAssignments)
     wipe(p.mdAssignments)
     wipe(p.raidAssignments)
+    wipe(p.paladinBuffRules)
     wipe(peerVersions)
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()

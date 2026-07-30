@@ -23,7 +23,7 @@ message:
 ```lua
 {
     t = "HELLO", -- message type
-    p = 6,       -- WDW wire-protocol version
+    p = 7,       -- WDW wire-protocol version
     v = "1.0.6",-- addon version reported by this client
     -- type-specific fields follow
 }
@@ -72,7 +72,7 @@ Initial join/reload shape:
 ```lua
 {
     t = "HELLO",
-    p = 6,
+    p = 7,
     v = "1.0.6",
     talents = { 41, 20, 0 },
     ranks = {                 -- paladin only, once locally known
@@ -124,7 +124,7 @@ Shape:
 ```lua
 {
     t = "STATE",
-    p = 6,
+    p = 7,
     v = "1.0.6",
     rev = 1785432100,
     state = {
@@ -156,6 +156,10 @@ Shape:
         static = {
             curse_reck = "Warlock-Realm",
         },
+        paladinStrategy = {
+            { buff = "kings", kind = "prefer", value = "Player-Realm" },
+            { buff = "wisdom", kind = "prioritize", scope = "wowrole", value = "healer" },
+        },
         perms = {
             mode = "assists",
             assistant = false,
@@ -184,8 +188,12 @@ The example values are illustrative; role, row, spell, and permission ids are
 defined by the current model and data tables.
 
 Paladin blessing rows are deliberately absent. Each client computes blessing
-coverage from roster, roles, rules, and the separately synchronized talent
-ranks. Local customization settings are also absent.
+coverage from roster, roles, the shared `paladinStrategy`, and the separately
+synchronized talent ranks. The strategy is the ordered
+`db.profile.paladinBuffRules` array; its `ignore`, `prioritize`, and `prefer`
+shapes are described in `Assignments.lua`. Its order is significant when
+several prioritization rules match. Role customizations and UI settings remain
+local and are absent.
 
 `peers` is outside the shared board and therefore outside its fingerprint. The
 leader includes it in an initial whispered snapshot, using only current roster
@@ -223,7 +231,7 @@ protocol-incompatible leader fallback.
 ```lua
 {
     t = "RANKS",
-    p = 6,
+    p = 7,
     v = "1.0.6",
     ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
     healthstone = 2,
@@ -253,7 +261,7 @@ Channel: group broadcast only. Whispers are rejected.
 ```lua
 {
     t = "OBSERVE",
-    p = 6,
+    p = 7,
     v = "1.0.6",
     player = "Other-Realm",
     class = "PALADIN",
@@ -296,7 +304,7 @@ Channel: group broadcast.
 ```lua
 {
     t = "ROLE",
-    p = 6,
+    p = 7,
     v = "1.0.6",
     role = "druid_feral_tank",
 }
@@ -320,7 +328,7 @@ addonless or protocol-incompatible leader fallback.
 ```lua
 {
     t = "VERSION",
-    p = 6,
+    p = 7,
     v = "1.0.6",
 }
 ```
@@ -406,6 +414,7 @@ WDW clears the group board, permissions, and session-only peer/version and
 observation state.
 Talent/spec and exact utility-rank caches survive because they describe
 characters rather than decisions belonging to the departed group.
+`paladinBuffRules` are group strategy, so they are cleared too.
 
 ## Talent data: totals versus exact ranks
 
@@ -501,6 +510,9 @@ does not alter broader class demand.
 ## Current traffic characteristics
 
 - WDW board mutations send complete snapshots rather than diffs.
+- The ordered `paladinStrategy` rules table is part of that snapshot and its
+  fingerprint; changing one rule produces the same single debounced `STATE` as
+  any other board edit.
 - The board snapshot built by the poll is reused for its fingerprint and send,
   and sync logging performs expensive decoding only when its decoded view is
   selected.

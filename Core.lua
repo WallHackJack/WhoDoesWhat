@@ -122,8 +122,8 @@ local defaults = {
         raidAssignments = {},
         -- Custom paladin-buff rules (Buffing Rules > "Add (+)"): array of
         -- { buff = key, kind = "ignore"|"prioritize"|"prefer", scope, value }.
-        -- One rule per buff, six at most. Local strategy config like the role
-        -- customizations -- not synced, survives group changes. See
+        -- One rule per buff, six at most. Shared as STATE.paladinStrategy and
+        -- cleared with the group-scoped board on leave. See
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},
         -- Dynamic assignment rows in the main view, one array per section

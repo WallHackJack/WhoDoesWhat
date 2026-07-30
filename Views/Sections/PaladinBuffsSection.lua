@@ -19,8 +19,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   [buff v] [Is Ignored / Prioritized for / Preferred by v] [target v] (!) [x]
 --
 -- One rule per blessing, six at most (the buff dropdown only offers unruled
--- blessings). Rules are LOCAL strategy config -- not part of the synced
--- board, so they aren't permission-gated; everyone tunes their own view.
+-- blessings). Rules are shared strategy config in the synced board, so the
+-- same assignment permission applies to editing them.
 --
 -- The whole section grays out while the group has no paladins (Developer
 -- Mode keeps it live, same as it lifts class filters).
@@ -185,6 +185,7 @@ local function CreateRuleRow(f, index)
                 info.text = "|T" .. buff.iconId .. ":14:14:0:0|t " .. buff.name_long
                 info.checked = (rule.buff == key)
                 info.func = function()
+                    if not WhoDoesWhat:RequireEditPermission() then return end
                     rule.buff = key
                     Changed()
                 end
@@ -208,6 +209,7 @@ local function CreateRuleRow(f, index)
             info.checked = (rule.kind == kind)
             info.func = function()
                 if rule.kind ~= kind then
+                    if not WhoDoesWhat:RequireEditPermission() then return end
                     rule.kind = kind
                     -- The target means something different per kind.
                     rule.scope = (kind == "prioritize") and "everyone" or nil
@@ -263,6 +265,7 @@ local function CreateRuleRow(f, index)
                 info.text = PlayerTextWithRole(name) .. (note and (" " .. note) or "")
                 info.checked = (rule.value == name)
                 info.func = function()
+                    if not WhoDoesWhat:RequireEditPermission() then return end
                     rule.value = name
                     Changed()
                 end
@@ -287,6 +290,7 @@ local function CreateRuleRow(f, index)
             info.text = "|cff" .. classInfo.colorHex .. "All " .. classInfo.name .. "s|r"
             info.checked = (rule.scope == "class" and rule.value == classInfo.name)
             info.func = function()
+                if not WhoDoesWhat:RequireEditPermission() then return end
                 rule.scope, rule.value = "class", classInfo.name
                 Changed()
                 CloseDropDownMenus()
@@ -300,6 +304,7 @@ local function CreateRuleRow(f, index)
                         .. classInfo.colorHex .. role.name .. "|r"
                     roleInfo.checked = (rule.scope == "role" and rule.value == role.id)
                     roleInfo.func = function()
+                        if not WhoDoesWhat:RequireEditPermission() then return end
                         rule.scope, rule.value = "role", role.id
                         Changed()
                         CloseDropDownMenus()
@@ -314,6 +319,7 @@ local function CreateRuleRow(f, index)
         info.text = "Everyone"
         info.checked = (rule.scope == "everyone" or not rule.scope)
         info.func = function()
+            if not WhoDoesWhat:RequireEditPermission() then return end
             rule.scope, rule.value = "everyone", nil
             Changed()
         end
@@ -323,6 +329,7 @@ local function CreateRuleRow(f, index)
             wrInfo.text = WOW_ROLE_LABELS[wr]
             wrInfo.checked = (rule.scope == "wowrole" and rule.value == wr)
             wrInfo.func = function()
+                if not WhoDoesWhat:RequireEditPermission() then return end
                 rule.scope, rule.value = "wowrole", wr
                 Changed()
             end
@@ -345,6 +352,7 @@ local function CreateRuleRow(f, index)
     local delBtn = K.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
+        if not WhoDoesWhat:RequireEditPermission() then return end
         table.remove(GetBuffRules(), index)
         WhoDoesWhat:LogOperation("Paladin Buffs: rule removed.")
         Changed()
@@ -355,6 +363,7 @@ local function CreateRuleRow(f, index)
         GameTooltip:Show()
     end)
     delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.delBtn = delBtn
 
     -- Warning (!) between the target and [x]: a prefer rule pointing at a
     -- paladin with a known 0 in the buff's talent (RuleWarningText).
@@ -533,6 +542,14 @@ function Refresh(f) -- forward declared above
         UIDropDownMenu_SetText(row.kindDD, RuleKindText(rule))
         row.targetDD:SetShown(rule.kind ~= "ignore")
         UIDropDownMenu_SetText(row.targetDD, RuleTargetText(rule))
+        for _, dropdown in ipairs({ row.buffDD, row.kindDD, row.targetDD }) do
+            if editable then
+                UIDropDownMenu_EnableDropDown(dropdown)
+            else
+                UIDropDownMenu_DisableDropDown(dropdown)
+            end
+        end
+        row.delBtn:SetShown(editable)
         local warning = RuleWarningText(rule)
         row.warnIcon.tooltipText = warning
         row.warnIcon:SetShown(warning ~= nil)
@@ -667,6 +684,7 @@ local function Build(f, content)
 
     local clearRulesBtn = K.CreateCloseButton(box, nil, 0.25)
     clearRulesBtn:SetScript("OnClick", function()
+        if not WhoDoesWhat:RequireEditPermission() then return end
         wipe(GetBuffRules())
         WhoDoesWhat:LogOperation("Paladin Buffs: all buffing rules removed.")
         WhoDoesWhat:RefreshMainAssignmentsView()
@@ -690,7 +708,8 @@ local function Build(f, content)
         "Add a custom blessing rule: ignore a buff for this fight,"
         .. " prioritize it for part of the raid, or hand it to a specific"
         .. " paladin. One rule per blessing; rules reshape the computed"
-        .. " coverage and are saved locally (not synced).", function()
+        .. " coverage and sync with the assignment board.", function()
+            if not WhoDoesWhat:RequireEditPermission() then return end
             local rules = GetBuffRules()
             -- New rules take the first blessing without one; every rule
             -- starts as an inert "Preferred by (choose)" so nothing

@@ -702,9 +702,9 @@ end
 --                                                as their primary, as a hard
 --                                                lock that beats talent ranks
 --
--- Local-only config like the role customizations: rules aren't synced and
--- survive group changes. A prefer rule naming an absent (or non-raider)
--- paladin is simply inert until they're back.
+-- Shared as STATE.paladinStrategy so identical roster/role/talent inputs yield
+-- the same plan on every client. Rules are group-scoped; the leader prunes a
+-- prefer rule when its named paladin leaves, and group leave clears them all.
 -- ---------------------------------------------------------------------------
 
 local function GetBuffRules()
@@ -1577,10 +1577,11 @@ local function CollectCCWhispers() return CollectDynamicWhispers(SectionByKey("c
 local function CollectMisdirectWhispers() return CollectDynamicWhispers(SectionByKey("md")) end
 local function CollectCurseWhispers() return CollectStaticWhispers(Sections[2]) end
 
--- Drop assignments whose player is no longer in the group. Roster lifecycle
--- reconciliation calls this outside the views, so opening a window is a pure
--- read. Dynamic rows keep their marker and spell; only the departed player is
--- cleared. Read-only clients never mutate the shared board as housekeeping.
+-- Drop assignments whose player is no longer in the group, including prefer
+-- rules tied to a departed paladin. Roster lifecycle reconciliation calls this
+-- outside the views, so opening a window is a pure read. Dynamic rows keep
+-- their marker and spell; only the departed player is cleared. Read-only
+-- clients never mutate the shared board as housekeeping.
 local function PruneDepartedAssignments()
     if not WhoDoesWhat:CanEditAssignments() then return end
     local present = {}
@@ -1610,6 +1611,16 @@ local function PruneDepartedAssignments()
                     .. " is no longer in the group.")
                 entry.target = nil
             end
+        end
+    end
+
+    local rules = WhoDoesWhat.db.profile.paladinBuffRules
+    for i = #rules, 1, -1 do
+        local rule = rules[i]
+        if rule.kind == "prefer" and rule.value and not present[rule.value] then
+            table.remove(rules, i)
+            WhoDoesWhat:LogOperation("Paladin Buffs rule removed: " .. rule.value
+                .. " is no longer in the group.")
         end
     end
 end
