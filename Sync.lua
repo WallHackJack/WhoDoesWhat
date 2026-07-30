@@ -21,9 +21,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     straight into db.profile.paladinBuffTalents. This is what the old NRC
 --     talent-string reference code in this file was for; reading ranks on the
 --     SENDER makes an order-proof wire encoding unnecessary, so four small
---     numbers replace the whole string format. Spec/role detection for
---     out-of-range users already syncs via LibClassicInspector's own
---     broadcasts, so it isn't duplicated here.
+--     numbers replace the whole string format. The initial HELLO also carries
+--     the sender's three talent-tree totals so every WDW client can infer the
+--     same role immediately; full talent grids remain LibClassicInspector's job.
 --
 -- Conflict model:
 --   - Leaving the group wipes the whole board (roles included): assignments
@@ -62,12 +62,11 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- Bump on any wire-format change; mismatched clients warn once and ignore
 -- each other. 2: tank rows went one-per-tank with a `markers` array (was
 -- one-per-marker with a single `marker`). 3: RANKS/HELLO gained the warlock
--- Improved Healthstone rank.
-local PROTOCOL = 3
+-- Improved Healthstone rank. 4: the initial HELLO gained talent-tree totals.
+local PROTOCOL = 4
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
-local PEER_REQUEST_COOLDOWN = 30
 
 -- Session-only by design: /reload turns traffic capture and verbose sync chat
 -- back off. The Sync Log and Developer settings expose the same toggle.
@@ -116,6 +115,25 @@ local function UnitKey(unit)
     local name, realm = UnitName(unit)
     if name and realm and realm ~= "" then return name .. "-" .. realm end
     return name
+end
+
+local function ClassForPlayer(name)
+    local function FromUnit(unit)
+        if UnitKey(unit) == name then return select(2, UnitClass(unit)) end
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local class = FromUnit("raid" .. i)
+            if class then return class end
+        end
+    else
+        local class = FromUnit("player")
+        if class then return class end
+        for i = 1, GetNumSubgroupMembers() do
+            class = FromUnit("party" .. i)
+            if class then return class end
+        end
+    end
 end
 
 -- The group leader under the same keying, or nil (leaderless moments happen
@@ -265,7 +283,10 @@ local function DescribeMessage(msg)
             tostring(msg.rev or "?"), Count(s.roles), #(s.tank or {}), #(s.cc or {}),
             #(s.md or {}), Count(s.static))
     end
-    if msg.t == "HELLO" then return "requests the leader's board" end
+    if msg.t == "HELLO" then
+        return msg.talents and "requests the leader's board and shares talent-tree totals"
+            or "requests the leader's board"
+    end
     if msg.t == "VERSION" then return "shares addon version" end
     if msg.t == "RANKS" then return "shares class utility-talent ranks" end
     if msg.t == "ROLE" then
@@ -359,8 +380,6 @@ local peerVersions = {}
 -- only; see PollLocalChanges). Tracked so applying a remote board doesn't
 -- echo the role right back out.
 local lastOwnRoleSent = nil
-local lastPeerRequestAt = nil
-local lastPeerRequestChannel = nil
 
 local function IsNewerVersion(candidate, current)
     local a, b = {}, {}
@@ -582,7 +601,9 @@ StaticPopupDialogs["WHODOESWHAT_SYNC_REPLACED"] = {
     preferredIndex = 3, -- keep Blizzard's default dialog slots free (taint)
 }
 
-function Sync:OnGroupJoined()
+function Sync:OnGroupJoined(initialHello)
+    initialHello = initialHello ~= false
+    if initialHello then WhoDoesWhat:RequestPallyPowerPeers() end
     -- The leader IS the source of truth, so forming or leading a group means
     -- our board stands as-is; joiners will HELLO us for it.
     if UnitIsGroupLeader("player") then
@@ -603,23 +624,19 @@ function Sync:OnGroupJoined()
         end
     end, JOIN_SYNC_TIMEOUT)
 
-    self:RequestPeerPresence(true)
+    self:RequestPeerPresence(initialHello)
 end
 
 -- Ask every WDW client in the group to answer. HELLO is deliberately reused:
 -- released clients already answer it with STATE, RANKS, or VERSION depending
 -- on their role/class, so the Raider Roles presence column works across
 -- addon versions without another wire message.
-function Sync:RequestPeerPresence(force)
+function Sync:RequestPeerPresence(includeTalents)
     local channel = GroupChannel()
     if not channel then return end
-    local now = GetTime()
-    if not force and lastPeerRequestChannel == channel and lastPeerRequestAt
-        and now - lastPeerRequestAt < PEER_REQUEST_COOLDOWN then return end
-    lastPeerRequestAt = now
-    lastPeerRequestChannel = channel
     self:Send({
         t = "HELLO",
+        talents = includeTalents and WhoDoesWhat:GetOwnTalentTreePoints() or nil,
         ranks = OwnRanks(),
         healthstone = OwnHealthstoneRank(),
         coreRanks = OwnCoreBuffRanks(),
@@ -642,8 +659,6 @@ function Sync:OnGroupLeft()
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
-    lastPeerRequestAt = nil
-    lastPeerRequestChannel = nil
 
     -- The fake testing roster (FakeRaid.lua) isn't part of any real group;
     -- leaving one shouldn't eat it. Re-inject after the wipe.
@@ -675,6 +690,7 @@ function Sync:OnEnteringWorld()
     self:ScheduleTimer(function()
         if not GroupChannel() then return end
         if UnitIsGroupLeader("player") then
+            WhoDoesWhat:RequestPallyPowerPeers()
             self:BroadcastState()
         else
             self:OnGroupJoined()
@@ -821,6 +837,14 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         end
 
     elseif msg.t == "HELLO" then
+        local class = ClassForPlayer(senderKey)
+        if class and msg.talents then
+            -- The group broadcast already delivered this fact to every client;
+            -- do not echo the inferred assignment back as another board edit.
+            local wasClean = Fingerprint() == lastSyncedFP
+            WhoDoesWhat:ApplySyncedTalentTreePoints(senderKey, class, msg.talents)
+            if wasClean then lastSyncedFP = Fingerprint() end
+        end
         StoreRanks(senderKey, msg.ranks)
         StoreHealthstoneRank(senderKey, msg.healthstone)
         StoreCoreBuffRanks(senderKey, msg.coreRanks)
@@ -898,7 +922,7 @@ function Sync:ForceSync()
         self:BroadcastState()
         WhoDoesWhat:LogOperation("Sync: broadcast your board to the group.")
     else
-        self:OnGroupJoined()
+        self:OnGroupJoined(false)
         WhoDoesWhat:LogOperation("Sync: requested the board from the group leader.")
     end
 end

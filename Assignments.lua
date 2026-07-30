@@ -389,9 +389,9 @@ local function MarkedTankNames()
     return out
 end
 
--- Clear every tank assignment. Auto-row reconciliation repopulates the marked
--- tanks with empty marker dropdowns; misdirects keep their tanks but lose the
--- now-invalid inherited markers.
+-- Clear every tank assignment. The caller's model reconciliation repopulates
+-- marked tanks with empty marker dropdowns; misdirects keep their tanks but
+-- lose the now-invalid inherited markers.
 local function ClearTankAssignments()
     if not WhoDoesWhat:RequireEditPermission() then return end
     wipe(WhoDoesWhat.db.profile.tankAssignments)
@@ -401,8 +401,8 @@ local function ClearTankAssignments()
     WhoDoesWhat:LogOperation("Tank Assignments cleared.")
 end
 
--- Misdirect clear: wipe every row; the auto-row reconcile rebuilds one blank
--- row per hunter on the next repaint.
+-- Misdirect clear: wipe every row. The caller's model reconciliation rebuilds
+-- one blank row per hunter.
 local function ClearMisdirectAssignments()
     if not WhoDoesWhat:RequireEditPermission() then return end
     wipe(WhoDoesWhat.db.profile.mdAssignments)
@@ -1572,11 +1572,10 @@ local function CollectCCWhispers() return CollectDynamicWhispers(SectionByKey("c
 local function CollectMisdirectWhispers() return CollectDynamicWhispers(SectionByKey("md")) end
 local function CollectCurseWhispers() return CollectStaticWhispers(Sections[2]) end
 
--- Drop assignments whose player is no longer in the group. Run when the
--- window opens, so a re-formed raid starts from an honest board. Dynamic rows
--- keep their marker and spell; only the departed player is cleared. Skipped
--- without edit permission: a read-only client shouldn't mutate the shared
--- board at all, even housekeeping -- the editors prune and sync it over.
+-- Drop assignments whose player is no longer in the group. Roster lifecycle
+-- reconciliation calls this outside the views, so opening a window is a pure
+-- read. Dynamic rows keep their marker and spell; only the departed player is
+-- cleared. Read-only clients never mutate the shared board as housekeeping.
 local function PruneDepartedAssignments()
     if not WhoDoesWhat:CanEditAssignments() then return end
     local present = {}
@@ -1612,9 +1611,9 @@ end
 
 -- Auto-row sections carry one row per roster member (misdirects: every
 -- hunter; tanks: every marked tank), not rows the user adds by hand.
--- Reconcile the saved entries to the roster before rendering: retained rows
--- keep their current order (assignments preserved), new members append a
--- blank row in roster order, rows whose player left the roster drop -- unless
+-- Reconcile the saved entries on model/lifecycle changes. Retained rows keep
+-- their current order (assignments preserved), new members append a blank row
+-- in roster order, and rows whose player left the roster drop -- unless
 -- the section's KeepStray predicate holds onto them (a unit-menu marker on
 -- someone not marked tank warns instead of silently vanishing). Skipped for
 -- read-only clients -- they render the leader's synced rows as-is (matching
@@ -1655,6 +1654,15 @@ local function EnsureAutoRows(section)
         wipe(entries)
         for _, e in ipairs(rebuilt) do entries[#entries + 1] = e end
     end
+end
+
+-- Keep all roster-derived board storage current without involving a view.
+-- Explicit model actions may call this on any permitted editor; the automatic
+-- roster event below elects the group leader as the sole housekeeping writer.
+local function ReconcileRosterAssignments()
+    PruneDepartedAssignments()
+    EnsureAutoRows(SectionByKey("tank"))
+    EnsureAutoRows(SectionByKey("md"))
 end
 
 -- Persist a static assignment (nil clears it), enforce exclusivity (picking
@@ -1917,8 +1925,29 @@ WhoDoesWhat.Assign = {
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,
     GetBuffRules = GetBuffRules,
     -- storage
-    PruneDepartedAssignments = PruneDepartedAssignments,
     EnsureAutoRows = EnsureAutoRows,
+    ReconcileRosterAssignments = ReconcileRosterAssignments,
     SetAssignment = SetAssignment,
     AutoPlaceAfflictionElements = AutoPlaceAfflictionElements,
 }
+
+-- Rendering must never mutate or synchronize the board. Roster events settle
+-- here instead; one group writer prevents every permitted client from sending
+-- the same housekeeping STATE. Fake Raid is the intentional solo exception.
+local rosterReconcileFrame = CreateFrame("Frame")
+rosterReconcileFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+rosterReconcileFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+local ROSTER_RECONCILE_DELAY = 3
+local rosterReconcileGeneration = 0
+rosterReconcileFrame:SetScript("OnEvent", function()
+    rosterReconcileGeneration = rosterReconcileGeneration + 1
+    local generation = rosterReconcileGeneration
+    C_Timer.After(ROSTER_RECONCILE_DELAY, function()
+        if generation ~= rosterReconcileGeneration or not WhoDoesWhat.db then return end
+        local fake = WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled()
+        if not IsInGroup() and not fake then return end
+        if IsInGroup() and not UnitIsGroupLeader("player") then return end
+        ReconcileRosterAssignments()
+        WhoDoesWhat:RefreshMainAssignmentsView()
+    end)
+end)

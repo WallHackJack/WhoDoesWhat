@@ -432,7 +432,5 @@ function WhoDoesWhat:OpenRaiderRolesView()
     self:LogUiBuilding("Opening Raider Roles View...")
     RefreshRoster(f)
     f:Show()
-    self:RequestPallyPowerPeers()
-    self:GetModule("Sync"):RequestPeerPresence()
     f:Raise()
 end

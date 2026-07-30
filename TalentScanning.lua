@@ -37,6 +37,22 @@ local SPEC_ROLES = {
     DRUID   = { "druid_balance", "druid_feral_dps", "druid_resto" },
 }
 
+local function DetectedRoleFor(playerKey, class, specIndex)
+    local detected = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
+
+    -- Feral druids (cat DPS and bear tank) share the Feral Combat tree. Keep
+    -- the tank interpretation when the board or Blizzard already says tank.
+    if detected == "druid_feral_dps" then
+        if WhoDoesWhat.db.profile.assignments[playerKey] == "druid_feral_tank"
+            or (UnitGroupRolesAssigned and UnitGroupRolesAssigned(playerKey) == "TANK")
+            or GetPartyAssignment("MAINTANK", playerKey, true) then
+            detected = "druid_feral_tank"
+        end
+    end
+
+    return detected
+end
+
 -- The four talents that decide which paladin should carry which blessing,
 -- located by their fixed grid position: tab (1 Holy, 2 Protection,
 -- 3 Retribution), tier (row, top = 1) and column (left = 1). ClientFeatures
@@ -265,6 +281,38 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     self:RefreshRaiderRolesView()
 end
 
+-- The initial WDW HELLO carries only these three derived totals, not a role or
+-- the full talent grid. Receivers run the same class/tab mapping as the normal
+-- LibClassicInspector path and feed it through the same override-safe updater.
+function WhoDoesWhat:GetOwnTalentTreePoints()
+    local guid = UnitGUID("player")
+    if not (Inspector and guid) then return nil end
+    local t1, t2, t3 = Inspector:GetTalentPoints(guid)
+    if not (t1 and t2 and t3) or t1 + t2 + t3 <= 0 then return nil end
+    return { t1, t2, t3 }
+end
+
+function WhoDoesWhat:ApplySyncedTalentTreePoints(playerName, class, points)
+    if type(playerName) ~= "string" or not SPEC_ROLES[class] or type(points) ~= "table" then
+        return
+    end
+
+    local specIndex, mostPoints = nil, 0
+    for i = 1, 3 do
+        local n = tonumber(points[i])
+        if not n or n < 0 or n ~= math.floor(n) then return end
+        if n > mostPoints then
+            specIndex, mostPoints = i, n
+        end
+    end
+
+    local detected = DetectedRoleFor(playerName, class, specIndex)
+    if detected and mostPoints > 0 then
+        self:AutoAssignDetectedRole(playerName, detected)
+        self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
+    end
+end
+
 -- Fired for anyone the library has cached, which includes strangers we happen
 -- to mouse over. Optionally logs the data, then feeds group members into the
 -- role auto-detection above.
@@ -296,21 +344,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
 
     local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
 
-    local detected = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
-
-    -- Feral druids (cat DPS and bear tank) share the Feral Combat tree, so the
-    -- spec read can't tell them apart -- it always guesses cat DPS. Recover the
-    -- tank when the player is already being treated as one: they hold the WDW
-    -- feral-tank role, they're flagged TANK on the raid frame, or they're a
-    -- promoted MAINTANK. Without this a bear that joined pre-flagged as tank
-    -- gets detected as DPS and (worse) has their TANK flag stomped to DPS.
-    if detected == "druid_feral_dps" then
-        if self.db.profile.assignments[key] == "druid_feral_tank"
-            or (UnitGroupRolesAssigned and UnitGroupRolesAssigned(key) == "TANK")
-            or GetPartyAssignment("MAINTANK", key, true) then
-            detected = "druid_feral_tank"
-        end
-    end
+    local detected = DetectedRoleFor(key, class, specIndex)
 
     if detected and (pointsSpent or 0) > 0 then
         self:AutoAssignDetectedRole(key, detected)

@@ -667,7 +667,6 @@ local function EnsureGridFrame()
         check:SetScript("OnClick", function(self)
             if self.source == "addon" and not _G.PallyPower then return end
             f.gridSource = self.source
-            if self.source == "observed" then WhoDoesWhat:RequestPallyPowerPeers() end
             RefreshGrid(f)
         end)
         check:SetScript("OnEnter", function(self)
@@ -755,7 +754,6 @@ function WhoDoesWhat:OpenBuffingGridView()
 
     self:LogUiBuilding("Opening Buffing Grid View...")
     f:Show()
-    self:RequestPallyPowerPeers()
     RefreshGrid(f)
     f:Raise()
 end

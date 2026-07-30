@@ -17,7 +17,6 @@ local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 
 local GetEntries = A.GetEntries
-local EnsureAutoRows = A.EnsureAutoRows
 local EntryHasJob = A.EntryHasJob
 local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
@@ -172,8 +171,6 @@ end
 function Refresh(f) -- forward declared above
     local state = f.tankSection
     local editable = WhoDoesWhat:CanEditAssignments()
-    -- Reconcile the rows to the marked-tank roster before painting.
-    EnsureAutoRows(SECTION)
     local entries = GetEntries(SECTION)
 
     local hasAssignments = false
@@ -246,6 +243,7 @@ local function Build(f, content)
         StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
             function()
                 A.ClearTankAssignments()
+                A.ReconcileRosterAssignments()
                 WhoDoesWhat:RefreshMainAssignmentsView()
             end)
     end)

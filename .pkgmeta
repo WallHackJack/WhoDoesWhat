@@ -4,5 +4,6 @@ ignore:
     - README.md
     - AGENTS.md
     - DEVELOPMENT.md
+    - SYNCING.md
     - .vscode
     - .pkgmeta

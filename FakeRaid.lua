@@ -187,6 +187,7 @@ function WhoDoesWhat:SetFakeRaidEnabled(value)
         end)
     end
 
+    if self.Assign then self.Assign.ReconcileRosterAssignments() end
     RefreshViews()
 
     self:LogUiBuilding("Populate Fake Raid "
@@ -214,6 +215,7 @@ function WhoDoesWhat:SetFakeRaidPaladinCount(n)
             profile.coreBuffTalents[fm.name] = nil
         end)
         self:ReapplyFakeRaid()
+        if self.Assign then self.Assign.ReconcileRosterAssignments() end
         RefreshViews()
         self:LogUiBuilding("Fake raid rebuilt with " .. n .. " paladin" .. (n == 1 and "" or "s") .. ".")
     end

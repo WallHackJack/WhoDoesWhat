@@ -26,7 +26,6 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 local Sync = WhoDoesWhat:GetModule("Sync")
-local PruneDepartedAssignments = A.PruneDepartedAssignments
 
 local mainFrame = nil
 
@@ -431,9 +430,7 @@ function WhoDoesWhat:OpenMainAssignmentsView()
     end
 
     self:LogUiBuilding("Opening Main Assignments View...")
-    PruneDepartedAssignments()
     RefreshAll(f)
     f:Show()
-    self:RequestPallyPowerPeers()
     f:Raise()
 end
