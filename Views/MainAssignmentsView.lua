@@ -45,6 +45,7 @@ local MIN_FRAME_H = 130
 local MARGIN = 12
 local CONTENT_W = FRAME_W - MARGIN * 2
 local BUTTON_ROW_H = 22
+local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
 -- Left is the narrow column (Paladin Buffs / Warlocks); right is wider for
@@ -212,12 +213,17 @@ local function ApplyViewMode(f)
     f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
 end
 
--- The top-left "Full view" checkbox mirrors the setting: checked whenever the
--- Paladin-only preference is OFF (i.e. the full board is preferred).
 local function UpdateViewToggle(f)
-    if not f.fullViewCheck then return end
+    if not f.viewToggleBtn then return end
     local prefOn = WhoDoesWhat.db.profile.settings.paladinOnlyView
-    f.fullViewCheck:SetChecked(not prefOn)
+    local base = "Interface\\Buttons\\UI-Panel-"
+        .. (prefOn and "BiggerButton" or "SmallerButton")
+    f.viewToggleBtn:SetNormalTexture(base .. "-Up")
+    f.viewToggleBtn:SetPushedTexture(base .. "-Down")
+    f.viewToggleBtn:SetDisabledTexture(base .. "-Disabled")
+    f.viewToggleBtn.tooltipTitle = prefOn and "Full view" or "Paladin-only view"
+    f.viewToggleBtn.tooltipText = prefOn and "Show the whole assignment board."
+        or "Show only the Paladin Buffs section."
 end
 
 local function UpdateVersionWarning(f)
@@ -273,8 +279,9 @@ local function CreateToolbarButton(f, text, width, title, body, onClick)
     return btn
 end
 
--- Build the window once and reuse it: shared chrome, the header strip (Full
--- view checkbox + permission strip left, Logs / Members / Roles / Settings right)
+-- Build the window once and reuse it: shared chrome, the header strip
+-- (permission strip left, Logs / Members / Roles right), the title-bar
+-- Settings / view / Close icon cluster,
 -- and the two scrollable columns.
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
@@ -290,18 +297,10 @@ local function EnsureMainFrame()
     f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
 
-    -- Right-side button row: [Logs] [Members] [Roles] [Settings].
-    local settingsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    settingsBtn:SetSize(80, BUTTON_ROW_H)
-    settingsBtn:SetPoint("TOPRIGHT", -MARGIN, -top)
-    settingsBtn:SetText("Settings")
-    settingsBtn:SetScript("OnClick", function()
-        WhoDoesWhat:OpenAddonSettingsView()
-    end)
-
+    -- Right-side button row: [Logs] [Members] [Roles].
     local editRolesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     editRolesBtn:SetSize(60, BUTTON_ROW_H)
-    editRolesBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
+    editRolesBtn:SetPoint("TOPRIGHT", -MARGIN, -top)
     editRolesBtn:SetText("Roles")
     editRolesBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenAllRolesView()
@@ -320,36 +319,48 @@ local function EnsureMainFrame()
         function() WhoDoesWhat:OpenSyncLogView("wdw") end)
     logsBtn:SetPoint("RIGHT", membersBtn, "LEFT", -6, 0)
 
-    -- Full-view toggle: a checkbox top-left (checked = full board, unchecked =
-    -- show the Paladin-only view). UpdateViewToggle keeps it in sync; only
-    -- the section boxes below react (ApplyViewMode).
-    local fullViewCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    fullViewCB:SetSize(24, 24)
-    fullViewCB:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + BUTTON_ROW_H / 2))
-    local fvLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fvLabel:SetPoint("LEFT", fullViewCB, "RIGHT", 2, 0)
-    fvLabel:SetText("Full view")
-    fullViewCB:SetScript("OnClick", function(self)
+    -- Tight title-bar icon cluster: Settings, view toggle, Close. The custom
+    -- cog uses addon-owned copies of the standard close-button states.
+    local settingsBtn = CreateFrame("Button", nil, f)
+    settingsBtn:SetSize(32, 32)
+    settingsBtn:SetPoint("TOPRIGHT", -19, 1)
+    settingsBtn:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
+    settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
+    settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
+    settingsBtn:SetScript("OnClick", function() WhoDoesWhat:OpenAddonSettingsView() end)
+    settingsBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Settings", 1, 1, 1)
+        GameTooltip:AddLine("Open WhoDoesWhat settings.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    settingsBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Bigger opens the full board; Smaller collapses to Paladin Buffs only.
+    local viewToggleBtn = CreateFrame("Button", nil, f)
+    viewToggleBtn:SetSize(32, 32)
+    viewToggleBtn:SetPoint("RIGHT", settingsBtn, "LEFT", 12, 0)
+    viewToggleBtn:SetScript("OnClick", function()
         local s = WhoDoesWhat.db.profile.settings
-        s.paladinOnlyView = not self:GetChecked() -- checked = show the full board
+        s.paladinOnlyView = not s.paladinOnlyView
         WhoDoesWhat:LogUiBuilding("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
         RefreshAll(f)
     end)
-    fullViewCB:SetScript("OnEnter", function(self)
+    viewToggleBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Full view", 1, 1, 1)
-        GameTooltip:AddLine("Show the whole assignment board. Uncheck to show only"
-            .. " the Paladin Buffs section.", 0.8, 0.8, 0.8, true)
+        GameTooltip:SetText(self.tooltipTitle, 1, 1, 1)
+        GameTooltip:AddLine(self.tooltipText, 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
-    fullViewCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.fullViewCheck = fullViewCB
+    viewToggleBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.viewToggleBtn = viewToggleBtn
 
-    -- Editing-permission strip, to the right of the Full view checkbox: the
-    -- raid leader sees the picker, other raid members a read-only note, and
+    -- Editing-permission strip: the raid leader sees the picker, other raid
+    -- members a read-only note, and
     -- outside raids both hide (UpdatePermissionControls decides each refresh).
     local permDD = CreateFrame("Frame", "WhoDoesWhatPermissionsDD", f, "UIDropDownMenuTemplate")
-    permDD:SetPoint("LEFT", fvLabel, "RIGHT", 4, -2) -- template overhangs ~15px left
+    permDD:SetPoint("LEFT", f, "TOPLEFT", MARGIN - 15,
+        -(top + BUTTON_ROW_H / 2 + 2)) -- template overhangs ~15px left
     UIDropDownMenu_SetWidth(permDD, 170)
     K.LeftAlignDropdown(permDD)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
@@ -357,7 +368,7 @@ local function EnsureMainFrame()
     f.permDD = permDD
 
     local permNote = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    permNote:SetPoint("LEFT", fvLabel, "RIGHT", 16, 0)
+    permNote:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + BUTTON_ROW_H / 2))
     permNote:Hide()
     f.permNote = permNote
 
