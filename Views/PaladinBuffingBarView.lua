@@ -389,7 +389,7 @@ local function CreatePlayerButton(btn, index)
     p.name = name
 
     local timer = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    timer:SetPoint("RIGHT", -19, 0)
+    timer:SetPoint("RIGHT", -2, 0)
     timer:SetWidth(36)
     timer:SetJustifyH("RIGHT")
     p.timer = timer
