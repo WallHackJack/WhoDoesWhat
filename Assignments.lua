@@ -834,6 +834,11 @@ end
 -- Returns primary[paladinName] = buff key, plus forced[paladinName] = buff
 -- key for the pairs a prefer rule locked in (they score a bigger stickiness
 -- bonus). A paladin misses out only when nothing castable remains for them.
+--
+-- SYNC INVARIANT: this result must be deterministic on every client given the
+-- same roster, roles, talent ranks, and rules. Keep caster names sorted, buff
+-- order canonical, mask traversal numeric, and equal-score tie retention
+-- stable; a pairs-order tie-break here would desynchronize blessing displays.
 local function ComputePrimaries(pool, ignored, prioritized, preferred)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local primary, forced = {}, {}

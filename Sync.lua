@@ -25,7 +25,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     sender-supplied ranks inside the initial STATE peer directory. The
 --     initial HELLO also carries
 --     the sender's three talent-tree totals so every WDW client can infer the
---     same role immediately; full talent grids remain LibClassicInspector's job.
+--     same role immediately. A live inspection of someone else may broadcast
+--     the same three totals and exact relevant ranks in OBSERVE; full talent
+--     grids remain LibClassicInspector's job.
 --
 -- Conflict model:
 --   - Leaving the group wipes the whole board (roles included): assignments
@@ -41,9 +43,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     joiner keeps what they have and normal syncing takes over.
 --   - While grouped, any PERMITTED member's edit broadcasts the full board
 --     (who is permitted is the leader-owned rule in Permissions.lua, itself
---     part of the snapshot). Unpermitted clients broadcast nothing except
---     their own role over the dedicated ROLE message (the one edit everyone
---     keeps), and everyone rejects board snapshots from unpermitted senders.
+--     part of the snapshot). Unpermitted clients broadcast no BOARD edits
+--     except their own role over ROLE; like everyone else, they may also report
+--     firsthand talent evidence over OBSERVE. Everyone rejects board snapshots
+--     from unpermitted senders.
 --     Last write wins; a Lamport-style revision counter with a sender-name
 --     tiebreak keeps simultaneous edits from ping-ponging and converges
 --     everyone on the same version.
@@ -66,8 +69,9 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- one-per-marker with a single `marker`). 3: RANKS/HELLO gained the warlock
 -- Improved Healthstone rank. 4: the initial HELLO gained talent-tree totals.
 -- 5: leader STATE replies gained the peer directory; peers stopped answering
--- ordinary HELLO broadcasts individually.
-local PROTOCOL = 5
+-- ordinary HELLO broadcasts individually. 6: live third-party inspections
+-- gained OBSERVE, and leader directories gained cached talent observations.
+local PROTOCOL = 6
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -283,9 +287,9 @@ end
 local function DescribeMessage(msg)
     if msg.t == "STATE" then
         local s = msg.state or {}
-        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static, %d peers)",
+        return string.format("board revision %s (%d roles, %d tanks, %d CC, %d misdirects, %d static, %d peers, %d observations)",
             tostring(msg.rev or "?"), Count(s.roles), #(s.tank or {}), #(s.cc or {}),
-            #(s.md or {}), Count(s.static), Count(msg.peers))
+            #(s.md or {}), Count(s.static), Count(msg.peers), Count(msg.observations))
     end
     if msg.t == "HELLO" then
         return msg.talents and "requests the leader's board and shares talent-tree totals"
@@ -293,6 +297,9 @@ local function DescribeMessage(msg)
     end
     if msg.t == "VERSION" then return "shares addon version" end
     if msg.t == "RANKS" then return "shares class utility-talent ranks" end
+    if msg.t == "OBSERVE" then
+        return "reports a direct talent inspection of " .. tostring(msg.player or "?")
+    end
     if msg.t == "ROLE" then
         local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
         return "sets own role to " .. (role and role.name or msg.role or "None")
@@ -380,6 +387,11 @@ local ranksTimer = nil
 local warnedProtocol = false
 local peerVersions = {}
 local peerProtocols = {}
+-- Session consensus for directly useful talent facts. Unlike the saved talent
+-- caches, this remembers the exact tree triplet that justified an inferred
+-- role, so a later direct inspect can distinguish agreement from a respec.
+local talentFacts = {}
+local talentFactFP = {}
 local needsPeerCollection = true
 
 -- Our own role as last pushed over the ROLE message (unpermitted clients
@@ -516,9 +528,74 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     WhoDoesWhat:RefreshBuffingGridView()
 end
 
+local PALADIN_RANK_MAX = { might = 5, wisdom = 2, kings = 1, sanctuary = 1 }
+
+local function ClampedInteger(value, maximum)
+    local n = tonumber(value)
+    if not n then return nil end
+    return math.floor(math.max(0, math.min(maximum, n)))
+end
+
+-- Normalize an observation before it can affect caches or role inference. The
+-- roster supplies the target's class; callers never trust a transmitted role.
+local function NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks)
+    if type(talents) ~= "table" then return nil end
+    local points, total = {}, 0
+    for i = 1, 3 do
+        local n = tonumber(talents[i])
+        if not n or n < 0 or n ~= math.floor(n) then return nil end
+        points[i], total = n, total + n
+    end
+    -- 100 is intentionally future-proof across supported Classic variants,
+    -- while still rejecting absurd or deliberately inflated payloads.
+    if total == 0 or total > 100 then return nil end
+
+    local fact = { class = class, talents = points }
+    if class == "PALADIN" and type(ranks) == "table" then
+        fact.ranks = {}
+        for key, maximum in pairs(PALADIN_RANK_MAX) do
+            fact.ranks[key] = ClampedInteger(ranks[key], maximum) or 0
+        end
+    elseif class == "WARLOCK" and healthstone ~= nil then
+        fact.healthstone = ClampedInteger(healthstone,
+            WhoDoesWhat.WarlockHealthstone.maxRank)
+    elseif (class == "DRUID" or class == "PRIEST") and type(coreRanks) == "table" then
+        fact.coreRanks = {}
+        for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
+            if buff.improvedTalent and string.upper(buff.className) == class then
+                local rank = ClampedInteger(coreRanks[key], buff.improvedTalent.maxRank)
+                if rank ~= nil then fact.coreRanks[key] = rank end
+            end
+        end
+        if not next(fact.coreRanks) then fact.coreRanks = nil end
+    end
+    return fact
+end
+
+-- Apply one sender's own HELLO or a direct third-party observation. Pinning a
+-- previously clean board prevents the independently inferred role from
+-- echoing back as STATE: every receiver already got the same evidence.
+local function RememberTalentFact(playerName, class, talents, ranks, healthstone, coreRanks)
+    local fact = NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks)
+    if not fact then return nil, false end
+    local fingerprint = Canon(fact)
+    local changed = talentFactFP[playerName] ~= fingerprint
+    talentFacts[playerName] = fact
+    talentFactFP[playerName] = fingerprint
+
+    local wasClean = Fingerprint() == lastSyncedFP
+    WhoDoesWhat:ApplySyncedTalentTreePoints(playerName, class, fact.talents)
+    StoreRanks(playerName, fact.ranks)
+    StoreHealthstoneRank(playerName, fact.healthstone)
+    StoreCoreBuffRanks(playerName, fact.coreRanks)
+    if wasClean then lastSyncedFP = Fingerprint() end
+    return fact, changed
+end
+
 -- The leader's session directory lets one STATE replace one whisper reply per
 -- peer. It contains only current roster members the leader has seen running
--- WDW (plus the leader itself); the saved rank caches remain the data source.
+-- WDW (plus the leader itself); the saved, validated rank caches remain the
+-- data source whether the fact came from that peer or a direct observation.
 local function PeerDirectory()
     local p = WhoDoesWhat.db.profile
     local peers = {}
@@ -527,8 +604,11 @@ local function PeerDirectory()
         if not name then return end
         local own = UnitIsUnit(unit, "player")
         if not own and peerProtocols[name] ~= PROTOCOL then return end
+        local fact = talentFacts[name]
         peers[name] = {
             version = own and Sync:GetReportedAddonVersion() or peerVersions[name],
+            talents = own and WhoDoesWhat:GetOwnTalentTreePoints()
+                or (fact and fact.talents),
             ranks = own and OwnRanks() or p.paladinBuffTalents[name],
             healthstone = own and OwnHealthstoneRank() or p.warlockHealthstoneTalents[name],
             coreRanks = own and OwnCoreBuffRanks() or p.coreBuffTalents[name],
@@ -569,12 +649,46 @@ local function ApplyPeerDirectory(peers)
             WhoDoesWhat.syncPeers[name] = true
             peerProtocols[name] = PROTOCOL
             RecordPeerVersion(name, peer.version)
-            StoreRanks(name, peer.ranks)
-            StoreHealthstoneRank(name, peer.healthstone)
-            StoreCoreBuffRanks(name, peer.coreRanks)
+            local class = ClassForPlayer(name)
+            if not RememberTalentFact(name, class, peer.talents, peer.ranks,
+                peer.healthstone, peer.coreRanks) then
+                StoreRanks(name, peer.ranks)
+                StoreHealthstoneRank(name, peer.healthstone)
+                StoreCoreBuffRanks(name, peer.coreRanks)
+            end
         end
     end
     if newlySeen then WhoDoesWhat:RefreshRaiderRolesView() end
+end
+
+-- Non-WDW players have no peer-directory entry of their own. The leader keeps
+-- the latest direct observation for them beside the initial STATE so a later
+-- joiner starts from the raid's accumulated view instead of rescanning all 39.
+local function ObservationDirectory()
+    local observations = {}
+    local function Add(unit)
+        local name = UnitKey(unit)
+        local fact = name and talentFacts[name]
+        if fact and peerProtocols[name] ~= PROTOCOL then observations[name] = fact end
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do Add("raid" .. i) end
+    else
+        Add("player")
+        for i = 1, GetNumSubgroupMembers() do Add("party" .. i) end
+    end
+    return observations
+end
+
+local function ApplyObservationDirectory(observations)
+    if type(observations) ~= "table" then return end
+    for name, fact in pairs(observations) do
+        local class = type(name) == "string" and ClassForPlayer(name)
+        if class and type(fact) == "table" and fact.class == class then
+            RememberTalentFact(name, class, fact.talents, fact.ranks,
+                fact.healthstone, fact.coreRanks)
+        end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -607,8 +721,37 @@ function Sync:BroadcastState(state, fingerprint, collectPeers)
     self:Send({
         t = "STATE", rev = lastRev, state = state,
         peers = collectPeers and PeerDirectory() or nil,
+        observations = collectPeers and ObservationDirectory() or nil,
         collectPeers = collectPeers or nil,
     }, channel)
+end
+
+-- Called only after LibClassicInspector says this client performed a live
+-- inspect. Every raider may contribute evidence; assignment permissions are
+-- irrelevant because OBSERVE describes talent facts, not a board edit.
+function Sync:ReportTalentObservation(playerName, class, talents, ranks,
+    healthstone, coreRanks, boardWasClean)
+    local channel = GroupChannel()
+    if not channel or playerName == UnitKey("player") then return end
+    if ClassForPlayer(playerName) ~= class then return end
+
+    local fact, changed = RememberTalentFact(playerName, class, talents, ranks,
+        healthstone, coreRanks)
+    if boardWasClean then lastSyncedFP = Fingerprint() end
+    if not (fact and changed) then return end
+
+    -- A normal WDW peer's HELLO already seeded the same fact, so in practice a
+    -- first sighting is an unscanned non-WDW player. If HELLO lacked talents,
+    -- the direct observation is still useful and costs only this one message.
+    self:Send({
+        t = "OBSERVE", player = playerName, class = class,
+        talents = fact.talents, ranks = fact.ranks,
+        healthstone = fact.healthstone, coreRanks = fact.coreRanks,
+    }, channel)
+end
+
+function Sync:IsBoardClean()
+    return Fingerprint() == lastSyncedFP
 end
 
 -- Rebuild session presence after the leader reloads. Unlike the old HELLO
@@ -750,6 +893,8 @@ function Sync:OnGroupLeft()
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
     wipe(peerProtocols)
+    wipe(talentFacts)
+    wipe(talentFactFP)
 
     -- The fake testing roster (FakeRaid.lua) isn't part of any real group;
     -- leaving one shouldn't eat it. Re-inject after the wipe.
@@ -912,6 +1057,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             -- (or a stale leader answer after the timeout) is ignored.
             if awaitingSync and fromLeader then
                 ApplyPeerDirectory(msg.peers)
+                ApplyObservationDirectory(msg.observations)
                 self:ApplyState(msg, senderKey)
             end
             return
@@ -925,6 +1071,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         end
         if fromLeader then
             ApplyPeerDirectory(msg.peers)
+            ApplyObservationDirectory(msg.observations)
             if msg.collectPeers then BroadcastOwnPresence() end
         end
         -- Group broadcast: last write wins, name as tiebreak (see lastRev).
@@ -940,13 +1087,14 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         if class and msg.talents then
             -- The group broadcast already delivered this fact to every client;
             -- do not echo the inferred assignment back as another board edit.
-            local wasClean = Fingerprint() == lastSyncedFP
-            WhoDoesWhat:ApplySyncedTalentTreePoints(senderKey, class, msg.talents)
-            if wasClean then lastSyncedFP = Fingerprint() end
+            RememberTalentFact(senderKey, class, msg.talents, msg.ranks,
+                msg.healthstone, msg.coreRanks)
         end
-        StoreRanks(senderKey, msg.ranks)
-        StoreHealthstoneRank(senderKey, msg.healthstone)
-        StoreCoreBuffRanks(senderKey, msg.coreRanks)
+        if not (class and msg.talents) then
+            StoreRanks(senderKey, msg.ranks)
+            StoreHealthstoneRank(senderKey, msg.healthstone)
+            StoreCoreBuffRanks(senderKey, msg.coreRanks)
+        end
         -- Everyone consumes the announcement. A compatible leader is the sole
         -- responder; its directory replaces the old one-whisper-per-peer
         -- fanout. Stable peers retain that fallback only without a compiler.
@@ -954,6 +1102,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             self:Send({
                 t = "STATE", rev = lastRev, state = Snapshot(),
                 peers = PeerDirectory(),
+                observations = ObservationDirectory(),
             }, "WHISPER", sender)
         elseif not awaitingSync and peerProtocols[LeaderName()] ~= PROTOCOL then
             -- Without a compatible WDW leader there is no compiler. Preserve
@@ -980,6 +1129,17 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
 
     elseif msg.t == "VERSION" then
         -- Version was recorded before message dispatch; no payload needed.
+
+    elseif msg.t == "OBSERVE" then
+        -- Observations are group evidence from a current member about another
+        -- current member. Whispers are rejected so there is one shared view.
+        if distribution == "WHISPER" or not ClassForPlayer(senderKey)
+            or msg.player == senderKey then return end
+        local class = type(msg.player) == "string" and ClassForPlayer(msg.player)
+        if class and msg.class == class then
+            RememberTalentFact(msg.player, class, msg.talents, msg.ranks,
+                msg.healthstone, msg.coreRanks)
+        end
 
     elseif msg.t == "ROLE" then
         -- A player's OWN role -- the one edit that never needs board rights.

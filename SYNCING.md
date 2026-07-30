@@ -23,7 +23,7 @@ message:
 ```lua
 {
     t = "HELLO", -- message type
-    p = 5,       -- WDW wire-protocol version
+    p = 6,       -- WDW wire-protocol version
     v = "1.0.6",-- addon version reported by this client
     -- type-specific fields follow
 }
@@ -72,7 +72,7 @@ Initial join/reload shape:
 ```lua
 {
     t = "HELLO",
-    p = 5,
+    p = 6,
     v = "1.0.6",
     talents = { 41, 20, 0 },
     ranks = {                 -- paladin only, once locally known
@@ -94,15 +94,15 @@ the sender's three talent-tree totals in the client's normal tab order. It is
 included only by the automatic join/reload handshake, not by UI navigation or
 `/wdw sync`. Receivers obtain the sender's class from the group
 roster, choose the tree with the most points, and run the existing WDW role
-inference. No role id is trusted from the message and no new network-member
-cache is introduced; the result goes through the existing `talentSpecs` and
-assignment logic.
+inference. No role id is trusted from the message. The result goes through the
+existing `talentSpecs` and assignment logic, while a session-only fact keeps
+the exact triplet available for later mismatch detection.
 
 Every compatible receiver records the sender's version, WDW presence, talent
 totals, and utility ranks. When the Blizzard leader runs the compatible WDW
 protocol, ordinary peers remain silent. Only the leader whispers one `STATE`,
 whose peer directory supplies the joiner with the already-known presence,
-versions, and utility ranks for the rest of the raid.
+versions, talent totals, and utility ranks for the rest of the raid.
 
 An ordinary join therefore produces two WDW messages regardless of raid size:
 the group `HELLO` and the leader's whispered `STATE`. UI navigation never
@@ -124,7 +124,7 @@ Shape:
 ```lua
 {
     t = "STATE",
-    p = 5,
+    p = 6,
     v = "1.0.6",
     rev = 1785432100,
     state = {
@@ -164,9 +164,17 @@ Shape:
     peers = { -- included in the leader's initial whisper
         ["Player-Realm"] = {
             version = "1.0.6",
+            talents = { 41, 20, 0 },
             ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
             healthstone = nil,
             coreRanks = nil,
+        },
+    },
+    observations = { -- directly inspected non-WDW roster members
+        ["Other-Realm"] = {
+            class = "WARLOCK",
+            talents = { 40, 0, 21 },
+            healthstone = 2,
         },
     },
 }
@@ -182,9 +190,14 @@ ranks. Local customization settings are also absent.
 `peers` is outside the shared board and therefore outside its fingerprint. The
 leader includes it in an initial whispered snapshot, using only current roster
 members it has observed running WDW plus itself. Each entry may contain the
-peer's addon version and the leader's last sender-supplied utility ranks. The
+peer's addon version, talent totals, and last validated utility ranks. The
 receiver accepts this directory only from its current group leader and only
 for names still in its own roster.
+
+`observations` is the leader's session-only directory for current roster
+members who have not announced a compatible WDW client. Its entries are facts
+previously supplied by a live `OBSERVE`, not scans invented by the leader. It
+lets a later joiner reuse talent information already gathered by the raid.
 
 `STATE` has two delivery modes:
 
@@ -210,7 +223,7 @@ protocol-incompatible leader fallback.
 ```lua
 {
     t = "RANKS",
-    p = 5,
+    p = 6,
     v = "1.0.6",
     ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
     healthstone = 2,
@@ -222,14 +235,56 @@ As with `HELLO`, only fields appropriate to the sender's class normally exist.
 Values are associated with the sender; a player cannot use this message to
 write another player's ranks. Receivers normalize the numeric values;
 healthstone and core-buff ranks are also clamped to their legal ranges.
-The leader may later relay those cached, sender-supplied values in an initial
-`STATE` peer directory; it does not manufacture a second talent scan.
+The leader may later relay those cached values in an initial `STATE` peer
+directory; it does not manufacture a second talent scan.
 
 Local utility scans schedule this message after a two-second debounce. The
 timer is not reset by every subsequent talent event: another message can be
 scheduled after the first timer fires if more events continue. This behavior
 is acceptable because spending talent points while grouped is not a design
 target.
+
+### `OBSERVE`
+
+Purpose: share a fresh, direct in-range inspection of another roster member.
+
+Channel: group broadcast only. Whispers are rejected.
+
+```lua
+{
+    t = "OBSERVE",
+    p = 6,
+    v = "1.0.6",
+    player = "Other-Realm",
+    class = "PALADIN",
+    talents = { 41, 20, 0 },
+    ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
+}
+```
+
+Any WDW raider may send this message, regardless of assignment permission,
+because it reports evidence rather than editing the board. WDW emits it only
+from LibClassicInspector's live-inspection callback (`isInspect = true`), never
+from a library broadcast or cache replay. The target and reporter must both be
+current group members, the target cannot be the reporter, and the transmitted
+class must match the receiver's own roster. Tree totals must be three
+non-negative integers with a plausible total. Class-specific utility ranks are
+clamped to their legal ranges.
+
+The first direct scan is broadcast when the raid has no session observation.
+Normally a compatible WDW target's `HELLO` already supplied that fact, making
+this the unscanned non-WDW case; if a WDW `HELLO` lacked talents, the direct
+scan usefully fills that gap too. Identical later scans are silent. A changed
+tree triplet or exact utility rank is broadcast as a mismatch, normally
+indicating a respec. Near-simultaneous first scans can still produce harmless
+duplicates before clients hear one another.
+
+Receivers do not trust a transmitted role. Every client runs its normal
+class/tree role inference from `talents`, updates its local talent caches, and
+pins an otherwise-clean board fingerprint so the observation does not echo as
+a redundant full `STATE`. The compatible leader retains non-WDW observations
+in its session directory for later joiners. Nothing is written as permanent
+third-party provenance; leaving the group clears this comparison directory.
 
 ### `ROLE`
 
@@ -241,7 +296,7 @@ Channel: group broadcast.
 ```lua
 {
     t = "ROLE",
-    p = 5,
+    p = 6,
     v = "1.0.6",
     role = "druid_feral_tank",
 }
@@ -265,7 +320,7 @@ addonless or protocol-incompatible leader fallback.
 ```lua
 {
     t = "VERSION",
-    p = 5,
+    p = 6,
     v = "1.0.6",
 }
 ```
@@ -328,7 +383,11 @@ WDW talent pipeline against native data.
 - Paladins, warlocks, druids, and priests schedule `RANKS` after two seconds.
 - LibClassicInspector marks its data dirty and broadcasts `LCIV1` on its next
   five-second information tick.
-- No `HELLO` or WDW talent-tree triplet is sent for a respec.
+- The respeccing player's own client sends no `HELLO` or WDW talent-tree
+  triplet for the respec.
+- A later live inspection which disagrees with the raid's last observation
+  sends one `OBSERVE`, allowing even a read-only raider to distribute the new
+  tree totals and exact utility ranks.
 - A narrowly safe role-driven blessing exception may additionally cause a
   PallyPower `NASSIGN` when PallyPower is installed and already aligned.
 
@@ -343,7 +402,8 @@ not later dumped into the group if that client gains permission.
 
 ### Leaving the group
 
-WDW clears the group board, permissions, and session-only peer/version state.
+WDW clears the group board, permissions, and session-only peer/version and
+observation state.
 Talent/spec and exact utility-rank caches survive because they describe
 characters rather than decisions belonging to the departed group.
 
@@ -366,14 +426,16 @@ data is authoritative:
 - the local player; or
 - a fresh live inspection while WoW's inspected talent data is still active.
 
-Each provider then sends those exact conclusions in WDW `RANKS`. This division
-is intentional:
+The local provider sends those exact conclusions in WDW `RANKS`; a direct
+third-party inspection may carry them in `OBSERVE`. This division is
+intentional:
 
 | Information | Source used by WDW |
 | --- | --- |
 | Three tree totals and primary tree | LibClassicInspector cache, initial WDW `HELLO` for immediate join inference |
 | General role inference | WDW's class-to-tree role table |
-| Exact utility-talent ranks | Native row/column scan, then WDW `RANKS`; leader cache relayed in initial `STATE` |
+| Third-party tree totals | Fresh live inspection, then deduplicated WDW `OBSERVE` |
+| Exact utility-talent ranks | Native row/column scan, then own `RANKS` or third-party `OBSERVE`; leader cache relayed in initial `STATE` |
 | Manual/final board role | WDW `ROLE` or `STATE` |
 
 ## LibClassicInspector traffic
@@ -454,8 +516,9 @@ does not alter broader class demand.
 - Window opening and source selection are passive; they do not initiate WDW,
   LibClassicInspector, or PallyPower traffic.
 - LibClassicInspector independently distributes full talent strings. WDW does
-  not duplicate those strings; it sends only immediate tree totals on initial
-  `HELLO` and exact utility-rank conclusions in `RANKS`.
+  not duplicate those strings; it sends immediate tree totals on initial
+  `HELLO`, exact utility-rank conclusions in `RANKS`, and only three totals plus
+  relevant utility ranks for a new or changed direct `OBSERVE`.
 - PallyPower and WDW have independent prefixes, state models, throttling, and
   cooldowns. A WDW action can legitimately cause traffic under both prefixes.
 

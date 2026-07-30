@@ -5,8 +5,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- who run the library themselves. It never relays what it knows about a third
 -- party, and there is no way to request data, so anyone out of range who isn't
 -- running the library stays unknown. The library decides on its own when to
--- inspect and when to broadcast; we consume what arrives, feeding group
--- members' detected specs into the role auto-assignment below.
+-- inspect and when to broadcast. WDW consumes what arrives, feeding group
+-- members' detected specs into the role auto-assignment below; when this
+-- particular client performed the live inspect, WDW also shares the compact
+-- conclusion with the group (see Sync:ReportTalentObservation).
 --
 -- The library refuses to load on clients outside Classic/TBC/Wotlk, so
 -- LibStub returns nil there rather than erroring.
@@ -318,6 +320,8 @@ end
 -- role auto-detection above.
 function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     local _, class, _, _, _, name, realm = GetPlayerInfoByGUID(guid)
+    local sync = isInspect and self:GetModule("Sync", true)
+    local boardWasClean = sync and sync:IsBoardClean()
 
     -- Points land in tab order (1-3); specIndex is whichever tab has the most.
     local specIndex, pointsSpent = Inspector:GetSpecialization(guid)
@@ -375,6 +379,23 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     elseif class == "DRUID" or class == "PRIEST" then
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
         self:RefreshBuffingGridView()
+    end
+
+    -- LibClassicInspector's true flag means this client just inspected the
+    -- player in range. Share only that firsthand evidence; cache replays and
+    -- the library's own messages use false and must never become hearsay.
+    if sync and guid ~= UnitGUID("player") then
+        local t1, t2, t3 = Inspector:GetTalentPoints(guid)
+        if t1 and t2 and t3 then
+            local profile = self.db.profile
+            sync:ReportTalentObservation(
+                key, class, { t1, t2, t3 },
+                class == "PALADIN" and profile.paladinBuffTalents[key] or nil,
+                class == "WARLOCK" and profile.warlockHealthstoneTalents[key] or nil,
+                (class == "DRUID" or class == "PRIEST")
+                    and profile.coreBuffTalents[key] or nil,
+                boardWasClean)
+        end
     end
 end
 
