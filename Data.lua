@@ -178,13 +178,9 @@ for _, classInfo in ipairs(WhoDoesWhat.Classes) do
         if classInfo.name == "Hunter" then
             table.insert(classInfo.roles,
                 { name = "Hunter Tank", icon = 132164, id = "hunter_tank", wowRole = "tank" })
-            table.insert(classInfo.categories,
-                { name = "Tank", icon = 132164, id = "cat_hunter_tank", allSubRoles = { "hunter_tank" } })
         elseif classInfo.name == "Mage" then
             table.insert(classInfo.roles,
                 { name = "Mage Tank", icon = 135846, id = "mage_tank", wowRole = "tank" })
-            table.insert(classInfo.categories,
-                { name = "Tank", icon = 135846, id = "cat_mage_tank", allSubRoles = { "mage_tank" } })
         elseif classInfo.name == "Druid" then
             table.insert(classInfo.roles, 4,
                 { name = "Boomkin Tank", icon = 136096, id = "druid_balance_tank", wowRole = "tank" })

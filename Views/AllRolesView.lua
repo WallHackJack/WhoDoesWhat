@@ -96,13 +96,22 @@ end
 
 -- Choose which role list to render for a class: the full spec list when
 -- expanded, or the condensed scheme (if the class defines one) when collapsed.
+-- Built-in roles omitted from every category stay visible under their own name.
 -- Classes without a categories table show their full roles in both modes.
 -- Custom roles assigned to the class are always appended at the end (they
 -- never collapse into categories).
 local function GetRolesForClass(classInfo)
     local base = classInfo.roles
     if not WhoDoesWhat.db.profile.expandRoles and classInfo.categories then
-        base = classInfo.categories
+        local categorized = {}
+        base = {}
+        for _, category in ipairs(classInfo.categories) do
+            base[#base + 1] = category
+            for _, id in ipairs(category.allSubRoles) do categorized[id] = true end
+        end
+        for _, role in ipairs(classInfo.roles) do
+            if not categorized[role.id] then base[#base + 1] = role end
+        end
     end
     if not classInfo.customRoles then
         return base
@@ -209,7 +218,7 @@ local function EnsureMainFrame()
     end)
     f.expandCheck = check
 
-    local resetAll = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local resetAll = CreateFrame("Button", nil, optionsBox, "UIPanelButtonTemplate")
     resetAll:SetSize(110, 22)
     resetAll:SetPoint("RIGHT", optionsBox, "RIGHT", -8, 0)
     resetAll:SetScript("OnClick", function()
