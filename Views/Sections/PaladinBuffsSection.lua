@@ -8,8 +8,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- the first three buffs each (count-desc), with an ellipsis when more exist;
 -- paladins are sorted by workload
--- (ComputePaladinBuffSummary). Header: mass-mail (each paladin's computed
--- workload). A second "Buffing Rules" header below the paladin rows owns the
+-- (ComputePaladinBuffSummary). Row mail whispers one paladin's missing live
+-- coverage; header mail sends the same status to every incomplete paladin. A
+-- second "Buffing Rules" header below the paladin rows owns the
 -- "Add (+)" and clear-all buttons. "Full Grid" sits in the main header, and
 -- the PallyPower controls stay in the footer.
 --
@@ -34,6 +35,7 @@ local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
 local ComputePaladinBuffSummary = A.ComputePaladinBuffSummary
+local GetPaladinBuffWhisper = A.GetPaladinBuffWhisper
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
 
@@ -377,7 +379,7 @@ local function CreateRuleRow(f, index)
 end
 
 -- ---------------------------------------------------------------------------
--- Summary rows: name column + condensed buff icons + mail placeholder
+-- Summary rows: name column + condensed buff icons + live-status mail
 -- ---------------------------------------------------------------------------
 
 local function PallyBuffSlotEnter(self)
@@ -444,12 +446,12 @@ local function CreatePallyRow(state, index)
         row.slots[i] = slot
     end
 
-    -- Visual placeholder only; per-paladin whisper behavior comes later.
-    row.mailBtn = K.CreateMailButton(row, function() end)
+    row.mailBtn = K.CreateMailButton(row, function()
+        if not row.paladinName then return end
+        local msg = GetPaladinBuffWhisper(row.paladinName)
+        if msg then return row.paladinName, msg end
+    end)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-    row.mailBtn:SetScript("OnClick", nil)
-    row.mailBtn:SetScript("OnEnter", nil)
-    row.mailBtn:SetScript("OnLeave", nil)
 
     local coverageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -14, 0)
@@ -488,6 +490,9 @@ function Refresh(f) -- forward declared above
         row.nameText:SetText(PlayerTextWithRole(p.name, 16))
         local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct == coverage.total
+        local hasMissing = coverage.correct < coverage.total
+        row.mailBtn:SetEnabled(hasMissing)
+        row.mailBtn.icon:SetDesaturated(not hasMissing)
         row.coverageIcon:SetTexture(complete and COVERAGE_OK_ICON or WhoDoesWhat.WARNING_ICON)
         row.coverageText:SetText(coverage.correct .. " of " .. coverage.total)
         row.coverageText:SetTextColor(CoverageTextColor(coverage.correct, coverage.total))

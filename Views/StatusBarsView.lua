@@ -405,10 +405,12 @@ local function LayoutResizeHandle()
     handle:ClearAllPoints()
     line:ClearAllPoints()
     if left then
+        handle:SetHitRectInsets(-6, -4, 0, 0)
         handle:SetPoint("TOPLEFT", 1, -(INSET + TITLE_H + 2))
         handle:SetPoint("BOTTOMLEFT", 1, INSET + 1)
         line:SetPoint("LEFT", 2, 0)
     else
+        handle:SetHitRectInsets(-4, -6, 0, 0)
         handle:SetPoint("TOPRIGHT", -1, -(INSET + TITLE_H + 2))
         handle:SetPoint("BOTTOMRIGHT", -1, INSET + 1)
         line:SetPoint("RIGHT", -2, 0)

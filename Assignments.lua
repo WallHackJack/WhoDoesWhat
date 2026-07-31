@@ -1238,7 +1238,7 @@ local function ComputePaladinBuffCoverage()
             for paladin, key in pairs(cells) do
                 local p = byPaladin[paladin]
                 if not p then
-                    p = { correct = 0, total = 0 }
+                    p = { correct = 0, total = 0, missing = {} }
                     byPaladin[paladin] = p
                 end
                 total = total + 1
@@ -1247,6 +1247,8 @@ local function ComputePaladinBuffCoverage()
                     or WhoDoesWhat:HasBuff(raider, key) == true then
                     correct = correct + 1
                     p.correct = p.correct + 1
+                else
+                    p.missing[#p.missing + 1] = { target = raider, key = key }
                 end
             end
         end
@@ -1356,20 +1358,71 @@ local function ComputePaladinBuffSummary()
     return out
 end
 
--- Header-mail collector for the Paladin Buffs section: each paladin gets
--- their computed workload in one line ("Blessings: Might x12, Kings x3").
+local function ShortAssignmentName(name)
+    local petSuffix = name:match("('s Pet)$")
+    local base = petSuffix and name:sub(1, #name - #petSuffix) or name
+    return (base:match("^([^%-]+)") or base) .. (petSuffix or "")
+end
+
+local function PaladinBuffWhisperText(coverage)
+    local missing = coverage and coverage.missing or {}
+    local missingCount = #missing
+    if missingCount == 0 then return nil end
+
+    local percent = coverage.total > 0
+        and math.floor(coverage.correct * 100 / coverage.total + 0.5) or 0
+    local lead = "Pally Buffs (" .. percent .. "%) "
+
+    if missingCount < 5 then
+        table.sort(missing, function(a, b)
+            local an, bn = ShortAssignmentName(a.target), ShortAssignmentName(b.target)
+            if an ~= bn then return an < bn end
+            return a.key < b.key
+        end)
+        local parts = {}
+        for _, cell in ipairs(missing) do
+            parts[#parts + 1] = ShortAssignmentName(cell.target) .. "->"
+                .. WhoDoesWhat.PaladinBuffs[cell.key].name_long
+        end
+        return lead .. missingCount .. " Missing, " .. table.concat(parts, ", ")
+    end
+
+    local counts, parts, canonicalIndex = {}, {}, {}
+    for _, cell in ipairs(missing) do
+        counts[cell.key] = (counts[cell.key] or 0) + 1
+    end
+    for i, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+        canonicalIndex[key] = i
+        if counts[key] then
+            parts[#parts + 1] = { key = key, count = counts[key] }
+        end
+    end
+    table.sort(parts, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return canonicalIndex[a.key] < canonicalIndex[b.key]
+    end)
+    for i, part in ipairs(parts) do
+        parts[i] = WhoDoesWhat.PaladinBuffs[part.key].name_long .. " x" .. part.count
+    end
+    return lead .. "Missing " .. table.concat(parts, ", ")
+end
+
+local function GetPaladinBuffWhisper(name)
+    local _, _, byPaladin = ComputePaladinBuffCoverage()
+    return PaladinBuffWhisperText(byPaladin[name])
+end
+
+-- Header-mail collector for the Paladin Buffs section: each incomplete
+-- paladin gets the same live missing-buff message as their row button.
 local function CollectPaladinBuffWhispers()
+    local _, _, byPaladin = ComputePaladinBuffCoverage()
     local out = {}
     for _, p in ipairs(ComputePaladinBuffSummary()) do
-        if #p.buffs > 0 then
-            local parts = {}
-            for _, b in ipairs(p.buffs) do
-                parts[#parts + 1] = WhoDoesWhat.PaladinBuffs[b.key].name_long
-                    .. " x" .. b.count
-            end
+        local msg = PaladinBuffWhisperText(byPaladin[p.name])
+        if msg then
             out[#out + 1] = {
                 name = p.name,
-                msg = "Blessings: " .. table.concat(parts, ", "),
+                msg = msg,
             }
         end
     end
@@ -1935,6 +1988,7 @@ WhoDoesWhat.Assign = {
     IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
     DisconnectedGroupTargets = DisconnectedGroupTargets,
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
+    GetPaladinBuffWhisper = GetPaladinBuffWhisper,
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
