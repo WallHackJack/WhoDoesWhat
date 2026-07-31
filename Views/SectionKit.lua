@@ -226,7 +226,6 @@ function K.GetPallyPowerState(paladinCount)
     if paladinCount == 0 then return "inactive", "No Paladins, Inactive" end
     local diffs, reason = WhoDoesWhat:CheckPallyPowerSync()
     if reason == "no-paladins" then return "inactive", "No Paladins, Inactive" end
-    if diffs == nil then return "inactive", "PallyPower Not Loaded, Inactive" end
     if #diffs == 0 then return "synced", "Optimized and synced" end
     return "desynced", #diffs .. " Buff" .. (#diffs == 1 and "" or "s")
         .. " out of sync", #diffs

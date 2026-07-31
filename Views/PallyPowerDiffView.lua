@@ -1,7 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- PallyPower Differences window (the Paladin Buffs section's "Check" button).
--- A read-only, formatted view of how PallyPower's LIVE board differs from the
+-- A read-only, formatted view of how PallyPower's live or mirrored board differs from the
 -- plan a Send (SyncToPallyPower) would push -- the detail behind the section's
 -- drift warning icon. Entries come from WhoDoesWhat:CheckPallyPowerSync
 -- (structured: paladin, target, target role, want/have blessing + icons); this
@@ -137,8 +137,8 @@ local function RenderDiffs(f)
     local diffs = WhoDoesWhat:CheckPallyPowerSync()
     if diffs == nil then
         SetCompact(f)
-        f.status:SetText("|cff909090PallyPower isn't loaded, or there are no"
-            .. " paladins in the group -- nothing to compare.|r")
+        f.status:SetText("|cff909090There are no paladins in the group"
+            .. " -- nothing to compare.|r")
         f.sendBtn:Disable()
         f.content:SetHeight(1)
         return false
@@ -220,8 +220,8 @@ local function EnsureFrame()
     sendBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Send to PallyPower", 1, 1, 1)
-        GameTooltip:AddLine("Push the computed plan into PallyPower and"
-            .. " broadcast it to the other paladins.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Broadcast the computed plan to PallyPower clients"
+            .. " and update WDW's local mirror.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     sendBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

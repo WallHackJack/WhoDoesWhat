@@ -7,8 +7,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- right-click cycles every assigned member's planned Lesser Blessing, with
 -- missing/lowest-timer targets first -- see the secure-casting section below.
 -- Hovering a class button opens a secure
--- per-player menu: left-click casts that class Greater on the chosen unit and
--- right-click casts the unit's planned Normal blessing.
+-- per-player menu: left-click casts the class Greater for majority-assigned
+-- players; both clicks cast the planned Normal blessing for exceptions.
 --
 -- Whose jobs it renders (ResolveBarPaladin): normally the local player when
 -- they're a paladin; in test mode, the paladin picked in the settings dropdown
@@ -345,6 +345,32 @@ local function UpdatePlayerAura(p)
     end
 end
 
+-- Repaint one existing player row from the current plan. The caller handles
+-- protected spell attributes separately so this remains safe during combat.
+local function UpdatePlayerStatus(p, member, job, unit)
+    local normalMeta = WhoDoesWhat.PaladinBuffs[member.key]
+    local greater = job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)
+    local plannedGreater = normalMeta and GetSpellInfo(normalMeta.spellId)
+    local normal = normalMeta and GetSpellInfo(normalMeta.normalSpellId)
+
+    p.member, p.job, p.castUnit = member, job, unit
+    p.greaterName, p.normalName = plannedGreater, normal
+    p.normalSpellId = normalMeta and normalMeta.normalSpellId
+    p.icon:SetTexture(member.isGreater and job.greaterBuff.icon
+        or (normalMeta and normalMeta.normalIcon))
+    if member.isPet then
+        p.specIcon:SetTexture(WhoDoesWhat.HunterPetRole.icon)
+    else
+        local roleId = WhoDoesWhat:GetAssignedRole(member.name)
+        local role = roleId and select(2, WhoDoesWhat:FindRoleById(roleId))
+        p.specIcon:SetTexture((role and role.icon) or job.classInfo.classIcon)
+    end
+    p.name:SetText(member.name:gsub("%-.*$", ""))
+    p.nameColor = (member.classInfo or job.classInfo).colorRGB
+    UpdatePlayerAura(p)
+    return member.isGreater and greater or normal, normal
+end
+
 local function CreatePlayerButton(btn, index)
     local p = CreateFrame("Button", btn:GetName() .. "Player" .. index, btn.playerMenu,
         "SecureActionButtonTemplate")
@@ -443,32 +469,14 @@ local function ConfigurePlayerMenu(btn, job, nameToUnit)
             shown = shown + 1
             if member.has == true then covered = covered + 1 end
             local p = btn.playerButtons[shown] or CreatePlayerButton(btn, shown)
-            local normalMeta = WhoDoesWhat.PaladinBuffs[member.key]
-            local greater = job.greaterBuff and GetSpellInfo(job.greaterBuff.spellId)
-            local normal = normalMeta and GetSpellInfo(normalMeta.normalSpellId)
-
-            p.member, p.job, p.castUnit = member, job, unit
-            p.greaterName, p.normalName = greater, normal
-            p.normalSpellId = normalMeta and normalMeta.normalSpellId
-            p.icon:SetTexture(member.isGreater and job.greaterBuff.icon
-                or (normalMeta and normalMeta.normalIcon))
-            if member.isPet then
-                p.specIcon:SetTexture(WhoDoesWhat.HunterPetRole.icon)
-            else
-                local roleId = WhoDoesWhat:GetAssignedRole(member.name)
-                local role = roleId and select(2, WhoDoesWhat:FindRoleById(roleId))
-                p.specIcon:SetTexture((role and role.icon) or job.classInfo.classIcon)
-            end
-            p.name:SetText(member.name:gsub("%-.*$", ""))
-            p.nameColor = (member.classInfo or job.classInfo).colorRGB
+            local left, normal = UpdatePlayerStatus(p, member, job, unit)
             p:SetAlpha(1)
-            p:SetAttribute("type1", unit and greater and "spell" or nil)
-            p:SetAttribute("spell1", unit and greater or nil)
+            p:SetAttribute("type1", unit and left and "spell" or nil)
+            p:SetAttribute("spell1", unit and left or nil)
             p:SetAttribute("unit1", unit)
             p:SetAttribute("type2", unit and normal and "spell" or nil)
             p:SetAttribute("spell2", unit and normal or nil)
             p:SetAttribute("unit2", unit)
-            UpdatePlayerAura(p)
             p:Show()
         end
     end
@@ -488,6 +496,24 @@ local function ConfigurePlayerMenu(btn, job, nameToUnit)
         p:SetAttribute("type1", nil)
         p:SetAttribute("type2", nil)
     end
+end
+
+-- Role/plan changes can repaint existing rows in combat, but protected click
+-- attributes and row ordering remain baked until PLAYER_REGEN_ENABLED.
+local function UpdatePlayerMenuStatus(btn, job, nameToUnit)
+    local byName = {}
+    for _, member in ipairs(job.raiders) do byName[member.name] = member end
+    local shown, covered = 0, 0
+    for _, p in ipairs(btn.playerButtons) do
+        local member = p:IsShown() and p.member and byName[p.member.name]
+        if member then
+            shown = shown + 1
+            if member.has == true then covered = covered + 1 end
+            UpdatePlayerStatus(p, member, job, CastUnit(member, nameToUnit))
+        end
+    end
+    btn.playerMenu.count:SetText(covered .. "/" .. shown)
+    btn.playerMenu.count:SetTextColor(CountColor(covered, shown))
 end
 
 -- Use the saved direction when it fits; otherwise use the roomier side. The
@@ -604,7 +630,7 @@ local function CreateButton(index)
 
     local clickHint = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     clickHint:SetPoint("TOPLEFT", headerBg, "TOPLEFT", 4, -2)
-    clickHint:SetText("Left-click = Greater\nRight-click = Lesser")
+    clickHint:SetText("Left-click = shown buff\nRight-click = Lesser")
     clickHint:SetTextColor(0.4, 0.7, 1)
     clickHint:SetJustifyH("LEFT")
 
@@ -890,7 +916,9 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         for _, btn in ipairs(bar.buttons) do
             if btn:IsShown() then
                 local className = btn.job and btn.job.classInfo.name
-                UpdateButtonStatus(btn, className and jobsByClass[className], nameToUnit)
+                local job = className and jobsByClass[className]
+                UpdateButtonStatus(btn, job, nameToUnit)
+                if job then UpdatePlayerMenuStatus(btn, job, nameToUnit) end
             end
         end
         return

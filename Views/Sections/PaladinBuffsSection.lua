@@ -643,7 +643,7 @@ local function CreatePallyPowerArea(box)
 
     local fix = K.CreatePallyPowerActionButton(area, "Fix", 30,
         "Fix PallyPower",
-        "Write the optimized WDW blessing plan into PallyPower and broadcast it.", function()
+        "Broadcast the optimized WDW blessing plan and update the local PP mirror.", function()
             WhoDoesWhat:SyncToPallyPower()
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshStatusBarsView()

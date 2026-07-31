@@ -10,9 +10,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- buff as the class assignment and the minority raiders ride along as Normal
 -- exceptions -- the same shape PallyPower's own UI produces for a mixed
 -- class. The tables (PallyPower_Assignments / PallyPower_NormalAssignments)
--- are written directly, then broadcast over PallyPower's own wire protocol
--- (CLEAR SKIP, then PASSIGN per paladin, then batched NASSIGN) through
--- PallyPower:SendMessage so its channel pick and throttling apply. Other
+-- are written directly when PallyPower is installed, then broadcast over its
+-- wire protocol (CLEAR SKIP, then PASSIGN per paladin, then batched NASSIGN).
+-- WDW sends the protocol itself when PallyPower is absent. Other
 -- paladins' clients only accept assignments for someone besides the sender
 -- when the sender is a raid leader/assist (or they run Free Assignment), so
 -- the button warns when we push without that authority.
@@ -32,6 +32,17 @@ local PEER_REQUEST_COOLDOWN = 10
 WhoDoesWhat.pallyPowerPeers = {}
 local lastPeerRequestAt
 local lastPeerRequestChannel
+local Append
+
+local function GroupChannel()
+    if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
+    elseif IsInRaid() then
+        return "RAID"
+    elseif IsInGroup() then
+        return "PARTY"
+    end
+end
 
 function WhoDoesWhat:PaladinHasPallyPower(name)
     if name == UnitName("player") then return _G.PallyPower ~= nil end
@@ -41,14 +52,7 @@ end
 -- Ask PallyPower clients to identify themselves. Each paladin answers REQ
 -- with SELF; CHAT_MSG_ADDON below records those replies for raider tooltips.
 function WhoDoesWhat:RequestPallyPowerPeers()
-    local channel
-    if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-        channel = "INSTANCE_CHAT"
-    elseif IsInRaid() then
-        channel = "RAID"
-    elseif IsInGroup() then
-        channel = "PARTY"
-    end
+    local channel = GroupChannel()
     if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         local now = GetTime()
         if lastPeerRequestChannel == channel and lastPeerRequestAt
@@ -100,7 +104,7 @@ local BLESSING_NAME_WRATH = { "Wisdom", "Might", "Kings", "Sanctuary" }
 
 local function BuffKeyToBlessingId(key)
     local pp = _G.PallyPower
-    if pp and pp.isWrath then return BLESSING_ID_WRATH[key] end
+    if (pp and pp.isWrath) or IS_WRATH then return BLESSING_ID_WRATH[key] end
     return BLESSING_ID[key]
 end
 
@@ -117,7 +121,8 @@ local function BlessingName(id)
     id = tonumber(id)
     if not id or id == 0 then return "none" end
     local pp = _G.PallyPower
-    local names = (pp and pp.isWrath) and BLESSING_NAME_WRATH or BLESSING_NAME
+    local names = ((pp and pp.isWrath) or IS_WRATH)
+        and BLESSING_NAME_WRATH or BLESSING_NAME
     return names[id] or ("blessing " .. id)
 end
 
@@ -128,7 +133,8 @@ local function BlessingIcon(id)
     id = tonumber(id)
     if not id or id == 0 then return nil end
     local pp = _G.PallyPower
-    local map = (pp and pp.isWrath) and BLESSING_ID_WRATH or BLESSING_ID
+    local map = ((pp and pp.isWrath) or IS_WRATH)
+        and BLESSING_ID_WRATH or BLESSING_ID
     for key, v in pairs(map) do
         if v == id then
             local buff = WhoDoesWhat.PaladinBuffs and WhoDoesWhat.PaladinBuffs[key]
@@ -143,8 +149,11 @@ local function ClassIdName(id)
     id = tonumber(id)
     local pp = _G.PallyPower
     local token = pp and pp.ClassID and pp.ClassID[id]
-    if not token then return "class " .. tostring(id) end
-    return token:sub(1, 1) .. token:sub(2):lower()
+    if token then return token:sub(1, 1) .. token:sub(2):lower() end
+    for className, classId in pairs(PP_CLASS_ID) do
+        if classId == id then return className end
+    end
+    return "class " .. tostring(id)
 end
 
 -- PallyPower keys everything by realm-stripped names.
@@ -156,6 +165,14 @@ end
 -- from the PallyPower clients currently in the group.
 local observedBoard = { assignments = {}, normal = {} }
 WhoDoesWhat.PallyPowerMirror = observedBoard
+
+local function CurrentPallyPowerBoard()
+    if _G.PallyPower and _G.PallyPower_Assignments
+        and _G.PallyPower_NormalAssignments then
+        return _G.PallyPower_Assignments, _G.PallyPower_NormalAssignments
+    end
+    return observedBoard.assignments, observedBoard.normal
+end
 
 local function SenderCanAssignOthers(sender)
     sender = ShortName(sender)
@@ -255,6 +272,23 @@ local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
         return true
     end
     return false
+end
+
+-- Use PallyPower's sender when available; otherwise speak its public wire
+-- protocol directly and apply the same message to WDW's local mirror.
+local function SendPallyPowerMessage(message)
+    local pp = _G.PallyPower
+    if pp and pp.SendMessage then
+        pp:SendMessage(message)
+        return
+    end
+
+    ApplyPallyPowerMessage(observedBoard, UnitName("player"), message, true)
+    local channel = GroupChannel()
+    if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(PP_PREFIX, message, channel)
+    end
+    if Append then Append("out", channel or "LOCAL", message) end
 end
 
 -- The fake testing roster must never leak onto the wire; PallyPower is real
@@ -407,11 +441,12 @@ end
 -- The assignment model supplies the shared Greater decision, including the
 -- Warrior bucket inherited by pets. This is the single source of truth for
 -- "what a full sync would write" -- SyncToPallyPower copies the result into
--- the live tables and broadcasts it, and CheckPallyPowerSync compares the
--- live tables against it. Returns
+-- co-installed live tables when present and always broadcasts it;
+-- CheckPallyPowerSync compares it with those tables or WDW's wire mirror.
+-- Returns
 -- assignments[pshort][classId], normal[pshort][classId][target], the summary
 -- counts, plus each active PallyPower target's class id.
-local function BuildDesired(self, pp, paladins)
+local function BuildDesired(self, paladins)
     local assignments, normal = {}, {}
 
     -- Raider -> PallyPower class id. Classes PallyPower doesn't track on this
@@ -419,7 +454,7 @@ local function BuildDesired(self, pp, paladins)
     local classIdOf, activeTargets = {}, {}
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         if not IsFakeName(m.name) then
-            local cid = pp.ClassToID and pp.ClassToID[m.classInfo.name:upper()]
+            local cid = PP_CLASS_ID[m.classInfo.name]
             classIdOf[m.name] = cid
             if cid and not self:IsNonRaider(m.name) then
                 activeTargets[ShortName(m.name)] = cid
@@ -436,7 +471,7 @@ local function BuildDesired(self, pp, paladins)
         end
     end
     local petRealName = LivePetNames()
-    local petClassId = pp.ClassToID and pp.ClassToID["WARRIOR"]
+    local petClassId = PP_CLASS_ID.Warrior
 
     local buffPlan = self.Assign.GetPaladinBuffPlan()
     local plan = buffPlan.grid
@@ -444,13 +479,13 @@ local function BuildDesired(self, pp, paladins)
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
         assignments[pshort] = {}
-        for c = 1, PALLYPOWER_MAXCLASSES do
+        for c = 1, PP_MAX_CLASSES do
             assignments[pshort][c] = 0
         end
         normal[pshort] = {}
 
         for className, buffKey in pairs(buffPlan.greaterByPaladin[pname] or {}) do
-            local cid = pp.ClassToID and pp.ClassToID[className:upper()]
+            local cid = PP_CLASS_ID[className]
             local bless = BuffKeyToBlessingId(buffKey)
             if cid and bless then
                 assignments[pshort][cid] = bless
@@ -495,11 +530,6 @@ end
 
 function WhoDoesWhat:SyncToPallyPower()
     local pp = _G.PallyPower
-    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
-        self:Print("PallyPower is not loaded; nothing to sync to.")
-        return
-    end
-
     local paladins = GroupPaladins(self)
     if #paladins == 0 then
         self:Print("No paladins in the group; nothing to sync to PallyPower.")
@@ -507,37 +537,38 @@ function WhoDoesWhat:SyncToPallyPower()
     end
 
     local assignments, normal, classCount, singleCount, skipped =
-        BuildDesired(self, pp, paladins)
+        BuildDesired(self, paladins)
 
-    -- Copy the computed rows into the live tables (only the group paladins'
-    -- rows, the scope BuildDesired filled) so the broadcast below reads them
-    -- back out.
-    for _, pname in ipairs(paladins) do
-        local pshort = ShortName(pname)
-        PallyPower_Assignments[pshort] = assignments[pshort]
-        PallyPower_NormalAssignments[pshort] = normal[pshort]
+    -- Keep a co-installed PallyPower's local tables in step. The broadcast
+    -- below uses WDW's computed tables directly and does not depend on them.
+    if pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments then
+        for _, pname in ipairs(paladins) do
+            local pshort = ShortName(pname)
+            PallyPower_Assignments[pshort] = assignments[pshort]
+            PallyPower_NormalAssignments[pshort] = normal[pshort]
+        end
     end
 
     -- Broadcast over PallyPower's own protocol, in its LoadPreset rhythm:
     -- reset everyone (SKIP keeps auras), give the tables a beat to land, then
-    -- the full class rows and the exception batches. SendMessage no-ops solo,
-    -- so a solo click still fills the local PallyPower for inspection.
-    pp:SendMessage("CLEAR SKIP")
+    -- the full class rows and the exception batches. Without PallyPower, WDW
+    -- sends these messages itself and updates its local wire mirror.
+    SendPallyPowerMessage("CLEAR SKIP")
     C_Timer.After(0.25, function()
         for _, pname in ipairs(paladins) do
             local pshort = ShortName(pname)
             local s = ""
-            for c = 1, PALLYPOWER_MAXCLASSES do
-                local v = PallyPower_Assignments[pshort][c]
+            for c = 1, PP_MAX_CLASSES do
+                local v = assignments[pshort][c]
                 s = s .. ((not v or v == 0) and "n" or v)
             end
-            pp:SendMessage("PASSIGN " .. pshort .. "@" .. s)
+            SendPallyPowerMessage("PASSIGN " .. pshort .. "@" .. s)
         end
 
         local entries = {}
         for _, pname in ipairs(paladins) do
             local pshort = ShortName(pname)
-            for cid, tnames in pairs(PallyPower_NormalAssignments[pshort]) do
+            for cid, tnames in pairs(normal[pshort]) do
                 for tname, bless in pairs(tnames) do
                     entries[#entries + 1] =
                         string.format("%s %s %s %s", pshort, cid, tname, bless)
@@ -545,11 +576,14 @@ function WhoDoesWhat:SyncToPallyPower()
             end
         end
         for offset = 1, #entries, 5 do
-            pp:SendMessage("NASSIGN "
+            SendPallyPowerMessage("NASSIGN "
                 .. table.concat(entries, "@", offset, math.min(offset + 4, #entries)))
         end
 
-        pp:UpdateLayout()
+        if pp and pp.UpdateLayout then pp:UpdateLayout() end
+        self:RefreshMainAssignmentsView()
+        self:RefreshBuffingGridView()
+        self:RefreshStatusBarsView()
     end)
 
     local summary = "Synced " .. #paladins .. " paladin(s) to PallyPower: "
@@ -580,8 +614,7 @@ end
 --   { paladin, target, targetIcon, targetRole, isClass, want, wantName,
 --     wantIcon, have, haveName, haveIcon }
 -- want/have are blessing ids (0 = none).
--- Returns nil plus "not-loaded" or "no-paladins" when there's nothing to
--- compare. Existing callers that only read the first result remain unchanged.
+-- Returns nil plus "no-paladins" when there's nothing to compare.
 local function DiffEntry(pshort, target, isClass, want, have, targetInfo)
     return {
         paladin = pshort, target = target, isClass = isClass,
@@ -624,24 +657,21 @@ local function DiffTargetInfo(self)
 end
 
 function WhoDoesWhat:CheckPallyPowerSync()
-    local pp = _G.PallyPower
-    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
-        return nil, "not-loaded"
-    end
     local paladins = GroupPaladins(self)
     if #paladins == 0 then return nil, "no-paladins" end
 
     local assignments, normal, _, _, _, activeTargets =
-        BuildDesired(self, pp, paladins)
+        BuildDesired(self, paladins)
+    local currentAssignments, currentNormal = CurrentPallyPowerBoard()
     local targetInfo, petTargets = DiffTargetInfo(self)
     local might = BuffKeyToBlessingId("might")
     local kings = BuffKeyToBlessingId("kings")
     local diffs = {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
-        local liveA = PallyPower_Assignments[pshort] or {}
+        local liveA = currentAssignments[pshort] or {}
         local wantA = assignments[pshort] or {}
-        local liveN = PallyPower_NormalAssignments[pshort] or {}
+        local liveN = currentNormal[pshort] or {}
         local wantN = normal[pshort] or {}
         for target, cid in pairs(activeTargets) do
             local want = wantN[cid] and wantN[cid][target]
@@ -676,9 +706,6 @@ end
 -- layout after combat.
 function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
     local pp = _G.PallyPower
-    if not (pp and _G.PallyPower_Assignments and _G.PallyPower_NormalAssignments) then
-        return
-    end
     if not playerName or IsFakeName(playerName) then return end
     if not CanBroadcastAssignments() then return end
 
@@ -703,8 +730,9 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
         if m.name == playerName then member = m break end
     end
     if not member then return end
-    local classId = pp.ClassToID and pp.ClassToID[member.classInfo.name:upper()]
+    local classId = PP_CLASS_ID[member.classInfo.name]
     if not classId then return end
+    local currentAssignments, currentNormal = CurrentPallyPowerBoard()
 
     -- This raider's blessing per paladin from the current shared plan (empty
     -- when uncovered, e.g. after being marked Non-raider).
@@ -715,22 +743,21 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
         if m.classInfo.name == "Paladin" and not IsFakeName(m.name) then
             local pshort = ShortName(m.name)
             local newBless = BuffKeyToBlessingId(cells[m.name]) -- nil if uncovered
-            local greater = PallyPower_Assignments[pshort]
-                and PallyPower_Assignments[pshort][classId]
+            local greater = currentAssignments[pshort]
+                and currentAssignments[pshort][classId]
             -- Want an exception only when this raider differs from the class row.
             local desired = (newBless and newBless ~= 0 and newBless ~= greater)
                 and newBless or nil
 
-            local bucket = PallyPower_NormalAssignments[pshort]
+            local bucket = currentNormal[pshort]
             local current = bucket and bucket[classId] and bucket[classId][xshort]
 
             if desired ~= current then
                 -- Mirror into the local tables so the sender's own PallyPower
                 -- and the next diff stay in step (nil clears the exception).
-                PallyPower_NormalAssignments[pshort] = PallyPower_NormalAssignments[pshort] or {}
-                PallyPower_NormalAssignments[pshort][classId] =
-                    PallyPower_NormalAssignments[pshort][classId] or {}
-                PallyPower_NormalAssignments[pshort][classId][xshort] = desired
+                currentNormal[pshort] = currentNormal[pshort] or {}
+                currentNormal[pshort][classId] = currentNormal[pshort][classId] or {}
+                currentNormal[pshort][classId][xshort] = desired
                 entries[#entries + 1] =
                     string.format("%s %s %s %s", pshort, classId, xshort, desired or 0)
             end
@@ -740,10 +767,12 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
     if #entries == 0 then return end
 
     for offset = 1, #entries, 5 do
-        pp:SendMessage("NASSIGN "
+        SendPallyPowerMessage("NASSIGN "
             .. table.concat(entries, "@", offset, math.min(offset + 4, #entries)))
     end
-    pp:UpdateLayout() -- self-guards in combat; refreshes the sender's grid otherwise
+    if pp and pp.UpdateLayout then
+        pp:UpdateLayout() -- self-guards in combat; refreshes the sender's grid otherwise
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -755,7 +784,7 @@ local log = {}
 WhoDoesWhat.PallyPowerLog = log
 local statusRefreshPending
 
-local function Append(dir, who, msg)
+Append = function(dir, who, msg)
     if WhoDoesWhat.LOG_SYNC then
         local trimmed = false
         if #log >= MAX_LOG then

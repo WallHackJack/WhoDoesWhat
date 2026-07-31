@@ -336,7 +336,7 @@ local function CreatePallyPowerRow()
     row.statusText = status
 
     local fix = K.CreatePallyPowerActionButton(body, "Fix", 26,
-        "Fix PallyPower", "Write the current WDW blessing plan into PallyPower.", function()
+        "Fix PallyPower", "Broadcast the current WDW blessing plan and update the local PP mirror.", function()
             WhoDoesWhat:SyncToPallyPower()
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshStatusBarsView()
