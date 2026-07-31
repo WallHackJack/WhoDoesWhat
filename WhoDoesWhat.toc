@@ -2,14 +2,12 @@
 ## Title: WhoDoesWhat
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
+## Version: @project-version@
 #@debug@
 # Keep this literal synchronized with the release tag; the in-game title and
 # peer-version warning read it in the live checkout.
 ## Version: 1.0.7
 #@end-debug@
-#@non-debug@
-# ## Version: @project-version@
-#@end-non-debug@
 ## SavedVariables: WhoDoesWhatDB
 
 # --- Libraries ---
