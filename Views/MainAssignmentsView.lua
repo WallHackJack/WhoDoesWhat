@@ -288,6 +288,7 @@ local function EnsureMainFrame()
 
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H,
         "WhoDoesWhat (v" .. Sync:GetReportedAddonVersion() .. ")")
+    f.closeButton:SetHitRectInsets(4, 4, 4, 4)
     -- Center the title in the bar (the shared chrome left-aligns it); anchored
     -- to the window's top so it re-centers when the width changes per view mode.
     f.titleText:ClearAllPoints()
@@ -323,6 +324,7 @@ local function EnsureMainFrame()
     -- cog uses addon-owned copies of the standard close-button states.
     local settingsBtn = CreateFrame("Button", nil, f)
     settingsBtn:SetSize(32, 32)
+    settingsBtn:SetHitRectInsets(4, 4, 4, 4)
     settingsBtn:SetPoint("TOPRIGHT", -20, 1)
     settingsBtn:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
     settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
@@ -339,7 +341,9 @@ local function EnsureMainFrame()
     -- Bigger opens the full board; Smaller collapses to Paladin Buffs only.
     local viewToggleBtn = CreateFrame("Button", nil, f)
     viewToggleBtn:SetSize(32, 32)
+    viewToggleBtn:SetHitRectInsets(4, 4, 4, 4)
     viewToggleBtn:SetPoint("RIGHT", settingsBtn, "LEFT", 11, 0)
+    viewToggleBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
     viewToggleBtn:SetScript("OnClick", function()
         local s = WhoDoesWhat.db.profile.settings
         s.paladinOnlyView = not s.paladinOnlyView

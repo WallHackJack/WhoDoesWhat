@@ -55,6 +55,7 @@ function WhoDoesWhat:CreateWindowFrame(globalName, width, height, titleText)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 1, 1)
     close:SetScript("OnClick", function() f:Hide() end)
+    f.closeButton = close
 
     f.titleBarHeight = WhoDoesWhat.TITLEBAR_H
     f:Hide()
