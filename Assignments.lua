@@ -134,14 +134,13 @@ local function GetPetMembers()
     return out
 end
 
--- What a pet wants and nothing more: the hunter_pets defaults, minus any
+-- What a pet wants and nothing more: the Data.lua pet order, minus any
 -- rule-ignored buff. Deliberately NOT backfilled to all six -- a pet whose
 -- top-ups are covered shows an empty grid cell rather than collecting
 -- Salvation from an otherwise-idle paladin.
-local PET_WANTS = { "might", "kings" }
 local function PetBuffOrder(ignored)
     local order = {}
-    for _, key in ipairs(PET_WANTS) do
+    for _, key in ipairs(WhoDoesWhat.HunterPetBuffOrder) do
         if not ignored[key] then
             order[#order + 1] = key
         end
@@ -877,7 +876,7 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
             end
         end
     end
-    -- Every hunter's pet votes too (Might, Kings): pet demand shapes the
+    -- Every hunter's pet votes too (Might, Kings, Light): pet demand shapes the
     -- primaries without anyone assigning anything.
     for _ in ipairs(GetPetMembers()) do
         local order = PetBuffOrder(ignored)

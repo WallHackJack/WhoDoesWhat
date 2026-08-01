@@ -115,9 +115,8 @@ end
 -- Group members sorted class > role > name (same ordering the Raider Roles
 -- buckets use), so classes clump together down the left side. Non-raiders
 -- (the unit-menu pseudo-role) are sitting out and get no grid row. Hunter
--- pets ride along as virtual rows (their own plan cells); they carry the
--- Hunter class name but sort AFTER the real hunters, forming a "Pets"
--- section directly beneath the hunter block.
+-- pets ride along as virtual rows (their own plan cells). They keep Hunter
+-- metadata/colors, but sort as a separate section directly after Warriors.
 local function SortedMembers()
     local members = {}
     for _, m in ipairs(WhoDoesWhat:GetGroupMembers(nil)) do
@@ -129,10 +128,12 @@ local function SortedMembers()
         members[#members + 1] = pet
     end
     table.sort(members, function(a, b)
-        if a.classInfo.name ~= b.classInfo.name then
-            return a.classInfo.name < b.classInfo.name
+        local classA = a.isPet and "Warrior" or a.classInfo.name
+        local classB = b.isPet and "Warrior" or b.classInfo.name
+        if classA ~= classB then
+            return classA < classB
         end
-        -- Real class members first, then the pet "section" beneath them.
+        -- Real Warriors first, then the pet section beneath them.
         if (a.isPet or false) ~= (b.isPet or false) then
             return not a.isPet
         end

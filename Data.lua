@@ -546,6 +546,8 @@ WhoDoesWhat.PaladinBuffBansByRole = {
     druid_dreamstate = { might = true },
 }
 
+WhoDoesWhat.HunterPetBuffOrder = { "might", "kings", "light" }
+
 -- Default paladin buff priority orders, grouped so many roles can share one
 -- order without repeating it. Nearly every role now spells out all six buffs
 -- so the bottom slots are deliberate too: casters and healers end
@@ -606,9 +608,9 @@ WhoDoesWhat.PaladinBuffDefaults = {
         order = { "wisdom", "kings", "salv", "light", "sanctuary", "might" },
         roles = { "shaman_resto" },
     },
-    -- Pets just want the physical top-up; the rest hardly matters.
+    -- Pets want the physical top-ups, then Light.
     {
-        order = { "might", "kings" },
+        order = WhoDoesWhat.HunterPetBuffOrder,
         roles = { "hunter_pets" },
     },
 }
@@ -710,7 +712,7 @@ function WhoDoesWhat:PopulateRolesAndCategories()
         end
     end
     -- Register the hunter-pet pseudo-role for id lookups, before the buff
-    -- defaults attach below so its {might, kings} order lands on it. Not in
+    -- defaults attach below so its pet-only order lands on it. Not in
     -- the Hunter role list, so no role menu ever sees it.
     for _, classInfo in ipairs(self.Classes) do
         if classInfo.name == "Hunter" then
