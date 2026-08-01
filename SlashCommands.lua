@@ -8,6 +8,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --                  it over PallyPower's own sync (PallyPowerBridge.lua)
 -- /wdw log       - toggle the WhoDoesWhat sync traffic log
 -- /wdw pplog     - toggle the PallyPower traffic log window
+-- /wdw ppdifftest - open the PallyPower diff grids with view-only dummy data
 function WhoDoesWhat:ToggleMainUI(input)
     input = input and input:trim():lower() or ""
     if input == "r" then
@@ -28,6 +29,10 @@ function WhoDoesWhat:ToggleMainUI(input)
     end
     if input == "pplog" then
         self:OpenPallyPowerLogView()
+        return
+    end
+    if input == "ppdifftest" then
+        self:OpenPallyPowerDiffTestView()
         return
     end
     -- This calls the view function inside MainAssignmentsView.lua

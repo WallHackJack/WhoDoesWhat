@@ -67,6 +67,9 @@ K.MARKER_DD_WIDE = 95
 K.WARNING_ICON = WhoDoesWhat.WARNING_ICON
 K.MAIL_ICON = "Interface\\Icons\\INV_Letter_15"
 K.CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
+K.PALADIN_GRID_COL_W = 26
+K.PALADIN_GRID_CELL_SIZE = 20
+K.PALADIN_GRID_LOCAL_GAP = 8
 
 local classColors = {}
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
@@ -76,6 +79,112 @@ local paladinColor = classColors.Paladin
 
 local function TowardWhite(value, amount)
     return value + (1 - value) * amount
+end
+
+local function PaladinName(paladin)
+    return type(paladin) == "table" and paladin.name or paladin
+end
+
+local function ShortName(name)
+    return name and name:match("^([^%-]+)") or name
+end
+
+-- Shared geometry and cells for every paladin-buff grid. The local paladin is
+-- always first, followed by a small visual break from the remaining columns.
+function K.IsLocalPaladin(paladin)
+    local name, player = ShortName(PaladinName(paladin)), ShortName(UnitName("player"))
+    return name ~= nil and player ~= nil and name == player
+end
+
+function K.OrderPaladinsLocalFirst(paladins)
+    local ordered, localIndex = {}
+    for i, paladin in ipairs(paladins or {}) do
+        ordered[i] = paladin
+        if K.IsLocalPaladin(paladin) then localIndex = i end
+    end
+    if localIndex and localIndex > 1 then
+        table.insert(ordered, 1, table.remove(ordered, localIndex))
+    end
+    return ordered
+end
+
+function K.PaladinColumnOffset(index, paladins, columnWidth)
+    local width = columnWidth or K.PALADIN_GRID_COL_W
+    local localFirst = paladins and paladins[1] and K.IsLocalPaladin(paladins[1])
+    return (index - 1) * width
+        + (localFirst and index > 1 and K.PALADIN_GRID_LOCAL_GAP or 0)
+end
+
+function K.PaladinColumnsWidth(paladins, columnWidth)
+    local width = columnWidth or K.PALADIN_GRID_COL_W
+    local count = math.max(#(paladins or {}), 1)
+    local localFirst = paladins and paladins[1] and K.IsLocalPaladin(paladins[1])
+    return count * width + (localFirst and count > 1 and K.PALADIN_GRID_LOCAL_GAP or 0)
+end
+
+function K.CreateLocalPaladinStripe(parent)
+    local stripe = parent:CreateTexture(nil, "BACKGROUND")
+    stripe:SetColorTexture(0.72, 0.72, 0.72, 0.14)
+    stripe:Hide()
+    return stripe
+end
+
+function K.CreatePaladinGridHeader(parent)
+    local header = CreateFrame("Button", nil, parent)
+    header:SetSize(K.PALADIN_GRID_CELL_SIZE, K.PALADIN_GRID_CELL_SIZE)
+    local icon = header:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    header.icon = icon
+    local initial = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    initial:SetPoint("CENTER")
+    local font, size = initial:GetFont()
+    if font then initial:SetFont(font, size + 1, "OUTLINE") end
+    header.initial = initial
+    return header
+end
+
+function K.CreatePaladinBuffCell(parent, size)
+    size = size or K.PALADIN_GRID_CELL_SIZE
+    local cell = CreateFrame("Button", nil, parent)
+    cell:SetSize(size, size)
+
+    local alert = CreateFrame("Frame", nil, cell, "BackdropTemplate")
+    alert:SetAllPoints()
+    alert:SetFrameLevel(cell:GetFrameLevel() + 1)
+    alert:SetBackdrop({
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 2,
+    })
+    alert:SetBackdropBorderColor(1, 0.05, 0.05, 1)
+    alert:Hide()
+    cell.alert = alert
+
+    local icon = cell:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(size - 2, size - 2)
+    icon:SetPoint("CENTER")
+    cell.icon = icon
+    return cell
+end
+
+function K.SetPaladinBuffCell(cell, buffPlan, raider, paladin)
+    local paladinName = PaladinName(paladin)
+    local cells = buffPlan and buffPlan.grid and buffPlan.grid[raider]
+    local buffKey = cells and cells[paladinName]
+    cell.buffKey = buffKey
+    cell.isGreater = nil
+    if not buffKey then
+        cell.icon:Hide()
+        return nil
+    end
+
+    local buff = WhoDoesWhat.PaladinBuffs[buffKey]
+    local greater = buffPlan.greaterByPaladin
+        and buffPlan.greaterByPaladin[paladinName]
+    cell.isGreater = greater
+        and greater[buffPlan.targetClass and buffPlan.targetClass[raider]] == buffKey
+    cell.icon:SetTexture(cell.isGreater and buff.icon or buff.normalIcon)
+    cell.icon:Show()
+    return buffKey
 end
 
 -- ---------------------------------------------------------------------------

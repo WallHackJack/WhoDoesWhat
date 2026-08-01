@@ -43,11 +43,10 @@ local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
 local MARGIN = 12
 
 local NAME_COL_W = 150 -- role icon + raider name
-local COL_W = 26       -- one paladin column
+local COL_W = K.PALADIN_GRID_COL_W -- one paladin column
 local ROW_H = 22
 local ROLE_ICON_SIZE = 18
-local CELL_SIZE = 20
-local CELL_ICON_SIZE = 18
+local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
 local HEADER_H = 28
 local SOURCE_ROW_H = 27
 local CORE_CELL_ICON_SIZE = 16
@@ -162,7 +161,7 @@ local function GroupPaladins()
             out[#out + 1] = m
         end
     end
-    return out
+    return K.OrderPaladinsLocalFirst(out)
 end
 
 -- A raider's row icon: their assigned role's icon, their class icon while
@@ -213,18 +212,7 @@ end
 
 -- One compact paladin header, pooled flat across blocks.
 local function CreatePaladinHeader(f, index)
-    local header = CreateFrame("Button", nil, f)
-    header:SetSize(CELL_SIZE, CELL_SIZE)
-
-    local icon = header:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints()
-    header.icon = icon
-
-    local initial = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    initial:SetPoint("CENTER")
-    local font, size = initial:GetFont()
-    if font then initial:SetFont(font, size + 1, "OUTLINE") end
-    header.initial = initial
+    local header = K.CreatePaladinGridHeader(f)
 
     header:SetScript("OnEnter", function(self)
         WhoDoesWhat:ShowRaiderTooltip(self, self.paladin)
@@ -241,11 +229,12 @@ local function PositionCell(cell, row, column)
         NAME_COL_W + (column - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
 end
 
-local function PositionPaladinCell(cell, row, coreCount, paladinColumn)
+local function PositionPaladinCell(cell, row, coreCount, paladinColumn, paladins)
     cell:ClearAllPoints()
     cell:SetPoint("LEFT", row, "LEFT",
         NAME_COL_W + coreCount * COL_W + PALADIN_SECTION_GAP
-            + (paladinColumn - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
+            + K.PaladinColumnOffset(paladinColumn, paladins, COL_W)
+            + (COL_W - CELL_SIZE) / 2, 0)
 end
 
 local function CreateCoreCell(row, column)
@@ -317,28 +306,9 @@ end
 -- One grid cell (a button already, for the later click-to-customize).
 -- Refresh fills cell.paladin / cell.raider / cell.buffKey before showing it.
 local function CreatePaladinCell(row, c)
-    local cell = CreateFrame("Button", nil, row)
-    cell:SetSize(CELL_SIZE, CELL_SIZE)
+    local cell = K.CreatePaladinBuffCell(row, CELL_SIZE)
     PositionCell(cell, row, c)
-
-    -- Bright border, shown when this raider is confirmed to be MISSING the
-    -- blessing this cell plans for them (BuffTracking.lua). The icon is also
-    -- desaturated so missing reads differently without animation or fading.
-    local missing = CreateFrame("Frame", nil, cell, "BackdropTemplate")
-    missing:SetAllPoints()
-    missing:SetFrameLevel(cell:GetFrameLevel() + 1)
-    missing:SetBackdrop({
-        edgeFile = "Interface\\Buttons\\WHITE8X8",
-        edgeSize = 2,
-    })
-    missing:SetBackdropBorderColor(1, 0.05, 0.05, 1)
-    missing:Hide()
-    cell.missing = missing
-
-    local icon = cell:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(CELL_ICON_SIZE, CELL_ICON_SIZE)
-    icon:SetPoint("CENTER")
-    cell.icon = icon
+    cell.missing = cell.alert
 
     cell:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -462,7 +432,7 @@ local function RefreshGrid(f)
     local rowsPerBlock = math.ceil(#members / numBlocks)
     local paladinGap = #paladins > 0 and PALADIN_SECTION_GAP or 0
     local blockW = NAME_COL_W + #coreKeys * COL_W + paladinGap
-        + math.max(#paladins, 1) * COL_W
+        + K.PaladinColumnsWidth(paladins, COL_W)
     local function BlockX(b)
         return GRID_X + (b - 1) * (blockW + BLOCK_GAP)
     end
@@ -503,7 +473,8 @@ local function RefreshGrid(f)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
                 BlockX(b) + NAME_COL_W + #coreKeys * COL_W
-                    + PALADIN_SECTION_GAP + (c - 1) * COL_W
+                    + PALADIN_SECTION_GAP
+                    + K.PaladinColumnOffset(c, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.paladin = p.name
             header.icon:SetTexture(RoleIconFor(p))
@@ -516,6 +487,23 @@ local function RefreshGrid(f)
     for i = paladinHeaderCount + 1, #f.paladinHeaders do
         f.paladinHeaders[i]:Hide()
         f.paladinHeaders[i].paladin = nil
+    end
+
+    -- The local paladin's first column stays visually attached across the
+    -- header and all rows, with a small break before the other paladins.
+    for b = 1, 2 do
+        local stripe = f.localPaladinStripes[b]
+        if b <= numBlocks and paladins[1] and K.IsLocalPaladin(paladins[1]) then
+            stripe:ClearAllPoints()
+            stripe:SetPoint("TOPLEFT", f, "TOPLEFT",
+                BlockX(b) + NAME_COL_W + #coreKeys * COL_W
+                    + PALADIN_SECTION_GAP,
+                -(f.headerBottom - HEADER_H))
+            stripe:SetSize(COL_W, HEADER_H + 4 + rowsPerBlock * ROW_H)
+            stripe:Show()
+        else
+            stripe:Hide()
+        end
     end
 
     -- One "Raider" label per visible block.
@@ -544,7 +532,6 @@ local function RefreshGrid(f)
         buffPlan = BuffPlanForSource(f.gridSource)
     end
     UpdateSourceControl(f)
-    local plan = buffPlan.grid
 
     for i, m in ipairs(members) do
         local row = f.rows[i] or CreateRow(f, i)
@@ -603,25 +590,13 @@ local function RefreshGrid(f)
         end
         for c = #coreKeys + 1, #row.coreCells do row.coreCells[c]:Hide() end
 
-        local cellsFor = plan[m.name] or {}
         for c = 1, #paladins do
             local cell = row.paladinCells[c] or CreatePaladinCell(row, c)
-            PositionPaladinCell(cell, row, #coreKeys, c)
+            PositionPaladinCell(cell, row, #coreKeys, c, paladins)
             cell.paladin = paladins[c].name
             cell.raider = m.name
             cell.gridSource = f.gridSource
-            cell.buffKey = cellsFor[cell.paladin]
-            if cell.buffKey then
-                local buff = WhoDoesWhat.PaladinBuffs[cell.buffKey]
-                local greater = buffPlan.greaterByPaladin[cell.paladin]
-                cell.isGreater = greater
-                    and greater[buffPlan.targetClass[m.name]] == cell.buffKey
-                cell.icon:SetTexture(cell.isGreater and buff.icon or buff.normalIcon)
-                cell.icon:Show()
-            else
-                cell.isGreater = nil
-                cell.icon:Hide()
-            end
+            K.SetPaladinBuffCell(cell, buffPlan, m.name, cell.paladin)
             -- Gray + red outline only when the raider is confirmed to lack
             -- the planned buff; unknown and simulated cells never flag.
             local isMissing = cell.buffKey ~= nil
@@ -727,6 +702,10 @@ local function EnsureGridFrame()
 
     f.coreHeaders = {}
     f.paladinHeaders = {}
+    f.localPaladinStripes = {
+        K.CreateLocalPaladinStripe(f),
+        K.CreateLocalPaladinStripe(f),
+    }
     f.rows = {}
 
     -- Track joins/leaves live while the window is open.
@@ -755,6 +734,7 @@ function WhoDoesWhat:RefreshBuffingGridView()
     self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
     self:RefreshStatusBarsView()
+    self:RefreshPallyPowerDiffView()
 end
 
 -- Toggle the grid window open/closed.

@@ -974,12 +974,10 @@ function Sync:ApplyState(msg, senderKey)
     -- PallyPower rejects assignment changes from ordinary raiders. When the
     -- leader receives a board containing exactly one role change, relay that
     -- player's minimal blessing delta from the accepted authority instead.
-    -- Capture both the old roles and old PallyPower drift before ApplySnapshot
-    -- replaces the board.
-    local oldRoles, priorPallyPowerDiffs
+    -- Capture the old roles before ApplySnapshot replaces the board.
+    local oldRoles
     if UnitIsGroupLeader("player") then
         oldRoles = CopyTable(WhoDoesWhat.db.profile.assignments)
-        priorPallyPowerDiffs = WhoDoesWhat:CheckPallyPowerSync()
     end
 
     ApplySnapshot(msg.state)
@@ -1006,7 +1004,7 @@ function Sync:ApplyState(msg, senderKey)
             end
         end
         if changedCount == 1 then
-            WhoDoesWhat:PushPlayerBuffToPallyPower(changed, priorPallyPowerDiffs)
+            WhoDoesWhat:PushPlayerBuffToPallyPower(changed)
         end
     end
 
@@ -1159,8 +1157,6 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
         if msg.role ~= nil and type(msg.role) ~= "string" then return end
         local p = WhoDoesWhat.db.profile
         if p.assignments[senderKey] ~= msg.role then
-            local priorPallyPowerDiffs = UnitIsGroupLeader("player")
-                and WhoDoesWhat:CheckPallyPowerSync() or nil
             -- Don't let this ride the poll back out as a full-board edit of
             -- ours -- unless we already had unbroadcast edits pending, in
             -- which case the poll's next snapshot carries it anyway.
@@ -1168,7 +1164,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             p.assignments[senderKey] = msg.role
             if wasClean then lastSyncedFP = Fingerprint() end
             if UnitIsGroupLeader("player") then
-                WhoDoesWhat:PushPlayerBuffToPallyPower(senderKey, priorPallyPowerDiffs)
+                WhoDoesWhat:PushPlayerBuffToPallyPower(senderKey)
             end
             local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
             LogSyncStatus(senderKey .. " set their own role to "

@@ -313,6 +313,10 @@ local function CanBroadcastAssignments()
     return UnitIsGroupLeader("player")
 end
 
+function WhoDoesWhat:CanFixPallyPowerAssignments()
+    return CanBroadcastAssignments()
+end
+
 -- ---------------------------------------------------------------------------
 -- Sync: grid -> PallyPower
 -- ---------------------------------------------------------------------------
@@ -423,15 +427,28 @@ function WhoDoesWhat:GetPallyPowerBuffPlan(source)
     return BoardToBuffPlan(self, observedBoard.assignments, observedBoard.normal)
 end
 
+local function TargetedAssignment(newBless, currentGreater, soleClassTarget)
+    if soleClassTarget then return "greater", newBless or 0 end
+    return "normal", newBless and newBless ~= currentGreater and newBless or nil
+end
+
 -- Small parser check, callable through LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat").
 function WhoDoesWhat:TestPallyPowerMirror()
     local board = { assignments = {}, normal = {} }
     assert(ApplyPallyPowerMessage(board, "Alice", "SELF nnnnnn@3n2nnnnnn", false))
     assert(board.assignments.Alice[1] == 3 and board.assignments.Alice[3] == 2)
+    assert(ApplyPallyPowerMessage(board, "Alice", "ASSIGN Alice 1 4", false))
+    assert(board.assignments.Alice[1] == 4)
     assert(ApplyPallyPowerMessage(board, "Alice",
         "NASSIGN Alice 1 Bob 2@Alice 1 Cara 0", false))
     assert(board.normal.Alice[1].Bob == 2 and board.normal.Alice[1].Cara == nil)
     assert(not ApplyPallyPowerMessage(board, "Bob", "PASSIGN Alice@111111111", false))
+    local kind, value = TargetedAssignment(3, 4, true)
+    assert(kind == "greater" and value == 3)
+    kind, value = TargetedAssignment(3, 4, false)
+    assert(kind == "normal" and value == 3)
+    kind, value = TargetedAssignment(4, 4, false)
+    assert(kind == "normal" and value == nil)
     self:Print("PallyPower mirror parser check passed.")
 end
 
@@ -445,19 +462,21 @@ end
 -- CheckPallyPowerSync compares it with those tables or WDW's wire mirror.
 -- Returns
 -- assignments[pshort][classId], normal[pshort][classId][target], the summary
--- counts, plus each active PallyPower target's class id.
+-- counts, plus each active PallyPower target's class id and its WDW grid key.
 local function BuildDesired(self, paladins)
     local assignments, normal = {}, {}
 
     -- Raider -> PallyPower class id. Classes PallyPower doesn't track on this
     -- client (vanilla PallyPower has no Shaman slot, say) just get skipped.
-    local classIdOf, activeTargets = {}, {}
+    local classIdOf, activeTargets, planTargetByWire = {}, {}, {}
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         if not IsFakeName(m.name) then
             local cid = PP_CLASS_ID[m.classInfo.name]
             classIdOf[m.name] = cid
             if cid and not self:IsNonRaider(m.name) then
-                activeTargets[ShortName(m.name)] = cid
+                local target = ShortName(m.name)
+                activeTargets[target] = cid
+                planTargetByWire[target] = m.name
             end
         end
     end
@@ -501,7 +520,10 @@ local function BuildDesired(self, paladins)
         local owner = petOwner[raider]
         local cid = owner and petClassId or classIdOf[raider]
         local target = owner and ShortName(petRealName[owner]) or ShortName(raider)
-        if owner and target and cid then activeTargets[target] = cid end
+        if owner and target and cid then
+            activeTargets[target] = cid
+            planTargetByWire[target] = raider
+        end
         for paladin, buffKey in pairs(cells) do
             local pshort = ShortName(paladin)
             local bless = BuffKeyToBlessingId(buffKey)
@@ -525,7 +547,7 @@ local function BuildDesired(self, paladins)
     end
 
     return assignments, normal, classCount, singleCount, skipped,
-        activeTargets
+        activeTargets, planTargetByWire
 end
 
 function WhoDoesWhat:SyncToPallyPower()
@@ -611,13 +633,14 @@ end
 -- Real coverage drift still surfaces as a warning icon + a Check window and
 -- lets the user Send the canonical full plan when ready. Returns structured
 -- difference entries for the diff view (empty = in sync):
---   { paladin, target, targetIcon, targetRole, isClass, want, wantName,
+--   { paladin, target, planTarget, targetIcon, targetRole, isClass, want, wantName,
 --     wantIcon, have, haveName, haveIcon }
 -- want/have are blessing ids (0 = none).
 -- Returns nil plus "no-paladins" when there's nothing to compare.
-local function DiffEntry(pshort, target, isClass, want, have, targetInfo)
+local function DiffEntry(pshort, target, isClass, want, have, targetInfo, planTarget)
     return {
         paladin = pshort, target = target, isClass = isClass,
+        planTarget = planTarget,
         targetIcon = targetInfo and targetInfo.icon,
         targetRole = targetInfo and targetInfo.role,
         want = want, wantName = BlessingName(want), wantIcon = BlessingIcon(want),
@@ -660,7 +683,7 @@ function WhoDoesWhat:CheckPallyPowerSync()
     local paladins = GroupPaladins(self)
     if #paladins == 0 then return nil, "no-paladins" end
 
-    local assignments, normal, _, _, _, activeTargets =
+    local assignments, normal, _, _, _, activeTargets, planTargetByWire =
         BuildDesired(self, paladins)
     local currentAssignments, currentNormal = CurrentPallyPowerBoard()
     local targetInfo, petTargets = DiffTargetInfo(self)
@@ -685,94 +708,128 @@ function WhoDoesWhat:CheckPallyPowerSync()
                 and (live == 0 or live == might or live == kings)
             if want ~= live and not acceptedPetBuff then
                 diffs[#diffs + 1] = DiffEntry(pshort, target, false, want, live,
-                    targetInfo[target])
+                    targetInfo[target], planTargetByWire[target])
             end
         end
     end
     return diffs
 end
 
--- Minimal per-player push for a single raider's role change (e.g. mid-combat
--- Feral DPS -> Feral Tank, now wanting Salvation removed). PallyPower's
--- NASSIGN message can set or clear one paladin/class/target Normal-blessing
--- override, so a safe change is at most one row per paladin.
---
--- Safety: `priorDiffs` is CheckPallyPowerSync's result from BEFORE the role
--- mutation. We auto-send only from an aligned board and only when the changed
--- raider's effective blessings moved. A role change can alter raid-wide
--- demand/primaries, and an already-drifted PallyPower board is a bad baseline;
--- either case leaves PallyPower untouched for the passive status UI to report.
--- Combat-safe: PallyPower parses NASSIGN in combat and refreshes its protected
--- layout after combat.
-function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName, priorDiffs)
+-- Recompute one raider's whole WDW row after a role change. With classmates,
+-- use Normal (lesser) overrides so nobody else's coverage moves. When this is
+-- the only group target in its class, change the class Greater assignment and
+-- clear any stale Normal override instead.
+local function PushPlayerBuffs(self, playerName, explicit)
     local pp = _G.PallyPower
-    if not playerName or IsFakeName(playerName) then return end
-    if not CanBroadcastAssignments() then return end
-
-    local diffs = self:CheckPallyPowerSync()
-    if not diffs or #diffs == 0 then return end
-
-    local xshort = ShortName(playerName)
-    local broad = 0
-    for _, d in ipairs(diffs) do
-        if d.isClass or d.target ~= xshort then
-            broad = broad + 1
-        end
+    local function Refuse(message)
+        if explicit then self:Print(message) end
+        return false
     end
-    if (priorDiffs and #priorDiffs > 0) or broad > 0 then
-        return
+    if not playerName or IsFakeName(playerName) then
+        return Refuse("That simulated player cannot be sent to PallyPower.")
+    end
+    if not explicit
+        and (self.db.profile.settings.pallyBuffSource or "wdw") ~= "wdw" then
+        return false
+    end
+    if not CanBroadcastAssignments() then
+        return Refuse("You do not have permission to update PallyPower assignments.")
     end
 
     -- The raider's class id, as PallyPower keys it. Untracked classes (no
     -- Shaman slot on vanilla PallyPower, say) have nothing to push.
-    local member
+    local member, classId, wireTarget
     for _, m in ipairs(self:GetGroupMembers(nil)) do
         if m.name == playerName then member = m break end
     end
-    if not member then return end
-    local classId = PP_CLASS_ID[member.classInfo.name]
-    if not classId then return end
-    local currentAssignments, currentNormal = CurrentPallyPowerBoard()
-
-    -- This raider's blessing per paladin from the current shared plan (empty
-    -- when uncovered, e.g. after being marked Non-raider).
-    local cells = self.Assign.ComputeBuffGrid()[playerName] or {}
-
-    local entries = {}
-    for _, m in ipairs(self:GetGroupMembers("Paladin")) do
-        if m.classInfo.name == "Paladin" and not IsFakeName(m.name) then
-            local pshort = ShortName(m.name)
-            local newBless = BuffKeyToBlessingId(cells[m.name]) -- nil if uncovered
-            local greater = currentAssignments[pshort]
-                and currentAssignments[pshort][classId]
-            -- Want an exception only when this raider differs from the class row.
-            local desired = (newBless and newBless ~= 0 and newBless ~= greater)
-                and newBless or nil
-
-            local bucket = currentNormal[pshort]
-            local current = bucket and bucket[classId] and bucket[classId][xshort]
-
-            if desired ~= current then
-                -- Mirror into the local tables so the sender's own PallyPower
-                -- and the next diff stay in step (nil clears the exception).
-                currentNormal[pshort] = currentNormal[pshort] or {}
-                currentNormal[pshort][classId] = currentNormal[pshort][classId] or {}
-                currentNormal[pshort][classId][xshort] = desired
-                entries[#entries + 1] =
-                    string.format("%s %s %s %s", pshort, classId, xshort, desired or 0)
+    if member then
+        classId = PP_CLASS_ID[member.classInfo.name]
+        wireTarget = ShortName(playerName)
+    else
+        for _, pet in ipairs(self.Assign.GetPetMembers()) do
+            if pet.name == playerName then
+                member = pet
+                classId = PP_CLASS_ID.Warrior
+                wireTarget = ShortName(LivePetNames()[pet.owner])
+                break
             end
         end
     end
+    if not member or not classId or not wireTarget then
+        return Refuse("That target cannot be represented in PallyPower.")
+    end
+    local xshort = wireTarget
+    local currentAssignments, currentNormal = CurrentPallyPowerBoard()
+    local paladins = GroupPaladins(self)
+    local classTargetCount = 0
+    for _, groupMember in ipairs(self:GetGroupMembers(nil)) do
+        if not IsFakeName(groupMember.name)
+            and PP_CLASS_ID[groupMember.classInfo.name] == classId then
+            classTargetCount = classTargetCount + 1
+        end
+    end
+    if classId == PP_CLASS_ID.Warrior then
+        local livePets = LivePetNames()
+        for _, pet in ipairs(self.Assign.GetPetMembers()) do
+            if not IsFakeName(pet.owner) and livePets[pet.owner] then
+                classTargetCount = classTargetCount + 1
+            end
+        end
+    end
+    local soleClassTarget = classTargetCount == 1
+        and (member.isPet or not self:IsNonRaider(member.name))
 
-    if #entries == 0 then return end
+    -- This raider's blessing per paladin from the current shared plan (empty
+    -- when uncovered, e.g. after being marked Non-raider).
+    local cells = self.Assign.GetPaladinBuffPlan().grid[playerName] or {}
 
-    for offset = 1, #entries, 5 do
+    local greaterMessages, normalEntries = {}, {}
+    for _, paladin in ipairs(paladins) do
+        local pshort = ShortName(paladin)
+        local assignmentRow = currentAssignments[pshort] or {}
+        currentAssignments[pshort] = assignmentRow
+        local currentGreater = assignmentRow[classId]
+        local kind, desired = TargetedAssignment(
+            BuffKeyToBlessingId(cells[paladin]), currentGreater, soleClassTarget)
+        local normalByPaladin = currentNormal[pshort] or {}
+        local normalByClass = normalByPaladin[classId] or {}
+        currentNormal[pshort] = normalByPaladin
+        normalByPaladin[classId] = normalByClass
+        local currentSingle = normalByClass[xshort]
+
+        if kind == "greater" and desired ~= currentGreater then
+            assignmentRow[classId] = desired
+            greaterMessages[#greaterMessages + 1] =
+                string.format("ASSIGN %s %s %s", pshort, classId, desired)
+        end
+        if (kind == "normal" and desired ~= currentSingle)
+            or (kind == "greater" and currentSingle ~= nil) then
+            normalByClass[xshort] = kind == "normal" and desired or nil
+            normalEntries[#normalEntries + 1] = string.format("%s %s %s %s",
+                pshort, classId, xshort, kind == "normal" and (desired or 0) or 0)
+        end
+    end
+
+    if #greaterMessages == 0 and #normalEntries == 0 then return false end
+
+    for _, message in ipairs(greaterMessages) do SendPallyPowerMessage(message) end
+    for offset = 1, #normalEntries, 5 do
         SendPallyPowerMessage("NASSIGN "
-            .. table.concat(entries, "@", offset, math.min(offset + 4, #entries)))
+            .. table.concat(normalEntries, "@", offset,
+                math.min(offset + 4, #normalEntries)))
     end
     if pp and pp.UpdateLayout then
         pp:UpdateLayout() -- self-guards in combat; refreshes the sender's grid otherwise
     end
+    return true
+end
+
+function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName)
+    return PushPlayerBuffs(self, playerName, false)
+end
+
+function WhoDoesWhat:FixPlayerBuffsInPallyPower(playerName)
+    return PushPlayerBuffs(self, playerName, true)
 end
 
 -- ---------------------------------------------------------------------------

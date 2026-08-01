@@ -784,6 +784,21 @@ local function RuleAdjustedOrder(m, ignored, prioritized)
     return order
 end
 
+-- The same ordered demand list the paladin matcher consumes, exposed for
+-- read-only grid diagnostics such as "outside this player's top X buffs".
+local function GetPaladinBuffPriorityOrder(playerName)
+    local member = FindMember(playerName)
+    if not member then
+        for _, pet in ipairs(GetPetMembers()) do
+            if pet.name == playerName then member = pet break end
+        end
+    end
+    if not member then return nil end
+    local ignored, prioritized = CompileBuffRules()
+    if member.isPet then return PetBuffOrder(ignored) end
+    return RuleAdjustedOrder(member, ignored, prioritized)
+end
+
 -- ---------------------------------------------------------------------------
 -- Per-raider buff plan (the buff grid's cells + the main window's paladin
 -- summary rows)
@@ -1998,6 +2013,7 @@ WhoDoesWhat.Assign = {
     AutoAssignWarlockCurses = AutoAssignWarlockCurses,
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,
+    GetPaladinBuffPriorityOrder = GetPaladinBuffPriorityOrder,
     GetPaladinBuffPlan = ComputePaladinBuffPlan,
     GetActivePaladinBuffPlan = GetActivePaladinBuffPlan,
     ComputeBuffGrid = ComputeBuffGrid,

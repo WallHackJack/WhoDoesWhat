@@ -201,11 +201,6 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
         "unit=" .. tostring(unit),
         "combat=" .. tostring(InCombatLockdown()),
         "unchanged=" .. tostring(unchanged))
-    -- Capture PallyPower drift BEFORE the role changes the computed plan.
-    -- The minimal sender only runs automatically from a known-good baseline;
-    -- otherwise it opens the detailed diff window instead of quietly layering
-    -- one more delta onto an already-diverged board.
-    local priorPallyPowerDiffs = not unchanged and self:CheckPallyPowerSync() or nil
     self.db.profile.assignments[playerName] = roleId
     if roleId then
         local _, role = self:FindRoleById(roleId)
@@ -228,7 +223,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     -- checks PallyPower drift, so it must see the post-send tables rather than
     -- leave a stale warning icon behind after a successful minimal update.
     if not unchanged then
-        self:PushPlayerBuffToPallyPower(playerName, priorPallyPowerDiffs)
+        self:PushPlayerBuffToPallyPower(playerName)
     end
 
     -- Role changes can affect the main view's warnings (e.g. Curse of the
