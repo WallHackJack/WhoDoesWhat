@@ -1,7 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- The Paladin Buffing Bar: a movable Nova-style strip of one button per CLASS
--- the local paladin is assigned to buff (WhoDoesWhat.Assign.GetPaladinBuffJobs),
+-- the active WDW/PallyPower source assigns to the local paladin
+-- (WhoDoesWhat.Assign.GetPaladinBuffJobs),
 -- each showing the class icon and a coloured "buffed/total" count. Left-click
 -- casts the class's Greater Blessing on a class member (buffs the whole class);
 -- right-click cycles every assigned member's planned Lesser Blessing, with
@@ -26,6 +27,7 @@ local PAD = 3          -- inner padding around the button row
 local TITLE_H = 12     -- title strip height
 local BTN_SIZE = 28
 local BTN_GAP = 3
+local MIN_BUTTONS_WIDE = 3
 local COUNT_H = 10     -- room under a button for its count text
 local PLAYER_MENU_W = 180
 local PLAYER_HEADER_H = 24
@@ -34,6 +36,8 @@ local PLAYER_H = 22
 local PLAYER_GAP = 0
 local MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local MISSING_GLOW_COLOR = { 1, 0.05, 0.05, 1 }
+local PP_GEAR_ICON = "Interface\\Icons\\Trade_Engineering"
+local PP_GLOW_COLOR = { 0.55, 0.55, 0.55, 1 }
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 
 -- y from the bar's top down to where the button row begins.
@@ -94,6 +98,17 @@ end
 -- Save the current on-screen rect, anchoring by the edge the bar grows away
 -- from: left edge for RIGHT growth, right edge for LEFT growth, so adding
 -- buttons never shifts the anchored side.
+local function ClampPosition(x, y, point)
+    local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
+    if point == "TOPRIGHT" then
+        x = math.max(math.min(bar:GetWidth(), parentW), math.min(x, parentW))
+    else
+        x = math.max(0, math.min(x, math.max(0, parentW - bar:GetWidth())))
+    end
+    y = math.max(math.min(bar:GetHeight(), parentH), math.min(y, parentH))
+    return x, y
+end
+
 local function SavePosition()
     if not bar then return end
     local grow = WhoDoesWhat.db.profile.settings.buffingBarGrow or "RIGHT"
@@ -101,6 +116,7 @@ local function SavePosition()
     local x = (grow == "LEFT") and bar:GetRight() or bar:GetLeft()
     local y = bar:GetTop()
     if not x or not y then return end
+    x, y = ClampPosition(x, y, point)
     WhoDoesWhat.db.profile.settings.buffingBarPos = { point = point, x = x, y = y }
 end
 
@@ -108,7 +124,10 @@ local function LoadPosition()
     local p = WhoDoesWhat.db.profile.settings.buffingBarPos
     bar:ClearAllPoints()
     if p and p.x and p.y then
-        bar:SetPoint(p.point or "TOPLEFT", UIParent, "BOTTOMLEFT", p.x, p.y)
+        local point = p.point == "TOPRIGHT" and "TOPRIGHT" or "TOPLEFT"
+        p.point = point
+        p.x, p.y = ClampPosition(p.x, p.y, point)
+        bar:SetPoint(point, UIParent, "BOTTOMLEFT", p.x, p.y)
     else
         bar:SetPoint("CENTER", UIParent, "CENTER", 0, -160)
     end
@@ -119,9 +138,13 @@ local function AttachAltDrag(region)
     region:EnableMouse(true)
     region:RegisterForDrag("LeftButton")
     region:SetScript("OnDragStart", function()
-        if IsAltKeyDown() then bar:StartMoving() end
+        if not IsAltKeyDown() then return end
+        bar.moving = true
+        bar:StartMoving()
     end)
     region:SetScript("OnDragStop", function()
+        if not bar.moving then return end
+        bar.moving = nil
         bar:StopMovingOrSizing()
         -- Save, then re-anchor to the growth corner so the next resize grows
         -- the chosen way (StartMoving may have left a different anchor).
@@ -251,6 +274,27 @@ local function CountColor(covered, total)
     if covered >= total then return 0.3, 1, 0.3 end
     if covered == 0 then return 1, 0.3, 0.3 end
     return 1, 0.82, 0.2
+end
+
+local function CountMissingRaiderBuffs(jobs)
+    local missing = 0
+    for _, job in ipairs(jobs) do
+        for _, raider in ipairs(job.raiders) do
+            if not raider.isPet and raider.has ~= true then
+                missing = missing + 1
+            end
+        end
+    end
+    return missing
+end
+
+-- Small in-game check for the PP companion count (pets never contribute).
+function WhoDoesWhat:TestPallyPowerBuffButtonCount()
+    local jobs = { { raiders = {
+        { has = true }, { has = false }, {}, { has = false, isPet = true },
+    } } }
+    assert(CountMissingRaiderBuffs(jobs) == 2)
+    self:Print("PallyPower buff-button count check passed.")
 end
 
 -- Combat-safe state for an existing class button. Secure spell/target
@@ -695,6 +739,66 @@ local function CreateButton(index)
     return btn
 end
 
+local function CreatePallyPowerButton()
+    local btn = CreateFrame("Button", "WhoDoesWhatBuffingBarPallyPowerButton", bar)
+    btn:RegisterForClicks("LeftButtonUp")
+    btn:SetSize(BTN_SIZE, BTN_SIZE)
+
+    local border = btn:CreateTexture(nil, "BACKGROUND")
+    border:SetPoint("TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetColorTexture(0, 0, 0, 0.9)
+
+    local icon = btn:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    icon:SetTexture(PP_GEAR_ICON)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    icon:SetDesaturated(true)
+    icon:SetVertexColor(0.65, 0.65, 0.65)
+    btn.icon = icon
+
+    local count = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+    count:SetTextColor(0.65, 0.65, 0.65)
+    btn.count = count
+
+    btn:SetScript("OnEnter", function(self)
+        local missing = self.missingCount or 0
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("PallyPower Blessings", 1, 1, 1)
+        GameTooltip:AddLine(missing .. " assigned blessing"
+            .. (missing == 1 and " is" or "s are")
+            .. " currently missing on raiders. Pets are excluded.",
+            0.8, 0.8, 0.8, true)
+        if _G.PallyPower and type(_G.PallyPowerBlessings_Toggle) == "function" then
+            GameTooltip:AddLine("Click to open /pp blessings.", 0.4, 0.7, 1, true)
+        else
+            GameTooltip:AddLine("PallyPower is not installed; assignments are"
+                .. " coming from observed PallyPower traffic.", 1, 0.82, 0, true)
+        end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnClick", function()
+        if not (_G.PallyPower
+            and type(_G.PallyPowerBlessings_Toggle) == "function") then
+            WhoDoesWhat:Print("PallyPower is not installed; its Blessings window is unavailable.")
+        elseif InCombatLockdown() then
+            WhoDoesWhat:Print("PallyPower Blessings cannot be opened during combat.")
+        else
+            _G.PallyPowerBlessings_Toggle()
+        end
+    end)
+    btn:Hide()
+    return btn
+end
+
+local function UpdatePallyPowerButton(btn, jobs)
+    btn.missingCount = CountMissingRaiderBuffs(jobs)
+    btn.count:SetText(btn.missingCount)
+    SetButtonGlow(btn, true, PP_GLOW_COLOR)
+end
+
 -- ---------------------------------------------------------------------------
 -- Secure casting (rotate through targets) -- PallyPower's proven pattern
 -- ---------------------------------------------------------------------------
@@ -824,7 +928,7 @@ local function EnsureBar()
     bar:SetBackdropBorderColor(0.4, 0.4, 0.4)
     AttachAltDrag(bar)
 
-    -- Title strip ("WDW Buffs"), also a drag handle; hover explains Alt-drag.
+    -- Source-aware title strip, also a drag handle; hover explains Alt-drag.
     local title = CreateFrame("Frame", nil, bar)
     title:SetHeight(TITLE_H)
     title:SetPoint("TOPLEFT", INSET, -INSET)
@@ -838,12 +942,13 @@ local function EnsureBar()
     AttachAltDrag(title)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("WDW Buffs", 1, 1, 1)
+        GameTooltip:SetText(titleText:GetText(), 1, 1, 1)
         GameTooltip:AddLine("Alt-drag to move.", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     title:SetScript("OnLeave", function() GameTooltip:Hide() end)
     bar.title = title
+    bar.titleText = titleText
 
     -- Shown when the resolved paladin has no assigned blessings.
     local hint = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -852,6 +957,7 @@ local function EnsureBar()
     bar.hint = hint
 
     bar.buttons = {}
+    bar.ppButton = CreatePallyPowerButton()
     LoadPosition()
 
     -- Roster changes shift the plan; leaving combat lets us (re)bake the secure
@@ -905,6 +1011,8 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         if job.total > 0 then jobs[#jobs + 1] = job end
     end
     local nameToUnit = BuildNameToUnit()
+    local pallyPowerMode = self.db.profile.settings.pallyBuffSource == "pallypower"
+    bar.titleText:SetText(pallyPowerMode and "PP Buffs" or "WDW Buffs")
 
     -- Existing secure buttons may repaint in combat, but cannot be created,
     -- shown, hidden, moved, or assigned new spells/targets. Match by class so
@@ -920,6 +1028,9 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
                 UpdateButtonStatus(btn, job, nameToUnit)
                 if job then UpdatePlayerMenuStatus(btn, job, nameToUnit) end
             end
+        end
+        if pallyPowerMode and bar.ppButton:IsShown() then
+            UpdatePallyPowerButton(bar.ppButton, jobs)
         end
         return
     end
@@ -948,16 +1059,30 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     end
 
     local n = #jobs
-    bar.hint:SetShown(n == 0)
-    if n == 0 then
+    if pallyPowerMode then
+        UpdatePallyPowerButton(bar.ppButton, jobs)
+        bar.ppButton:ClearAllPoints()
+        bar.ppButton:SetPoint("TOPLEFT", bar, "TOPLEFT",
+            INSET + PAD + n * (BTN_SIZE + BTN_GAP), -CONTENT_TOP)
+        bar.ppButton:Show()
+    else
+        SetButtonGlow(bar.ppButton, false)
+        bar.ppButton:Hide()
+    end
+    local buttonCount = n + (pallyPowerMode and 1 or 0)
+    bar.hint:SetShown(buttonCount == 0)
+    if buttonCount == 0 then
         bar.hint:SetText(paladin
             and (paladin .. " has no assigned blessings.")
             or "No Paladin selected for testing.")
         bar:SetSize(200, CONTENT_TOP + 18 + INSET)
     else
-        bar:SetSize(INSET * 2 + PAD * 2 + n * BTN_SIZE + (n - 1) * BTN_GAP,
+        local widthButtons = math.max(buttonCount, MIN_BUTTONS_WIDE)
+        bar:SetSize(INSET * 2 + PAD * 2 + widthButtons * BTN_SIZE
+                + (widthButtons - 1) * BTN_GAP,
             CONTENT_TOP + BTN_SIZE + COUNT_H + INSET + 1)
     end
+    if not bar.moving then LoadPosition() end
     WirePlayerMenus()
     for i = 1, n do PositionPlayerMenu(bar.buttons[i]) end
 end
@@ -969,6 +1094,7 @@ function WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
     if not paladin and not self.db.profile.settings.buffingBarTestMode then
         if bar then
             for _, b in ipairs(bar.buttons) do SetButtonGlow(b, false) end
+            SetButtonGlow(bar.ppButton, false)
             bar:Hide()
         end
         return

@@ -1244,7 +1244,7 @@ local function DisconnectedGroupTargets()
     return disconnected
 end
 
--- Live completion of the computed plan, raid-wide and per paladin. Simulated
+-- Live completion of the active plan, raid-wide and per paladin. Simulated
 -- paladin -> simulated raider cells count as covered because neither side can
 -- produce real aura data; disconnected real targets are left out entirely.
 local function ComputePaladinBuffCoverage(buffPlan)
@@ -1631,9 +1631,8 @@ do
     end
 
     Sections = {
-        -- Paladin blessings aren't assigned -- coverage is computed from the
-        -- roster, roles and talents (ComputeBuffGrid), and the section view
-        -- shows the result as read-only rows. rows stays empty here.
+        -- Paladin blessings aren't stored in this assignment model. The
+        -- section renders the active WDW/PallyPower plan as read-only rows.
         { title = "Paladin Buffs", rows = {} },
         { title = "Warlocks", rows = shadow and { reck, elements, shadow }
             or { reck, elements } },
@@ -1832,11 +1831,9 @@ local function GetPetUnitInfo()
 end
 
 -- One paladin's buffing jobs, grouped per CLASS -- the model behind the
--- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the same
--- per-raider grid as the PallyPower bridge and collapses it the same way, with
--- no dependency on PallyPower: within each class this paladin buffs, the
--- majority blessing is the class Greater (one cast buffs the whole class) and
--- the dissenters are per-player Normal exceptions.
+-- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the active
+-- WDW/PallyPower plan and collapses it into class Greaters plus per-player
+-- Normal exceptions.
 --
 -- Hunter pets bucket under WARRIORS to match the client. They inherit the
 -- Warrior Greater when it matches their cell; only dissenters enter the

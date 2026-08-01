@@ -1,8 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Paladin Buffs section. Blessings are never assigned to paladins -- coverage
--- is computed from the roster, roles and talents (ComputeBuffGrid), and this
--- section shows the result: one pooled read-only 24px row per paladin,
+-- Paladin Buffs section. Blessings come from the synchronized raid's selected
+-- WDW/PallyPower source, and this section shows the result as one pooled
+-- read-only row per paladin,
 --
 --   [role icon] Name  [buff icon][buff icon][buff icon]  [!] n of n [mail]
 --
@@ -412,13 +412,30 @@ end
 local function CoverageTextColor(correct, total)
     if total == 0 then return 0.5, 0.5, 0.5 end
     local ratio = correct / total
-    if ratio < 0.2 then return 1, 0.15, 0.15 end
-    if ratio < 0.5 then
-        local t = (ratio - 0.2) / 0.3
-        return 1, 0.15 + 0.85 * t, 0.15 * (1 - t)
-    end
-    local t = (ratio - 0.5) / 0.5
-    return 1 - t, 1, 0
+    if ratio >= 1 then return 0.3, 1, 0.3 end
+    local t = math.min(ratio / 0.95, 1)
+    return 1, 0.2 + 0.62 * t, 0.2
+end
+
+local function CoverageText(correct, total)
+    if total == 0 then return "|cff909090No assignments|r", "" end
+    local r, g, b = CoverageTextColor(correct, total)
+    local color = string.format("%02x%02x%02x",
+        math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
+        math.floor(b * 255 + 0.5))
+    local percent = math.floor(correct / total * 100 + 0.5)
+    return "|cff" .. color .. correct .. "|r |cff909090of|r |cffffffff"
+        .. total .. "|r",
+        "(" .. percent .. "%)"
+end
+
+function WhoDoesWhat:TestPaladinCoverageText()
+    assert(CoverageText(0, 0):find("No assignments", 1, true))
+    assert(CoverageText(0, 10):find("|cffff33330|r", 1, true))
+    local text, percent = CoverageText(19, 20)
+    assert(text:find("|cffffd13319|r", 1, true) and percent == "(95%)")
+    assert(CoverageText(10, 10):find("|cff4dff4d10|r", 1, true))
+    self:Print("Paladin coverage-text check passed.")
 end
 
 -- Pooled summary row #index: role/name owns the shared paladin tooltip; each
@@ -472,8 +489,16 @@ local function CreatePallyRow(state, index)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
     local coverageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
     row.coverageText = coverageText
+
+    local coveragePercent = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local percentFont, percentSize, percentFlags = coveragePercent:GetFont()
+    if percentFont then
+        coveragePercent:SetFont(percentFont, math.max(percentSize - 2, 8), percentFlags)
+    end
+    coveragePercent:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
+    coverageText:SetPoint("RIGHT", coveragePercent, "LEFT", -2, 0)
+    row.coveragePercent = coveragePercent
 
     local coverageIcon = row:CreateTexture(nil, "OVERLAY")
     coverageIcon:SetSize(16, 16)
@@ -513,11 +538,11 @@ function Refresh(f) -- forward declared above
         row.paladinName = p.name
         row:Show()
         row.mailBtn:SetShown(editable)
-        row.coverageText:ClearAllPoints()
+        row.coveragePercent:ClearAllPoints()
         if editable then
-            row.coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
+            row.coveragePercent:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
         else
-            row.coverageText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+            row.coveragePercent:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         end
         row.moreText:SetShown(#p.buffs > PALLY_MAX_BUFFS)
         row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE))
@@ -526,9 +551,12 @@ function Refresh(f) -- forward declared above
         local hasMissing = coverage.correct < coverage.total
         row.mailBtn:SetEnabled(hasMissing)
         row.mailBtn.icon:SetDesaturated(not hasMissing)
-        row.coverageIcon:SetTexture(complete and COVERAGE_OK_ICON or WhoDoesWhat.WARNING_ICON)
-        row.coverageText:SetText(coverage.correct .. " of " .. coverage.total)
-        row.coverageText:SetTextColor(CoverageTextColor(coverage.correct, coverage.total))
+        row.coverageIcon:SetTexture(COVERAGE_OK_ICON)
+        row.coverageIcon:SetShown(complete)
+        local coverageText, coveragePercent = CoverageText(coverage.correct, coverage.total)
+        row.coverageText:SetText(coverageText)
+        row.coveragePercent:SetText(coveragePercent)
+        row.coverageText:SetTextColor(1, 1, 1)
         for bi, slot in ipairs(row.slots) do
             local b = p.buffs[bi]
             if b then

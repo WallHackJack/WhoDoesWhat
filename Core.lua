@@ -241,14 +241,6 @@ function WhoDoesWhat:OnInitialize()
     end
     self.db.profile.raidAssignmentOverrides = nil
 
-    -- The initial UI called PallyBuffSource "paladinMasterMode". Preserve a
-    -- selection made during that build, then retire the temporary name.
-    local settings = self.db.profile.settings
-    if settings.paladinMasterMode then
-        settings.pallyBuffSource = settings.paladinMasterMode
-        settings.paladinMasterMode = nil
-    end
-
     -- tankAssignments migrated from one-row-per-marker { player, marker } to
     -- one-row-per-tank { player, markers = { ... } } (multi-select markers on
     -- auto-populated rows). Old rows merge by player; rows that had a marker

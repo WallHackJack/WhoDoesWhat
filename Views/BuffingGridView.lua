@@ -7,10 +7,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- At SPLIT_AT_ROWS raiders (or more) the grid splits into balanced side-by-side
 -- blocks instead of growing taller.
 --
--- The grid cells come from ComputeBuffGrid (Assignments.lua): coverage is
--- computed per raider from the roster, roles and talents -- blessings are
--- never assigned to a paladin, so there is nothing to edit here. A paladin
--- with nothing useful left for a raider shows an empty cell. Per-cell
+-- Grid cells can show WDW's computed plan, a co-installed PallyPower's live
+-- tables, or WDW's observed PallyPower mirror. A paladin with no assignment
+-- for a raider shows an empty cell. Per-cell
 -- click-to-customize is the plan for later, which is why the cells are
 -- already buttons.
 --

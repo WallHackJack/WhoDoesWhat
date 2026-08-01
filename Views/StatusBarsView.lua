@@ -9,8 +9,8 @@ local K = WhoDoesWhat.SectionKit
 --   [   PP    ] [sync status                       actions]
 --
 -- It shares the Paladin Buffing Bar's small window chrome and Alt-drag
--- behavior, but is display-only. Coverage comes from the same computed plan
--- and aura state as the Paladin Buffs section.
+-- behavior, but is display-only. Coverage comes from the same active plan and
+-- aura state as the Paladin Buffs section.
 
 local view
 
@@ -32,6 +32,7 @@ local COUNT_ONLY_PP_W = 105
 local ULTRA_COMPACT_W = 115
 local HANDLE_W = 4
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local LCG = LibStub("LibCustomGlow-1.0", true)
 
 local function StatusBarsAnchor()
@@ -168,16 +169,19 @@ end
 local function LayoutProgressLabel(row)
     if row.correct == nil then return end
 
-    local complete = row.total > 0 and row.correct >= row.total
+    local unavailable = row.total == 0
+    local complete = not unavailable and row.correct >= row.total
     row.name:ClearAllPoints()
     row.name:SetPoint("LEFT", row.status, "LEFT", 2, 0)
     row.name:SetShown(view:GetWidth() >= HIDE_NAMES_W)
     row.initial:SetShown(row.isPaladin and view:GetWidth() < HIDE_NAMES_W)
 
-    if complete then
+    if complete or unavailable then
         row.percent:Hide()
         row.completeIcon:ClearAllPoints()
+        row.completeIcon:SetSize(14, unavailable and 14 or math.floor(14 * 0.8 + 0.5))
         row.completeIcon:SetPoint("RIGHT", row.status, "RIGHT", -2, 0)
+        row.completeIcon:SetTexture(unavailable and NOT_READY_ICON or READY_ICON)
         row.completeIcon:Show()
         row.name:SetPoint("RIGHT", row.completeIcon, "LEFT", -4, 0)
         return
@@ -595,7 +599,8 @@ function WhoDoesWhat:RefreshStatusBarsView()
     end
     local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
     local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
-    view.totalPercent:SetText("(" .. totalPercent .. "%)")
+    view.totalPercent:SetText(total > 0 and ("(" .. totalPercent .. "%)")
+        or ("|T" .. NOT_READY_ICON .. ":12:12:0:0|t"))
 
     local ppHeight = showPallyPower and ROW_H or 0
     local showEmptyCheck = #displayed == 0 and not showPallyPower
@@ -682,6 +687,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
     view.emptyCheck:ClearAllPoints()
     view.emptyCheck:SetPoint("TOP", view, "TOP", 0,
         -(CONTENT_TOP + (ROW_H - EMPTY_ICON_SIZE) / 2))
+    view.emptyCheck:SetTexture(total > 0 and READY_ICON or NOT_READY_ICON)
     view.emptyCheck:SetShown(showEmptyCheck)
 end
 
