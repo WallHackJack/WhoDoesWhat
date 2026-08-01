@@ -6,7 +6,7 @@
 #@debug@
 # Keep this literal synchronized with the release tag; the in-game title and
 # peer-version warning read it in the live checkout.
-## Version: 1.0.7
+## Version: 1.0.8
 #@end-debug@
 ## SavedVariables: WhoDoesWhatDB
 
