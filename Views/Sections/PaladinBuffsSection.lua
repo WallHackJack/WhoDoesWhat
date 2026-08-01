@@ -9,10 +9,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- the first three buffs each (count-desc), with an ellipsis when more exist;
 -- paladins are sorted by workload
 -- (ComputePaladinBuffSummary). Row mail whispers one paladin's missing live
--- coverage; header mail sends the same status to every incomplete paladin. A
--- second "Buffing Rules" header below the paladin rows owns the
--- "Add (+)" and clear-all buttons. "Full Grid" sits in the main header, and
--- the PallyPower controls stay in the footer.
+-- coverage. A second "Buffing Rules" header below the paladin rows owns the
+-- "Add (+)" and clear-all buttons and hides with its rows in PallyPower mode.
+-- Buff Grid lives in the window toolbar. PallyBuffSource sits in the main
+-- header; its compact sync/action row leads the summary rows.
 --
 -- Below the summary sit the custom rule rows (the model docs the semantics
 -- at CompileBuffRules in Assignments.lua):
@@ -33,24 +33,38 @@ local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
 local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
+local GetActivePaladinBuffPlan = A.GetActivePaladinBuffPlan
 local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
 local ComputePaladinBuffSummary = A.ComputePaladinBuffSummary
 local GetPaladinBuffWhisper = A.GetPaladinBuffWhisper
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
 
-local PALLY_ROW_H = 24
+local PALLY_ROW_H = K.ROW_H
+local PALLY_STATUS_GAP = 6
 local PALLY_MAX_BUFFS = 3
-local PALLY_BUFF_ICON = 20
+local PALLY_BUFF_ICON = K.ROW_ICON_SIZE
 local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
 local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
-local RULE_ROW_H = 30
-local RULE_BUFF_DD_W = 78
-local RULE_KIND_DD_W = 90
+local RULE_ROW_H = K.ROW_H
+local RULE_BUFF_DD_W = 68
+local RULE_KIND_DD_W = 80
 local RULE_TARGET_DD_W = 76
 local RULE_HEADER_H = 30
-local FOOTER_BTN_H = 22
-local FOOTER_TOP_GAP = 8 -- gap above the PallyPower footer controls
+
+local PALLY_BUFF_SOURCES = {
+    { key = "wdw", text = "WDW Assignments", short = "WDW" },
+    { key = "pallypower", text = "PallyPower", short = "PallyPower" },
+}
+
+local function GetPallyBuffSource()
+    return WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw"
+end
+
+local function SetActionButtonText(button, label)
+    button:SetText(label)
+    button:SetWidth(math.max(44, button:GetTextWidth() + 18))
+end
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
@@ -125,7 +139,8 @@ end
 
 local function RuleTargetText(rule)
     if rule.kind == "prefer" then
-        return rule.value and PlayerText(rule.value) or "|cff909090Choose...|r"
+        return rule.value and PlayerTextWithRole(rule.value, K.DROPDOWN_ICON_SIZE)
+            or "|cff909090Choose...|r"
     end
     if rule.scope == "wowrole" then
         return WOW_ROLE_LABELS[rule.value] or "?"
@@ -158,6 +173,7 @@ local function CreateRuleRow(f, index)
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
     row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, RULE_ROW_H)
+    K.AddRowBackground(row, index)
 
     local function Entry() return GetBuffRules()[index] end
     local function Changed()
@@ -264,7 +280,8 @@ local function CreateRuleRow(f, index)
             for i, name in ipairs(ordered) do
                 local note = RulePaladinNote(rule, name)
                 local info = UIDropDownMenu_CreateInfo()
-                info.text = PlayerTextWithRole(name) .. (note and (" " .. note) or "")
+                info.text = PlayerTextWithRole(name, K.DROPDOWN_ICON_SIZE)
+                    .. (note and (" " .. note) or "")
                 info.checked = (rule.value == name)
                 info.func = function()
                     if not WhoDoesWhat:RequireEditPermission() then return end
@@ -410,10 +427,11 @@ local function CreatePallyRow(state, index)
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
     row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, PALLY_ROW_H)
-    row:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + K.SECTION_TITLE_H + (index - 1) * PALLY_ROW_H))
-    if index > 1 then
-        K.AddRowDivider(row, 2, 0)
-    end
+    row:SetPoint("TOPLEFT", K.BOX_PAD,
+        -(K.BOX_PAD + K.SECTION_TITLE_H + PALLY_ROW_H
+            + PALLY_STATUS_GAP
+            + (index - 1) * PALLY_ROW_H))
+    K.AddRowBackground(row, index)
 
     local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     name:SetPoint("LEFT", 4, 0)
@@ -454,7 +472,7 @@ local function CreatePallyRow(state, index)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
     local coverageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -14, 0)
+    coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
     row.coverageText = coverageText
 
     local coverageIcon = row:CreateTexture(nil, "OVERLAY")
@@ -476,9 +494,18 @@ end
 
 function Refresh(f) -- forward declared above
     local state = f.pallySection
-    local summary = ComputePaladinBuffSummary()
-    local _, _, byPaladin = ComputePaladinBuffCoverage()
+    local buffPlan = GetActivePaladinBuffPlan()
+    local summary = ComputePaladinBuffSummary(buffPlan)
+    local _, _, byPaladin = ComputePaladinBuffCoverage(buffPlan)
     local editable = WhoDoesWhat:CanEditAssignments()
+    local source = GetPallyBuffSource()
+    UIDropDownMenu_SetText(state.pallyBuffSourceDD,
+        source == "pallypower" and "PallyPower" or "WDW")
+    if editable then
+        UIDropDownMenu_EnableDropDown(state.pallyBuffSourceDD)
+    else
+        UIDropDownMenu_DisableDropDown(state.pallyBuffSourceDD)
+    end
 
     for i, p in ipairs(summary) do
         local row = state.rows[i] or CreatePallyRow(state, i)
@@ -486,8 +513,14 @@ function Refresh(f) -- forward declared above
         row.paladinName = p.name
         row:Show()
         row.mailBtn:SetShown(editable)
+        row.coverageText:ClearAllPoints()
+        if editable then
+            row.coverageText:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
+        else
+            row.coverageText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        end
         row.moreText:SetShown(#p.buffs > PALLY_MAX_BUFFS)
-        row.nameText:SetText(PlayerTextWithRole(p.name, 16))
+        row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE))
         local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct == coverage.total
         local hasMissing = coverage.correct < coverage.total
@@ -514,14 +547,75 @@ function Refresh(f) -- forward declared above
         state.rows[i].paladinName = nil
     end
 
+    local ppRowTop = K.BOX_PAD + K.SECTION_TITLE_H
+    state.emptyHint:ClearAllPoints()
+    state.emptyHint:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD + 4,
+        -(ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + 4))
     state.emptyHint:SetShown(#summary == 0)
     local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or K.DYN_EMPTY_H
+
+    -- PallyPower leads the body as a compact, right-aligned status row.
+    state.ppArea:ClearAllPoints()
+    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD, -ppRowTop)
+    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -ppRowTop)
+
+    local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
+    state.ppIcon:ClearAllPoints()
+    state.ppStatus:ClearAllPoints()
+    state.ppDiffBtn:ClearAllPoints()
+    state.ppApplyBtn:ClearAllPoints()
+    if ppState == "inactive" then
+        state.ppIcon:Hide()
+        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
+        state.ppStatus:SetTextColor(0.5, 0.5, 0.5)
+        state.ppDiffBtn:Hide()
+        state.ppApplyBtn:Hide()
+    elseif ppState == "synced" then
+        state.ppIcon:SetTexture(COVERAGE_OK_ICON)
+        state.ppIcon:Show()
+        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
+        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
+        state.ppStatus:SetTextColor(0.3, 1, 0.3)
+        state.ppDiffBtn:Hide()
+        state.ppApplyBtn:Hide()
+    else
+        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
+        state.ppIcon:Show()
+        if source == "pallypower" then
+            ppText = ppDiffCount .. " unoptimized buff"
+                .. (ppDiffCount == 1 and "" or "s")
+            SetActionButtonText(state.ppDiffBtn, "Examine")
+            state.ppDiffBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
+            state.ppStatus:SetTextColor(1, 0.82, 0)
+            state.ppApplyBtn:Hide()
+        else
+            ppText = ppDiffCount .. " Buff" .. (ppDiffCount == 1 and "" or "s")
+                .. " in PP " .. (ppDiffCount == 1 and "doesn't" or "don't")
+                .. " match the plan"
+            SetActionButtonText(state.ppDiffBtn, "Diffs")
+            SetActionButtonText(state.ppApplyBtn, "Fix")
+            if editable then
+                state.ppApplyBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
+                state.ppDiffBtn:SetPoint("RIGHT", state.ppApplyBtn, "LEFT", -2, 0)
+                state.ppApplyBtn:Show()
+            else
+                state.ppDiffBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
+                state.ppApplyBtn:Hide()
+            end
+            state.ppStatus:SetTextColor(1, 0.4, 0.4)
+        end
+        state.ppStatus:SetPoint("RIGHT", state.ppDiffBtn, "LEFT", -4, -1)
+        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
+        state.ppDiffBtn:Show()
+    end
+    state.ppStatus:SetText(ppText)
 
     -- The rules area below the summary has its own header, then one editable
     -- row per rule (or an empty-state line). Everything is re-anchored every
     -- pass because its y depends on how many summary rows sit above it.
     local rules = GetBuffRules()
-    local ruleHeaderTop = K.BOX_PAD + K.SECTION_TITLE_H + rowsH
+    local showRules = source ~= "pallypower"
+    local ruleHeaderTop = ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + 4
     state.ruleTitle:ClearAllPoints()
     state.ruleTitle:SetPoint("LEFT", state.box, "TOPLEFT", K.BOX_PAD + 2,
         -(ruleHeaderTop + K.MAIL_BTN_SIZE / 2 + 3))
@@ -530,11 +624,13 @@ function Refresh(f) -- forward declared above
         -(ruleHeaderTop + 3))
     state.ruleBtn:ClearAllPoints()
     state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
-    state.ruleBtn:SetShown(editable)
-    state.clearRulesBtn:SetShown(editable)
+    state.ruleTitle:SetShown(showRules)
+    state.ruleBtn:SetShown(showRules and editable)
+    state.clearRulesBtn:SetShown(showRules and editable)
     state.ruleDivider:ClearAllPoints()
     state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD, -(ruleHeaderTop + 28))
     state.ruleDivider:SetPoint("TOPRIGHT", -K.BOX_PAD, -(ruleHeaderTop + 28))
+    state.ruleDivider:SetShown(showRules)
 
     local rulesTop = ruleHeaderTop + RULE_HEADER_H
 
@@ -542,7 +638,7 @@ function Refresh(f) -- forward declared above
         local row = state.ruleRows[i] or CreateRuleRow(f, i)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", K.BOX_PAD, -(rulesTop + (i - 1) * RULE_ROW_H))
-        row:Show()
+        row:SetShown(showRules)
         UIDropDownMenu_SetText(row.buffDD, RuleBuffText(rule))
         UIDropDownMenu_SetText(row.kindDD, RuleKindText(rule))
         row.targetDD:SetShown(rule.kind ~= "ignore")
@@ -565,61 +661,24 @@ function Refresh(f) -- forward declared above
 
     state.rulesEmptyHint:ClearAllPoints()
     state.rulesEmptyHint:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 4))
-    state.rulesEmptyHint:SetShown(#rules == 0)
+    state.rulesEmptyHint:SetShown(showRules and #rules == 0)
     local rulesH = (#rules > 0) and (#rules * RULE_ROW_H) or K.DYN_EMPTY_H
 
-    -- One footer area below the rules for PallyPower state and actions.
-    local y = rulesTop + rulesH + FOOTER_TOP_GAP
-    state.ppArea:ClearAllPoints()
-    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD, -y)
-    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -y)
-
-    local ppState, ppText = K.GetPallyPowerState(#summary)
-    state.ppIcon:ClearAllPoints()
-    state.ppIcon:SetPoint("LEFT", state.ppBadge, "RIGHT", 4, 0)
-    state.ppStatus:ClearAllPoints()
-    if ppState == "inactive" then
-        state.ppIcon:Hide()
-        state.ppStatus:SetPoint("LEFT", state.ppBadge, "RIGHT", 4, 0)
-        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
-        state.ppStatus:SetTextColor(0.5, 0.5, 0.5)
-        state.ppDiffBtn:Hide()
-        state.ppFixBtn:Hide()
-    elseif ppState == "synced" then
-        state.ppIcon:SetTexture(COVERAGE_OK_ICON)
-        state.ppIcon:Show()
-        state.ppStatus:SetPoint("LEFT", state.ppIcon, "RIGHT", 3, 0)
-        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
-        state.ppStatus:SetTextColor(0.3, 1, 0.3)
-        state.ppDiffBtn:Hide()
-        state.ppFixBtn:Hide()
-    else
-        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
-        state.ppIcon:Show()
-        state.ppStatus:SetPoint("LEFT", state.ppIcon, "RIGHT", 3, 0)
-        state.ppStatus:SetPoint("RIGHT", state.ppDiffBtn, "LEFT", -4, 0)
-        state.ppStatus:SetTextColor(1, 0.4, 0.4)
-        state.ppDiffBtn:Show()
-        state.ppFixBtn:Show()
-    end
-    state.ppStatus:SetText(ppText)
-
-    state.box:SetHeight(y + FOOTER_BTN_H + K.BOX_PAD)
+    state.box:SetHeight(showRules and (rulesTop + rulesH + K.BOX_PAD)
+        or (ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + K.BOX_PAD))
     K.UpdateContentHeight(f)
 
-    -- No-paladin gray-out: dead buttons (with the tooltip saying why), gray
-    -- title, dead mail. Developer Mode keeps everything live, same as it
+    -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
+    -- gray title. Developer Mode keeps everything live, same as it
     -- lifts class filters. Runs last so it wins over the states above.
     local enabled = DevMode() or #MembersOfClass("Paladin") > 0
     local reason = not enabled and "No paladins in the group." or nil
     if enabled then
-        state.box.title:SetTextColor(1, 0.82, 0) -- GameFontNormal gold
+        state.box.title:SetTextColor(0.95, 0.95, 0.95)
         state.ruleTitle:SetTextColor(1, 0.82, 0)
     else
         state.box.title:SetTextColor(0.5, 0.5, 0.5)
         state.ruleTitle:SetTextColor(0.5, 0.5, 0.5)
-        state.mailBtn:SetEnabled(false)
-        state.mailBtn.icon:SetDesaturated(true)
     end
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
@@ -630,55 +689,114 @@ function Refresh(f) -- forward declared above
     K.LayoutHeaderChain(state.headerChain)
 end
 
+local function ShowPallyBuffSourceTooltip(owner)
+    local selected = GetPallyBuffSource()
+    local wdwColor = selected == "wdw" and "|cffffffff" or "|cff909090"
+    local ppColor = selected == "pallypower" and "|cffffffff" or "|cff909090"
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Pally Buff Source", 1, 0.82, 0)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffffd100WDW:|r " .. wdwColor
+        .. "WhoDoesWhat's auto-assignments are the source of truth for this raid."
+        .. " Auto-assignments power all of WDW's visual elements and are pushed"
+        .. " to PallyPower automatically.|r", 1, 1, 1, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffffd100PP:|r " .. ppColor
+        .. "Assignments set in PallyPower are the source of truth for this raid."
+        .. " Assignments made there will power all of WDW's visual elements."
+        .. " Buff assignments will not be changed automatically. Useful when WDW"
+        .. " is |cffff4040NOT|r " .. ppColor
+        .. "the primary controller of buffs in this raid.|r", 1, 1, 1, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("This affects WDW Status Bars, WDW buffing buttons, and"
+        .. " the buff progress shown above.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end
+
+local function CreatePallyBuffSourceDropdown(parent)
+    local sourceDD = CreateFrame("Frame", "WhoDoesWhatPallyBuffSourceDD", parent,
+        "UIDropDownMenuTemplate")
+    sourceDD:SetPoint("LEFT", parent, "LEFT", -15, -3)
+    UIDropDownMenu_SetWidth(sourceDD, 90)
+    K.LeftAlignDropdown(sourceDD)
+    UIDropDownMenu_Initialize(sourceDD, function(_, level)
+        local saved = GetPallyBuffSource()
+        for _, option in ipairs(PALLY_BUFF_SOURCES) do
+            local key, label, short = option.key, option.text, option.short
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = label
+            info.checked = saved == key
+            info.func = function()
+                if not WhoDoesWhat:RequireEditPermission() then return end
+                WhoDoesWhat.db.profile.settings.pallyBuffSource = key
+                UIDropDownMenu_SetText(sourceDD, short)
+                WhoDoesWhat:RefreshMainAssignmentsView()
+                WhoDoesWhat:RefreshBuffingGridView()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    sourceDD:EnableMouse(true)
+    sourceDD:SetScript("OnEnter", function() ShowPallyBuffSourceTooltip(sourceDD) end)
+    sourceDD:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local sourceButton = _G[sourceDD:GetName() .. "Button"]
+    if sourceButton then
+        sourceButton:HookScript("OnEnter",
+            function() ShowPallyBuffSourceTooltip(sourceDD) end)
+        sourceButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    return sourceDD
+end
+
 local function CreatePallyPowerArea(box)
     local area = CreateFrame("Frame", nil, box)
-    area:SetHeight(FOOTER_BTN_H)
+    area:SetHeight(PALLY_ROW_H)
     area:SetFrameLevel(box:GetFrameLevel() + 1)
-
-    local badge = K.CreatePallyPowerBadge(area, 18)
-    badge:SetPoint("LEFT", 0, 0)
 
     local icon = area:CreateTexture(nil, "ARTWORK")
     icon:SetSize(16, 16)
-    icon:SetPoint("LEFT", badge, "RIGHT", 4, 0)
 
-    local status = area:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    status:SetPoint("LEFT", icon, "RIGHT", 3, 0)
-    status:SetJustifyH("LEFT")
+    local status = area:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 
-    local fix = K.CreatePallyPowerActionButton(area, "Fix", 30,
-        "Fix PallyPower",
+    local apply = K.AddHeaderTextButton(area, area, "Fix",
+        "Send fixes to PallyPower",
         "Broadcast the optimized WDW blessing plan and update the local PP mirror.", function()
             WhoDoesWhat:SyncToPallyPower()
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshStatusBarsView()
         end)
-    fix:SetPoint("RIGHT", area, "RIGHT", 0, 0)
 
-    local diff = K.CreatePallyPowerActionButton(area, "Diff", 34,
+    local diff = K.AddHeaderTextButton(area, apply, "Diffs",
         "Show PallyPower differences",
         "Open the detailed comparison between WDW and PallyPower.", function()
             WhoDoesWhat:OpenPallyPowerDiffView()
         end)
-    diff:SetPoint("RIGHT", fix, "LEFT", -3, 0)
+    diff:ClearAllPoints()
+    diff:SetPoint("RIGHT", apply, "LEFT", -2, 0)
+    apply:ClearAllPoints()
+    apply:SetPoint("RIGHT", area, "RIGHT", 0, 0)
 
-    return area, badge, icon, status, diff, fix
+    return area, icon, status, diff, apply
 end
 
 local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = "Paladin Buffs",
         column = K.COL_LEFT,
-        mailCollect = A.CollectPaladinBuffWhispers,
+        tintClass = "Paladin",
     })
     local box = chrome.box
 
-    local gridBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Buffing Grid", "Buffing Grid",
-        "Open the buffing grid: raid-wide buff status followed by every"
-        .. " paladin's planned blessing for each raider.", function()
-            WhoDoesWhat:OpenBuffingGridView()
-        end)
-    K.ChainHeaderButton(chrome, gridBtn)
+    local sourceArea = CreateFrame("Frame", nil, box)
+    sourceArea:SetFrameLevel(box:GetFrameLevel() + 1)
+    sourceArea:SetSize(145, K.MAIL_BTN_SIZE)
+    local sourceLabel = sourceArea:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sourceLabel:SetPoint("LEFT", sourceArea, "LEFT", 0, 0)
+    sourceLabel:SetText("Mode:")
+    local sourceDD = CreatePallyBuffSourceDropdown(sourceArea)
+    sourceDD:ClearAllPoints()
+    sourceDD:SetPoint("LEFT", sourceLabel, "RIGHT", -14, -3)
+    K.ChainHeaderButton(chrome, sourceArea)
 
     local ruleTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     ruleTitle:SetText("Buffing Rules")
@@ -744,27 +862,25 @@ local function Build(f, content)
     rulesEmptyHint:SetText("No rules exist")
     rulesEmptyHint:SetTextColor(0.55, 0.55, 0.55)
 
-    local ppArea, ppBadge, ppIcon, ppStatus, ppDiffBtn, ppFixBtn =
+    local ppArea, ppIcon, ppStatus, ppDiffBtn, ppApplyBtn =
         CreatePallyPowerArea(box)
 
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
-        mailBtn = chrome.mailBtn,
-        buttons = { gridBtn, ruleBtn, clearRulesBtn },
+        buttons = { ruleBtn, clearRulesBtn },
         emptyHint = hint,
         ruleTitle = ruleTitle,
         ruleDivider = ruleDivider,
         ruleBtn = ruleBtn,
         clearRulesBtn = clearRulesBtn,
         rulesEmptyHint = rulesEmptyHint,
-        gridBtn = gridBtn,
+        pallyBuffSourceDD = sourceDD,
         ppArea = ppArea,
-        ppBadge = ppBadge,
         ppIcon = ppIcon,
         ppStatus = ppStatus,
         ppDiffBtn = ppDiffBtn,
-        ppFixBtn = ppFixBtn,
+        ppApplyBtn = ppApplyBtn,
         rows = {},
         ruleRows = {},
     }

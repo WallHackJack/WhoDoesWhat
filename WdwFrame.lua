@@ -5,6 +5,42 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 WhoDoesWhat.TITLEBAR_H = 22
 
+-- Apply the addon's compact treatment to Blizzard's legacy dropdown chrome.
+-- Its three housing textures are 64px tall (with transparent padding) around
+-- a 24px arrow. Trim and position that housing without scaling any click
+-- target or menu content, then place its label and arrow independently.
+function WhoDoesWhat:StyleDropdown(dd, leftAlign)
+    local name = dd:GetName()
+    if not name then return end
+
+    if not dd.wdwHousingStyled then
+        for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
+            local texture = _G[name .. suffix]
+            if texture then texture:SetHeight(57) end
+        end
+        local left = _G[name .. "Left"]
+        local button = _G[name .. "Button"]
+        local label = _G[name .. "Text"]
+        -- Middle and Right are chained from Left, so moving Left shifts the
+        -- entire housing. Its dependent arrow/text anchors follow it; leave
+        -- the arrow 0.5px and text 2.8px lower, then nudge the arrow right.
+        if left then left:AdjustPointsOffset(0, -3) end
+        if button then button:AdjustPointsOffset(2, 2.5) end
+        if label then label:AdjustPointsOffset(0, 0.2) end
+        dd.wdwHousingStyled = true
+    end
+
+    if leftAlign and not dd.wdwTextAligned then
+        local label = _G[name .. "Text"]
+        if label then
+            label:SetJustifyH("LEFT")
+            label:SetWidth(label:GetWidth() + 5)
+            label:AdjustPointsOffset(0, -1)
+        end
+        dd.wdwTextAligned = true
+    end
+end
+
 -- Create a standard WDW window frame: solid black backdrop, a title bar with
 -- text, a close button, draggable, closes on Escape. Returns the frame; the
 -- caller anchors its own content below the title bar (offset f.titleBarHeight).

@@ -279,13 +279,17 @@ local function TargetText(entry)
 end
 
 -- Read-only line form: icons where they exist, the custom text spelled out.
-local function MarkersRichText(entry)
+local function MarkersRichText(entry, iconSize)
     if #(entry.markers or {}) == 0 then return "|cff909090--|r" end
+    iconSize = iconSize or 14
     local parts = {}
     for _, v in ipairs(entry.markers) do
         if v == "custom" then
             parts[#parts + 1] = (entry.custom and entry.custom ~= "") and entry.custom
-                or ("|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom")
+                or ("|T" .. CUSTOM_TARGET_ICON .. ":" .. iconSize .. ":" .. iconSize
+                    .. ":0:0|t Custom")
+        elseif type(v) == "number" then
+            parts[#parts + 1] = MarkerMarkup(v, iconSize)
         else
             parts[#parts + 1] = MarkerValueText(v)
         end
@@ -1191,6 +1195,18 @@ local function ComputeBuffGrid()
     return ComputePaladinBuffPlan().grid
 end
 
+-- The synchronized raid toggle chooses which plan drives WDW's functional
+-- blessing UI. Prefer a co-installed PallyPower's live tables; its observed
+-- wire mirror is the fallback when the addon is absent.
+local function GetActivePaladinBuffPlan()
+    if WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
+        and WhoDoesWhat.GetPallyPowerBuffPlan then
+        return WhoDoesWhat:GetPallyPowerBuffPlan("addon")
+            or WhoDoesWhat:GetPallyPowerBuffPlan("observed")
+    end
+    return ComputePaladinBuffPlan()
+end
+
 local function IsSimulatedPaladinBuff(paladin, raider)
     if WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled() then
         local simulatedPaladin, simulatedRaider = false, false
@@ -1231,10 +1247,10 @@ end
 -- Live completion of the computed plan, raid-wide and per paladin. Simulated
 -- paladin -> simulated raider cells count as covered because neither side can
 -- produce real aura data; disconnected real targets are left out entirely.
-local function ComputePaladinBuffCoverage()
+local function ComputePaladinBuffCoverage(buffPlan)
     local disconnected = DisconnectedGroupTargets()
     local correct, total, byPaladin = 0, 0, {}
-    for raider, cells in pairs(ComputeBuffGrid()) do
+    for raider, cells in pairs((buffPlan or GetActivePaladinBuffPlan()).grid) do
         if not disconnected[raider] then
             for paladin, key in pairs(cells) do
                 local p = byPaladin[paladin]
@@ -1322,7 +1338,7 @@ end
 -- with each paladin's buffs count-descending (ties in canonical order) and
 -- the paladins themselves total-descending (ties by name). Drives the main
 -- window's Paladin Buffs rows and that section's whispers.
-local function ComputePaladinBuffSummary()
+local function ComputePaladinBuffSummary(buffPlan)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local canonIndex = {}
     for i, key in ipairs(canonical) do canonIndex[key] = i end
@@ -1332,7 +1348,7 @@ local function ComputePaladinBuffSummary()
         counts[name] = {}
         names[#names + 1] = name
     end
-    for _, cells in pairs(ComputeBuffGrid()) do
+    for _, cells in pairs((buffPlan or GetActivePaladinBuffPlan()).grid) do
         for paladin, key in pairs(cells) do
             local c = counts[paladin]
             if c then c[key] = (c[key] or 0) + 1 end
@@ -1844,7 +1860,7 @@ local function GetPaladinBuffJobs(paladinName, buffPlan)
         classOf[m.name] = m.classInfo
     end
 
-    buffPlan = buffPlan or ComputePaladinBuffPlan()
+    buffPlan = buffPlan or GetActivePaladinBuffPlan()
     local plan = buffPlan.grid
     -- className -> { classInfo, members = {...}, hasPets, hasNonPets }
     local byClass = {}
@@ -1986,6 +2002,7 @@ WhoDoesWhat.Assign = {
     -- per-raider buff plan + per-paladin summary + custom rules
     BuffTalents = BuffTalents,
     GetPaladinBuffPlan = ComputePaladinBuffPlan,
+    GetActivePaladinBuffPlan = GetActivePaladinBuffPlan,
     ComputeBuffGrid = ComputeBuffGrid,
     IsSimulatedPaladinBuff = IsSimulatedPaladinBuff,
     DisconnectedGroupTargets = DisconnectedGroupTargets,

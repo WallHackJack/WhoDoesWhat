@@ -1,6 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- Warlocks section: a read-only Improved Healthstone summary followed
+-- Warlocks section: three compact Improved Healthstone header icons followed
 -- by one fixed row per curse, rendered as
 --
 --   [spell icon] Name    (!)  [player dropdown v] [mail]
@@ -22,9 +22,6 @@ local PlayerTextWithRole = A.PlayerTextWithRole
 local RoleIconMarkup = A.RoleIconMarkup
 local HEALTHSTONE = WhoDoesWhat.WarlockHealthstone
 local HEALTHSTONE_RANKS = { 2, 1, 0 }
-local HEALTHSTONE_ROW_H = 24
-local HEALTHSTONE_SLOT_W = 48
-local HEALTHSTONE_ICON_SIZE = 20
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
 -- Our static-section def (title + row definitions), found by title so a
@@ -68,24 +65,13 @@ local function HealthstoneSlotEnter(self)
     GameTooltip:Show()
 end
 
-local function AddHealthstoneRow(f, box, y)
-    local row = CreateFrame("Frame", nil, box)
-    row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetSize(box:GetWidth() - K.BOX_PAD * 2, HEALTHSTONE_ROW_H)
-    row:SetPoint("TOPLEFT", K.BOX_PAD, -y)
-
-    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("LEFT", 4, 0)
-    label:SetWidth(K.NAME_LABEL_W)
-    label:SetJustifyH("LEFT")
-    label:SetText("Healthstones:")
-    label:SetTextColor(0.25, 1, 0.25)
-
+local function AddHealthstoneHeaderIcons(f, chrome)
     local slots = {}
-    for i, rank in ipairs(HEALTHSTONE_RANKS) do
-        local slot = CreateFrame("Frame", nil, row)
-        slot:SetSize(HEALTHSTONE_SLOT_W, HEALTHSTONE_ROW_H)
-        slot:SetPoint("LEFT", 4 + K.NAME_LABEL_W + (i - 1) * HEALTHSTONE_SLOT_W, 0)
+    for i = #HEALTHSTONE_RANKS, 1, -1 do
+        local rank = HEALTHSTONE_RANKS[i]
+        local slot = CreateFrame("Frame", nil, chrome.box)
+        slot:SetFrameLevel(chrome.box:GetFrameLevel() + 1)
+        slot:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
         slot:EnableMouse(true)
         slot:SetScript("OnEnter", HealthstoneSlotEnter)
         slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -93,27 +79,15 @@ local function AddHealthstoneRow(f, box, y)
         slot.state = f.curseSection
 
         local icon = slot:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(HEALTHSTONE_ICON_SIZE, HEALTHSTONE_ICON_SIZE)
-        icon:SetPoint("LEFT", 0, 0)
+        icon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
+        icon:SetPoint("CENTER")
         icon:SetTexture(HEALTHSTONE.icon)
-
-        local rankText = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rankText:SetPoint("CENTER", icon, "CENTER", 0, 0)
-        rankText:SetText(rank)
-        rankText:SetTextColor(1, 1, 1)
-        rankText:SetShadowColor(0, 0, 0, 1)
-        rankText:SetShadowOffset(1, -1)
-
-        local count = slot:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        count:SetPoint("LEFT", icon, "RIGHT", 3, 0)
         slot.icon = icon
-        slot.count = count
         slots[rank] = slot
+        K.ChainHeaderButton(chrome, slot)
     end
 
-    f.curseSection.healthstoneLabel = label
     f.curseSection.healthstoneSlots = slots
-    return y + HEALTHSTONE_ROW_H
 end
 
 -- One static assignment row inside the box: spell icon + name on the left
@@ -125,17 +99,17 @@ local function AddAssignmentRow(f, box, y, def)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
     row:SetSize(box:GetWidth() - K.BOX_PAD * 2, K.ROW_H)
     row:SetPoint("TOPLEFT", K.BOX_PAD, -y)
+    K.AddRowBackground(row, #state.rows + 1)
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
     icon:SetPoint("LEFT", 4, 0)
     icon:SetTexture(def.icon)
 
-    -- Small font: the longest ability names ("Curse of Recklessness") have to
-    -- share the row with a dropdown, and the short ones read fine either way.
-    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
-    label:SetText(def.label)
+    local shortLabel = def.label:gsub("^Curse of the ", "")
+    label:SetText(shortLabel:gsub("^Curse of ", ""))
 
     -- Ability tooltip when hovering the spell icon only (textures can't take
     -- mouse events, so a small invisible frame sits over it). Anchored with
@@ -191,7 +165,7 @@ local function AddAssignmentRow(f, box, y, def)
     roText:Hide()
 
     state.rows[#state.rows + 1] = {
-        def = def, dropdown = dropdown, warnIcon = warn, mailBtn = mailBtn,
+        frame = row, def = def, dropdown = dropdown, warnIcon = warn, mailBtn = mailBtn,
         roText = roText, icon = icon, label = label,
     }
     return y + K.ROW_H
@@ -219,26 +193,19 @@ local function Refresh(f)
     end
     state.healthstoneTotal = #warlocks
     state.healthstoneUnknownNames = unknownNames
-    state.healthstoneLabel:SetTextColor(enabled and 0.25 or 0.5,
-        enabled and 1 or 0.5, enabled and 0.25 or 0.5)
     for _, rank in ipairs(HEALTHSTONE_RANKS) do
         local slot = state.healthstoneSlots[rank]
         local count = counts[rank]
         slot.confirmedNames = names[rank]
-        slot.count:SetText(count > 0 and count or (#unknownNames > 0 and "??" or "0"))
-        if not enabled or (count == 0 and #unknownNames > 0) then
-            slot.count:SetTextColor(0.55, 0.55, 0.55)
-        elseif count > 0 then
-            slot.count:SetTextColor(0.25, 1, 0.25)
-        else
-            slot.count:SetTextColor(1, 0.35, 0.35)
-        end
-        slot.icon:SetDesaturated(not enabled)
+        slot.icon:SetDesaturated(count == 0)
     end
 
+    local assignedCount = 0
     for _, row in ipairs(state.rows) do
         local assigned = GetAssignment(row.def.id)
-        UIDropDownMenu_SetText(row.dropdown, PlayerTextWithRole(assigned))
+        if assigned then assignedCount = assignedCount + 1 end
+        UIDropDownMenu_SetText(row.dropdown,
+            PlayerTextWithRole(assigned, K.DROPDOWN_ICON_SIZE))
         row.dropdown:SetShown(editable)
         if enabled then
             UIDropDownMenu_EnableDropDown(row.dropdown)
@@ -263,18 +230,22 @@ local function Refresh(f)
         row.mailBtn.icon:SetDesaturated(not enabled or assigned == nil)
     end
 
-    -- Auto rewrites the whole section, so it's an edit control: greyed out
-    -- (not hidden -- the affordance stays discoverable) without permission,
-    -- with the tooltip explaining. Calc only opens a read-only window and
-    -- stays live for everyone.
-    state.box.title:SetTextColor(enabled and 1 or 0.5, enabled and 0.82 or 0.5,
-        enabled and 0 or 0.5)
+    local showEmpty = not editable and assignedCount == 0
+    for _, row in ipairs(state.rows) do row.frame:SetShown(not showEmpty) end
+    state.emptyHint:SetShown(showEmpty)
+    state.box:SetHeight(showEmpty
+        and (K.BOX_PAD + K.SECTION_TITLE_H + K.DYN_EMPTY_H + K.BOX_PAD)
+        or state.fullHeight)
+    K.UpdateContentHeight(f)
+
+    -- Auto rewrites the whole section, so hide it without edit permission.
+    -- Calc only opens a read-only window and stays live for everyone.
+    state.autoBtn:SetShown(editable)
+    state.box.title:SetTextColor(enabled and 0.95 or 0.5,
+        enabled and 0.95 or 0.5, enabled and 0.95 or 0.5)
     for _, btn in ipairs(state.buttons) do
-        btn:SetEnabled(enabled and (btn ~= state.autoBtn or editable))
+        btn:SetEnabled(enabled)
         btn.disabledReason = not enabled and "No warlocks in the group."
-            or (btn == state.autoBtn and not editable)
-            and ("Requires editing permission - the raid leader has editing set to "
-            .. WhoDoesWhat:PermissionModeLabel() .. ".")
             or nil
     end
 
@@ -285,6 +256,7 @@ local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = SECTION.title,
         column = K.COL_LEFT,
+        tintClass = "Warlock",
         mailCollect = CollectWarlockWhispers,
     })
     local box = chrome.box
@@ -322,16 +294,19 @@ local function Build(f, content)
         mailBtn = chrome.mailBtn,
         autoBtn = autoBtn,
         buttons = { autoBtn, calcBtn },
+        emptyHint = K.CreateEmptyHint(box),
         rows = {},
     }
+    f.curseSection.emptyHint:SetText("No Warlock assignments yet.")
+    f.curseSection.emptyHint:Hide()
+    AddHealthstoneHeaderIcons(f, chrome)
 
     local innerY = K.BOX_PAD + K.SECTION_TITLE_H
-    innerY = AddHealthstoneRow(f, box, innerY)
-    for i, def in ipairs(SECTION.rows) do
-        K.AddRowDivider(box, K.BOX_PAD + 2, innerY)
+    for _, def in ipairs(SECTION.rows) do
         innerY = AddAssignmentRow(f, box, innerY, def)
     end
     box:SetHeight(innerY + K.BOX_PAD)
+    f.curseSection.fullHeight = innerY + K.BOX_PAD
 end
 
 WhoDoesWhat.SectionViews.WarlockCurses = { Build = Build, Refresh = Refresh }

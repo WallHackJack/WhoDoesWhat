@@ -157,6 +157,11 @@ local defaults = {
             -- Assignment dropdowns list every group member instead of only
             -- the eligible class (e.g. non-paladins for paladin buffs).
             developerMode = false,
+            -- Show the combined addon-message log button in the main toolbar.
+            showLogsButton = false,
+            -- Raid-wide source for paladin buff assignments. This field rides
+            -- the permission-gated synchronized board state.
+            pallyBuffSource = "wdw",
             -- Persisted source for LOG_UI_BUILDING above.
             logUiUpdates = false,
             -- Print routine assignment, reset, auto-assign, role, customization,
@@ -235,6 +240,14 @@ function WhoDoesWhat:OnInitialize()
         self.db.profile.raidAssignments[key] = nil
     end
     self.db.profile.raidAssignmentOverrides = nil
+
+    -- The initial UI called PallyBuffSource "paladinMasterMode". Preserve a
+    -- selection made during that build, then retire the temporary name.
+    local settings = self.db.profile.settings
+    if settings.paladinMasterMode then
+        settings.pallyBuffSource = settings.paladinMasterMode
+        settings.paladinMasterMode = nil
+    end
 
     -- tankAssignments migrated from one-row-per-marker { player, marker } to
     -- one-row-per-tank { player, markers = { ... } } (multi-select markers on

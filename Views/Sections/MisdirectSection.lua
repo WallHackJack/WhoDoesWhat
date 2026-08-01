@@ -27,6 +27,10 @@ local SECTION = A.SectionByKey("md")
 
 local Refresh -- forward declared; row callbacks repaint through it
 
+local function IsComplete(entry)
+    return entry.player ~= nil and entry.target ~= nil and entry.marker ~= nil
+end
+
 -- Marked tanks float to the top of the tank picker.
 local function PrefersMarkedTank(m)
     return WhoDoesWhat:IsMarkedTank(m.name)
@@ -38,7 +42,8 @@ end
 local function CreateRow(f, index)
     local state = f.mdSection
     local row = K.CreateSectionRow(state.box, index)
-    local function Entry() return GetEntries(SECTION)[index] end
+    row.entryIndex = index
+    local function Entry() return GetEntries(SECTION)[row.entryIndex] end
 
     -- The row IS its hunter, so a fixed label stands where a picker would be.
     local playerLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -143,14 +148,23 @@ function Refresh(f) -- forward declared above
     local editable = WhoDoesWhat:CanEditAssignments()
     local entries = GetEntries(SECTION)
 
+    local visible = {}
+    for sourceIndex, entry in ipairs(entries) do
+        if editable or IsComplete(entry) then
+            visible[#visible + 1] = { entry = entry, sourceIndex = sourceIndex }
+        end
+    end
+
     local hasAssignments = false
-    for i, entry in ipairs(entries) do
+    for i, item in ipairs(visible) do
+        local entry = item.entry
         local row = state.rows[i] or CreateRow(f, i)
+        row.entryIndex = item.sourceIndex
         row:Show()
         if entry.target or entry.marker then hasAssignments = true end
 
         row.playerLabel:SetShown(editable)
-        row.playerLabel:SetText(PlayerTextWithRole(entry.player, 16))
+        row.playerLabel:SetText(PlayerTextWithRole(entry.player, K.ROW_ICON_SIZE))
         row.forLabel:SetShown(editable)
         row.onLabel:SetShown(editable)
 
@@ -162,7 +176,8 @@ function Refresh(f) -- forward declared above
         row.roText:SetShown(not editable)
 
         row.targetDD:SetShown(editable)
-        UIDropDownMenu_SetText(row.targetDD, PlayerTextWithRole(entry.target))
+        UIDropDownMenu_SetText(row.targetDD,
+            PlayerTextWithRole(entry.target, K.DROPDOWN_ICON_SIZE))
         row.markerDD:SetShown(editable)
         UIDropDownMenu_SetText(row.markerDD, entry.marker
             and MarkerMarkup(entry.marker, 14) or "|cff909090--|r")
@@ -181,16 +196,18 @@ function Refresh(f) -- forward declared above
         row.mailBtn:SetEnabled(hasJob)
         row.mailBtn.icon:SetDesaturated(not hasJob)
     end
-    for i = #entries + 1, #state.rows do
+    for i = #visible + 1, #state.rows do
         state.rows[i]:Hide()
     end
 
-    state.emptyHint:SetShown(#entries == 0)
+    state.emptyHint:SetText(editable
+        and "No hunters in the group." or "No misdirect assignments yet.")
+    state.emptyHint:SetShown(#visible == 0)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(hasAssignments)
     K.LayoutHeaderChain(state.headerChain)
 
-    local rowsH = (#entries > 0) and (#entries * K.ROW_H) or K.DYN_EMPTY_H
+    local rowsH = (#visible > 0) and (#visible * K.ROW_H) or K.DYN_EMPTY_H
     state.box:SetHeight(K.BOX_PAD + K.SECTION_TITLE_H + rowsH + K.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
     K.UpdateContentHeight(f)
@@ -200,6 +217,7 @@ local function Build(f, content)
     local chrome = K.CreateSectionChrome(f, content, {
         title = SECTION.title,
         column = K.COL_RIGHT,
+        tintClass = "Hunter",
         mailCollect = A.CollectMisdirectWhispers,
     })
 

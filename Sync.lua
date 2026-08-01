@@ -71,8 +71,9 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- 5: leader STATE replies gained the peer directory; peers stopped answering
 -- ordinary HELLO broadcasts individually. 6: live third-party inspections
 -- gained OBSERVE, and leader directories gained cached talent observations.
--- 7: STATE gained the shared paladinStrategy rules table.
-local PROTOCOL = 7
+-- 7: STATE gained the shared paladinStrategy rules table. 8: STATE gained
+-- the raid's permission-gated PallyBuffSource selection.
+local PROTOCOL = 8
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -199,6 +200,7 @@ local function Snapshot()
         md = p.mdAssignments,
         static = static,
         paladinStrategy = p.paladinBuffRules,
+        pallyBuffSource = p.settings.pallyBuffSource or "wdw",
         perms = { mode = p.permissions.mode, assistant = p.permissions.assistant },
     }
 end
@@ -221,6 +223,8 @@ local function ApplySnapshot(state)
     refill(p.ccAssignments, state.cc)
     refill(p.mdAssignments, state.md)
     refill(p.paladinBuffRules, state.paladinStrategy)
+    p.settings.pallyBuffSource = state.pallyBuffSource == "pallypower"
+        and "pallypower" or "wdw"
 
     local perms = state.perms or WhoDoesWhat.DEFAULT_PERMISSIONS
     p.permissions.mode = perms.mode or WhoDoesWhat.DEFAULT_PERMISSIONS.mode
@@ -894,6 +898,7 @@ function Sync:OnGroupLeft()
     wipe(p.mdAssignments)
     wipe(p.raidAssignments)
     wipe(p.paladinBuffRules)
+    p.settings.pallyBuffSource = "wdw"
     wipe(peerVersions)
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()

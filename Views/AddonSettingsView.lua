@@ -10,9 +10,9 @@ local NAV_W = 104
 local CONTENT_X = 134
 local CONTENT_W = 410
 local FRAME_W = 560
-local FRAME_H = 512
+local FRAME_H = 564
 --@do-not-package@
-FRAME_H = 542
+FRAME_H = 594
 --@end-do-not-package@
 local CHECKBOX_ROW_H = 52
 local FIRST_PALADIN_LABEL = "(use first paladin)"
@@ -149,6 +149,7 @@ local function EnsureSettingsFrame()
         "UIDropDownMenuTemplate")
     anchorDD:SetPoint("LEFT", anchorLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(anchorDD, 110)
+    WhoDoesWhat:StyleDropdown(anchorDD)
     UIDropDownMenu_Initialize(anchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
         for _, anchor in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
@@ -260,6 +261,7 @@ local function EnsureSettingsFrame()
             statusBuffPage, "UIDropDownMenuTemplate")
         row.scopeDD:SetPoint("LEFT", row.neverHide, "RIGHT", 8, 0)
         UIDropDownMenu_SetWidth(row.scopeDD, 100)
+        WhoDoesWhat:StyleDropdown(row.scopeDD)
         UIDropDownMenu_Initialize(row.scopeDD, function(_, level)
             local _, _, saved = WhoDoesWhat:GetStatusBarCheckOptions(rowKey)
             for _, scope in ipairs({ "always", "raid", "party" }) do
@@ -297,6 +299,7 @@ local function EnsureSettingsFrame()
     local growDD = CreateFrame("Frame", "WhoDoesWhatBuffingGrowDD", paladinPage, "UIDropDownMenuTemplate")
     growDD:SetPoint("LEFT", growLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(growDD, 80)
+    WhoDoesWhat:StyleDropdown(growDD)
     UIDropDownMenu_Initialize(growDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarGrow or "RIGHT"
         for _, mode in ipairs({ "RIGHT", "LEFT" }) do
@@ -320,6 +323,7 @@ local function EnsureSettingsFrame()
         "UIDropDownMenuTemplate")
     menuGrowDD:SetPoint("LEFT", menuGrowLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(menuGrowDD, 80)
+    WhoDoesWhat:StyleDropdown(menuGrowDD)
     UIDropDownMenu_Initialize(menuGrowDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingMenuGrow or "DOWN"
         for _, mode in ipairs({ "DOWN", "UP" }) do
@@ -377,6 +381,12 @@ local function EnsureSettingsFrame()
         function(value)
             WhoDoesWhat.db.profile.settings.developerMode = value
             WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
+        end)
+    f.showLogsCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs button",
+        "Show the combined WhoDoesWhat and PallyPower traffic-log button on the assignment window.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.showLogsButton = value
+            WhoDoesWhat:RefreshMainAssignmentsView()
         end)
     f.logUiCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
         "Print verbose UI build and layout logging to chat.",
@@ -448,6 +458,7 @@ local function EnsureSettingsFrame()
     local palDD = CreateFrame("Frame", "WhoDoesWhatFakePaladinCountDD", testingPage, "UIDropDownMenuTemplate")
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
     UIDropDownMenu_SetWidth(palDD, 40)
+    WhoDoesWhat:StyleDropdown(palDD)
     UIDropDownMenu_Initialize(palDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.fakeRaidPaladinCount or 3
         for n = 1, 4 do
@@ -480,6 +491,7 @@ local function EnsureSettingsFrame()
     local testDD = CreateFrame("Frame", "WhoDoesWhatBuffingTestPaladinDD", testingPage, "UIDropDownMenuTemplate")
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(testDD, 120)
+    WhoDoesWhat:StyleDropdown(testDD)
     UIDropDownMenu_Initialize(testDD, function(_, level)
         RefreshBuffingTestPaladinDropdown(f)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarTestPaladin
@@ -543,6 +555,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.overviewRequireMaxRankCheck:SetChecked(settings.overviewRequireMaxRank)
     RefreshStatusBuffRows(f)
     f.devModeCheck:SetChecked(settings.developerMode)
+    f.showLogsCheck:SetChecked(settings.showLogsButton)
     f.logUiCheck:SetChecked(settings.logUiUpdates)
     f.logOperationsCheck:SetChecked(settings.logOperations)
     f.logSyncStatusCheck:SetChecked(settings.logSyncStatus)

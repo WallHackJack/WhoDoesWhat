@@ -29,13 +29,6 @@ local Sync = WhoDoesWhat:GetModule("Sync")
 
 local mainFrame = nil
 
-local FRAME_W = 940
--- Paladin-only view narrows the window to exactly fit the section box (378)
--- plus the two window margins, so the box centers with an even MARGIN on each
--- side -- flush with the header's checkbox (left) and buttons (right), no
--- stray padding. The slimmer header fits well inside this; the permission
--- strip hides in this mode anyway.
-local NARROW_FRAME_W = 402 -- LEFT_COLUMN_W (378) + MARGIN (12) * 2
 -- The window auto-fits its height to the visible content (ApplyViewMode), so
 -- Paladin-only view collapses to a short, low-profile window while the full
 -- board grows -- but never past MAX (it scrolls) or below MIN (the button
@@ -43,8 +36,11 @@ local NARROW_FRAME_W = 402 -- LEFT_COLUMN_W (378) + MARGIN (12) * 2
 local MAX_FRAME_H = 550
 local MIN_FRAME_H = 130
 local MARGIN = 12
-local CONTENT_W = FRAME_W - MARGIN * 2
+local SCROLLBAR_W = 26
 local BUTTON_ROW_H = 22
+local TOOLBAR_PAD = 6
+local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
+local BUTTON_GAP = 6
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
@@ -52,8 +48,24 @@ local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsB
 -- Tanks, the busy dynamic rows (CC, Misdirect), and future custom-assignment
 -- sections that match them.
 local COLUMN_GAP = 12
-local LEFT_COLUMN_W = 378
-local RIGHT_COLUMN_W = CONTENT_W - COLUMN_GAP - LEFT_COLUMN_W
+local LEFT_COLUMN_W = 330
+local RIGHT_COLUMN_W = 500
+local CONTENT_W = LEFT_COLUMN_W + COLUMN_GAP + RIGHT_COLUMN_W
+local FRAME_W = CONTENT_W + MARGIN * 2 + SCROLLBAR_W
+-- Paladin-only view keeps the same in-window scrollbar gutter while narrowing
+-- its content viewport to the Paladin section.
+local NARROW_FRAME_W = LEFT_COLUMN_W + MARGIN * 2 + SCROLLBAR_W
+
+local function SetInsetBackdrop(frame)
+    frame:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    frame:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
+    frame:SetBackdropBorderColor(0.4, 0.4, 0.4)
+end
 
 -- Build + refresh order: left column top-to-bottom, then right column.
 -- Within a column this is also the anchor-chain order.
@@ -175,24 +187,19 @@ end
 local function ApplyViewMode(f)
     local full = not WhoDoesWhat.db.profile.settings.paladinOnlyView
 
-    -- Width + scroll chrome per mode. The scroll spans the full width in both
-    -- modes (no reserved scrollbar gutter -- the boxes must line up with the top
-    -- button row, which anchors to the window edge); the scrollbar stays hidden
-    -- unless content outgrows the window, in which case it overlays the right
-    -- edge. The full board shows both columns; Paladin-only narrows to about the
-    -- section box, hides the permission strip (so it can't collide with the
-    -- button row -- an empty board has nothing to gate), and centers the lone
-    -- box in the interior.
+    -- The content viewport stops before the reserved scrollbar gutter, keeping
+    -- the template's outside-anchored bar inside the window in both modes.
+    -- Full view shows both columns; Paladin-only narrows to the left section.
     f:SetWidth(full and FRAME_W or NARROW_FRAME_W)
     f.scroll:ClearAllPoints()
     f.scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
-    f.scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
+    f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
     if full then
         f.columns[K.COL_LEFT].x = 0
     else
         f.permDD:Hide()
         f.permNote:Hide()
-        local interior = NARROW_FRAME_W - MARGIN * 2
+        local interior = NARROW_FRAME_W - MARGIN * 2 - SCROLLBAR_W
         f.columns[K.COL_LEFT].x = math.floor((interior - LEFT_COLUMN_W) / 2)
     end
 
@@ -211,6 +218,17 @@ local function ApplyViewMode(f)
     -- bottom margin.
     local desired = f.scrollTop + f.content:GetHeight() + MARGIN
     f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
+end
+
+local function UpdateToolbar(f)
+    local showLogs = WhoDoesWhat.db.profile.settings.showLogsButton
+    f.logsBtn:SetShown(showLogs)
+    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth()
+        + f.membersBtn:GetWidth() + f.editRolesBtn:GetWidth() + BUTTON_GAP * 2
+    if showLogs then
+        width = width + f.logsBtn:GetWidth() + BUTTON_GAP
+    end
+    f.toolbarBox:SetWidth(width)
 end
 
 local function UpdateViewToggle(f)
@@ -253,6 +271,7 @@ end
 -- its header chain against it.
 local function RefreshAll(f)
     UpdateVersionWarning(f)
+    UpdateToolbar(f)
     UpdatePermissionControls(f)
     K.UpdateHeaderMailVisibility(f)
     for _, section in ipairs(f.sections) do
@@ -280,7 +299,7 @@ local function CreateToolbarButton(f, text, width, title, body, onClick)
 end
 
 -- Build the window once and reuse it: shared chrome, the header strip
--- (permission strip left, Logs / Members / Roles right), the title-bar
+-- (permission strip left, compact centered button box), the title-bar
 -- Settings / view / Close icon cluster,
 -- and the two scrollable columns.
 local function EnsureMainFrame()
@@ -298,27 +317,44 @@ local function EnsureMainFrame()
     f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
 
-    -- Right-side button row: [Logs] [Members] [Roles].
-    local editRolesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    -- Compact centered toolbar: [Logs, when enabled] [Buff Grid] [Members]
+    -- [Roles]. Its backdrop grows only wide enough to contain visible buttons.
+    local toolbarBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    toolbarBox:SetPoint("TOP", f, "TOP", 0, -top)
+    toolbarBox:SetSize(1, TOOLBAR_H)
+    SetInsetBackdrop(toolbarBox)
+
+    local editRolesBtn = CreateFrame("Button", nil, toolbarBox, "UIPanelButtonTemplate")
     editRolesBtn:SetSize(60, BUTTON_ROW_H)
-    editRolesBtn:SetPoint("TOPRIGHT", -MARGIN, -top)
+    editRolesBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
     editRolesBtn:SetText("Roles")
     editRolesBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenAllRolesView()
     end)
 
-    local membersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local membersBtn = CreateFrame("Button", nil, toolbarBox, "UIPanelButtonTemplate")
     membersBtn:SetSize(80, BUTTON_ROW_H)
-    membersBtn:SetPoint("RIGHT", editRolesBtn, "LEFT", -6, 0)
+    membersBtn:SetPoint("RIGHT", editRolesBtn, "LEFT", -BUTTON_GAP, 0)
     membersBtn:SetText("Members")
     membersBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenRaiderRolesView()
     end)
 
-    local logsBtn = CreateToolbarButton(f, "Logs", 52, "Sync traffic",
+    local buffGridBtn = CreateToolbarButton(toolbarBox, "Buff Grid", 72, "Buffing Grid",
+        "Open the raid-wide paladin blessing plan and live buff status.",
+        function() WhoDoesWhat:OpenBuffingGridView() end)
+    buffGridBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
+
+    local logsBtn = CreateToolbarButton(toolbarBox, "Logs", 52, "Sync traffic",
         "Open the combined WhoDoesWhat and PallyPower addon-message logs.",
         function() WhoDoesWhat:OpenSyncLogView("wdw") end)
-    logsBtn:SetPoint("RIGHT", membersBtn, "LEFT", -6, 0)
+    logsBtn:SetPoint("RIGHT", buffGridBtn, "LEFT", -BUTTON_GAP, 0)
+    f.toolbarBox = toolbarBox
+    f.editRolesBtn = editRolesBtn
+    f.membersBtn = membersBtn
+    f.buffGridBtn = buffGridBtn
+    f.logsBtn = logsBtn
+    UpdateToolbar(f)
 
     -- Tight title-bar icon cluster: Settings, view toggle, Close. The custom
     -- cog uses addon-owned copies of the standard close-button states.
@@ -364,7 +400,7 @@ local function EnsureMainFrame()
     -- outside raids both hide (UpdatePermissionControls decides each refresh).
     local permDD = CreateFrame("Frame", "WhoDoesWhatPermissionsDD", f, "UIDropDownMenuTemplate")
     permDD:SetPoint("LEFT", f, "TOPLEFT", MARGIN - 15,
-        -(top + BUTTON_ROW_H / 2 + 2)) -- template overhangs ~15px left
+        -(top + TOOLBAR_H / 2 + 2)) -- template overhangs ~15px left
     UIDropDownMenu_SetWidth(permDD, 170)
     K.LeftAlignDropdown(permDD)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
@@ -372,15 +408,31 @@ local function EnsureMainFrame()
     f.permDD = permDD
 
     local permNote = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    permNote:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + BUTTON_ROW_H / 2))
+    permNote:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + TOOLBAR_H / 2))
     permNote:Hide()
     f.permNote = permNote
 
-    local scrollTop = top + BUTTON_ROW_H + 8
+    local scrollTop = top + TOOLBAR_H + 8
     f.scrollTop = scrollTop -- chrome above the scroll area; ApplyViewMode sizes to it
+
     local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMainScroll", f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", MARGIN, -scrollTop)
-    scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN) -- ApplyViewMode re-asserts this each refresh
+    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
+    local scrollBar = _G[scroll:GetName() .. "ScrollBar"]
+    if scrollBar then
+        -- AceGUI's textured slider backdrop, placed one frame level behind the
+        -- native scrollbar so the template's arrows and thumb stay on top.
+        local scrollTrack = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
+        scrollTrack:SetAllPoints(scrollBar)
+        scrollTrack:SetFrameLevel(math.max(scroll:GetFrameLevel(),
+            scrollBar:GetFrameLevel() - 1))
+        scrollTrack:SetBackdrop({
+            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+    end
 
     local content = CreateFrame("Frame", nil, scroll)
     -- A scroll child with no anchor point has an indeterminate rect until
@@ -391,11 +443,8 @@ local function EnsureMainFrame()
     scroll:SetScrollChild(content)
     f.content = content
     f.scroll = scroll
-    -- Hide the scrollbar whenever the content fits -- the usual case, since the
-    -- window auto-fits its height up to MAX_FRAME_H. It only appears when a
-    -- column outgrows that cap (a long CC list, or a future section), and then
-    -- overlays the right edge rather than reserving a permanent gutter that
-    -- would push the boxes out of line with the top button row.
+    -- Hide the bar whenever content fits; the gutter remains reserved so the
+    -- template never spills outside the window when it appears.
     scroll.scrollBarHideable = 1
 
     WhoDoesWhat:LogUiBuilding("Building main assignments content.")

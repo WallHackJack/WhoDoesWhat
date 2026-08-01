@@ -299,6 +299,7 @@ local function EnsureCustomizeFrame()
     local classDropdown = CreateFrame("Frame", "WhoDoesWhatClassDropDown", f, "UIDropDownMenuTemplate")
     classDropdown:SetPoint("LEFT", classIcon, "RIGHT", -2, 12)
     UIDropDownMenu_SetWidth(classDropdown, 110)
+    WhoDoesWhat:StyleDropdown(classDropdown)
     UIDropDownMenu_Initialize(classDropdown, function(_, level)
         for _, classInfo in ipairs(WhoDoesWhat.Classes) do
             local info = UIDropDownMenu_CreateInfo()
@@ -454,6 +455,7 @@ local function EnsureCustomizeFrame()
     -- UIDropDownMenu has ~15px of transparent left padding; pull it toward the label.
     roleDropdown:SetPoint("LEFT", assignLabel, "RIGHT", -8, -2)
     UIDropDownMenu_SetWidth(roleDropdown, 80)
+    WhoDoesWhat:StyleDropdown(roleDropdown)
     UIDropDownMenu_Initialize(roleDropdown, function(_, level)
         for _, key in ipairs({ "dps", "tank", "healer" }) do
             local info = UIDropDownMenu_CreateInfo()

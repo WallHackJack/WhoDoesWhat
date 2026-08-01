@@ -22,6 +22,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local gridFrame = nil
 local A = WhoDoesWhat.Assign
+local K = WhoDoesWhat.SectionKit
 
 -- Provider-class columns disappear when that class is absent; Food remains.
 local CORE_BUFF_KEYS = { "gift", "fortitude", "intellect", "food" }
@@ -49,10 +50,17 @@ local ROLE_ICON_SIZE = 18
 local CELL_SIZE = 20
 local CELL_ICON_SIZE = 18
 local HEADER_H = 28
-local SOURCE_ROW_H = 24
+local SOURCE_ROW_H = 27
 local CORE_CELL_ICON_SIZE = 16
 local CORE_MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local PALADIN_SECTION_GAP = 12
+
+local SOURCE_OPTIONS = {
+    { key = "wdw", label = "WDW" },
+    { key = "observed", label = "PP Mirror" },
+    { key = "addon", label = "PP Addon" },
+}
+local SOURCE_LABELS = { wdw = "WDW", observed = "PP Mirror", addon = "PP Addon" }
 
 -- Grid blocks: at this many raiders (or more) the rows split into two
 -- side-by-side blocks (balanced halves) rather than making the window taller.
@@ -398,16 +406,44 @@ local function CreateRow(f, index)
     return row
 end
 
-local function UpdateSourceChecks(f)
-    if not f.sourceChecks then return end
-    if f.gridSource == "addon" and not _G.PallyPower then f.gridSource = "wdw" end
-    for source, check in pairs(f.sourceChecks) do
-        local enabled = source ~= "addon" or _G.PallyPower ~= nil
-        check:SetEnabled(enabled)
-        check:SetChecked(f.gridSource == source)
-        local color = enabled and 0.9 or 0.45
-        check.label:SetTextColor(color, color, color)
+local function HasPallyPowerAddon()
+    return _G.PallyPower and _G.PallyPower_Assignments
+        and _G.PallyPower_NormalAssignments
+end
+
+local function DefaultGridSource()
+    if WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower" then
+        return HasPallyPowerAddon() and "addon" or "observed"
     end
+    return "wdw"
+end
+
+local function UpdateSourceControl(f)
+    local expected = DefaultGridSource()
+    local pallyPowerMode = WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
+    local matchesMode = f.gridSource == expected
+        or (pallyPowerMode and (f.gridSource == "addon" or f.gridSource == "observed"))
+    UIDropDownMenu_SetText(f.sourceDD, SOURCE_LABELS[f.gridSource] or "WDW")
+    if not matchesMode then
+        f.sourceWarning.tooltipText = "Paladin blessing cells are showing "
+            .. (SOURCE_LABELS[f.gridSource] or "this source")
+            .. " for comparison only. They do not represent the raid's active"
+            .. " assignment source. Select " .. SOURCE_LABELS[expected]
+            .. " to view the plan currently driving WDW. Missing-buff indicators"
+            .. " still use live aura data."
+        f.sourceWarning:Show()
+    else
+        f.sourceWarning:Hide()
+    end
+end
+
+local function BuffPlanForSource(source)
+    if source == "observed" then
+        return WhoDoesWhat:GetPallyPowerBuffPlan("observed")
+    elseif source == "addon" then
+        return WhoDoesWhat:GetPallyPowerBuffPlan("addon")
+    end
+    return WhoDoesWhat.Assign.GetPaladinBuffPlan()
 end
 
 -- Map the current group onto the pooled widgets and size the window to its
@@ -503,17 +539,12 @@ local function RefreshGrid(f)
 
     -- All three sources expose the assignment-model snapshot shape expected
     -- below, so the rendering path remains shared.
-    local buffPlan
-    if f.gridSource == "observed" then
-        buffPlan = WhoDoesWhat:GetPallyPowerBuffPlan("observed")
-    elseif f.gridSource == "addon" then
-        buffPlan = WhoDoesWhat:GetPallyPowerBuffPlan("addon")
-    end
+    local buffPlan = BuffPlanForSource(f.gridSource)
     if not buffPlan then
-        f.gridSource = "wdw"
-        buffPlan = WhoDoesWhat.Assign.GetPaladinBuffPlan()
+        f.gridSource = DefaultGridSource()
+        buffPlan = BuffPlanForSource(f.gridSource)
     end
-    UpdateSourceChecks(f)
+    UpdateSourceControl(f)
     local plan = buffPlan.grid
 
     for i, m in ipairs(members) do
@@ -638,51 +669,35 @@ local function EnsureGridFrame()
     rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10))
-    sourceCaption:SetText("Assignments:")
+    sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
+    sourceCaption:SetText("Show Pally Buff Source:")
 
-    f.gridSource = "wdw"
-    f.sourceChecks = {}
-    local sourceOptions = {
-        { key = "wdw", label = "WDW", x = 80,
-            tip = "Show WhoDoesWhat's computed blessing plan." },
-        { key = "observed", label = "PP Mirror", x = 136,
-            tip = "Show assignments reconstructed only from observed PLPWR traffic." },
-        { key = "addon", label = "PP Addon", x = 218,
-            tip = "Show the live assignment tables from the co-installed PallyPower addon." },
-    }
-    for _, option in ipairs(sourceOptions) do
-        local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-        check:SetSize(20, 20)
-        check:SetPoint("TOPLEFT", option.x, -(f.titleBarHeight + 6))
-        check.source = option.key
-        check.tooltipText = option.tip
-        check:SetMotionScriptsWhileDisabled(true)
-
-        local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("LEFT", check, "RIGHT", -2, 0)
-        label:SetText(option.label)
-        check.label = label
-        check:SetHitRectInsets(0, -label:GetStringWidth() - 4, 0, 0)
-
-        check:SetScript("OnClick", function(self)
-            if self.source == "addon" and not _G.PallyPower then return end
-            f.gridSource = self.source
-            RefreshGrid(f)
-        end)
-        check:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-            GameTooltip:SetText(self.label:GetText(), 1, 1, 1)
-            GameTooltip:AddLine(self.tooltipText, 0.8, 0.8, 0.8, true)
-            if self.source == "addon" and not _G.PallyPower then
-                GameTooltip:AddLine("PallyPower is not loaded.", 1, 0.4, 0.4, true)
+    f.gridSource = DefaultGridSource()
+    local sourceDD = CreateFrame("Frame", "WhoDoesWhatBuffGridSourceDD", f,
+        "UIDropDownMenuTemplate")
+    sourceDD:SetPoint("LEFT", sourceCaption, "RIGHT", -12, -2)
+    UIDropDownMenu_SetWidth(sourceDD, 82)
+    K.LeftAlignDropdown(sourceDD)
+    UIDropDownMenu_Initialize(sourceDD, function(_, level)
+        for _, option in ipairs(SOURCE_OPTIONS) do
+            local key, label = option.key, option.label
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = label
+            info.checked = f.gridSource == key
+            info.disabled = key == "addon" and not HasPallyPowerAddon()
+            info.func = function()
+                f.gridSource = key
+                RefreshGrid(f)
             end
-            GameTooltip:Show()
-        end)
-        check:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        f.sourceChecks[option.key] = check
-    end
-    UpdateSourceChecks(f)
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.sourceDD = sourceDD
+
+    local sourceWarning = K.CreateWarningIcon(f)
+    sourceWarning:SetPoint("LEFT", sourceDD, "RIGHT", -10, 0)
+    f.sourceWarning = sourceWarning
+    UpdateSourceControl(f)
 
     -- Everything in the grid header hangs off this: the y where the paladin
     -- role icons stand and the rows begin.
@@ -754,6 +769,7 @@ function WhoDoesWhat:OpenBuffingGridView()
     end
 
     self:LogUiBuilding("Opening Buffing Grid View...")
+    f.gridSource = DefaultGridSource()
     f:Show()
     RefreshGrid(f)
     f:Raise()

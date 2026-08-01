@@ -551,9 +551,10 @@ end
 
 function WhoDoesWhat:RefreshStatusBarsView()
     if not view or not view:IsShown() then return end
-    local summary = self.Assign.ComputePaladinBuffSummary()
+    local buffPlan = self.Assign.GetActivePaladinBuffPlan()
+    local summary = self.Assign.ComputePaladinBuffSummary(buffPlan)
     local paladinCorrect, paladinTotal, coverageByPaladin =
-        self.Assign.ComputePaladinBuffCoverage()
+        self.Assign.ComputePaladinBuffCoverage(buffPlan)
     local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
     local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
     local showPallyPower = ShowPallyPowerRow(ppState)

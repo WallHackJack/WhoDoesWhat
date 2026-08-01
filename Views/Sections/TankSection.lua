@@ -5,7 +5,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- and the marker dropdown is a multi-select so one tank holds all their
 -- markers (entry.markers) on a single row:
 --
---   [tank]  ->  [markers v] [custom text] (!) [mail] [x]
+--   [tank] [markers v] [custom text] (!) [mail] [x]
 --
 -- Marker toggles route through the unit-menu setters (SetTankMarkerPlayer /
 -- RemoveTankMarker, AssignmentsActions.lua), which enforce one-tank-per-
@@ -18,7 +18,6 @@ local K = WhoDoesWhat.SectionKit
 
 local GetEntries = A.GetEntries
 local EntryHasJob = A.EntryHasJob
-local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local PlayerEntriesText = A.PlayerEntriesText
 local TargetText = A.TargetText
@@ -31,6 +30,16 @@ local MarkerMarkup = A.MarkerMarkup
 local SECTION = A.SectionByKey("tank")
 
 local Refresh -- forward declared; row callbacks repaint through it
+
+local function IsComplete(entry)
+    if not entry.player or not entry.markers or #entry.markers == 0 then return false end
+    for _, marker in ipairs(entry.markers) do
+        if marker == "custom" and (not entry.custom or entry.custom == "") then
+            return false
+        end
+    end
+    return true
+end
 
 -- Collapsed multi-marker box width: the 44px floor covers one icon; each
 -- extra icon adds 16px, the word "Everything else" ~55px. Capped so a
@@ -50,7 +59,8 @@ end
 local function CreateRow(f, index)
     local state = f.tankSection
     local row = K.CreateSectionRow(state.box, index)
-    local function Entry() return GetEntries(SECTION)[index] end
+    row.entryIndex = index
+    local function Entry() return GetEntries(SECTION)[row.entryIndex] end
 
     -- The row IS its tank, so a fixed label stands where a picker would be.
     local playerLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -59,16 +69,11 @@ local function CreateRow(f, index)
     playerLabel:SetJustifyH("LEFT")
     row.playerLabel = playerLabel
 
-    local arrowLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    arrowLabel:SetPoint("LEFT", playerLabel, "RIGHT", -10, 0)
-    arrowLabel:SetText("->")
-    row.arrowLabel = arrowLabel
-
     -- Multi-select marker dropdown: selecting a new option closes the menu;
     -- deselecting a checked option leaves it open. UIDropDownMenu carries
     -- ~15px of transparent padding per side, hence the negative anchors.
     local markerDD = CreateFrame("Frame", "WhoDoesWhattankMarkerDD" .. index, row, "UIDropDownMenuTemplate")
-    markerDD:SetPoint("LEFT", arrowLabel, "RIGHT", -12, -2)
+    markerDD:SetPoint("LEFT", playerLabel, "RIGHT", -12, -2)
     UIDropDownMenu_SetWidth(markerDD, K.MARKER_DD_WIDTH)
     K.LeftAlignDropdown(markerDD)
     UIDropDownMenu_Initialize(markerDD, function(_, level)
@@ -157,9 +162,9 @@ local function CreateRow(f, index)
     row.customEdit = customEdit
 
     -- Read-only stand-in for the whole widget strip (Permissions.lua).
-    local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    roText:SetPoint("LEFT", row, "LEFT", 4, 0)
-    roText:SetPoint("RIGHT", warn, "LEFT", -6, 0)
+    local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    roText:SetPoint("LEFT", playerLabel, "RIGHT", -8, 0)
+    roText:SetPoint("RIGHT", row, "RIGHT", -2, 0)
     roText:SetJustifyH("LEFT")
     roText:Hide()
     row.roText = roText
@@ -173,21 +178,31 @@ function Refresh(f) -- forward declared above
     local editable = WhoDoesWhat:CanEditAssignments()
     local entries = GetEntries(SECTION)
 
+    local visible = {}
+    for sourceIndex, entry in ipairs(entries) do
+        if editable or IsComplete(entry) then
+            visible[#visible + 1] = { entry = entry, sourceIndex = sourceIndex }
+        end
+    end
+
     local hasAssignments = false
-    for i, entry in ipairs(entries) do
+    for i, item in ipairs(visible) do
+        local entry = item.entry
         local row = state.rows[i] or CreateRow(f, i)
+        row.entryIndex = item.sourceIndex
         row:Show()
         if #(entry.markers or {}) > 0 then hasAssignments = true end
 
-        row.playerLabel:SetShown(editable)
-        row.playerLabel:SetText(PlayerTextWithRole(entry.player, 16))
-        row.arrowLabel:SetShown(editable)
-        row.roText:SetText(PlayerText(entry.player) .. " -> " .. MarkersRichText(entry))
+        row.playerLabel:Show()
+        row.playerLabel:SetText(PlayerTextWithRole(entry.player, K.ROW_ICON_SIZE))
+        row.roText:SetText(MarkersRichText(entry, K.ROW_ICON_SIZE))
         row.roText:SetShown(not editable)
 
         -- The marker box grows with its icons; set width before text.
         row.markerDD:SetShown(editable)
         UIDropDownMenu_SetWidth(row.markerDD, MarkerDDWidth(entry))
+        local markerText = _G[row.markerDD:GetName() .. "Text"]
+        if markerText then markerText:SetWidth(markerText:GetWidth() + 5) end
         UIDropDownMenu_SetText(row.markerDD, TargetText(entry))
 
         if editable and HasMarkerValue(entry, "custom") then
@@ -212,16 +227,19 @@ function Refresh(f) -- forward declared above
         row.mailBtn:SetEnabled(hasJob)
         row.mailBtn.icon:SetDesaturated(not hasJob)
     end
-    for i = #entries + 1, #state.rows do
+    for i = #visible + 1, #state.rows do
         state.rows[i]:Hide()
     end
 
-    state.emptyHint:SetShown(#entries == 0)
+    state.emptyHint:SetText(editable
+        and "No tanks marked yet - assign tank roles from the unit right-click menu."
+        or "No tank assignments yet.")
+    state.emptyHint:SetShown(#visible == 0)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(hasAssignments)
     K.LayoutHeaderChain(state.headerChain)
 
-    local rowsH = (#entries > 0) and (#entries * K.ROW_H) or K.DYN_EMPTY_H
+    local rowsH = (#visible > 0) and (#visible * K.ROW_H) or K.DYN_EMPTY_H
     state.box:SetHeight(K.BOX_PAD + K.SECTION_TITLE_H + rowsH + K.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
     K.UpdateContentHeight(f)

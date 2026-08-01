@@ -4,7 +4,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- and removed with each row's [x] (or the header X clear-all, behind a
 -- confirm popup):
 --
---   [player v] ([spell v]) -> [marker v] [custom text] (!) [x] [mail]
+--   [player v] [spell v] [marker v] [custom text] (!) [x] [mail]
 --
 -- The spell dropdown offers what the assigned player's class can cast (the
 -- full list while unassigned, so a fight can be planned before the raid
@@ -24,7 +24,6 @@ local GetEntries = A.GetEntries
 local EntryText = A.EntryText
 local EntryHasJob = A.EntryHasJob
 local FindMember = A.FindMember
-local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local PlayerEntriesText = A.PlayerEntriesText
 local TargetText = A.TargetText
@@ -41,28 +40,34 @@ local SECTION = A.SectionByKey("cc")
 
 local Refresh -- forward declared; row callbacks repaint through it
 
+local function IsComplete(entry)
+    if not entry.player or not SpellById(entry.spell) or entry.marker == nil then
+        return false
+    end
+    return entry.marker ~= "custom" or (entry.custom and entry.custom ~= "")
+end
+
 -- Members of the picked spell's class float to the top of the player list.
 local function PrefersSpellClass(m, entry)
     local spell = SpellById(entry.spell)
     return spell ~= nil and m.classInfo.name == spell.class
 end
 
--- One entry as a read-only line: player (spell) -> target, same vocabulary
--- as the editable widgets it replaces.
-local function ReadOnlyText(entry)
+-- Read-only assignment details follow the large role-icon/player label.
+-- Raid markers use the same 20px row scale as the role icon.
+local function ReadOnlyAssignmentText(entry)
     local target
     if entry.marker == "custom" then
         target = (entry.custom and entry.custom ~= "") and entry.custom
-            or ("|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom")
+            or ("|T" .. K.CUSTOM_TARGET_ICON .. ":" .. K.ROW_ICON_SIZE .. ":"
+                .. K.ROW_ICON_SIZE .. ":0:0|t Custom")
+    elseif type(entry.marker) == "number" then
+        target = MarkerMarkup(entry.marker, K.ROW_ICON_SIZE)
     else
-        target = TargetText(entry) -- marker icon
+        target = "|cff909090--|r"
     end
-    local text = PlayerText(entry.player)
     local spell = SpellById(entry.spell)
-    if spell then
-        text = text .. " (" .. SpellText(spell) .. ")"
-    end
-    return text .. " -> " .. target
+    return (spell and SpellText(spell) or "") .. " " .. target
 end
 
 -- Build pooled row #index. The row position is fixed; Refresh maps entry
@@ -71,7 +76,8 @@ end
 local function CreateRow(f, index)
     local state = f.ccSection
     local row = K.CreateSectionRow(state.box, index)
-    local function Entry() return GetEntries(SECTION)[index] end
+    row.entryIndex = index
+    local function Entry() return GetEntries(SECTION)[row.entryIndex] end
 
     -- UIDropDownMenu carries ~15px of transparent padding each side, so the
     -- frame hangs left of the row to land its visible box at the same x=4
@@ -103,7 +109,7 @@ local function CreateRow(f, index)
     -- Spell picker. The list is class-ordered, so a divider on each class
     -- change keeps a long list scannable.
     local spellDD = CreateFrame("Frame", "WhoDoesWhatccSpellDD" .. index, row, "UIDropDownMenuTemplate")
-    spellDD:SetPoint("LEFT", playerDD, "RIGHT", -18, 0)
+    spellDD:SetPoint("LEFT", playerDD, "RIGHT", -30, 0)
     UIDropDownMenu_SetWidth(spellDD, K.DYN_SPELL_DD_WIDTH)
     K.LeftAlignDropdown(spellDD)
     UIDropDownMenu_Initialize(spellDD, function(_, level)
@@ -142,16 +148,10 @@ local function CreateRow(f, index)
     end)
     row.spellDD = spellDD
 
-    local arrowLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    -- The +2 y compensates for the dropdown-frame anchor sitting at y=-2.
-    arrowLabel:SetPoint("LEFT", spellDD, "RIGHT", -10, 2)
-    arrowLabel:SetText("->")
-    row.arrowLabel = arrowLabel -- hidden with the dropdowns in read-only mode
-
     -- Single-marker radio dropdown: the eight markers plus Custom. No
     -- "Everything else" here -- CC lands on one target.
     local markerDD = CreateFrame("Frame", "WhoDoesWhatccMarkerDD" .. index, row, "UIDropDownMenuTemplate")
-    markerDD:SetPoint("LEFT", arrowLabel, "RIGHT", -12, -2)
+    markerDD:SetPoint("LEFT", spellDD, "RIGHT", -30, 0)
     UIDropDownMenu_SetWidth(markerDD, K.MARKER_DD_WIDTH)
     K.LeftAlignDropdown(markerDD)
     UIDropDownMenu_Initialize(markerDD, function(_, level)
@@ -189,7 +189,7 @@ local function CreateRow(f, index)
     local delBtn = K.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
-        table.remove(GetEntries(SECTION), index)
+        table.remove(GetEntries(SECTION), row.entryIndex)
         WhoDoesWhat:LogOperation(SECTION.title .. ": " .. SECTION.noun .. " removed.")
         Refresh(f)
     end)
@@ -239,9 +239,17 @@ local function CreateRow(f, index)
     customEdit:Hide()
     row.customEdit = customEdit
 
-    -- Read-only stand-in for the whole widget strip (Permissions.lua).
-    local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    roText:SetPoint("LEFT", row, "LEFT", 4, 0)
+    -- Read-only stand-in for the widget strip (Permissions.lua): match the
+    -- Tank row's full-size role icon and player-name column.
+    local roPlayerLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    roPlayerLabel:SetPoint("LEFT", row, "LEFT", 4, 0)
+    roPlayerLabel:SetWidth(K.NAME_LABEL_W)
+    roPlayerLabel:SetJustifyH("LEFT")
+    roPlayerLabel:Hide()
+    row.roPlayerLabel = roPlayerLabel
+
+    local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    roText:SetPoint("LEFT", roPlayerLabel, "RIGHT", -8, 0)
     roText:SetPoint("RIGHT", warn, "LEFT", -6, 0)
     roText:SetJustifyH("LEFT")
     roText:Hide()
@@ -256,18 +264,29 @@ function Refresh(f) -- forward declared above
     local editable = WhoDoesWhat:CanEditAssignments()
     local entries = GetEntries(SECTION)
 
-    for i, entry in ipairs(entries) do
+    local visible = {}
+    for sourceIndex, entry in ipairs(entries) do
+        if editable or IsComplete(entry) then
+            visible[#visible + 1] = { entry = entry, sourceIndex = sourceIndex }
+        end
+    end
+
+    for i, item in ipairs(visible) do
+        local entry = item.entry
         local row = state.rows[i] or CreateRow(f, i)
+        row.entryIndex = item.sourceIndex
         row:Show()
 
         -- Edit widgets or the read-only line, never both (Permissions.lua).
-        row.arrowLabel:SetShown(editable)
-        row.roText:SetText(ReadOnlyText(entry))
+        row.roPlayerLabel:SetText(PlayerTextWithRole(entry.player, K.ROW_ICON_SIZE))
+        row.roPlayerLabel:SetShown(not editable)
+        row.roText:SetText(ReadOnlyAssignmentText(entry))
         row.roText:SetShown(not editable)
         row.delBtn:SetShown(editable)
 
         row.playerDD:SetShown(editable)
-        UIDropDownMenu_SetText(row.playerDD, PlayerTextWithRole(entry.player))
+        UIDropDownMenu_SetText(row.playerDD,
+            PlayerTextWithRole(entry.player, K.DROPDOWN_ICON_SIZE))
         row.spellDD:SetShown(editable)
         UIDropDownMenu_SetText(row.spellDD, SpellText(SpellById(entry.spell)))
         row.markerDD:SetShown(editable)
@@ -296,20 +315,20 @@ function Refresh(f) -- forward declared above
         row.mailBtn:SetEnabled(hasJob)
         row.mailBtn.icon:SetDesaturated(not hasJob)
     end
-    for i = #entries + 1, #state.rows do
+    for i = #visible + 1, #state.rows do
         state.rows[i]:Hide()
     end
 
     state.emptyHint:SetText(editable
         and ("No " .. SECTION.noun .. "s yet - click Add (+) to add one.")
         or ("No " .. SECTION.noun .. "s yet."))
-    state.emptyHint:SetShown(#entries == 0)
+    state.emptyHint:SetShown(#visible == 0)
     state.plusBtn:SetShown(editable)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(#entries > 0)
     K.LayoutHeaderChain(state.headerChain)
 
-    local rowsH = (#entries > 0) and (#entries * K.ROW_H) or K.DYN_EMPTY_H
+    local rowsH = (#visible > 0) and (#visible * K.ROW_H) or K.DYN_EMPTY_H
     state.box:SetHeight(K.BOX_PAD + K.SECTION_TITLE_H + rowsH + K.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
     K.UpdateContentHeight(f)

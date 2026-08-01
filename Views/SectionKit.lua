@@ -34,10 +34,11 @@ WhoDoesWhat.SectionKit = K
 K.COL_LEFT, K.COL_RIGHT = 1, 2
 
 K.SECTION_GAP = 10 -- vertical gap between section boxes
-K.SECTION_TITLE_H = 22 -- box interior reserved for the title + divider
+K.SECTION_TITLE_H = 22 -- box interior reserved for the title strip
 K.BOX_PAD = 8 -- section box inner margin
-K.ROW_H = 32
-K.ROW_ICON_SIZE = 22
+K.ROW_H = 24
+K.ROW_ICON_SIZE = 20
+K.DROPDOWN_ICON_SIZE = 14
 K.DROPDOWN_WIDTH = 100 -- player picker; sized for a name, not a sentence
 K.WARNING_ICON_SIZE = 18
 K.MAIL_BTN_SIZE = 22
@@ -45,7 +46,7 @@ K.DYN_EMPTY_H = 20 -- rows-area height while a section's row list is empty
 -- How far the header button strip's top sits below the box top. The section
 -- title centers on this strip too (see CreateSectionChrome), so both move
 -- together -- tweak here to nudge the whole header row up/down.
-K.HEADER_STRIP_TOP = 3
+K.HEADER_STRIP_TOP = 5
 
 K.DYN_PLAYER_DD_WIDTH = 100
 K.DYN_SPELL_DD_WIDTH = 110
@@ -67,12 +68,14 @@ K.WARNING_ICON = WhoDoesWhat.WARNING_ICON
 K.MAIL_ICON = "Interface\\Icons\\INV_Letter_15"
 K.CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 
-local paladinColor
+local classColors = {}
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
-    if classInfo.name == "Paladin" then
-        paladinColor = classInfo.colorRGB
-        break
-    end
+    classColors[classInfo.name] = classInfo.colorRGB
+end
+local paladinColor = classColors.Paladin
+
+local function TowardWhite(value, amount)
+    return value + (1 - value) * amount
 end
 
 -- ---------------------------------------------------------------------------
@@ -81,14 +84,10 @@ end
 
 -- UIDropDownMenuTemplate right-aligns its collapsed label by default, which
 -- leaves player/spell names (and the marker icon) floating against the arrow
--- with dead space on the left. Left-align so the content hugs the left edge,
--- and nudge it down 1px -- the template sits the label a hair high in the box.
+-- with dead space on the left. Left-align and extend the label 5px toward that
+-- edge, then nudge it down 1px -- the template sits it a hair high in the box.
 function K.LeftAlignDropdown(dd)
-    local text = _G[dd:GetName() .. "Text"]
-    if text then
-        text:SetJustifyH("LEFT")
-        text:AdjustPointsOffset(0, -1)
-    end
+    WhoDoesWhat:StyleDropdown(dd, true)
 end
 
 function K.AddDropdownDivider(level)
@@ -160,7 +159,8 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
         local name = m.name
         local info = UIDropDownMenu_CreateInfo()
         local note = Annotate and Annotate(m)
-        info.text = RoleIconMarkup(name) .. "|cff" .. m.classInfo.colorHex .. name .. "|r"
+        info.text = RoleIconMarkup(name, K.DROPDOWN_ICON_SIZE)
+            .. "|cff" .. m.classInfo.colorHex .. name .. "|r"
             .. (note and (" " .. note) or "")
         info.checked = (saved == name)
         info.func = function() OnPick(name) end
@@ -294,28 +294,26 @@ function K.CreateMailButton(row, GetWhisper)
     return btn
 end
 
--- Hairline divider on a row boundary (subtler + more inset than the section
--- title's line).
-function K.AddRowDivider(parent, insetX, y)
-    local divider = parent:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
-    divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", insetX, -y)
-    divider:SetPoint("TOPRIGHT", -insetX, -y)
-    return divider
+-- Opaque alternating fill; the parent section supplies its neutral or
+-- class-tinted palette so adjacent rows meet without divider lines.
+function K.AddRowBackground(row, index)
+    local colors = row:GetParent().rowColors
+    local color = colors[index % 2 == 1 and 1 or 2]
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(color.r, color.g, color.b, 1)
+    return background
 end
 
 -- One pooled section row at the standard grid position: full box width, ROW_H
--- tall, row #index sitting under the title strip, with the hairline divider
--- every row after the first carries. The section fills in the widgets.
+-- tall, row #index sitting under the title strip. The section fills in the
+-- widgets over the shared alternating background.
 function K.CreateSectionRow(box, index)
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
     row:SetSize(box:GetWidth() - K.BOX_PAD * 2, K.ROW_H)
     row:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + K.SECTION_TITLE_H + (index - 1) * K.ROW_H))
-    if index > 1 then
-        K.AddRowDivider(row, 2, 0)
-    end
+    K.AddRowBackground(row, index)
     return row
 end
 
@@ -332,10 +330,10 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Boxed section shell: lighter inset backdrop (same style as the All Roles
--- options box), gold title with a divider line. Anchor-chained below the
+-- options box) with a gold title. Anchor-chained below the
 -- previous box *in its own column*, so height changes ripple down that column
 -- and leave the other one alone.
-local function CreateSectionBox(f, content, titleText, column)
+local function CreateSectionBox(f, content, titleText, column, tintClass)
     local col = f.columns[column]
     local box = CreateFrame("Frame", nil, content, "BackdropTemplate")
     -- Explicit level: same-level siblings render in unstable order (the box
@@ -354,10 +352,28 @@ local function CreateSectionBox(f, content, titleText, column)
         tile = true, tileSize = 16, edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 },
     })
-    box:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
+    local panelR, panelG, panelB = 0.16, 0.16, 0.18
+    local tint = tintClass and classColors[tintClass]
+    if tint then
+        panelR = 0.08 + tint.r * 0.18
+        panelG = 0.08 + tint.g * 0.18
+        panelB = 0.08 + tint.b * 0.18
+    end
+    box:SetBackdropColor(panelR, panelG, panelB, 1)
     box:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    box.rowColors = {
+        { r = TowardWhite(panelR, 0.09), g = TowardWhite(panelG, 0.09),
+            b = TowardWhite(panelB, 0.09) },
+        { r = TowardWhite(panelR, 0.04), g = TowardWhite(panelG, 0.04),
+            b = TowardWhite(panelB, 0.04) },
+    }
 
     local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local titleFont, titleSize = title:GetFont()
+    if titleFont and titleSize then
+        title:SetFont(titleFont, titleSize + 2, "OUTLINE")
+    end
+    title:SetTextColor(0.95, 0.95, 0.95)
     -- Anchor by LEFT (vertically centers the FontString) onto the header
     -- button strip's midline -- buttons sit at top -HEADER_STRIP_TOP, height
     -- MAIL_BTN_SIZE -- so the title text and the header buttons share a line.
@@ -365,14 +381,6 @@ local function CreateSectionBox(f, content, titleText, column)
         -(K.HEADER_STRIP_TOP + K.MAIL_BTN_SIZE / 2))
     title:SetText(titleText)
     box.title = title -- sections gray it when they disable themselves
-
-    -- The divider sits right under the header buttons (22px from y -6), so
-    -- the rows can start immediately below without dead space.
-    local line = box:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.4, 0.4, 0.4, 0.6)
-    line:SetHeight(1)
-    line:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + 20))
-    line:SetPoint("TOPRIGHT", -K.BOX_PAD, -(K.BOX_PAD + 20))
 
     col.boxes[#col.boxes + 1] = box
     return box
@@ -547,13 +555,14 @@ end
 -- header strip, with the section's extra buttons injected right-aligned.
 --   opts.title       box title
 --   opts.column      K.COL_LEFT / K.COL_RIGHT
+--   opts.tintClass   optional class name for a subtle panel/row tint
 --   opts.mailCollect optional whisper collector; adds the header mail button
 -- Returns { box, mailBtn, headerChain }. headerChain starts with the mail
 -- button (rightmost); sections append their own buttons with ChainHeaderButton
 -- in right-to-left order and call LayoutHeaderChain on refresh.
 function K.CreateSectionChrome(f, content, opts)
     WhoDoesWhat:LogUiBuilding("Building assignment section: " .. opts.title)
-    local box = CreateSectionBox(f, content, opts.title, opts.column)
+    local box = CreateSectionBox(f, content, opts.title, opts.column, opts.tintClass)
     local chrome = { box = box, headerChain = {} }
     if opts.mailCollect then
         chrome.mailBtn = AddHeaderMailButton(f, box, opts.title, opts.mailCollect)
