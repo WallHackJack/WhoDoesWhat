@@ -636,8 +636,10 @@ end
 local function MassWhisper(list)
     for i, w in ipairs(list) do
         local name, msg = w.name, w.msg
+        local text = "[WhoDoesWhat] "
+            .. (w.bare and "" or "Your assignment: ") .. msg .. "."
         C_Timer.After((i - 1) * MAIL_STAGGER, function()
-            SendChatMessage("[WhoDoesWhat] Your assignment: " .. msg .. ".", "WHISPER", nil, name)
+            SendChatMessage(text, "WHISPER", nil, name)
         end)
     end
     return #list
@@ -1422,6 +1424,7 @@ local function CollectPaladinBuffWhispers()
             out[#out + 1] = {
                 name = p.name,
                 msg = msg,
+                bare = true,
             }
         end
     end

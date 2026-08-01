@@ -254,11 +254,12 @@ function K.CreateWarningIcon(row)
 end
 
 -- Small red mail button: whispers the assigned player their job. GetWhisper
--- returns (playerName, whisperText, displayText), or nothing while
+-- returns (playerName, whisperText, displayText, bare), or nothing while
 -- unassigned; the refresh passes disable/desaturate it accordingly.
 -- displayText is the version for our own chat and the hover tooltip (it
 -- defaults to whisperText) -- they differ where the whisper uses chat's
 -- {skull} tokens, which only expand into icons on the receiving end.
+-- bare omits the generic "Your assignment:" lead after the addon tag.
 function K.CreateMailButton(row, GetWhisper)
     local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     btn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
@@ -270,9 +271,10 @@ function K.CreateMailButton(row, GetWhisper)
     icon:SetTexture(K.MAIL_ICON)
     btn.icon = icon
     btn:SetScript("OnClick", function()
-        local name, job, display = GetWhisper()
+        local name, job, display, bare = GetWhisper()
         if not name then return end
-        SendChatMessage("[WhoDoesWhat] Your assignment: " .. job .. ".", "WHISPER", nil, name)
+        SendChatMessage("[WhoDoesWhat] " .. (bare and "" or "Your assignment: ")
+            .. job .. ".", "WHISPER", nil, name)
         WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
     end)
     btn:SetScript("OnEnter", function(self)

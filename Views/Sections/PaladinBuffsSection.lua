@@ -449,7 +449,7 @@ local function CreatePallyRow(state, index)
     row.mailBtn = K.CreateMailButton(row, function()
         if not row.paladinName then return end
         local msg = GetPaladinBuffWhisper(row.paladinName)
-        if msg then return row.paladinName, msg end
+        if msg then return row.paladinName, msg, msg, true end
     end)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
