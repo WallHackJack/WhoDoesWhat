@@ -17,7 +17,6 @@ local BUFF_OPTIONS_W = 242
 --@do-not-package@
 FRAME_H = 594
 --@end-do-not-package@
-local CHECKBOX_ROW_H = 52
 local FIRST_PALADIN_LABEL = "(use first paladin)"
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local STATUS_SCOPE_LABELS = {
@@ -42,38 +41,13 @@ local function RefreshBuffingTestPaladinDropdown(f)
     end
 end
 
--- Checkbox at column origin `x`, label beside it, gray wrapped description
--- underneath. `apply` writes the new boolean. Returns the checkbox and the y
--- below the row; long descriptions (3+ lines) pass `extra` to reserve room.
-local function AddCheckboxRow(f, x, y, labelText, descText, apply, extra)
-    local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    check:SetSize(24, 24)
-    check:SetPoint("TOPLEFT", x, -y)
-    check:SetScript("OnClick", function(self)
-        apply(self:GetChecked() and true or false)
-    end)
-
-    local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-    label:SetText(labelText)
-
-    local desc = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    desc:SetPoint("TOPLEFT", check, "BOTTOMLEFT", 26, 2)
-    desc:SetWidth(CONTENT_W - 26 - (x - CONTENT_X))
-    desc:SetJustifyH("LEFT")
-    desc:SetTextColor(0.6, 0.6, 0.6)
-    desc:SetText(descText)
-
-    return check, y + CHECKBOX_ROW_H + (extra or 0)
-end
-
 -- Section heading at column origin `x`. Returns the y below it.
 local function AddHeading(f, x, y, text, r, g, b)
     local h = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     h:SetPoint("TOPLEFT", x, -y)
     h:SetText(text)
     if r then h:SetTextColor(r, g, b) end
-    return y + 28
+    return y + 28, h
 end
 
 local function CreateStatusArrow(parent, direction)
@@ -245,6 +219,87 @@ local function AddCompactCheckboxRow(f, x, y, labelText, tooltip, apply)
     label:SetText(labelText)
     AddTooltip(check, labelText, tooltip)
     return check, y + 28, label
+end
+
+local MINIMAP_NAME = "WhoDoesWhat"
+local MINIMAP_ICON = "Interface\\AddOns\\WhoDoesWhat\\Icon.png"
+local minimapIcon
+local minimapLoader = CreateFrame("Frame")
+
+local function MinimapClick(_, mouseButton)
+    local shift = IsShiftKeyDown()
+    if shift and mouseButton == "RightButton" then
+        WhoDoesWhat:OpenAddonSettingsView()
+    elseif shift then
+        WhoDoesWhat:OpenRaiderRolesView()
+    elseif mouseButton == "RightButton" then
+        WhoDoesWhat:OpenBuffingGridView()
+    else
+        WhoDoesWhat:ToggleMainUI()
+    end
+end
+
+local function MinimapTooltip(tooltip)
+    tooltip:AddLine("WhoDoesWhat", 1, 1, 1)
+    tooltip:AddDoubleLine("Left-click:", "Assignments",
+        1, 0.82, 0, 1, 1, 1)
+    tooltip:AddDoubleLine("Right-click:", "Buffing Grid",
+        1, 0.82, 0, 1, 1, 1)
+    tooltip:AddDoubleLine("Shift-left-click:", "Members",
+        1, 0.82, 0, 1, 1, 1)
+    tooltip:AddDoubleLine("Shift-right-click:", "Settings",
+        1, 0.82, 0, 1, 1, 1)
+end
+
+function WhoDoesWhat:InitializeMinimapButton()
+    if minimapIcon then return end
+    local broker = LibStub("LibDataBroker-1.1", true)
+    local icon = LibStub("LibDBIcon-1.0", true)
+    if not broker or not icon or not icon.ShowOnEnter then
+        self:Print("Minimap button unavailable: compatible LibDataBroker and LibDBIcon libraries are not loaded.")
+        return
+    end
+    local launcher = broker:NewDataObject(MINIMAP_NAME, {
+        type = "launcher",
+        text = MINIMAP_NAME,
+        icon = MINIMAP_ICON,
+        OnClick = MinimapClick,
+        OnTooltipShow = MinimapTooltip,
+    })
+    icon:Register(MINIMAP_NAME, launcher,
+        self.db.profile.settings.minimapButton)
+    local button = icon:GetMinimapButton(MINIMAP_NAME)
+    local mask = button:CreateMaskTexture(nil, "ARTWORK")
+    mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask",
+        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    mask:SetAllPoints(button.icon)
+    button.icon:AddMaskTexture(mask)
+    button.wdwIconMask = mask
+    icon:ShowOnEnter(MINIMAP_NAME, true)
+    minimapIcon = icon
+    self:UpdateMinimapButtonVisibility()
+end
+
+function WhoDoesWhat:ScheduleMinimapButtonInitialization()
+    if IsLoggedIn() then
+        self:InitializeMinimapButton()
+        return
+    end
+    minimapLoader:SetScript("OnEvent", function(frame)
+        frame:UnregisterEvent("PLAYER_LOGIN")
+        WhoDoesWhat:InitializeMinimapButton()
+    end)
+    minimapLoader:RegisterEvent("PLAYER_LOGIN")
+end
+
+function WhoDoesWhat:UpdateMinimapButtonVisibility()
+    if not minimapIcon then return end
+    local db = self.db.profile.settings.minimapButton
+    if db.hide then
+        minimapIcon:Hide(MINIMAP_NAME)
+    else
+        minimapIcon:Show(MINIMAP_NAME)
+    end
 end
 
 local function SetOptionAvailable(check, label, available)
@@ -903,7 +958,14 @@ local function EnsureSettingsFrame()
     local generalPage = pages[1]
     local yL = y0
     yL = AddHeading(generalPage, CONTENT_X, yL, "General")
-    f.announceRoleCheck, yL = AddCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
+    f.minimapCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+        "Show minimap button",
+        "Show a draggable WhoDoesWhat button on the minimap.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.minimapButton.hide = not value
+            WhoDoesWhat:UpdateMinimapButtonVisibility()
+        end)
+    f.announceRoleCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
         "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
         function(value)
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
@@ -986,7 +1048,11 @@ local function EnsureSettingsFrame()
     -- ---- Buff Tracking ----
     local statusBuffPage = pages[3]
     yL = y0
-    yL = AddHeading(statusBuffPage, CONTENT_X, yL, "Buff Tracking", 0.96, 0.55, 0.73)
+    local statusBuffHeading
+    yL, statusBuffHeading = AddHeading(statusBuffPage, CONTENT_X, yL,
+        "Buff Tracking", 0.96, 0.55, 0.73)
+    AddTooltip(statusBuffHeading, "Buff Tracking",
+        "Use arrows to order Bars; disabled rows move below the divider. Use the cog for display and target options.")
     local resetBuffs = CreateFrame("Button", nil, statusBuffPage, "UIPanelButtonTemplate")
     resetBuffs:SetSize(100, 22)
     resetBuffs:SetPoint("TOPRIGHT", statusBuffPage, "TOPRIGHT", -16, -(y0 - 2))
@@ -994,13 +1060,7 @@ local function EnsureSettingsFrame()
     resetBuffs:SetScript("OnClick", function() ResetBuffTrackingPage(f) end)
     AddTooltip(resetBuffs, "Reset Buff Tracking",
         "Restore the default order, visibility, colors, and per-row options.")
-    local statusBuffDesc = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusBuffDesc:SetPoint("TOPLEFT", CONTENT_X + 4, -yL)
-    statusBuffDesc:SetWidth(CONTENT_W - 4)
-    statusBuffDesc:SetJustifyH("LEFT")
-    statusBuffDesc:SetTextColor(0.6, 0.6, 0.6)
-    statusBuffDesc:SetText("Use arrows to order Bars; disabled rows move below the divider. Use the cog for display and target options.")
-    yL = yL + 38
+    yL = yL + 6
 
     local headers = {
         { "Buff", 84, 155 }, { "Bars", 250, 44 },
@@ -1145,13 +1205,13 @@ local function EnsureSettingsFrame()
     yL = y0
     yL = AddHeading(paladinPage, CONTENT_X, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
 
-    f.buffingBarCheck, yL = AddCheckboxRow(paladinPage, CONTENT_X, yL, "Enable Paladin Buffing Bar",
+    f.buffingBarCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL, "Enable Paladin Buffing Bar",
         "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarEnabled = value
             WhoDoesWhat:LogUiBuilding("Paladin Buffing Bar " .. (value and "enabled." or "disabled."))
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
-        end, 14)
+        end)
 
     local growLabel = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     growLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
@@ -1200,7 +1260,7 @@ local function EnsureSettingsFrame()
     end)
     f.buffingMenuGrowDD = menuGrowDD
 
-    f.buffingMenuExpiringCheck, yL = AddCheckboxRow(paladinPage, CONTENT_X, yL + 68,
+    f.buffingMenuExpiringCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL + 68,
         "Warn below five minutes",
         "Color player rows yellow when their active blessing has less than five minutes remaining.",
         function(value)
@@ -1217,7 +1277,7 @@ local function EnsureSettingsFrame()
     local magicCurseDescription = IS_CLASSIC_ERA
         and "Let the Auto button fill Curse of the Elements and Curse of Shadow on separate warlocks."
         or "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button."
-    f.afflElementsCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, magicCurseLabel,
+    f.afflElementsCheck, yL = AddCompactCheckboxRow(warlockPage, CONTENT_X, yL, magicCurseLabel,
         magicCurseDescription,
         function(value)
             WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
@@ -1226,7 +1286,7 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:LogUiBuilding(settingName .. " "
                 .. (value and "enabled." or "disabled."))
         end)
-    f.recklessnessCheck, yL = AddCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
+    f.recklessnessCheck, yL = AddCompactCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
         "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
         function(value)
             WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
@@ -1237,60 +1297,60 @@ local function EnsureSettingsFrame()
     local developerPage = pages[7]
     local yR = y0
     yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
-    f.devModeCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
+    f.devModeCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
         "Assignment dropdowns list every group member, not just the eligible class.",
         function(value)
             WhoDoesWhat.db.profile.settings.developerMode = value
             WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
         end)
-    f.showLogsCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs button",
+    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs button",
         "Show the combined WhoDoesWhat and PallyPower traffic-log button on the assignment window.",
         function(value)
             WhoDoesWhat.db.profile.settings.showLogsButton = value
             WhoDoesWhat:RefreshMainAssignmentsView()
         end)
-    f.logUiCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
+    f.logUiCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
         "Print verbose UI build and layout logging to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logUiUpdates = value
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:LogUiBuilding("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
-    f.logOperationsCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log Operations",
+    f.logOperationsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log Operations",
         "Print routine assignment, reset, auto-assign, role, and whisper confirmations to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logOperations = value
             WhoDoesWhat.LOG_OPERATIONS = value
             WhoDoesWhat:LogUiBuilding("Log Operations " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncStatusCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync status",
+    f.logSyncStatusCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log sync status",
         "Print automatic board updates, role syncs, and group-clear notices to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncStatus = value
             WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncTrafficCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
+    f.logSyncTrafficCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
         "Capture WDW/PallyPower traffic and print WDW sync diagnostics to chat. Session-only; resets off on reload.",
         function(value)
             WhoDoesWhat:SetSyncLoggingEnabled(value)
             WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
-        end, 14)
-    f.logBuffingClicksCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
+        end)
+    f.logBuffingClicksCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
         "Print each recognized left/right buffing-bar click and its castable target count.",
         function(value)
             WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
             WhoDoesWhat:LogUiBuilding("Log buffing bar clicks "
                 .. (value and "enabled." or "disabled."))
         end)
-    f.logRolePromotionCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR, "Log role/promotion flow",
+    f.logRolePromotionCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log role/promotion flow",
         "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
         function(value)
             WhoDoesWhat.db.profile.settings.logRolePromotion = value
             WhoDoesWhat:LogUiBuilding("Log role/promotion flow "
                 .. (value and "enabled." or "disabled."))
-        end, 14)
+        end)
 --@do-not-package@
-    f.newerVersionTestCheck, yR = AddCheckboxRow(developerPage, CONTENT_X, yR,
+    f.newerVersionTestCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR,
         "|cffff2020Simulate newer addon version|r",
         "|cffff2020WARNING: This feature should never be turned on. It falsely reports the next addon version to your group.|r",
         function(value)
@@ -1305,7 +1365,7 @@ local function EnsureSettingsFrame()
     local testingPage = pages[6]
     yR = y0
     yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
-    f.fakeRaidCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
+    f.fakeRaidCheck, yR = AddCompactCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
@@ -1338,13 +1398,13 @@ local function EnsureSettingsFrame()
     f.fakePaladinDD = palDD
     yR = yR + 40
 
-    f.buffingTestCheck, yR = AddCheckboxRow(testingPage, CONTENT_X, yR, "Show buffing bar as non-paladin",
+    f.buffingTestCheck, yR = AddCompactCheckboxRow(testingPage, CONTENT_X, yR, "Show buffing bar as non-paladin",
         "Render the Paladin Buffing Bar even when you're not a paladin, as the paladin picked below (real or fake). Preview only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarTestMode = value
             WhoDoesWhat:LogUiBuilding("Buffing bar test mode " .. (value and "enabled." or "disabled."))
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
-        end, 14)
+        end)
 
     local testLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     testLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
@@ -1396,6 +1456,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     end
 
     local settings = self.db.profile.settings
+    f.minimapCheck:SetChecked(not settings.minimapButton.hide)
     f.buffingBarCheck:SetChecked(settings.buffingBarEnabled)
     UIDropDownMenu_SetText(f.buffingGrowDD, settings.buffingBarGrow == "LEFT" and "Left" or "Right")
     UIDropDownMenu_SetText(f.buffingMenuGrowDD,

@@ -4,7 +4,7 @@
 
 **WhoDoesWhat is an addon for managing raider roles and assignments (with instant fixes for Paladin buff assignments) for WoW Classic and TBC!**
 
-Open one window with `/wdw` to organize tanks, crowd control, misdirects, Warlock curses, and Paladin blessings. Permitted changes sync to everyone in the group running WhoDoesWhat, while built-in whisper buttons make it easy to brief players who are not.
+Open one window with `/wdw` or the minimap button to organize tanks, crowd control, misdirects, Warlock curses, and Paladin blessings. Permitted changes sync to everyone in the group running WhoDoesWhat, while built-in whisper buttons make it easy to brief players who are not.
 
 > WhoDoesWhat is in active beta. Features and interfaces may change as raid testing continues.
 

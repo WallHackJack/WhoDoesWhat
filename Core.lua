@@ -146,6 +146,8 @@ local defaults = {
         permissions = { mode = "assists", assistant = false },
         -- Addon settings, edited in AddonSettingsView.lua.
         settings = {
+            -- LibDBIcon state for the assignment-window launcher.
+            minimapButton = { hide = false, minimapPos = 220 },
             -- Announce to raid/party chat "[WhoDoesWhat] X was changed to Role
             -- by Y" whenever someone's role assignment changes. Off = silent
             -- (the optional Log Operations entry and Blizzard's own role-flag
@@ -241,6 +243,15 @@ function WhoDoesWhat:OnInitialize()
     -- Alive became the inverse Dead status; keep any per-row preferences under
     -- the new key while the grid option itself remains hard-disabled in Data.
     local settings = self.db.profile.settings
+    -- Migrate the short-lived native minimap-button settings to LibDBIcon.
+    if settings.showMinimapButton ~= nil then
+        settings.minimapButton.hide = settings.showMinimapButton == false
+        settings.showMinimapButton = nil
+    end
+    if settings.minimapButtonAngle ~= nil then
+        settings.minimapButton.minimapPos = settings.minimapButtonAngle
+        settings.minimapButtonAngle = nil
+    end
     local statusChecks = settings.statusBarChecks
     if statusChecks.alive and not statusChecks.dead then
         statusChecks.dead = statusChecks.alive
@@ -353,6 +364,10 @@ function WhoDoesWhat:OnInitialize()
 
     -- Register our slash commands
     self:RegisterChatCommand("wdw", "ToggleMainUI")
+
+    -- LibDBIcon may be embedded by an addon loaded after WDW, so bind once all
+    -- enabled addons have registered their shared libraries.
+    self:ScheduleMinimapButtonInitialization()
 
     -- Inject our section into the unit right-click menus
     self:SetupUnitMenus()

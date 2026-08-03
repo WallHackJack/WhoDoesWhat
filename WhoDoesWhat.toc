@@ -8,6 +8,7 @@
 ## Version: 1.0.8
 #@end-debug@
 ## SavedVariables: WhoDoesWhatDB
+## OptionalDeps: LibDataBroker-1.1, LibDBIcon-1.0
 
 # --- Libraries ---
 Libs\LibStub\LibStub.lua
