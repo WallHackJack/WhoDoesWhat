@@ -253,8 +253,9 @@ end
 
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
 -- rank-independent and include both the single-target and group versions.
--- Core coverage is players-only; excludedClasses narrows Intellect to classes
--- that benefit from mana without encoding spec-level policy.
+-- Core coverage is players-only unless a check explicitly includes hunter
+-- pets; excludedClasses narrows Intellect to classes that benefit from mana
+-- without encoding spec-level policy.
 WhoDoesWhat.CoreRaidBuffOrder = {
     "fortitude", "gift", "food", "shadowProtection", "intellect",
 }
@@ -284,6 +285,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = 136000, -- Spell_Misc_Food
         auraNames = { "Well Fed" },
         colorRGB = { r = 1, g = 0.82, b = 0 },
+        includeHunterPets = not features.isClassicEra,
     },
     shadowProtection = {
         name = "Shadow",

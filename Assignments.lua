@@ -128,6 +128,7 @@ local function GetPetMembers()
                 owner = m.name,
                 classInfo = m.classInfo,
                 isPet = true,
+                isFake = m.isFake,
             }
         end
     end
@@ -1302,11 +1303,12 @@ local function IsEligibleCoreBuffTarget(m, buff, disconnected)
 end
 
 -- Live coverage for the non-paladin checks in WDW Status. Only real, connected
--- raiders count; pets, fake-development members, and the Non-raider role are
--- excluded. Each row may further exclude classes through Data.lua metadata.
+-- raiders count; a check may opt into scanned hunter pets through Data.lua.
+-- Fake-development members and the Non-raider role remain excluded.
 local function ComputeCoreRaidBuffCoverage()
     local disconnected = DisconnectedGroupTargets()
     local members = GetEligibleMembers(nil)
+    local pets = GetPetMembers()
     local correct, total, rows = 0, 0, {}
     for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
         local buff = WhoDoesWhat.StatusBarChecks[key]
@@ -1331,7 +1333,19 @@ local function ComputeCoreRaidBuffCoverage()
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
             }
-            for _, m in ipairs(members) do
+            local targets = members
+            if buff.includeHunterPets then
+                targets = {}
+                for _, m in ipairs(members) do targets[#targets + 1] = m end
+                for _, pet in ipairs(pets) do
+                    -- No unit means no pet to feed; only a scanned/summoned pet
+                    -- participates, with false representing confirmed missing.
+                    if WhoDoesWhat:HasBuff(pet.name, key) ~= nil then
+                        targets[#targets + 1] = pet
+                    end
+                end
+            end
+            for _, m in ipairs(targets) do
                 if IsEligibleCoreBuffTarget(m, buff, disconnected) then
                     row.total = row.total + 1
                     total = total + 1

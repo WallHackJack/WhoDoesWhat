@@ -560,8 +560,9 @@ local function RefreshGrid(f)
             local buff = WhoDoesWhat.CoreRaidBuffs[key]
             local notNeeded = buff.excludedClasses
                 and buff.excludedClasses[m.classInfo.name] or false
+            local showForTarget = not m.isPet or buff.includeHunterPets
             local has
-            if not m.isPet and not notNeeded then
+            if showForTarget and not notNeeded then
                 has = WhoDoesWhat:HasBuff(m.name, key)
             end
             cell.raider = m.name
@@ -586,7 +587,7 @@ local function RefreshGrid(f)
             cell.missing:SetShown(not notNeeded and connected
                 and not m.isFake and has == false)
             cell.warning:SetShown(betterProvider ~= nil)
-            cell:SetShown(not m.isPet)
+            cell:SetShown(showForTarget)
         end
         for c = #coreKeys + 1, #row.coreCells do row.coreCells[c]:Hide() end
 
