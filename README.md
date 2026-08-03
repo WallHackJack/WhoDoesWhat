@@ -42,7 +42,9 @@ PallyPower clients normally accept assignments for other Paladins only from the 
 
 Blessing progress is visible on the main window, the **WDW Status** bars, and the **Buffing Grid**. These views can also track raid buffs such as Fortitude, Mark/Gift of the Wild, Intellect, Shadow Protection, and Well Fed. Scanned Fortitude and Mark/Gift buffs warn when a stronger talented provider was available.
 
-Optional TBC checks include Sated/Exhaustion and Tinnitus from drums. Active Hunter pets participate in the blessing plan, and their planned blessings and Well Fed status can be tracked.
+TBC checks include Sated/Exhaustion, Tinnitus from drums, Thorns, and deaths. Every applicable check appears in both views by default; Dead is status-bar-only and cannot be enabled in the Buffing Grid. Active Hunter pets participate in the blessing plan, and their planned blessings and Well Fed status can be tracked.
+
+The **Buff Tracking** settings page independently chooses which checks appear in WDW Status and the Buffing Grid. Each check also has options for group scope, percent or missing-count display, bar background, negative-debuff presentation, completed-bar hiding, improved-buff requirements, mana/tank filtering, and Hunter pets. The page can reset every check to defaults at once.
 
 The movable **Paladin Buffing Bar** is a secure alternative to PallyPower's buffing UI and works with either WDW or PallyPower assignments. Left-click casts assigned Greater Blessings; right-click cycles assigned Lesser Blessings, prioritizing missing or expiring buffs. PallyPower does not need to be installed.
 

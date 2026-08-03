@@ -215,7 +215,6 @@ local defaults = {
             overviewPallyPowerOnlyDesynced = false,
             overviewAnchor = "TOPLEFT",
             overviewHideCompleted = false,
-            overviewRequireMaxRank = false,
             overviewWidth = 220,
             statusBarChecks = {},
         },
@@ -240,6 +239,14 @@ function WhoDoesWhat:OnInitialize()
         self.db.profile.raidAssignments[key] = nil
     end
     self.db.profile.raidAssignmentOverrides = nil
+
+    -- Alive became the inverse Dead status; keep any per-row preferences under
+    -- the new key while the grid option itself remains hard-disabled in Data.
+    local statusChecks = self.db.profile.settings.statusBarChecks
+    if statusChecks.alive and not statusChecks.dead then
+        statusChecks.dead = statusChecks.alive
+    end
+    statusChecks.alive = nil
 
     -- tankAssignments migrated from one-row-per-marker { player, marker } to
     -- one-row-per-tank { player, markers = { ... } } (multi-select markers on

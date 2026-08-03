@@ -23,21 +23,6 @@ local gridFrame = nil
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 
--- Provider-class columns disappear when that class is absent; Food remains.
-local CORE_BUFF_KEYS = { "gift", "fortitude", "intellect", "food" }
-local CORE_BUFF_TITLES = {
-    gift = "Mark / Gift of the Wild",
-    fortitude = "Fortitude",
-    intellect = "Arcane Intellect / Brilliance",
-    food = "Well Fed",
-}
-local CORE_BUFF_DESCRIPTIONS = {
-    gift = "Increases armor, attributes, and resistances.",
-    fortitude = "Increases Stamina and maximum health.",
-    intellect = "Increases Intellect, mana, and spell critical chance.",
-    food = "Provides a Well Fed stat bonus from food.",
-}
-
 local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width tracks columns
 local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
 local MARGIN = 12
@@ -66,11 +51,21 @@ local SPLIT_AT_ROWS = 20
 local BLOCK_GAP = 14
 local GRID_X = MARGIN
 
+local function RemainingText(seconds)
+    seconds = math.ceil(seconds)
+    if seconds >= 60 then
+        return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+    end
+    return seconds .. "s"
+end
+
 local function VisibleCoreBuffKeys()
     local keys = {}
-    for _, key in ipairs(CORE_BUFF_KEYS) do
-        local buff = WhoDoesWhat.CoreRaidBuffs[key]
-        if not buff.className or #A.MembersOfClass(buff.className) > 0 then
+    for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+        local buff = WhoDoesWhat.StatusBarChecks[key]
+        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
+        if options.grid
+            and (not buff.className or #A.MembersOfClass(buff.className) > 0) then
             keys[#keys + 1] = key
         end
     end
@@ -85,7 +80,7 @@ local function RankColor(rank, maxRank)
 end
 
 local function ImprovedProviders(key, disconnected)
-    local buff = WhoDoesWhat.CoreRaidBuffs[key]
+    local buff = WhoDoesWhat.StatusBarChecks[key]
     local talent = buff and buff.improvedTalent
     local providers = {}
     if not talent then return providers end
@@ -187,10 +182,10 @@ local function CreateCoreHeader(f, index)
     icon:SetAllPoints()
     header.icon = icon
     header:SetScript("OnEnter", function(self)
-        local buff = WhoDoesWhat.CoreRaidBuffs[self.buffKey]
+        local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(CORE_BUFF_TITLES[self.buffKey], 1, 1, 1)
-        GameTooltip:AddLine(CORE_BUFF_DESCRIPTIONS[self.buffKey],
+        GameTooltip:SetText(buff.gridName or buff.name, 1, 1, 1)
+        GameTooltip:AddLine(buff.description or "Tracked raid status.",
             0.8, 0.8, 0.8, true)
         if buff.improvedTalent then
             GameTooltip:AddLine(" ")
@@ -242,7 +237,7 @@ local function CreateCoreCell(row, column)
     cell:SetSize(CELL_SIZE, CELL_SIZE)
     PositionCell(cell, row, column)
 
-    local missing = cell:CreateTexture(nil, "ARTWORK")
+    local missing = cell:CreateTexture(nil, "OVERLAY")
     missing:SetTexture(CORE_MISSING_ICON)
     missing:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
     missing:SetPoint("CENTER")
@@ -262,7 +257,7 @@ local function CreateCoreCell(row, column)
     cell.icon = icon
 
     cell:SetScript("OnEnter", function(self)
-        local buff = WhoDoesWhat.CoreRaidBuffs[self.buffKey]
+        local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(buff.name .. " - " .. self.raider, 1, 1, 1)
         if self.notNeeded then
@@ -270,6 +265,14 @@ local function CreateCoreCell(row, column)
         elseif not self.connected then
             GameTooltip:AddLine("Aura state is unavailable while this raider is offline.",
                 0.6, 0.6, 0.6, true)
+        elseif self.negative and self.hasBuff == true then
+            GameTooltip:AddLine("Has the debuff.", 1, 0.3, 0.3)
+            local remaining = WhoDoesWhat:GetBuffTimeRemaining(
+                self.raider, self.buffKey)
+            if remaining then
+                GameTooltip:AddLine(RemainingText(remaining) .. " remaining.",
+                    1, 0.82, 0)
+            end
         elseif self.hasBuff == true then
             local status, source, rank, maxRank =
                 WhoDoesWhat:GetImprovedBuffState(self.raider, self.buffKey)
@@ -290,6 +293,8 @@ local function CreateCoreCell(row, column)
                     .. self.betterProvider.rank .. "/" .. maxRank .. ").",
                     1, 0.45, 0.2, true)
             end
+        elseif self.negative and self.hasBuff == false then
+            GameTooltip:AddLine("Does not have the debuff.", 0.3, 1, 0.3)
         elseif self.hasBuff == false then
             GameTooltip:AddLine("Missing this buff.", 1, 0.3, 0.3)
         else
@@ -422,10 +427,11 @@ local function RefreshGrid(f)
     local paladins = GroupPaladins()
     local coreKeys = VisibleCoreBuffKeys()
     local disconnected = WhoDoesWhat.Assign.DisconnectedGroupTargets()
-    local providerPools, bestProviders = {}, {}
+    local providerPools, bestProviders, coreOptions = {}, {}, {}
     for _, key in ipairs(coreKeys) do
         providerPools[key] = ImprovedProviders(key, disconnected)
         bestProviders[key] = BestAvailableProvider(providerPools[key])
+        coreOptions[key] = WhoDoesWhat:GetStatusBarCheckOptions(key)
     end
 
     local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
@@ -453,7 +459,7 @@ local function RefreshGrid(f)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.buffKey = key
             header.providers = providerPools[key]
-            header.icon:SetTexture(WhoDoesWhat.CoreRaidBuffs[key].icon)
+            header.icon:SetTexture(WhoDoesWhat.StatusBarChecks[key].icon)
             header:Show()
         end
     end
@@ -557,10 +563,13 @@ local function RefreshGrid(f)
         for c, key in ipairs(coreKeys) do
             local cell = row.coreCells[c] or CreateCoreCell(row, c)
             PositionCell(cell, row, c)
-            local buff = WhoDoesWhat.CoreRaidBuffs[key]
-            local notNeeded = buff.excludedClasses
-                and buff.excludedClasses[m.classInfo.name] or false
-            local showForTarget = not m.isPet or buff.includeHunterPets
+            local buff = WhoDoesWhat.StatusBarChecks[key]
+            local options = coreOptions[key]
+            local notNeeded = (options.onlyManaUsers
+                    and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name] or false)
+                or (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
+            local showForTarget = not m.isPet
+                or (options.hunterPets and not buff.hunterPetsOptionDisabled)
             local has
             if showForTarget and not notNeeded then
                 has = WhoDoesWhat:HasBuff(m.name, key)
@@ -570,8 +579,10 @@ local function RefreshGrid(f)
             cell.connected = connected
             cell.notNeeded = notNeeded
             cell.hasBuff = has
+            cell.negative = options.negative
             local betterProvider
-            if connected and has == true and buff.improvedTalent then
+            if not options.negative and connected and has == true
+                and buff.improvedTalent then
                 local status, _, rank =
                     WhoDoesWhat:GetImprovedBuffState(m.name, key)
                 local best = bestProviders[key]
@@ -582,10 +593,20 @@ local function RefreshGrid(f)
             end
             cell.betterProvider = betterProvider
             cell.icon:SetTexture(buff.icon)
-            cell.icon:SetShown(has == true and not betterProvider)
+            cell.icon:SetShown(has == true
+                and (options.negative or not betterProvider))
             cell.icon:SetDesaturated(not connected)
-            cell.missing:SetShown(not notNeeded and connected
-                and not m.isFake and has == false)
+            cell.missing:ClearAllPoints()
+            if options.negative then
+                cell.missing:SetSize(11, 11)
+                cell.missing:SetPoint("BOTTOMRIGHT", 1, -1)
+            else
+                cell.missing:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
+                cell.missing:SetPoint("CENTER")
+            end
+            cell.missing:SetShown(not notNeeded and connected and not m.isFake
+                and (options.negative and has == true
+                    or not options.negative and has == false))
             cell.warning:SetShown(betterProvider ~= nil)
             cell:SetShown(showForTarget)
         end

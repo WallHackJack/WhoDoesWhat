@@ -191,7 +191,9 @@ local function LayoutProgressLabel(row)
 
     row.completeIcon:Hide()
     local ratio = row.total > 0 and row.correct / row.total or 0
-    row.percent:SetText(math.floor(ratio * 100 + 0.5) .. "%")
+    row.percent:SetText(row.display == "missing"
+        and tostring(row.total - row.correct)
+        or (math.floor(ratio * 100 + 0.5) .. "%"))
     row.percent:Show()
     row.percent:ClearAllPoints()
 
@@ -268,6 +270,7 @@ local function CreateRow(index)
     local background = status:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
     background:SetColorTexture(0.025, 0.025, 0.035, 1)
+    row.background = background
     row.status = status
 
     local name = status:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -583,20 +586,22 @@ function WhoDoesWhat:RefreshStatusBarsView()
         end
     end
     for _, coverage in ipairs(coreCoverage) do
-        local enabled, neverHide, scope = self:GetStatusBarCheckOptions(coverage.key)
-        local inScope = StatusCheckInScope(scope)
+        local options = self:GetStatusBarCheckOptions(coverage.key)
+        local inScope = StatusCheckInScope(options.scope)
         local complete = coverage.total > 0 and coverage.correct >= coverage.total
-        if enabled and inScope and coverage.total > 0 then
+        if options.bar and inScope and coverage.total > 0 then
             coreCorrect = coreCorrect + coverage.correct
             coreTotal = coreTotal + coverage.total
         end
-        if enabled and inScope and coverage.total > 0
-            and not (hideCompleted and complete and not neverHide) then
+        if options.bar and inScope and coverage.total > 0
+            and not (options.hideComplete and complete) then
             local buff = WhoDoesWhat.StatusBarChecks[coverage.key]
             displayed[#displayed + 1] = {
                 name = coverage.name,
                 icon = coverage.icon,
                 coverage = coverage,
+                display = options.display,
+                background = options.background,
                 colorRGB = buff.colorRGB or classColors[buff.className],
             }
         end
@@ -678,10 +683,19 @@ function WhoDoesWhat:RefreshStatusBarsView()
         row.awaitingTalents = entry.awaitingTalents
         row.correct = coverage.correct
         row.total = coverage.total
+        row.display = entry.display or "percent"
         row.status:SetMinMaxValues(0, math.max(coverage.total, 1))
         row.status:SetValue(coverage.correct)
         row.status:SetStatusBarColor(CoverageColor(
             coverage.correct, coverage.total, entry.colorRGB))
+        local background = self.StatusBarBackgrounds[entry.background or "default"]
+        local rgb = background and background.colorRGB
+        if rgb then
+            row.background:SetColorTexture(0.015 + rgb.r * 0.22,
+                0.015 + rgb.g * 0.22, 0.015 + rgb.b * 0.22, 1)
+        else
+            row.background:SetColorTexture(0.025, 0.025, 0.035, 1)
+        end
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
             -(CONTENT_TOP + ppHeight + (i - 1) * ROW_H))

@@ -14,10 +14,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     units). These buffs last minutes, so a few seconds of lag is fine.
 --
 -- Range (TBC 2.5.5): unlike retail, the aura LIST for a group member is
--- available regardless of range -- what goes stale out of range is the
--- duration/expiration, not the presence of the buff. Since we only track
--- present-vs-absent and never read durations, missing-buff detection works
--- across the whole raid, not just nearby.
+-- available regardless of range. Duration/expiration may be stale out of
+-- range, but presence and the last observed expiry still support the grid.
 --
 -- Per-raider states:
 --   * present -- the aura is on them
@@ -38,8 +36,8 @@ local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 local GetDebuffDataByIndex = C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex
 
 -- name -> { buffs = { [buffKey] = true }, sources = { [buffKey] = name|false },
--- connected = bool }. false means the aura is present but its caster was not
--- exposed by the client. Absence of an
+-- expirations = { [buffKey] = timestamp }, connected = bool }. false means
+-- the aura is present but its caster was not exposed by the client. Absence of an
 -- entry means "not yet scanned" (unknown); an entry with an empty buffs table
 -- means scanned and confirmed to have none of the buffs we track.
 local state = {}
@@ -135,21 +133,23 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Walk a unit's buffs, newest API first (C_UnitAuras), indexed UnitBuff as the
--- fallback. Calls fn(auraName, sourceUnit) for each.
+-- fallback. Calls fn(auraName, sourceUnit, expirationTime) for each.
 local function ForEachBuff(unit, fn)
     local i = 1
     if GetBuffDataByIndex then
         while true do
             local aura = GetBuffDataByIndex(unit, i)
             if not aura then break end
-            if aura.name then fn(aura.name, aura.sourceUnit) end
+            if aura.name then
+                fn(aura.name, aura.sourceUnit, aura.expirationTime)
+            end
             i = i + 1
         end
     else
         while true do
-            local auraName, _, _, _, _, _, sourceUnit = UnitBuff(unit, i)
+            local auraName, _, _, _, _, expirationTime, sourceUnit = UnitBuff(unit, i)
             if not auraName then break end
-            fn(auraName, sourceUnit)
+            fn(auraName, sourceUnit, expirationTime)
             i = i + 1
         end
     end
@@ -161,25 +161,29 @@ local function ForEachDebuff(unit, fn)
         while true do
             local aura = GetDebuffDataByIndex(unit, i)
             if not aura then break end
-            if aura.name then fn(aura.name, aura.sourceUnit) end
+            if aura.name then
+                fn(aura.name, aura.sourceUnit, aura.expirationTime)
+            end
             i = i + 1
         end
     else
         while true do
-            local auraName, _, _, _, _, _, sourceUnit = UnitDebuff(unit, i)
+            local auraName, _, _, _, _, expirationTime, sourceUnit = UnitDebuff(unit, i)
             if not auraName then break end
-            fn(auraName, sourceUnit)
+            fn(auraName, sourceUnit, expirationTime)
             i = i + 1
         end
     end
 end
 
 -- Did the freshly-scanned buff set differ from what we had stored?
-local function Differs(prev, buffs, sources, connected)
+local function Differs(prev, buffs, sources, expirations, connected)
     if not prev or prev.connected ~= connected then return true end
     for key in pairs(buffs) do
         if not prev.buffs[key] then return true end
         if not prev.sources or prev.sources[key] ~= sources[key] then return true end
+        if not prev.expirations
+            or prev.expirations[key] ~= expirations[key] then return true end
     end
     for key in pairs(prev.buffs) do
         if not buffs[key] then return true end
@@ -190,34 +194,39 @@ end
 -- Scan one unit's tracked status auras into state[name]; returns whether
 -- anything changed. Aura presence is available at any group-member range.
 local function ScanUnit(unit, name)
-    local buffs, sources = {}, {}
-    ForEachBuff(unit, function(auraName, sourceUnit)
-        local key = nameToKey[auraName]
-        if key then
-            buffs[key] = true
-            sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
-        end
+    local previous = state[name]
+    local buffs, sources, expirations = {}, {}, {}
+    local function StoreAura(map, auraName, sourceUnit, expirationTime)
+        local key = map[auraName]
+        if not key then return end
+        buffs[key] = true
+        sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
+        expirations[key] = expirationTime and expirationTime > 0
+            and expirationTime
+            or previous and previous.expirations and previous.expirations[key]
+    end
+    ForEachBuff(unit, function(auraName, sourceUnit, expirationTime)
+        StoreAura(nameToKey, auraName, sourceUnit, expirationTime)
     end)
-    ForEachDebuff(unit, function(auraName, sourceUnit)
-        local key = debuffNameToKey[auraName]
-        if key then
-            buffs[key] = true
-            sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
-        end
+    ForEachDebuff(unit, function(auraName, sourceUnit, expirationTime)
+        StoreAura(debuffNameToKey, auraName, sourceUnit, expirationTime)
     end)
-    if not UnitIsDeadOrGhost(unit) then buffs.alive = true end
+    if UnitIsDeadOrGhost(unit) then buffs.dead = true end
     local connected = UnitIsConnected(unit) ~= false
-    local changed = Differs(state[name], buffs, sources, connected)
-    state[name] = { buffs = buffs, sources = sources, connected = connected }
+    local changed = Differs(state[name], buffs, sources, expirations, connected)
+    state[name] = {
+        buffs = buffs, sources = sources, expirations = expirations,
+        connected = connected,
+    }
     return changed
 end
 
-local function ScanAlive(unit, name)
+local function ScanDead(unit, name)
     local current = state[name]
     if not current then return ScanUnit(unit, name) end
-    local alive = not UnitIsDeadOrGhost(unit)
-    if (current.buffs.alive == true) == alive then return false end
-    current.buffs.alive = alive and true or nil
+    local dead = UnitIsDeadOrGhost(unit)
+    if (current.buffs.dead == true) == dead then return false end
+    current.buffs.dead = dead and true or nil
     return true
 end
 
@@ -262,7 +271,7 @@ function BuffTracking:RefreshAll()
     if changed then NotifyChanged() end
 end
 
--- The set of blessing keys currently active on a raider, or nil for anyone
+-- The set of tracked aura/status keys currently active on a raider, or nil for anyone
 -- not yet scanned (just joined, or no real unit).
 function WhoDoesWhat:GetActiveBuffs(name)
     local s = state[name]
@@ -284,6 +293,16 @@ function WhoDoesWhat:GetBuffSource(name, key)
     local s = state[name]
     local source = s and s.sources and s.sources[key]
     return source or nil
+end
+
+-- Seconds left on the last observed timed aura, or nil for permanent,
+-- expired, missing, unknown, or never-observed duration data.
+function WhoDoesWhat:GetBuffTimeRemaining(name, key)
+    local s = state[name]
+    local expiration = s and s.expirations and s.expirations[key]
+    if not expiration or expiration <= 0 then return nil end
+    local remaining = expiration - GetTime()
+    return remaining > 0 and remaining or nil
 end
 
 -- Status of a talent-improved core buff on one target. The aura itself has no
@@ -326,7 +345,7 @@ driver:SetScript("OnEvent", function(_, event, unit)
             local name = UnitToKey(unit)
             local changed
             if name then
-                changed = event == "UNIT_HEALTH" and ScanAlive(unit, name)
+                changed = event == "UNIT_HEALTH" and ScanDead(unit, name)
                     or event == "UNIT_AURA" and ScanUnit(unit, name)
             end
             if changed then NotifyChanged() end

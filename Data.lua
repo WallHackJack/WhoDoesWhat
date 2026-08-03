@@ -254,14 +254,28 @@ end
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
 -- rank-independent and include both the single-target and group versions.
 -- Core coverage is players-only unless a check explicitly includes hunter
--- pets; excludedClasses narrows Intellect to classes that benefit from mana
--- without encoding spec-level policy.
+-- pets. Target filters are defaults that each check's cog options may change.
 WhoDoesWhat.CoreRaidBuffOrder = {
     "fortitude", "gift", "food", "shadowProtection", "intellect",
+}
+WhoDoesWhat.ManaExcludedClasses = { Warrior = true, Rogue = true }
+WhoDoesWhat.StatusBarBackgroundOrder = {
+    "default", "red", "orange", "yellow", "green", "blue", "purple", "gray",
+}
+WhoDoesWhat.StatusBarBackgrounds = {
+    default = { name = "Default" },
+    red = { name = "Red", colorRGB = { r = 0.85, g = 0.15, b = 0.15 } },
+    orange = { name = "Orange", colorRGB = { r = 0.95, g = 0.45, b = 0.10 } },
+    yellow = { name = "Yellow", colorRGB = { r = 0.95, g = 0.80, b = 0.10 } },
+    green = { name = "Green", colorRGB = { r = 0.15, g = 0.80, b = 0.25 } },
+    blue = { name = "Blue", colorRGB = { r = 0.20, g = 0.50, b = 0.95 } },
+    purple = { name = "Purple", colorRGB = { r = 0.65, g = 0.30, b = 0.90 } },
+    gray = { name = "Gray", colorRGB = { r = 0.55, g = 0.55, b = 0.60 } },
 }
 WhoDoesWhat.CoreRaidBuffs = {
     fortitude = {
         name = "Fortitude",
+        description = "Increases Stamina and maximum health.",
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
         auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
         className = "Priest",
@@ -272,6 +286,8 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
     gift = {
         name = "Gift of the Wild",
+        gridName = "Mark / Gift of the Wild",
+        description = "Increases armor, attributes, and resistances.",
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
         auraNames = { "Mark of the Wild", "Gift of the Wild" },
         className = "Druid",
@@ -282,6 +298,8 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
     food = {
         name = "Food Buff",
+        gridName = "Well Fed",
+        description = "Provides a Well Fed stat bonus from food.",
         icon = 136000, -- Spell_Misc_Food
         auraNames = { "Well Fed" },
         colorRGB = { r = 1, g = 0.82, b = 0 },
@@ -289,77 +307,120 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
     shadowProtection = {
         name = "Shadow",
+        gridName = "Shadow Protection",
+        description = "Increases Shadow resistance.",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
         className = "Priest",
     },
     intellect = {
         name = "Intellect",
+        gridName = "Arcane Intellect / Brilliance",
+        description = "Increases Intellect, mana, and spell critical chance.",
         icon = "Interface\\Icons\\Spell_Holy_ArcaneIntellect",
         auraNames = { "Arcane Intellect", "Arcane Brilliance" },
         className = "Mage",
-        excludedClasses = { Warrior = true, Rogue = true },
+        excludedClasses = WhoDoesWhat.ManaExcludedClasses,
+        defaultOnlyManaUsers = true,
     },
 }
 
--- Every optional non-paladin row available to WDW Status. Core raid buffs are
--- enabled by default for compatibility; additional checks are opt-in.
+-- Every non-paladin row available to WDW Status and the Buffing Grid.
 WhoDoesWhat.StatusBarCheckOrder = {
     "fortitude", "gift", "food", "shadowProtection", "intellect",
 }
 WhoDoesWhat.StatusBarChecks = {}
 for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
     local buff = WhoDoesWhat.CoreRaidBuffs[key]
-    buff.defaultEnabled = true
     WhoDoesWhat.StatusBarChecks[key] = buff
 end
 WhoDoesWhat.StatusBarChecks.thorns = {
     name = "Thorns",
+    description = "Deals Nature damage to attackers.",
     icon = "Interface\\Icons\\Spell_Nature_Thorns",
     auraNames = { "Thorns" },
     className = "Druid",
-    defaultEnabled = false,
+    defaultOnlyTanks = true,
 }
-WhoDoesWhat.StatusBarChecks.alive = {
-    name = "Alive",
+WhoDoesWhat.StatusBarChecks.dead = {
+    name = "Dead",
+    description = "Shows whether each raider is dead or a ghost.",
     icon = 132331,
-    colorRGB = { r = 0.2, g = 0.9, b = 0.2 },
-    defaultEnabled = false,
+    colorRGB = { r = 0.9, g = 0.15, b = 0.15 },
+    gridOptionDisabled = true,
+    hunterPetsOptionDisabled = true,
 }
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "sated"
     WhoDoesWhat.StatusBarChecks.sated = {
-        name = "Sated",
-        icon = "Interface\\Icons\\Spell_Nature_ShamanRage",
+        name = "Sated (lust / hero)",
+        description = "Shows Sated or Exhaustion after Bloodlust or Heroism.",
+        icon = 136090, -- Spell_Nature_Sleep
         auraNames = { "Sated", "Exhaustion" },
         harmful = true,
+        defaultNegative = true,
         colorRGB = { r = 0.95, g = 0.45, b = 0.15 },
-        defaultEnabled = false,
     }
 end
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
-WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "alive"
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "dead"
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "drumsUsed"
     WhoDoesWhat.StatusBarChecks.drumsUsed = {
-        name = "Drums Used",
-        icon = "Interface\\Icons\\INV_Misc_Drum_05",
+        name = "Tinnitus (drums)",
+        description = "Shows Tinnitus after a party receives a drums effect.",
+        icon = 133854, -- INV_Misc_Ear_Human_01
         auraNames = { "Tinnitus" },
         harmful = true,
+        defaultNegative = true,
         colorRGB = { r = 0.85, g = 0.55, b = 0.2 },
-        defaultEnabled = false,
+        hunterPetsOptionDisabled = true,
     }
+end
+
+for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+    local definition = WhoDoesWhat.StatusBarChecks[key]
+    definition.defaultEnabled = true
+    definition.defaultGrid = not definition.gridOptionDisabled
 end
 
 function WhoDoesWhat:GetStatusBarCheckOptions(key)
     local definition = self.StatusBarChecks[key]
-    if not definition then return false, false, "always" end
+    if not definition then return nil end
     local all = self.db.profile.settings.statusBarChecks
-    local saved = all and all[key]
-    local enabled = definition.defaultEnabled
-    if saved and saved.enabled ~= nil then enabled = saved.enabled end
-    return enabled, saved and saved.neverHide == true,
-        (saved and saved.scope) or "always"
+    local saved = all and all[key] or {}
+    local bar = saved.bar
+    if bar == nil then bar = saved.enabled end -- old settings-page key
+    if bar == nil then bar = definition.defaultEnabled end
+    local grid = saved.grid
+    if grid == nil then grid = definition.defaultGrid == true end
+    if definition.gridOptionDisabled then grid = false end
+    local hunterPets = saved.hunterPets
+    if hunterPets == nil then hunterPets = definition.includeHunterPets == true end
+    local onlyManaUsers = saved.onlyManaUsers
+    if onlyManaUsers == nil then
+        onlyManaUsers = definition.defaultOnlyManaUsers == true
+    end
+    local onlyTanks = saved.onlyTanks
+    if onlyTanks == nil then onlyTanks = definition.defaultOnlyTanks == true end
+    local negative = saved.negative
+    if negative == nil then negative = definition.defaultNegative == true end
+    if definition.gridOptionDisabled then negative = false end
+    local background = saved.background
+    if not self.StatusBarBackgrounds[background] then background = "default" end
+    return {
+        bar = bar,
+        grid = grid,
+        scope = saved.scope or "always",
+        display = saved.display == "missing" and "missing" or "percent",
+        hideComplete = saved.hideComplete == true,
+        includeUnimproved = saved.includeUnimproved == true,
+        onlyManaUsers = onlyManaUsers,
+        onlyTanks = onlyTanks,
+        hunterPets = hunterPets,
+        negative = negative,
+        background = background,
+    }
 end
 
 -- Warlock raid curses metadata, using the highest rank available on this

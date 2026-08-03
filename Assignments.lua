@@ -1295,11 +1295,12 @@ local function ComputePaladinBuffCoverage(buffPlan)
     return correct, total, byPaladin
 end
 
-local function IsEligibleCoreBuffTarget(m, buff, disconnected)
+local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
     return not m.isFake and not WhoDoesWhat:IsNonRaider(m.name)
         and not disconnected[m.name]
-        and not (buff.excludedClasses
-            and buff.excludedClasses[m.classInfo.name])
+        and not (options.onlyManaUsers
+            and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name])
+        and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
 end
 
 -- Live coverage for the non-paladin checks in WDW Status. Only real, connected
@@ -1312,29 +1313,18 @@ local function ComputeCoreRaidBuffCoverage()
     local correct, total, rows = 0, 0, {}
     for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
         local buff = WhoDoesWhat.StatusBarChecks[key]
+        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
         -- A class-provided status row is irrelevant when that class is not in
         -- the active raider pool. Food has no provider class and always stays.
         if not buff.className or #MembersOfClass(buff.className) > 0 then
-            local requireMax = buff.improvedTalent
-                and WhoDoesWhat.db.profile.settings.overviewRequireMaxRank
-            local improvedAvailable = false
-            if requireMax then
-                -- Unknown ranks may still be improved; relax only when every
-                -- eligible provider is confirmed untalented.
-                for _, provider in ipairs(MembersOfClass(buff.className)) do
-                    local rank = WhoDoesWhat:GetCoreBuffTalent(provider, key)
-                    if rank == nil or rank > 0 then
-                        improvedAvailable = true
-                        break
-                    end
-                end
-            end
+            local requireImproved = buff.improvedTalent
+                and not options.includeUnimproved
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
             }
             local targets = members
-            if buff.includeHunterPets then
+            if options.hunterPets and not buff.hunterPetsOptionDisabled then
                 targets = {}
                 for _, m in ipairs(members) do targets[#targets + 1] = m end
                 for _, pet in ipairs(pets) do
@@ -1346,12 +1336,13 @@ local function ComputeCoreRaidBuffCoverage()
                 end
             end
             for _, m in ipairs(targets) do
-                if IsEligibleCoreBuffTarget(m, buff, disconnected) then
+                if IsEligibleCoreBuffTarget(m, buff, options, disconnected) then
                     row.total = row.total + 1
                     total = total + 1
                     local covered
-                    if requireMax and improvedAvailable then
-                        covered = WhoDoesWhat:GetImprovedBuffState(m.name, key) == "max"
+                    if requireImproved then
+                        local state = WhoDoesWhat:GetImprovedBuffState(m.name, key)
+                        covered = state == "max" or state == "partial"
                     else
                         covered = WhoDoesWhat:HasBuff(m.name, key) == true
                     end
