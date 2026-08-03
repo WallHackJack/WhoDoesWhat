@@ -60,6 +60,7 @@ Views\Sections\CCSection.lua
 Views\Sections\MisdirectSection.lua
 Views\Sections\PaladinBuffsSection.lua
 Views\Sections\WarlockCursesSection.lua
+Views\AboutView.lua
 Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
 Views\BuffingGridView.lua

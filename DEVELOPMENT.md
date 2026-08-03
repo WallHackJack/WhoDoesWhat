@@ -38,6 +38,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
   * `RaiderTooltipView.lua` — shared paladin/warlock utility tooltip for roster rows
   * `BuffingGridView.lua` — raid-buff status + raiders × paladins blessing grid
   * `PaladinBuffingBarView.lua` — the clickable Paladin Buffing Bar (see Features)
+  * `AboutView.lua` — About & Updates window: copyable links/contact details, installed version, and a static dated release-notes picker
   * `PallyPowerLogView.lua` — PallyPower traffic log window (/wdw pplog)
   * `PallyPowerDiffView.lua` — PallyPower Differences window (Paladin Buffs section "Check" button): formatted per-paladin drift report from `CheckPallyPowerSync`, with Send + Recheck
   * `AllRolesView.lua` — "Role Preferences" landing page
@@ -93,7 +94,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
 * A GitHub push webhook feeds the CurseForge packager, configured to package **tagged commits only** — pushes to `main` are free, a release happens only when a tag lands.
 * To cut a release: commit, then `git tag 1.0.5 && git push origin 1.0.5`.
 * Tag text becomes the packaged `## Version:` through `@project-version@`. Use plain `1.0.5`, **no `v` prefix**. A tag containing `beta`/`alpha` (for example `1.1.0-beta`) packages as a Beta/Alpha build instead of a Release.
-* Before the release commit, set the TOC debug block's literal `## Version` to exactly the intended tag. The live main-window title and peer-version warning read that last active value; packaging comments the debug block and substitutes the tag into the earlier `@project-version@` line.
+* Before the release commit, set the TOC debug block's literal `## Version` to exactly the intended tag and add the dated release summary to `Views/AboutView.lua`'s `RELEASES` table. The live main-window title, About window, and peer-version warning read this metadata/history; packaging comments the debug block and substitutes the tag into the earlier `@project-version@` line.
 * Keep the version simulator inside `--@do-not-package@` blocks and confirm its setting name is absent from the generated release directory before tagging.
 * `.pkgmeta` zips as `WhoDoesWhat/` and strips repo-only files (README.md, AGENTS.md, DEVELOPMENT.md, .vscode, .pkgmeta); `Libs/` ships as committed (no externals).
 * `## Interface:` remains literal. CurseForge documents `@project-version@`, but does not document an equivalent token that discovers the current WoW Interface number. Revalidate and update the literal after relevant client patches.

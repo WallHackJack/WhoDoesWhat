@@ -41,6 +41,7 @@ local BUTTON_ROW_H = 22
 local TOOLBAR_PAD = 6
 local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
 local BUTTON_GAP = 6
+local ABOUT_BUTTON_W = 52
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
@@ -186,11 +187,18 @@ end
 -- after the sections refresh (their heights must be settled first).
 local function ApplyViewMode(f)
     local full = not WhoDoesWhat.db.profile.settings.paladinOnlyView
+    local frameWidth = full and FRAME_W or NARROW_FRAME_W
+    if not full and WhoDoesWhat.db.profile.settings.showLogsButton then
+        -- The developer Logs button widens the centered toolbar. Keep enough
+        -- frame on both sides for the external About button and a normal margin.
+        frameWidth = math.max(frameWidth, f.toolbarBox:GetWidth()
+            + 2 * (BUTTON_GAP + ABOUT_BUTTON_W + MARGIN))
+    end
 
     -- The content viewport stops before the reserved scrollbar gutter, keeping
     -- the template's outside-anchored bar inside the window in both modes.
     -- Full view shows both columns; Paladin-only narrows to the left section.
-    f:SetWidth(full and FRAME_W or NARROW_FRAME_W)
+    f:SetWidth(frameWidth)
     f.scroll:ClearAllPoints()
     f.scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
     f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
@@ -199,7 +207,7 @@ local function ApplyViewMode(f)
     else
         f.permDD:Hide()
         f.permNote:Hide()
-        local interior = NARROW_FRAME_W - MARGIN * 2 - SCROLLBAR_W
+        local interior = frameWidth - MARGIN * 2 - SCROLLBAR_W
         f.columns[K.COL_LEFT].x = math.floor((interior - LEFT_COLUMN_W) / 2)
     end
 
@@ -299,7 +307,7 @@ local function CreateToolbarButton(f, text, width, title, body, onClick)
 end
 
 -- Build the window once and reuse it: shared chrome, the header strip
--- (permission strip left, compact centered button box), the title-bar
+-- (permission strip left, compact centered button box, external About button), the title-bar
 -- Settings / view / Close icon cluster,
 -- and the two scrollable columns.
 local function EnsureMainFrame()
@@ -355,6 +363,14 @@ local function EnsureMainFrame()
     f.buffGridBtn = buffGridBtn
     f.logsBtn = logsBtn
     UpdateToolbar(f)
+
+    -- About follows the centered toolbar's right edge without being parented by
+    -- it or included in its width, so the toolbar remains exactly centered.
+    local aboutBtn = CreateToolbarButton(f, "About", ABOUT_BUTTON_W, "About & Updates",
+        "Open links, contact information, version details, and release notes.",
+        function() WhoDoesWhat:OpenAboutView() end)
+    aboutBtn:SetPoint("LEFT", toolbarBox, "RIGHT", BUTTON_GAP, 0)
+    f.aboutBtn = aboutBtn
 
     -- Tight title-bar icon cluster: Settings, view toggle, Close. The custom
     -- cog uses addon-owned copies of the standard close-button states.
