@@ -2,63 +2,96 @@
 
 # WhoDoesWhat
 
-**A raid-assignment panel for WoW TBC (Anniversary realms) with hassle-free paladin assignments and instant sync to PallyPower and raid members.**
+**WhoDoesWhat is an addon for managing raider roles and assignments (with instant fixes for Paladin buff assignments) for WoW Classic and TBC!**
 
-Open one window (`/wdw`), lay out your tanks, crowd control, misdirects, curses, and blessings, and everyone in the raid running the addon sees the same board instantly. No macros, no typing names into chat, no "wait, who has the moon?"
+Open one window with `/wdw` to organize tanks, crowd control, misdirects, Warlock curses, and Paladin blessings. Permitted changes sync to everyone in the group running WhoDoesWhat, while built-in whisper buttons make it easy to brief players who are not.
 
-## The Board
+> WhoDoesWhat is in active beta. Features and interfaces may change as raid testing continues.
 
-- **Tank assignments** — assign tanks to raid markers, with an "everything else" catch-all and warnings for unmarked targets.
-- **Crowd control** — assign CC by marker, with spell dropdowns filtered to what the assignee can actually cast.
-- **Misdirects** — pair hunters with their tanks (and optionally a marker), with sanity warnings for double-misdirects and unmarked tanks.
-- **Warlock curses** — TBC assigns Elements/Recklessness (preferring an Affliction lock); Classic assigns Elements/Shadow/Recklessness to separate warlocks.
-- Every dropdown shows role icons and class colors, and every row has a **mail button** that whispers the player their full job list — or mass-whisper the entire board at once.
+[Watch the WhoDoesWhat overview and feature tour on YouTube.](https://www.youtube.com/watch?v=g-M2CQ5YFB4)
 
-## Paladin Blessings — hassle-free
+## Raid Assignments
 
-You don't assign blessings at all. WhoDoesWhat **scans every paladin's talents** (Improved Might/Wisdom ranks, Kings, Sanctuary) and every raider's role, then computes optimal blessing coverage automatically — specialists land on their improved blessing, tanks get what tanks want, and nobody is asked to cast a blessing they didn't talent. A full **raiders × paladins grid** shows exactly who buffs whom, and a summary row per paladin shows their workload at a glance.
+- **Tank assignments** - assign tanks to raid markers, custom targets, or an "everything else" catch-all.
+- **Crowd control** - assign supported, class-appropriate CC by marker or custom target.
+- **Misdirects** - pair Hunters with tanks and optionally identify the pull by raid marker in TBC.
+- **Warlock curses** - assign curses manually or automatically. TBC prefers an Affliction Warlock for Elements; Classic assigns Elements, Shadow, and Recklessness to separate Warlocks.
+- **Fast communication** - whisper one player's full job list, one section, or the whole board.
+- **Unit-menu controls** - set roles and manage tank, CC, and misdirect assignments from player right-click menus.
 
-Want control anyway? Add **buff rules**: ignore a blessing entirely, prioritize one for tanks/healers/DPS or a specific class, or lock a blessing to a specific paladin.
+Warnings call out incomplete or conflicting assignments before the pull.
 
-## PallyPower Sync
+## Automatic Paladin Blessings
 
-One click pushes the computed grid straight into **PallyPower** — over PallyPower's own sync protocol, so every paladin in the raid gets their assignments even if they've never heard of WhoDoesWhat.
+WhoDoesWhat scans each Paladin's Improved Might, Improved Wisdom, Kings, and Sanctuary talents, then combines that information with every raider's role and blessing priorities to build an optimized plan automatically. Paladin coverage is derived from the current roster and is never stored as a pile of manual per-player assignments.
 
-## Instant Raid Sync
+The default priorities cover standard specs and specialist roles such as Mage, Warlock, and Boomkin tanks. Priorities can be reordered, blessings can be disabled, and custom class-specific roles can be created for unusual raid strategies.
 
-Any permitted edit broadcasts the whole board to every WhoDoesWhat user in the group. Joiners automatically pull the leader's board, simultaneous edits converge cleanly, and paladins share their own talent scans so the blessing math works even for out-of-range players.
+Raid-wide buff rules provide additional control: prioritize a blessing for a role or class, ignore it, or prefer a particular Paladin.
 
-## Built for Raid Leading
+## PallyPower Interoperability
 
-- **Editing permissions** — the raid leader decides who may edit: leader only, one named assistant, all assists (default), or everyone. Everyone else gets a clean read-only view.
-- **Role management** — roles auto-detect from talents (and follow respecs), with a role overview window and right-click "Set Role" on any unit frame. Custom roles and per-spec buff priorities are fully customizable.
-- **Right-click everything** — assign tank markers, CC targets, and misdirects straight from unit frames.
-- **Curse value calculator** — pulls a fight from Details! and estimates flavor-correct CoE/CoS/CoR value, including optional Classic Ignite double-dipping.
+- **WDW mode** uses WhoDoesWhat's computed blessing plan.
+- **PallyPower mode** treats live or observed PallyPower assignments as the raid's active plan.
+- **One-click sync** broadcasts the WDW plan over PallyPower's own protocol, even when the sender does not have PallyPower installed.
+- **Diff and Fix tools** show meaningful coverage differences and repair the full plan or an affected player's assignments.
 
-## Usage
+PallyPower clients normally accept assignments for other Paladins only from the raid leader or an assistant unless Free Assignment is enabled.
+
+## Buff Tracking and Buffing Buttons
+
+Blessing progress is visible on the main window, the **WDW Status** bars, and the **Buffing Grid**. These views can also track raid buffs such as Fortitude, Mark/Gift of the Wild, Intellect, Shadow Protection, and Well Fed. Scanned Fortitude and Mark/Gift buffs warn when a stronger talented provider was available.
+
+Optional TBC checks include Sated/Exhaustion and Tinnitus from drums. Active Hunter pets participate in the blessing plan, and their planned blessings and Well Fed status can be tracked.
+
+The movable **Paladin Buffing Bar** is a secure alternative to PallyPower's buffing UI and works with either WDW or PallyPower assignments. Left-click casts assigned Greater Blessings; right-click cycles assigned Lesser Blessings, prioritizing missing or expiring buffs. PallyPower does not need to be installed.
+
+## Roles and Raid Setup
+
+- Standard roles are detected from talents and follow respecs without overwriting deliberate manual choices.
+- Roles can be changed from the Raid Members window or a player's right-click menu.
+- Role changes update the blessing plan and can immediately repair the affected PallyPower assignments.
+- The group leader is the single writer for other players' Blizzard role flags, preventing competing addons or assistants from fighting over them.
+- Main-tank demotions are automatic. When Blizzard prevents addon-driven promotion, WhoDoesWhat highlights tanks awaiting promotion after the leader opens the Raid panel.
+- Custom roles and per-role blessing priorities are saved between sessions.
+
+## Warlock Tools
+
+WhoDoesWhat displays the available Improved Healthstone ranks and supports manual or one-click curse assignment.
+
+The optional Details!-backed **Curse Value Calculator** estimates damage provided or missed by each raid curse. It supports Classic's three-curse setup and Ignite behavior, plus TBC Malediction and Blood Frenzy. These are estimates based on encounter data and the armor, uptime, and debuff assumptions shown in the calculator.
+
+## Sync and Permissions
+
+The raid leader chooses who may edit the shared board: the leader, one named assistant, all assistants, or everyone. Other players receive a clean read-only view.
+
+Permitted edits synchronize roles, tank targets, CC, misdirects, curses, blessing rules, and the raid's WDW/PallyPower mode. New arrivals automatically request the leader's current board, and compatible clients share talent information to populate roles and utility ranks faster.
+
+## Commands
 
 | Command | Effect |
 | --- | --- |
 | `/wdw` | Toggle the main assignments window |
-| `/wdw r` | Toggle the buffing grid window |
-| `/wdw sync` | Manual resync — leaders push their board, members pull the leader's |
-| `/wdw ppsync` | Push the computed blessing grid into PallyPower and broadcast it |
-| `/wdw pplog` | Toggle the PallyPower traffic log window |
+| `/wdw r` | Toggle the Buffing Grid |
+| `/wdw sync` | Manually push the leader's board or request it from the leader |
 
 ## Installation
 
-Download from CurseForge (or your addon manager), or clone this repository into `Interface\AddOns\WhoDoesWhat`. Built for TBC Anniversary (`20505`) and Classic Era (`11509`).
+Install WhoDoesWhat from [CurseForge](https://www.curseforge.com/wow/addons/whodoeswhat), use your preferred addon manager, or clone this repository into `Interface\AddOns\WhoDoesWhat`.
 
-## Tech Stack
+Supported clients:
 
-- **Lua 5.1** on the WoW Classic API, UI built with **AceGUI-3.0** plus custom frame chrome and the modern `Menu` API for right-click integration.
-- **Ace3** (AceAddon, AceDB, AceComm, AceEvent, and friends) for addon structure, saved variables, and comms.
-- **LibClassicInspector** (+LibDetours) for talent inspection — with native `GetTalentInfo` cross-checks to work around talent-order quirks on the Anniversary client.
-- **LibSerialize + LibDeflate** over AceComm for the compressed whole-board sync protocol (last-write-wins with Lamport revisions, leader-as-source-of-truth on join).
-- Speaks **PallyPower's wire protocol** (`PLPWR`) directly for the blessing push, throttled through PallyPower's own channel handling.
+- WoW TBC Anniversary
+- WoW Classic Era
 
-Development notes for contributors live in [DEVELOPMENT.md](DEVELOPMENT.md). Coding-agent instructions live in [AGENTS.md](AGENTS.md).
+## Feedback and Development
+
+Report reproducible bugs through [GitHub Issues](https://github.com/WallHackJack/WhoDoesWhat/issues), or message **wallhackjack** on Discord with questions and suggestions.
+
+Contributor implementation notes live in [DEVELOPMENT.md](DEVELOPMENT.md), and the network protocol is documented in [SYNCING.md](SYNCING.md). Coding-agent instructions live in [AGENTS.md](AGENTS.md).
+
+WhoDoesWhat is written for Lua 5.1 and uses Ace3, LibClassicInspector, LibSerialize, and LibDeflate. Bundled libraries under `Libs/` retain their original licenses.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Bundled libraries in `Libs/` retain their own licenses.
+MIT - see [LICENSE](LICENSE).
