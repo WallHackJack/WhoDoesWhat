@@ -183,7 +183,7 @@ local function EnsureAboutFrame()
         "UIDropDownMenuTemplate")
     releaseDD:SetPoint("LEFT", versionLabel, "RIGHT", -11, -2)
     UIDropDownMenu_SetWidth(releaseDD, 82)
-    WhoDoesWhat:StyleDropdown(releaseDD)
+    WhoDoesWhat:StyleDropdown(releaseDD, true)
     UIDropDownMenu_Initialize(releaseDD, function(_, level)
         for _, release in ipairs(RELEASES) do
             local selected = release

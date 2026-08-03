@@ -160,9 +160,7 @@ local function SetDesyncGlow(row, shown)
     end
 end
 
--- Keep the percentage entirely on one side of the status-bar fill boundary.
--- It stays at the far right while it fits in the unfilled area, then follows
--- the fill edge with its right side inset into the filled area.
+-- Progress text stays right-aligned regardless of the fill position.
 local function LayoutProgressLabel(row)
     if row.correct == nil then return end
 
@@ -173,14 +171,31 @@ local function LayoutProgressLabel(row)
     row.name:SetShown(view:GetWidth() >= HIDE_NAMES_W)
     row.initial:SetShown(row.isPaladin and view:GetWidth() < HIDE_NAMES_W)
 
+    if row.colorPreview then
+        row.completeIcon:Hide()
+        row.percent:SetText("...")
+        row.percent:Show()
+        row.percent:ClearAllPoints()
+        row.percent:SetPoint("RIGHT", row.status, "RIGHT", -3, 0)
+        row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
+        return
+    end
+
     if complete or unavailable then
         row.percent:Hide()
+        if complete and row.negative and row.saturatedStyle == "hide" then
+            row.completeIcon:Hide()
+            row.name:SetPoint("RIGHT", row.status, "RIGHT", -3, 0)
+            return
+        end
         row.completeIcon:ClearAllPoints()
         row.completeIcon:SetSize(14, unavailable and 14 or math.floor(14 * 0.8 + 0.5))
         row.completeIcon:SetPoint("RIGHT", row.status, "RIGHT", -2, 0)
+        local completeTexture = row.negative and row.saturatedStyle == "x"
+            and NOT_READY_ICON or READY_ICON
         row.completeIcon:SetTexture(unavailable
             and (row.awaitingTalents and WhoDoesWhat.WARNING_ICON or NOT_READY_ICON)
-            or READY_ICON)
+            or completeTexture)
         row.completeIcon:Show()
         row.name:SetPoint("RIGHT", row.completeIcon, "LEFT", -4, 0)
         return
@@ -188,21 +203,18 @@ local function LayoutProgressLabel(row)
 
     row.completeIcon:Hide()
     local ratio = row.total > 0 and row.correct / row.total or 0
-    row.percent:SetText(row.display == "missing"
-        and tostring(row.total - row.correct)
-        or (math.floor(ratio * 100 + 0.5) .. "%"))
+    if row.display == "missing" then
+        row.percent:SetText(tostring(row.total - row.correct))
+    elseif row.display == "fraction" then
+        row.percent:SetText(row.correct .. "/" .. row.total)
+    elseif row.display == "applied" then
+        row.percent:SetText(tostring(row.correct))
+    else
+        row.percent:SetText(math.floor(ratio * 100 + 0.5) .. "%")
+    end
     row.percent:Show()
     row.percent:ClearAllPoints()
-
-    local statusW = row.status:GetWidth()
-    local textW = row.percent:GetStringWidth()
-    local fillW = statusW * ratio
-    if statusW - fillW >= textW + 6 then
-        row.percent:SetPoint("RIGHT", row.status, "RIGHT", -3, 0)
-    else
-        row.percent:SetPoint("RIGHT", row.status, "LEFT",
-            math.max(textW + 3, fillW - 3), 0)
-    end
+    row.percent:SetPoint("RIGHT", row.status, "RIGHT", -3, 0)
     row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
 end
 
@@ -334,13 +346,6 @@ local function CreatePallyPowerRow()
     row.statusText = status
 
     return row
-end
-
-local function ShowPallyPowerRow(ppState)
-    local settings = WhoDoesWhat.db.profile.settings
-    if settings.overviewShowPallyPower == false then return false end
-    return not settings.overviewPallyPowerOnlyDesynced
-        or not ppState or ppState == "desynced"
 end
 
 local function StatusCheckInScope(scope)
@@ -531,56 +536,132 @@ function WhoDoesWhat:RefreshStatusBarsView()
         self.Assign.ComputePaladinBuffCoverage(buffPlan)
     local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
     local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
-    local ppMode = self.db.profile.settings.pallyBuffSource == "pallypower"
-    local showPallyPower = ShowPallyPowerRow(ppState)
+    local colorPreviewMode = self.statusBarColorPreviewKey ~= nil
     local displayed = {}
-    local hideCompleted = self.db.profile.settings.overviewHideCompleted
     local coreCorrect, coreTotal = 0, 0
-    for _, paladin in ipairs(summary) do
-        local coverage = coverageByPaladin[paladin.name] or { correct = 0, total = 0 }
-        local complete = coverage.total > 0 and coverage.correct >= coverage.total
-        if not (hideCompleted and complete) then
-            displayed[#displayed + 1] = {
-                name = paladin.name,
-                icon = RoleIcon(paladin.name),
-                isPaladin = true,
-                awaitingTalents = (self.db.profile.settings.pallyBuffSource or "wdw")
-                    == "wdw" and paladin.awaitingTalents,
+    local coreCoverageByKey = {}
+    for _, coverage in ipairs(coreCoverage) do
+        coreCoverageByKey[coverage.key] = coverage
+    end
+
+    local paladinOptions = self:GetStatusBarCheckOptions("paladinBuffs")
+    local paladinPreview = colorPreviewMode
+        and (paladinOptions.bar
+            or self.statusBarColorPreviewKey == "paladinBuffs")
+    local paladinInScope = StatusCheckInScope(paladinOptions.scope)
+    local paladinRequiredAvailable = not paladinOptions.requiredClass
+        or #self.Assign.MembersOfClass(paladinOptions.requiredClass) > 0
+    local paladinAvailable = paladinRequiredAvailable
+        or not paladinOptions.hideBarUnavailable
+    local showPaladinBars = paladinPreview
+        or (paladinOptions.bar and paladinInScope and paladinAvailable)
+    local normalPaladinBars = paladinOptions.bar
+        and paladinInScope and paladinAvailable
+    local paladinEntries = {}
+    if paladinOptions.combinePaladinBars then
+        local coverage = { correct = paladinCorrect, total = paladinTotal }
+        local complete = paladinTotal > 0 and paladinCorrect >= paladinTotal
+        if (paladinPreview or paladinTotal > 0) and showPaladinBars
+            and (paladinPreview or not (paladinOptions.hideComplete and complete)) then
+            local definition = self.StatusBarChecks.paladinBuffs
+            paladinEntries[#paladinEntries + 1] = {
+                name = definition.name,
+                icon = definition.icon,
                 coverage = coverage,
+                display = paladinOptions.display,
+                colorPreview = paladinPreview,
+                barColor = paladinOptions.barColor,
                 colorRGB = paladinClass.colorRGB,
             }
         end
-    end
-    for _, coverage in ipairs(coreCoverage) do
-        local options = self:GetStatusBarCheckOptions(coverage.key)
-        local inScope = StatusCheckInScope(options.scope)
-        local complete = coverage.total > 0 and coverage.correct >= coverage.total
-        if options.bar and inScope and coverage.total > 0 then
-            coreCorrect = coreCorrect + coverage.correct
-            coreTotal = coreTotal + coverage.total
+    else
+        for _, paladin in ipairs(summary) do
+            local coverage = coverageByPaladin[paladin.name]
+                or { correct = 0, total = 0 }
+            local complete = coverage.total > 0
+                and coverage.correct >= coverage.total
+            if showPaladinBars
+                and (paladinPreview
+                    or not (paladinOptions.hideComplete and complete)) then
+                paladinEntries[#paladinEntries + 1] = {
+                    name = paladin.name,
+                    icon = RoleIcon(paladin.name),
+                    isPaladin = true,
+                    awaitingTalents =
+                        (self.db.profile.settings.pallyBuffSource or "wdw")
+                            == "wdw" and paladin.awaitingTalents,
+                    coverage = coverage,
+                    display = paladinOptions.display,
+                    colorPreview = paladinPreview,
+                    barColor = paladinOptions.barColor,
+                    colorRGB = paladinClass.colorRGB,
+                }
+            end
         end
-        if options.bar and inScope and coverage.total > 0
-            and not (options.hideComplete and complete) then
-            local buff = WhoDoesWhat.StatusBarChecks[coverage.key]
-            displayed[#displayed + 1] = {
-                name = coverage.name,
-                icon = coverage.icon,
-                coverage = coverage,
-                display = options.display,
-                background = options.background,
-                colorRGB = buff.colorRGB or classColors[buff.className],
-            }
+    end
+    local pallyPowerOptions = self:GetStatusBarCheckOptions("pallyPower")
+    local showPallyPower = false
+    for _, key in ipairs(self:GetStatusBarCheckOrder()) do
+        if key == "paladinBuffs" then
+            for _, entry in ipairs(paladinEntries) do
+                displayed[#displayed + 1] = entry
+            end
+        elseif key == "pallyPower" then
+            showPallyPower = pallyPowerOptions.bar
+                and StatusCheckInScope(pallyPowerOptions.scope)
+                and not (pallyPowerOptions.hideWhenSynced
+                    and ppState == "synced")
+                and not (pallyPowerOptions.hideWhenInactive
+                    and ppState == "inactive")
+            if showPallyPower then
+                displayed[#displayed + 1] = { pallyPower = true }
+            end
+        else
+            local coverage = coreCoverageByKey[key]
+            if coverage then
+                local options = self:GetStatusBarCheckOptions(key)
+                local colorPreview = colorPreviewMode
+                    and (options.bar or self.statusBarColorPreviewKey == key)
+                local inScope = StatusCheckInScope(options.scope)
+                local complete = coverage.total > 0
+                    and coverage.correct >= coverage.total
+                local resolved = options.negative
+                    and coverage.correct == 0 or complete
+                local available = coverage.available
+                    or not options.hideBarUnavailable
+                if options.bar and inScope and available
+                    and coverage.total > 0 then
+                    coreCorrect = coreCorrect + coverage.correct
+                    coreTotal = coreTotal + coverage.total
+                end
+                if colorPreview or (options.bar and inScope and available
+                    and coverage.total > 0
+                    and not (options.hideComplete and resolved)) then
+                    local buff = WhoDoesWhat.StatusBarChecks[key]
+                    displayed[#displayed + 1] = {
+                        name = coverage.name,
+                        icon = coverage.icon,
+                        coverage = coverage,
+                        display = options.display,
+                        colorPreview = colorPreview,
+                        barColor = options.barColor,
+                        colorRGB = buff.colorRGB or classColors[buff.className],
+                        negative = options.negative,
+                        saturatedStyle = options.saturatedStyle,
+                    }
+                end
+            end
         end
     end
-    local correct, total = paladinCorrect + coreCorrect, paladinTotal + coreTotal
+    local correct = (normalPaladinBars and paladinCorrect or 0) + coreCorrect
+    local total = (normalPaladinBars and paladinTotal or 0) + coreTotal
     local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     view.totalPercent:SetText(total > 0 and ("(" .. totalPercent .. "%)")
         or ("|T" .. NOT_READY_ICON .. ":12:12:0:0|t"))
 
-    local ppHeight = showPallyPower and ROW_H or 0
-    local showEmptyCheck = #displayed == 0 and not showPallyPower
+    local showEmptyCheck = #displayed == 0
     local rowsH = (#displayed + (showEmptyCheck and 1 or 0)) * ROW_H
-    local contentH = ppHeight + rowsH
+    local contentH = rowsH
     ApplyResizeBounds()
     view:SetSize(math.max(self.db.profile.settings.overviewWidth or DEFAULT_W,
             RESIZE_MIN_W),
@@ -589,16 +670,21 @@ function WhoDoesWhat:RefreshStatusBarsView()
     if not view.moving and not view.resizing then LoadPosition() end
 
     if showPallyPower then
-        -- PallyPower sync leads the status list when enabled.
         local ppRow = view.ppRow or CreatePallyPowerRow()
         view.ppRow = ppRow
         ppRow.ppState, ppRow.ppText, ppRow.ppDiffCount =
             ppState, ppText, ppDiffCount
-        ppRow.highlight:SetAlpha(self:IsRaidAssistant()
-            and ppState == "desynced" and 1 or 0)
+        local assignmentGlow = pallyPowerOptions.assignmentIssuesGlow
+            and self:IsRaidAssistant() and ppState == "desynced"
+        ppRow.highlight:SetAlpha(assignmentGlow and 1 or 0)
+        local ppIndex
+        for i, entry in ipairs(displayed) do
+            if entry.pallyPower then ppIndex = i break end
+        end
         ppRow:ClearAllPoints()
-        ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -CONTENT_TOP)
-        SetDesyncGlow(ppRow, ppState == "desynced" and not ppMode)
+        ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
+            -(CONTENT_TOP + (ppIndex - 1) * ROW_H))
+        SetDesyncGlow(ppRow, assignmentGlow)
 
         ppRow.stateIcon:ClearAllPoints()
         ppRow.stateIcon:SetSize(ppState == "desynced" and 12 or 14,
@@ -634,37 +720,48 @@ function WhoDoesWhat:RefreshStatusBarsView()
         end
     end
 
-    for i, entry in ipairs(displayed) do
-        local row = view.rows[i] or CreateRow(i)
-        local coverage = entry.coverage
-        row.icon:SetTexture(entry.icon)
-        row.name:SetText(entry.awaitingTalents
-            and ("Awaiting talents - " .. entry.name) or entry.name)
-        row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
-        row.isPaladin = entry.isPaladin
-        row.awaitingTalents = entry.awaitingTalents
-        row.correct = coverage.correct
-        row.total = coverage.total
-        row.display = entry.display or "percent"
-        row.status:SetMinMaxValues(0, math.max(coverage.total, 1))
-        row.status:SetValue(coverage.correct)
-        row.status:SetStatusBarColor(CoverageColor(
-            coverage.correct, coverage.total, entry.colorRGB))
-        local background = self.StatusBarBackgrounds[entry.background or "default"]
-        local rgb = background and background.colorRGB
-        if rgb then
-            row.background:SetColorTexture(0.015 + rgb.r * 0.22,
-                0.015 + rgb.g * 0.22, 0.015 + rgb.b * 0.22, 1)
-        else
+    local normalIndex = 0
+    for displayIndex, entry in ipairs(displayed) do
+        if not entry.pallyPower then
+            normalIndex = normalIndex + 1
+            local row = view.rows[normalIndex] or CreateRow(normalIndex)
+            local coverage = entry.coverage
+            row.icon:SetTexture(entry.icon)
+            row.name:SetText(entry.awaitingTalents
+                and ("Awaiting talents - " .. entry.name) or entry.name)
+            row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
+            row.isPaladin = entry.isPaladin
+            row.awaitingTalents = entry.awaitingTalents
+            row.colorPreview = entry.colorPreview
+            row.negative = entry.negative
+            row.saturatedStyle = entry.saturatedStyle or "check"
+            row.correct = coverage.correct
+            row.total = coverage.total
+            row.display = entry.display
+            if not row.display or row.display == "default" then
+                row.display = self.db.profile.settings.overviewDefaultDisplay
+                    or "percent"
+            end
+            row.status:SetMinMaxValues(0, entry.colorPreview and 1
+                or math.max(coverage.total, 1))
+            row.status:SetValue(entry.colorPreview and 1 or coverage.correct)
+            if entry.barColor then
+                row.status:SetStatusBarColor(entry.barColor.r,
+                    entry.barColor.g, entry.barColor.b)
+            else
+                row.status:SetStatusBarColor(CoverageColor(
+                    entry.colorPreview and 1 or coverage.correct,
+                    entry.colorPreview and 1 or coverage.total, entry.colorRGB))
+            end
             row.background:SetColorTexture(0.025, 0.025, 0.035, 1)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
+                -(CONTENT_TOP + (displayIndex - 1) * ROW_H))
+            row:Show()
+            LayoutProgressLabel(row)
         end
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-            -(CONTENT_TOP + ppHeight + (i - 1) * ROW_H))
-        row:Show()
-        LayoutProgressLabel(row)
     end
-    for i = #displayed + 1, #view.rows do view.rows[i]:Hide() end
+    for i = normalIndex + 1, #view.rows do view.rows[i]:Hide() end
 
     view.emptyCheck:ClearAllPoints()
     view.emptyCheck:SetPoint("TOP", view, "TOP", 0,

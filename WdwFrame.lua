@@ -81,6 +81,7 @@ function WhoDoesWhat:CreateWindowFrame(globalName, width, height, titleText)
     titlebar:SetPoint("TOPLEFT", 5, -5)
     titlebar:SetPoint("TOPRIGHT", -5, -5)
     titlebar:SetHeight(WhoDoesWhat.TITLEBAR_H)
+    f.titleBarTexture = titlebar
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("LEFT", titlebar, "LEFT", 10, 0)

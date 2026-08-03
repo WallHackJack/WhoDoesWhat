@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local K = WhoDoesWhat.SectionKit
 
 -- Addon settings window. Checkbox state persists in db.profile.settings except
 -- detailed sync logging, which is deliberately session-only and resets off.
@@ -12,6 +13,7 @@ local CONTENT_X = 134
 local CONTENT_W = 410
 local FRAME_W = 560
 local FRAME_H = 564
+local BUFF_OPTIONS_W = 242
 --@do-not-package@
 FRAME_H = 594
 --@end-do-not-package@
@@ -19,10 +21,18 @@ local CHECKBOX_ROW_H = 52
 local FIRST_PALADIN_LABEL = "(use first paladin)"
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local STATUS_SCOPE_LABELS = {
-    always = "Always", raid = "Raid Only", party = "Party Only",
+    always = "All", raid = "Raid", party = "Party",
 }
-local STATUS_DISPLAY_LABELS = { percent = "Percent", missing = "Missing Count" }
+local STATUS_DISPLAY_LABELS = {
+    default = "Default", percent = "Percent", missing = "Missing Count",
+    fraction = "Fraction", applied = "Applied Count",
+}
+local STATUS_SATURATED_LABELS = {
+    hide = "Hide", x = "X", check = "Checkmark",
+}
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
+local STATUS_BUFF_ROW_H = 26
+local STATUS_ARROW_NUDGE = { Up = 2, Down = -4 }
 
 local function RefreshBuffingTestPaladinDropdown(f)
     WhoDoesWhat:GetBuffingBarTestPaladin()
@@ -66,22 +76,175 @@ local function AddHeading(f, x, y, text, r, g, b)
     return y + 28
 end
 
-local function RefreshStatusBuffRows(f)
-    for key, row in pairs(f.statusBuffRows or {}) do
-        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
-        row.bar:SetChecked(options.bar)
-        row.grid:SetChecked(options.grid)
-        row.grid:SetEnabled(not WhoDoesWhat.StatusBarChecks[key].gridOptionDisabled)
+local function CreateStatusArrow(parent, direction)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(24, 24)
+    button:SetText("")
+    if button.SetMotionScriptsWhileDisabled then
+        button:SetMotionScriptsWhileDisabled(true)
     end
+    local arrow = button:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(12, 12)
+    arrow:SetPoint("CENTER", 0, STATUS_ARROW_NUDGE[direction])
+    arrow:SetTexture("Interface\\Buttons\\Arrow-" .. direction .. "-Up")
+    button.arrow = arrow
+    return button
 end
 
-local function SetStatusBuffOption(f, key, option, value)
+local function SetStatusArrowEnabled(button, enabled)
+    button:SetEnabled(enabled)
+    button.arrow:SetDesaturated(not enabled)
+    button.arrow:SetVertexColor(enabled and 1 or 0.5,
+        enabled and 1 or 0.5, enabled and 1 or 0.5)
+end
+
+local function StoreStatusBuffOption(key, option, value)
     local settings = WhoDoesWhat.db.profile.settings
     settings.statusBarChecks = settings.statusBarChecks or {}
     settings.statusBarChecks[key] = settings.statusBarChecks[key] or {}
     settings.statusBarChecks[key][option] = value
+end
+
+local function GetStatusBuffSetup()
+    local enabled, disabled = {}, {}
+    for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
+        local target = WhoDoesWhat:GetStatusBarCheckOptions(key).bar
+            and enabled or disabled
+        target[#target + 1] = key
+    end
+    local enabledCount = #enabled
+    for _, key in ipairs(disabled) do enabled[#enabled + 1] = key end
+    return enabled, enabledCount
+end
+
+local function RefreshStatusBuffRows(f)
+    if not f.statusBuffRows then return end
+    local order, enabledCount = GetStatusBuffSetup()
+    f.statusBuffOrder = order
+    f.statusBuffEnabledCount = enabledCount
+    f.statusBuffDivider:ClearAllPoints()
+    f.statusBuffDivider:SetPoint("TOPLEFT", CONTENT_X,
+        -(f.statusBuffListTop + enabledCount * STATUS_BUFF_ROW_H))
+    f.statusBuffDivider:SetShown(enabledCount < #order)
+    for index, key in ipairs(order) do
+        local row = f.statusBuffRows[key]
+        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
+        local disabled = index > enabledCount
+        local visualIndex = index + (disabled and 1 or 0)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", CONTENT_X,
+            -(f.statusBuffListTop + (visualIndex - 1) * STATUS_BUFF_ROW_H))
+        row.index:SetText(disabled and "" or (index .. "."))
+        SetStatusArrowEnabled(row.up, index > 1 or disabled)
+        SetStatusArrowEnabled(row.down, index <= enabledCount)
+        row.bar:SetChecked(options.bar)
+        row.grid:SetChecked(options.grid)
+        row.grid:SetShown(not WhoDoesWhat.StatusBarChecks[key].gridOptionDisabled)
+        local shade = index % 2 == 1 and 0.18 or 0.10
+        row.stripe:SetColorTexture(shade, shade, shade + 0.02, 0.72)
+    end
+end
+
+local function FinishStatusBuffOrderChange(f)
+    local settings = WhoDoesWhat.db.profile.settings
+    settings.statusBarOrder = { unpack(f.statusBuffOrder) }
     RefreshStatusBuffRows(f)
     WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
+local function SetStatusBuffBarEnabled(f, key, enabled)
+    local index
+    for i, orderedKey in ipairs(f.statusBuffOrder) do
+        if orderedKey == key then index = i break end
+    end
+    if not index then return end
+    local active = f.statusBuffEnabledCount
+    if (index <= active) == enabled then return end
+    table.remove(f.statusBuffOrder, index)
+    if enabled then
+        active = active + 1
+    else
+        active = active - 1
+    end
+    table.insert(f.statusBuffOrder, active + (enabled and 0 or 1), key)
+    f.statusBuffEnabledCount = active
+    StoreStatusBuffOption(key, "bar", enabled)
+    FinishStatusBuffOrderChange(f)
+end
+
+local function MoveStatusBuff(f, key, delta)
+    local index
+    for i, orderedKey in ipairs(f.statusBuffOrder) do
+        if orderedKey == key then index = i break end
+    end
+    if not index then return end
+    local active = f.statusBuffEnabledCount
+    if delta < 0 and index > active then
+        table.remove(f.statusBuffOrder, index)
+        active = active + 1
+        table.insert(f.statusBuffOrder, active, key)
+        StoreStatusBuffOption(key, "bar", true)
+    elseif delta < 0 and index > 1 then
+        f.statusBuffOrder[index], f.statusBuffOrder[index - 1] =
+            f.statusBuffOrder[index - 1], f.statusBuffOrder[index]
+    elseif delta > 0 and index == active then
+        active = active - 1
+        StoreStatusBuffOption(key, "bar", false)
+    elseif delta > 0 and index < active then
+        f.statusBuffOrder[index], f.statusBuffOrder[index + 1] =
+            f.statusBuffOrder[index + 1], f.statusBuffOrder[index]
+    else
+        return
+    end
+    f.statusBuffEnabledCount = active
+    FinishStatusBuffOrderChange(f)
+end
+
+local function SetStatusBuffOption(f, key, option, value)
+    StoreStatusBuffOption(key, option, value)
+    RefreshStatusBuffRows(f)
+    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
+local function AddTooltip(region, title, text)
+    region:EnableMouse(true)
+    local previousEnter = region:GetScript("OnEnter")
+    local previousLeave = region:GetScript("OnLeave")
+    region:SetScript("OnEnter", function(self, ...)
+        if previousEnter then previousEnter(self, ...) end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title, 1, 1, 1)
+        GameTooltip:AddLine(text, 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    region:SetScript("OnLeave", function(self, ...)
+        if previousLeave then previousLeave(self, ...) end
+        GameTooltip:Hide()
+    end)
+end
+
+local function AddDropdownTooltip(dd, label, title, text)
+    AddTooltip(label, title, text)
+    local button = _G[dd:GetName() .. "Button"]
+    if button then AddTooltip(button, title, text) end
+end
+
+local function AddCompactCheckboxRow(f, x, y, labelText, tooltip, apply)
+    local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    check:SetSize(24, 24)
+    check:SetPoint("TOPLEFT", x, -y)
+    check:SetHitRectInsets(0, -(CONTENT_W - 30 - (x - CONTENT_X)), 0, 0)
+    check:SetMotionScriptsWhileDisabled(true)
+    check:SetScript("OnClick", function(self)
+        apply(self:GetChecked() and true or false)
+    end)
+    local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("LEFT", check, "RIGHT", 2, 0)
+    label:SetText(labelText)
+    AddTooltip(check, labelText, tooltip)
+    return check, y + 28, label
 end
 
 local function SetOptionAvailable(check, label, available)
@@ -90,55 +253,318 @@ local function SetOptionAvailable(check, label, available)
         available and 1 or 0.45, available and 1 or 0.45)
 end
 
+local function DefaultStatusBarColor(definition)
+    if definition.colorRGB then return definition.colorRGB end
+    for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+        if classInfo.name == definition.className then return classInfo.colorRGB end
+    end
+    return { r = 0.96, g = 0.55, b = 0.73 }
+end
+
+local function ColorHex(color)
+    local function Byte(value)
+        return math.floor(math.max(0, math.min(1, value)) * 255 + 0.5)
+    end
+    return string.format("#%02X%02X%02X",
+        Byte(color.r), Byte(color.g), Byte(color.b))
+end
+
+local function ParseColorHex(text)
+    local hex = text and text:match("^#?(%x%x%x%x%x%x)$")
+    if not hex then return nil end
+    return tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255
+end
+
+local function CreateMiniDivider(parent, text)
+    local divider = CreateFrame("Frame", nil, parent)
+    divider:SetSize(BUFF_OPTIONS_W - 16, 10)
+    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("CENTER")
+    label:SetText(text)
+    label:SetTextColor(0.52, 0.52, 0.52)
+    local left = divider:CreateTexture(nil, "ARTWORK")
+    left:SetHeight(1)
+    left:SetPoint("LEFT")
+    left:SetPoint("RIGHT", label, "LEFT", -6, 0)
+    left:SetColorTexture(0.35, 0.35, 0.35, 0.7)
+    local right = divider:CreateTexture(nil, "ARTWORK")
+    right:SetHeight(1)
+    right:SetPoint("LEFT", label, "RIGHT", 6, 0)
+    right:SetPoint("RIGHT")
+    right:SetColorTexture(0.35, 0.35, 0.35, 0.7)
+    return divider
+end
+
 local function RefreshBuffOptionsFrame()
     local f = buffOptionsFrame
     if not f or not f.buffKey then return end
     local definition = WhoDoesWhat.StatusBarChecks[f.buffKey]
     local options = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey)
-    f.titleText:SetText("Buff Tracking - " .. definition.name)
-    f.buffIcon:SetTexture(definition.icon)
+    local pallyPower = definition.customOptions == "pallyPower"
+    f.buffIcon:SetShown(not pallyPower)
+    f.ppHeaderBadge:SetShown(pallyPower)
+    if not pallyPower then f.buffIcon:SetTexture(definition.icon) end
     f.buffName:SetText(definition.name)
     UIDropDownMenu_SetText(f.scopeDD,
         STATUS_SCOPE_LABELS[options.scope] or STATUS_SCOPE_LABELS.always)
+
+    local function PlaceDropdown(label, dd, y)
+        label:ClearAllPoints()
+        label:SetPoint("TOPLEFT", 10, -(y + 1))
+        dd:ClearAllPoints()
+        dd:SetPoint("LEFT", label, "RIGHT", -7, -4)
+    end
+    for _, region in ipairs(f.normalOptionRegions) do
+        region:SetShown(not pallyPower)
+    end
+    f.ppHideSyncedCheck:SetShown(pallyPower)
+    f.ppHideSyncedLabel:SetShown(pallyPower)
+    f.ppHideInactiveCheck:SetShown(pallyPower)
+    f.ppHideInactiveLabel:SetShown(pallyPower)
+    f.ppGlowCheck:SetShown(pallyPower)
+    f.ppGlowLabel:SetShown(pallyPower)
+    if pallyPower then
+        PlaceDropdown(f.scopeLabel, f.scopeDD, 36)
+        f:SetHeight(140)
+        local ppRows = {
+            { f.ppHideSyncedCheck, 66 },
+            { f.ppHideInactiveCheck, 88 },
+            { f.ppGlowCheck, 110 },
+        }
+        for _, row in ipairs(ppRows) do
+            row[1]:ClearAllPoints()
+            row[1]:SetPoint("TOPLEFT", 7, -row[2])
+        end
+        f.ppHideSyncedCheck:SetChecked(options.hideWhenSynced)
+        f.ppHideInactiveCheck:SetChecked(options.hideWhenInactive)
+        f.ppGlowCheck:SetChecked(options.assignmentIssuesGlow)
+        SetOptionAvailable(f.ppGlowCheck, f.ppGlowLabel, true)
+        return
+    end
+
     UIDropDownMenu_SetText(f.displayDD,
-        STATUS_DISPLAY_LABELS[options.display] or STATUS_DISPLAY_LABELS.percent)
-    UIDropDownMenu_SetText(f.backgroundDD,
-        WhoDoesWhat.StatusBarBackgrounds[options.background].name)
+        STATUS_DISPLAY_LABELS[options.display] or STATUS_DISPLAY_LABELS.default)
+    UIDropDownMenu_SetText(f.classDD, options.requiredClass or "None")
+    UIDropDownMenu_SetText(f.saturatedDD,
+        STATUS_SATURATED_LABELS[options.saturatedStyle]
+            or STATUS_SATURATED_LABELS.check)
+    local color = options.barColor or DefaultStatusBarColor(definition)
+    f.colorSwatch.color:SetColorTexture(color.r, color.g, color.b, 1)
+    f.colorHex.buffKey = f.buffKey
+    if not f.colorHex:HasFocus() then f.colorHex:SetText(ColorHex(color)) end
     for option, check in pairs(f.optionChecks) do
         check:SetChecked(options[option])
     end
-    SetOptionAvailable(f.optionChecks.negative,
-        f.optionLabels.negative, not definition.gridOptionDisabled)
-    SetOptionAvailable(f.optionChecks.includeUnimproved,
-        f.optionLabels.includeUnimproved, definition.improvedTalent ~= nil)
-    SetOptionAvailable(f.optionChecks.hunterPets,
-        f.optionLabels.hunterPets, not definition.hunterPetsOptionDisabled)
+
+    local hidden = definition.hiddenOptions or {}
+    local hasRequirement = options.requiredClass ~= false
+    local function PlaceOption(option, shown, y)
+        local check, label = f.optionChecks[option], f.optionLabels[option]
+        check:SetShown(shown)
+        label:SetShown(shown)
+        if shown then
+            check:ClearAllPoints()
+            check:SetPoint("TOPLEFT", 7, -y)
+            return y + 21
+        end
+        return y
+    end
+    local function PlaceDivider(divider, shown, y)
+        divider:SetShown(shown)
+        if shown then
+            divider:ClearAllPoints()
+            divider:SetPoint("TOPLEFT", 8, -y)
+            return y + 10
+        end
+        return y
+    end
+
+    local y = 36
+    y = PlaceOption("combinePaladinBars", f.buffKey == "paladinBuffs", y)
+
+    y = PlaceDivider(f.displayDivider, true, y + 1)
+    y = y + 8
+    PlaceDropdown(f.displayLabel, f.displayDD, y)
+    y = y + 23
+    f.colorLabel:ClearAllPoints()
+    f.colorLabel:SetPoint("TOPLEFT", 10, -y)
+    f.colorSwatch:ClearAllPoints()
+    f.colorSwatch:SetPoint("LEFT", f.colorLabel, "RIGHT", 6, 0)
+    y = y + 21
+
+    y = PlaceDivider(f.requirementDivider, true, y + 1)
+    y = y + 8
+    PlaceDropdown(f.scopeLabel, f.scopeDD, y)
+    y = y + 23
+    PlaceDropdown(f.classLabel, f.classDD, y)
+    local showBest = definition.improvedTalent ~= nil
+        and not hidden.bestAvailable
+    local showHideBarUnavailable = hasRequirement
+        and not hidden.hideBarUnavailable
+    local showHideColumnUnavailable = hasRequirement
+        and not definition.gridOptionDisabled
+        and not hidden.hideColumnUnavailable
+    y = y + ((showBest or showHideBarUnavailable
+        or showHideColumnUnavailable) and 18 or 25)
+    y = PlaceOption("bestAvailable", showBest, y)
+    y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
+    y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
+
+    y = PlaceDivider(f.completionDivider, true, y + 1)
+    y = PlaceOption("negative", not hidden.negative, y)
+    f.optionLabels.hideComplete:SetText(options.negative
+        and "Hide Bar when debuff missing" or "Hide Bar when complete")
+    y = PlaceOption("hideComplete", not hidden.hideComplete, y)
+    f.saturatedLabel:SetShown(options.negative)
+    f.saturatedDD:SetShown(options.negative)
+    local showHideColumnComplete = not definition.gridOptionDisabled
+        and not hidden.hideColumnComplete
+    if options.negative then
+        PlaceDropdown(f.saturatedLabel, f.saturatedDD, y + 2)
+        y = y + (showHideColumnComplete and 20 or 25)
+    end
+    f.optionLabels.hideColumnComplete:SetText(options.negative
+        and "Hide grid column when debuff missing"
+        or "Hide grid column when complete")
+    y = PlaceOption("hideColumnComplete", showHideColumnComplete, y)
+
+    local showMana = not hidden.onlyManaUsers
+    local showTanks = not hidden.onlyTanks
+    local showPets = not hidden.hunterPets
+    y = PlaceDivider(f.targetsDivider,
+        showMana or showTanks or showPets, y + 1)
+    y = PlaceOption("onlyManaUsers", showMana, y)
+    y = PlaceOption("onlyTanks", showTanks, y)
+    y = PlaceOption("hunterPets", showPets, y)
+    for _, option in ipairs({ "bestAvailable", "hideBarUnavailable",
+        "hideColumnUnavailable", "combinePaladinBars", "negative", "hideComplete",
+        "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
+        if not f.optionChecks[option]:IsShown() then
+            f.optionLabels[option]:Hide()
+        end
+    end
+    if f.optionChecks.hunterPets:IsShown() then
+        SetOptionAvailable(f.optionChecks.hunterPets,
+            f.optionLabels.hunterPets,
+            not definition.hunterPetsOptionDisabled)
+    end
+    f:SetHeight(y + 7)
 end
 
-local function EnsureBuffOptionsFrame(owner)
+local activeColorPickerCancel
+local function CancelActiveColorPicker()
+    local cancel = activeColorPickerCancel
+    local owned = cancel ~= nil
+        or WhoDoesWhat.statusBarColorPreviewKey ~= nil
+    activeColorPickerCancel = nil
+    if cancel then cancel() end
+    if owned and ColorPickerFrame:IsShown() then
+        ColorPickerFrame:Hide()
+    elseif owned and WhoDoesWhat.statusBarColorPreviewKey then
+        WhoDoesWhat.statusBarColorPreviewKey = nil
+        WhoDoesWhat:RefreshStatusBarsView()
+    end
+end
+
+local function OpenBarColorPicker(owner, f)
+    CancelActiveColorPicker()
+    local key = f.buffKey
+    local options = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey)
+    local definition = WhoDoesWhat.StatusBarChecks[f.buffKey]
+    local color = options.barColor or DefaultStatusBarColor(definition)
+    local original = options.barColor and {
+        r = options.barColor.r,
+        g = options.barColor.g,
+        b = options.barColor.b,
+    } or false
+    local function Apply(r, g, b)
+        SetStatusBuffOption(owner, key, "barColor",
+            { r = r, g = g, b = b })
+        RefreshBuffOptionsFrame()
+    end
+    local function Changed()
+        Apply(ColorPickerFrame:GetColorRGB())
+    end
+    local function Cancel()
+        if activeColorPickerCancel == Cancel then activeColorPickerCancel = nil end
+        SetStatusBuffOption(owner, key, "barColor", original)
+        RefreshBuffOptionsFrame()
+    end
+
+    if not ColorPickerFrame.wdwStatusPreviewHooked then
+        ColorPickerFrame:HookScript("OnHide", function()
+            activeColorPickerCancel = nil
+            if not WhoDoesWhat.statusBarColorPreviewKey then return end
+            WhoDoesWhat.statusBarColorPreviewKey = nil
+            WhoDoesWhat:RefreshStatusBarsView()
+        end)
+        ColorPickerFrame.wdwStatusPreviewHooked = true
+    end
+    ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+    ColorPickerFrame:SetFrameLevel(f:GetFrameLevel() + 10)
+    ColorPickerFrame:SetClampedToScreen(true)
+    if ColorPickerFrame.SetupColorPickerAndShow then
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = color.r, g = color.g, b = color.b,
+            hasOpacity = false,
+            swatchFunc = Changed,
+            cancelFunc = Cancel,
+        })
+    else
+        ColorPickerFrame.func = Changed
+        ColorPickerFrame.hasOpacity = false
+        ColorPickerFrame.opacityFunc = nil
+        ColorPickerFrame.cancelFunc = Cancel
+        ColorPickerFrame:SetColorRGB(color.r, color.g, color.b)
+        ColorPickerFrame:Show()
+    end
+    activeColorPickerCancel = Cancel
+    WhoDoesWhat.statusBarColorPreviewKey = key
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
+local function EnsureBuffOptionsFrame(owner, key)
     if buffOptionsFrame then return buffOptionsFrame end
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatBuffTrackingOptionsFrame",
-        360, 400, "Buff Tracking")
+        BUFF_OPTIONS_W, 230, "")
+    -- UIDropDownMenu_Initialize runs its callback immediately, before this
+    -- constructor returns, so the selected key must already be available.
+    f.buffKey = key
+    f:SetParent(owner)
+    f:SetToplevel(false)
+    f:SetFrameLevel(owner:GetFrameLevel() + 20)
+    f:HookScript("OnHide", CancelActiveColorPicker)
+    f.titleBarTexture:Hide()
+    f.titleText:Hide()
+    f.titleBarHeight = 0
     f:ClearAllPoints()
-    f:SetPoint("CENTER", owner, "CENTER", 90, 0)
+    f:SetPoint("LEFT", owner, "RIGHT", 8, 0)
 
     local icon = f:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(28, 28)
-    icon:SetPoint("TOPLEFT", 20, -(f.titleBarHeight + 18))
+    icon:SetSize(20, 20)
+    icon:SetPoint("TOPLEFT", 8, -8)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     f.buffIcon = icon
-    local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    local ppHeaderBadge = K.CreatePallyPowerBadge(f, 20)
+    ppHeaderBadge:SetPoint("TOPLEFT", 8, -8)
+    ppHeaderBadge:Hide()
+    f.ppHeaderBadge = ppHeaderBadge
+    local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    name:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+    name:SetWidth(BUFF_OPTIONS_W - 55)
+    name:SetJustifyH("LEFT")
     f.buffName = name
 
-    local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    scopeLabel:SetPoint("TOPLEFT", 24, -(f.titleBarHeight + 67))
-    scopeLabel:SetText("Show in")
+    local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    scopeLabel:SetPoint("TOPLEFT", 10, -46)
+    scopeLabel:SetText("Party type")
     local scopeDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingScopeDD", f,
         "UIDropDownMenuTemplate")
-    scopeDD:SetPoint("LEFT", scopeLabel, "RIGHT", 14, -2)
-    UIDropDownMenu_SetWidth(scopeDD, 120)
-    WhoDoesWhat:StyleDropdown(scopeDD)
+    scopeDD:SetPoint("LEFT", scopeLabel, "RIGHT", -7, -2)
+    UIDropDownMenu_SetWidth(scopeDD, 72)
+    WhoDoesWhat:StyleDropdown(scopeDD, true)
     UIDropDownMenu_Initialize(scopeDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).scope
         for _, scope in ipairs({ "always", "raid", "party" }) do
@@ -154,18 +580,23 @@ local function EnsureBuffOptionsFrame(owner)
         end
     end)
     f.scopeDD = scopeDD
+    f.scopeLabel = scopeLabel
+    AddDropdownTooltip(scopeDD, scopeLabel, "Party type",
+        "Limit this check to raids, parties, or all group types.")
 
-    local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    displayLabel:SetPoint("TOPLEFT", 24, -(f.titleBarHeight + 103))
-    displayLabel:SetText("Display")
+    local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    displayLabel:SetPoint("TOPLEFT", 190, -46)
+    displayLabel:SetText("Text Mode")
     local displayDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingDisplayDD", f,
         "UIDropDownMenuTemplate")
-    displayDD:SetPoint("LEFT", displayLabel, "RIGHT", 16, -2)
-    UIDropDownMenu_SetWidth(displayDD, 120)
-    WhoDoesWhat:StyleDropdown(displayDD)
+    displayDD:SetPoint("LEFT", displayLabel, "RIGHT", -7, -2)
+    UIDropDownMenu_SetWidth(displayDD, 98)
+    WhoDoesWhat:StyleDropdown(displayDD, true)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).display
-        for _, display in ipairs({ "percent", "missing" }) do
+        for _, display in ipairs({
+            "default", "percent", "applied", "missing", "fraction",
+        }) do
             local displayName = display
             local info = UIDropDownMenu_CreateInfo()
             info.text = STATUS_DISPLAY_LABELS[displayName]
@@ -178,64 +609,233 @@ local function EnsureBuffOptionsFrame(owner)
         end
     end)
     f.displayDD = displayDD
+    f.displayLabel = displayLabel
+    AddDropdownTooltip(displayDD, displayLabel, "Text Mode",
+        "Choose the text shown on the bar: percent, counts, or a fraction.")
 
-    local backgroundLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    backgroundLabel:SetPoint("TOPLEFT", 24, -(f.titleBarHeight + 139))
-    backgroundLabel:SetText("Background color")
-    local backgroundDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingBackgroundDD", f,
+    local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    classLabel:SetPoint("TOPLEFT", 10, -77)
+    classLabel:SetText("Requires Class:")
+    local classDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingClassDD", f,
         "UIDropDownMenuTemplate")
-    backgroundDD:SetPoint("LEFT", backgroundLabel, "RIGHT", 10, -2)
-    UIDropDownMenu_SetWidth(backgroundDD, 120)
-    WhoDoesWhat:StyleDropdown(backgroundDD)
-    UIDropDownMenu_Initialize(backgroundDD, function(_, level)
-        local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).background
-        for _, background in ipairs(WhoDoesWhat.StatusBarBackgroundOrder) do
-            local backgroundName = background
+    classDD:SetPoint("LEFT", classLabel, "RIGHT", -7, -2)
+    UIDropDownMenu_SetWidth(classDD, 90)
+    WhoDoesWhat:StyleDropdown(classDD, true)
+    UIDropDownMenu_Initialize(classDD, function(_, level)
+        local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).requiredClass
+        local none = UIDropDownMenu_CreateInfo()
+        none.text = "None"
+        none.checked = saved == false
+        none.func = function()
+            SetStatusBuffOption(owner, f.buffKey, "requiredClass", false)
+            RefreshBuffOptionsFrame()
+        end
+        UIDropDownMenu_AddButton(none, level)
+        for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+            local className = classInfo.name
             local info = UIDropDownMenu_CreateInfo()
-            info.text = WhoDoesWhat.StatusBarBackgrounds[backgroundName].name
-            info.checked = saved == backgroundName
+            info.text = className
+            info.checked = saved == className
             info.func = function()
-                SetStatusBuffOption(owner, f.buffKey, "background", backgroundName)
+                SetStatusBuffOption(owner, f.buffKey, "requiredClass", className)
                 RefreshBuffOptionsFrame()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    f.backgroundDD = backgroundDD
+    f.classDD = classDD
+    f.classLabel = classLabel
+    AddDropdownTooltip(classDD, classLabel, "Requires class",
+        "The check is unavailable unless a member of this class is present.")
 
+    local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    colorLabel:SetPoint("TOPLEFT", 190, -77)
+    colorLabel:SetText("Bar Color")
+    local colorSwatch = CreateFrame("Button", nil, f)
+    colorSwatch:SetSize(22, 11)
+    colorSwatch:SetPoint("LEFT", colorLabel, "RIGHT", 6, 0)
+    colorSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local color = colorSwatch:CreateTexture(nil, "ARTWORK")
+    color:SetAllPoints()
+    colorSwatch.color = color
+    colorSwatch:SetScript("OnClick", function(_, button)
+        if f.colorHex and f.colorHex:HasFocus() then f.colorHex:ClearFocus() end
+        if button == "RightButton" then
+            SetStatusBuffOption(owner, f.buffKey, "barColor", false)
+            RefreshBuffOptionsFrame()
+        else
+            OpenBarColorPicker(owner, f)
+        end
+    end)
+    AddTooltip(colorLabel, "Bar color",
+        "Choose the filled status-bar color. Right-click the swatch to reset it.")
+    AddTooltip(colorSwatch, "Bar color",
+        "Left-click for the WoW color picker; right-click to reset.")
+    f.colorSwatch = colorSwatch
+    f.colorLabel = colorLabel
+
+    local colorHex = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    colorHex:SetSize(64, 18)
+    colorHex:SetPoint("LEFT", colorSwatch, "RIGHT", 7, 0)
+    colorHex:SetAutoFocus(false)
+    colorHex:SetMaxLetters(7)
+    colorHex:SetText("#FFFFFF")
+    colorHex:SetScript("OnEditFocusGained", function(self)
+        CancelActiveColorPicker()
+        local options = WhoDoesWhat:GetStatusBarCheckOptions(self.buffKey)
+        local definition = WhoDoesWhat.StatusBarChecks[self.buffKey]
+        self:SetText(ColorHex(options.barColor
+            or DefaultStatusBarColor(definition)))
+        self:HighlightText()
+    end)
+    colorHex:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    colorHex:SetScript("OnEscapePressed", function(self)
+        self.reverting = true
+        self:ClearFocus()
+        RefreshBuffOptionsFrame()
+    end)
+    colorHex:SetScript("OnEditFocusLost", function(self)
+        if self.reverting then
+            self.reverting = nil
+            return
+        end
+        local r, g, b = ParseColorHex(self:GetText())
+        if r then
+            SetStatusBuffOption(owner, self.buffKey, "barColor",
+                { r = r, g = g, b = b })
+        else
+            RefreshBuffOptionsFrame()
+        end
+    end)
+    AddTooltip(colorHex, "Hex color",
+        "Enter a six-digit RGB color, with or without #, then press Enter.")
+    f.colorHex = colorHex
+
+    local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
+        "GameFontHighlightSmall")
+    saturatedLabel:SetText("Full-Saturated Style:")
+    local saturatedDD = CreateFrame("Frame",
+        "WhoDoesWhatBuffTrackingSaturatedStyleDD", f,
+        "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(saturatedDD, 72)
+    WhoDoesWhat:StyleDropdown(saturatedDD, true)
+    UIDropDownMenu_Initialize(saturatedDD, function(_, level)
+        local saved = WhoDoesWhat:GetStatusBarCheckOptions(
+            f.buffKey).saturatedStyle
+        for _, style in ipairs({ "hide", "x", "check" }) do
+            local styleName = style
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = STATUS_SATURATED_LABELS[styleName]
+            info.checked = saved == styleName
+            info.func = function()
+                SetStatusBuffOption(owner, f.buffKey,
+                    "saturatedStyle", styleName)
+                RefreshBuffOptionsFrame()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.saturatedLabel = saturatedLabel
+    f.saturatedDD = saturatedDD
+    AddDropdownTooltip(saturatedDD, saturatedLabel,
+        "Full-Saturated Style",
+        "Choose the indicator shown when every tracked target has the debuff.")
+
+    f.displayDivider = CreateMiniDivider(f, "Display")
+    f.requirementDivider = CreateMiniDivider(f, "Requirement")
+    f.completionDivider = CreateMiniDivider(f, "Completion")
+    f.targetsDivider = CreateMiniDivider(f, "Targets")
     f.optionChecks, f.optionLabels = {}, {}
+    f.normalOptionRegions = {
+        displayLabel, displayDD, classLabel, classDD, colorLabel, colorSwatch,
+        colorHex,
+        saturatedLabel, saturatedDD, f.displayDivider, f.requirementDivider,
+        f.completionDivider, f.targetsDivider,
+    }
     local checkboxOptions = {
-        { "negative", "Negative debuff" },
-        { "hideComplete", "Hide Bar when complete" },
-        { "includeUnimproved", "Include unimproved in progress" },
-        { "onlyManaUsers", "Only for mana-users" },
-        { "onlyTanks", "Only for tanks" },
-        { "hunterPets", "Used by hunter pets" },
+        { "negative", "Debuff",
+            "Treat presence as the tracked condition; a missing debuff can hide its status row or grid column." },
+        { "hideComplete", "Hide Bar when complete",
+            "Hide the WDW Status row when the check is complete, or when a debuff is absent from everyone." },
+        { "hideColumnComplete", "Hide grid column when complete",
+            "Hide the Buffing Grid column when the check is complete, or when a debuff is absent from everyone." },
+        { "bestAvailable", "Only consider best available",
+            "Untalented buffs will not be counted toward the total buffing progress while a better buff is available." },
+        { "onlyManaUsers", "Only for mana-users",
+            "Only include classes that use mana." },
+        { "onlyTanks", "Only for tanks",
+            "Only include raiders assigned a tank role." },
+        { "hunterPets", "Used by hunter pets",
+            "Include active Hunter pets in this check." },
+        { "hideBarUnavailable", "Hide bar when unavailable",
+            "Hide the WDW Status row while the required class is absent." },
+        { "hideColumnUnavailable", "Hide grid column when unavailable",
+            "Hide the Buff Grid column while the required class is absent." },
+        { "combinePaladinBars", "Show single combined Paladin row",
+            "Replace the individual Paladin progress bars with one raid-wide blessing progress bar." },
     }
     for index, entry in ipairs(checkboxOptions) do
-        local option, labelText = entry[1], entry[2]
+        local option, labelText, tooltip = entry[1], entry[2], entry[3]
         local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-        check:SetSize(24, 24)
-        check:SetPoint("TOPLEFT", 20,
-            -(f.titleBarHeight + 173 + (index - 1) * 31))
+        check:SetSize(22, 22)
+        check:SetPoint("TOPLEFT", 7, -(104 + (index - 1) * 21))
+        check:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+        if check.SetMotionScriptsWhileDisabled then
+            check:SetMotionScriptsWhileDisabled(true)
+        end
         check:SetScript("OnClick", function(self)
             SetStatusBuffOption(owner, f.buffKey, option,
                 self:GetChecked() and true or false)
             RefreshBuffOptionsFrame()
         end)
-        local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        label:SetPoint("LEFT", check, "RIGHT", 3, 0)
+        local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", check, "RIGHT", 1, 0)
         label:SetText(labelText)
+        AddTooltip(check, labelText, tooltip)
         f.optionChecks[option] = check
         f.optionLabels[option] = label
+        f.normalOptionRegions[#f.normalOptionRegions + 1] = check
+        f.normalOptionRegions[#f.normalOptionRegions + 1] = label
     end
+
+    f.ppHideSyncedCheck, _, f.ppHideSyncedLabel = AddCompactCheckboxRow(
+        f, 7, 76, "Hide when synced",
+        "Hide this row while assignments are synchronized.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "hideWhenSynced", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.ppHideSyncedCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.ppHideInactiveCheck, _, f.ppHideInactiveLabel = AddCompactCheckboxRow(
+        f, 7, 104, "Hide when inactive",
+        "Hide this row when no active Paladin assignments can be compared.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "hideWhenInactive", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.ppHideInactiveCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.ppGlowCheck, _, f.ppGlowLabel = AddCompactCheckboxRow(
+        f, 7, 132, "Assignment issues glow",
+        "This bar will glow when Pally buffs need attention and you are a raid assistant.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "assignmentIssuesGlow", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.ppGlowCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.ppHideSyncedCheck:Hide()
+    f.ppHideSyncedLabel:Hide()
+    f.ppHideInactiveCheck:Hide()
+    f.ppHideInactiveLabel:Hide()
+    f.ppGlowCheck:Hide()
+    f.ppGlowLabel:Hide()
 
     buffOptionsFrame = f
     return f
 end
 
 local function OpenBuffOptions(owner, key)
-    local f = EnsureBuffOptionsFrame(owner)
+    local f = EnsureBuffOptionsFrame(owner, key)
+    if f.buffKey ~= key then CancelActiveColorPicker() end
     f.buffKey = key
     RefreshBuffOptionsFrame()
     f:Show()
@@ -243,10 +843,18 @@ local function OpenBuffOptions(owner, key)
 end
 
 local function ResetBuffTrackingPage(f)
-    wipe(WhoDoesWhat.db.profile.settings.statusBarChecks)
+    local settings = WhoDoesWhat.db.profile.settings
+    wipe(settings.statusBarChecks)
+    settings.statusBarOrder = nil
     RefreshStatusBuffRows(f)
     RefreshBuffOptionsFrame()
     WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
+local function CloseBuffOptions()
+    CancelActiveColorPicker()
+    if buffOptionsFrame then buffOptionsFrame:Hide() end
 end
 
 -- Build the settings window once and reuse it. Section buttons down the left
@@ -264,6 +872,7 @@ local function EnsureSettingsFrame()
     }
 
     local function SelectSection(index)
+        CloseBuffOptions()
         for i, page in ipairs(pages) do
             if i == index then page:Show() else page:Hide() end
             if i == index then buttons[i]:LockHighlight() else buttons[i]:UnlockHighlight() end
@@ -299,8 +908,9 @@ local function EnsureSettingsFrame()
     local statusPage = pages[2]
     yL = y0
     yL = AddHeading(statusPage, CONTENT_X, yL, "Status Bars", 0.96, 0.55, 0.73)
-    f.overviewCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL, "Enable WDW Status",
-        "Show live paladin and core raid-buff coverage. Alt-drag to move; Alt-drag its marked edge to resize.",
+    f.overviewCheck, yL = AddCompactCheckboxRow(statusPage, CONTENT_X, yL,
+        "Enable WDW Status Bars UI",
+        "Shows a persistent UI element with many bars to see your raid's status at a quick glance.",
         function(value)
             WhoDoesWhat.db.profile.settings.overviewEnabled = value
             WhoDoesWhat:UpdateStatusBarsViewVisibility()
@@ -316,7 +926,7 @@ local function EnsureSettingsFrame()
         "UIDropDownMenuTemplate")
     anchorDD:SetPoint("LEFT", anchorLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(anchorDD, 110)
-    WhoDoesWhat:StyleDropdown(anchorDD)
+    WhoDoesWhat:StyleDropdown(anchorDD, true)
     UIDropDownMenu_Initialize(anchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
         for _, anchor in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
@@ -330,37 +940,42 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    local anchorDesc = statusPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    anchorDesc:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 28))
-    anchorDesc:SetWidth(CONTENT_W - 4)
-    anchorDesc:SetJustifyH("LEFT")
-    anchorDesc:SetTextColor(0.6, 0.6, 0.6)
-    anchorDesc:SetText("The window grows away from this corner as rows or width change.")
+    AddDropdownTooltip(anchorDD, anchorLabel, "Anchor point",
+        "The window grows away from this corner as rows or width change.")
     f.overviewAnchorDD = anchorDD
     f.overviewAnchorLabels = anchorLabels
-    yL = yL + 58
-    f.overviewPallyPowerCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
-        "Show PallyPower desync row",
-        "Show PallyPower sync status and its Diff/Fix actions at the top of WDW Status.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.overviewShowPallyPower = value
-            f.overviewPallyPowerOnlyDesyncedCheck:SetEnabled(value)
-            WhoDoesWhat:RefreshStatusBarsView()
-        end)
-    f.overviewPallyPowerOnlyDesyncedCheck, yL = AddCheckboxRow(statusPage,
-        CONTENT_X + 24, yL, "Only while desynced",
-        "Hide the PallyPower row while it is synced or inactive; show it when differences need attention.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.overviewPallyPowerOnlyDesynced = value
-            WhoDoesWhat:RefreshStatusBarsView()
-        end)
-    f.overviewHideCompletedCheck, yL = AddCheckboxRow(statusPage, CONTENT_X, yL,
-        "Hide completed paladin bars",
-        "Hide a paladin's status row once all of their assigned buffs are active.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.overviewHideCompleted = value
-            WhoDoesWhat:RefreshStatusBarsView()
-        end)
+    yL = yL + 32
+
+    local defaultDisplayLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    defaultDisplayLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    defaultDisplayLabel:SetText("Default text-mode:")
+    local defaultDisplayDD = CreateFrame("Frame",
+        "WhoDoesWhatStatusBarsDefaultDisplayDD", statusPage,
+        "UIDropDownMenuTemplate")
+    defaultDisplayDD:SetPoint("LEFT", defaultDisplayLabel, "RIGHT", -6, -2)
+    UIDropDownMenu_SetWidth(defaultDisplayDD, 110)
+    WhoDoesWhat:StyleDropdown(defaultDisplayDD, true)
+    UIDropDownMenu_Initialize(defaultDisplayDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.overviewDefaultDisplay
+            or "percent"
+        for _, display in ipairs({ "percent", "applied", "missing", "fraction" }) do
+            local displayName = display
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = STATUS_DISPLAY_LABELS[displayName]
+            info.checked = saved == displayName
+            info.func = function()
+                WhoDoesWhat.db.profile.settings.overviewDefaultDisplay = displayName
+                UIDropDownMenu_SetText(defaultDisplayDD,
+                    STATUS_DISPLAY_LABELS[displayName])
+                WhoDoesWhat:RefreshStatusBarsView()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel, "Default text-mode",
+        "Used by paladin bars and any Buff Tracking row set to Default.")
+    f.overviewDefaultDisplayDD = defaultDisplayDD
+    yL = yL + 32
 
     -- ---- Buff Tracking ----
     local statusBuffPage = pages[3]
@@ -371,16 +986,18 @@ local function EnsureSettingsFrame()
     resetBuffs:SetPoint("TOPRIGHT", statusBuffPage, "TOPRIGHT", -16, -(y0 - 2))
     resetBuffs:SetText("Reset Defaults")
     resetBuffs:SetScript("OnClick", function() ResetBuffTrackingPage(f) end)
+    AddTooltip(resetBuffs, "Reset Buff Tracking",
+        "Restore the default order, visibility, colors, and per-row options.")
     local statusBuffDesc = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     statusBuffDesc:SetPoint("TOPLEFT", CONTENT_X + 4, -yL)
     statusBuffDesc:SetWidth(CONTENT_W - 4)
     statusBuffDesc:SetJustifyH("LEFT")
     statusBuffDesc:SetTextColor(0.6, 0.6, 0.6)
-    statusBuffDesc:SetText("Choose where each check appears. Use the cog for display, scope, and target options.")
+    statusBuffDesc:SetText("Use arrows to order Bars; disabled rows move below the divider. Use the cog for display and target options.")
     yL = yL + 38
 
     local headers = {
-        { "Buff", 4, 235 }, { "Bars", 250, 44 },
+        { "Buff", 84, 155 }, { "Bars", 250, 44 },
         { "Buff Grid", 298, 62 }, { "Options", 364, 46 },
     }
     for _, header in ipairs(headers) do
@@ -389,49 +1006,109 @@ local function EnsureSettingsFrame()
         text:SetSize(header[3], 26)
         text:SetJustifyH(header[1] == "Buff" and "LEFT" or "CENTER")
         text:SetText(header[1])
+        local tips = {
+            Buff = "The tracked buff, debuff, death, or assignment status.",
+            Bars = "Show and order this row in WDW Status.",
+            ["Buff Grid"] = "Show this check as a Buffing Grid column.",
+            Options = "Open the settings specific to this row.",
+        }
+        AddTooltip(text, header[1], tips[header[1]])
     end
     yL = yL + 28
+    f.statusBuffListTop = yL
+    local divider = CreateFrame("Frame", nil, statusBuffPage)
+    divider:SetSize(CONTENT_W, STATUS_BUFF_ROW_H)
+    local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalSmall")
+    dividerLabel:SetPoint("TOP")
+    dividerLabel:SetPoint("BOTTOM")
+    dividerLabel:SetText("Hidden from Status Bars")
+    dividerLabel:SetTextColor(0.55, 0.55, 0.55)
+    local dividerLeft = divider:CreateTexture(nil, "BACKGROUND")
+    dividerLeft:SetHeight(8)
+    dividerLeft:SetPoint("LEFT", 3, 0)
+    dividerLeft:SetPoint("RIGHT", dividerLabel, "LEFT", -5, 0)
+    dividerLeft:SetTexture(137057)
+    dividerLeft:SetTexCoord(0.81, 0.94, 0.5, 1)
+    dividerLeft:SetVertexColor(0.45, 0.45, 0.45)
+    local dividerRight = divider:CreateTexture(nil, "BACKGROUND")
+    dividerRight:SetHeight(8)
+    dividerRight:SetPoint("RIGHT", -3, 0)
+    dividerRight:SetPoint("LEFT", dividerLabel, "RIGHT", 5, 0)
+    dividerRight:SetTexture(137057)
+    dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
+    dividerRight:SetVertexColor(0.45, 0.45, 0.45)
+    AddTooltip(divider, "Hidden from Status Bars",
+        "Move a row above this divider to show it in WDW Status again.")
+    f.statusBuffDivider = divider
     f.statusBuffRows = {}
-    for rowIndex, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+    for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
         local rowKey = key
         local definition = WhoDoesWhat.StatusBarChecks[rowKey]
         local row = CreateFrame("Frame", nil, statusBuffPage)
-        row:SetPoint("TOPLEFT", CONTENT_X, -yL)
-        row:SetSize(CONTENT_W, 26)
+        row:SetSize(CONTENT_W, STATUS_BUFF_ROW_H)
         f.statusBuffRows[rowKey] = row
 
         local stripe = row:CreateTexture(nil, "BACKGROUND")
         stripe:SetAllPoints()
-        local shade = rowIndex % 2 == 1 and 0.18 or 0.10
-        stripe:SetColorTexture(shade, shade, shade + 0.02, 0.72)
+        row.stripe = stripe
 
-        local icon = row:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(16, 16)
-        icon:SetPoint("LEFT", 5, 0)
-        icon:SetTexture(definition.icon)
-        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        row.up = CreateStatusArrow(row, "Up")
+        row.up:SetPoint("LEFT", 0, 0)
+        row.up:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, -1) end)
+        AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
+        row.down = CreateStatusArrow(row, "Down")
+        row.down:SetPoint("LEFT", row.up, "RIGHT", 2, 0)
+        row.down:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, 1) end)
+        AddTooltip(row.down, "Move down",
+            "Move this row later, or disable it when it is last.")
+
+        local index = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        index:SetPoint("LEFT", row.down, "RIGHT", 5, 0)
+        index:SetWidth(20)
+        index:SetJustifyH("LEFT")
+        index:SetTextColor(1, 0.82, 0)
+        row.index = index
+
+        local icon
+        if definition.customOptions == "pallyPower" then
+            icon = K.CreatePallyPowerBadge(row, 16)
+            icon:SetPoint("LEFT", index, "RIGHT", 1, 0)
+        else
+            icon = row:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(16, 16)
+            icon:SetPoint("LEFT", index, "RIGHT", 1, 0)
+            icon:SetTexture(definition.icon)
+            icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        end
         local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         name:SetPoint("LEFT", icon, "RIGHT", 7, 0)
-        name:SetWidth(210)
+        name:SetWidth(148)
         name:SetJustifyH("LEFT")
         name:SetWordWrap(false)
         name:SetText(definition.name)
+        AddTooltip(row, definition.name, definition.description)
 
         row.bar = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
         row.bar:SetSize(24, 24)
         row.bar:SetPoint("CENTER", row, "LEFT", 272, 0)
         row.bar:SetScript("OnClick", function(self)
-            SetStatusBuffOption(f, rowKey, "bar", self:GetChecked() and true or false)
+            SetStatusBuffBarEnabled(f, rowKey,
+                self:GetChecked() and true or false)
         end)
+        AddTooltip(row.bar, "Show in Bars",
+            "Show this row in WDW Status. Turning it off moves it below the divider.")
         row.grid = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
         row.grid:SetSize(24, 24)
         row.grid:SetPoint("CENTER", row, "LEFT", 329, 0)
         row.grid:SetScript("OnClick", function(self)
             SetStatusBuffOption(f, rowKey, "grid", self:GetChecked() and true or false)
         end)
+        AddTooltip(row.grid, "Show in Buff Grid",
+            "Show this check as a column in the Buffing Grid.")
         local options = CreateFrame("Button", nil, row)
         options:SetSize(24, 24)
         options:SetPoint("CENTER", row, "LEFT", 387, 0)
+        options:RegisterForClicks("LeftButtonUp")
         options:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
         options:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
         -- Keep Blizzard's 32px source at 1:1 so its tiny cog is not blurred
@@ -448,11 +1125,12 @@ local function EnsureSettingsFrame()
         options:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(definition.name .. " options", 1, 1, 1)
+            GameTooltip:AddLine("Open this row's settings.",
+                0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
         options:SetScript("OnLeave", function() GameTooltip:Hide() end)
         row.options = options
-        yL = yL + 26
     end
     RefreshStatusBuffRows(f)
 
@@ -476,7 +1154,7 @@ local function EnsureSettingsFrame()
     local growDD = CreateFrame("Frame", "WhoDoesWhatBuffingGrowDD", paladinPage, "UIDropDownMenuTemplate")
     growDD:SetPoint("LEFT", growLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(growDD, 80)
-    WhoDoesWhat:StyleDropdown(growDD)
+    WhoDoesWhat:StyleDropdown(growDD, true)
     UIDropDownMenu_Initialize(growDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarGrow or "RIGHT"
         for _, mode in ipairs({ "RIGHT", "LEFT" }) do
@@ -500,7 +1178,7 @@ local function EnsureSettingsFrame()
         "UIDropDownMenuTemplate")
     menuGrowDD:SetPoint("LEFT", menuGrowLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(menuGrowDD, 80)
-    WhoDoesWhat:StyleDropdown(menuGrowDD)
+    WhoDoesWhat:StyleDropdown(menuGrowDD, true)
     UIDropDownMenu_Initialize(menuGrowDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingMenuGrow or "DOWN"
         for _, mode in ipairs({ "DOWN", "UP" }) do
@@ -635,7 +1313,7 @@ local function EnsureSettingsFrame()
     local palDD = CreateFrame("Frame", "WhoDoesWhatFakePaladinCountDD", testingPage, "UIDropDownMenuTemplate")
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
     UIDropDownMenu_SetWidth(palDD, 40)
-    WhoDoesWhat:StyleDropdown(palDD)
+    WhoDoesWhat:StyleDropdown(palDD, true)
     UIDropDownMenu_Initialize(palDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.fakeRaidPaladinCount or 3
         for n = 1, 4 do
@@ -668,7 +1346,7 @@ local function EnsureSettingsFrame()
     local testDD = CreateFrame("Frame", "WhoDoesWhatBuffingTestPaladinDD", testingPage, "UIDropDownMenuTemplate")
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(testDD, 120)
-    WhoDoesWhat:StyleDropdown(testDD)
+    WhoDoesWhat:StyleDropdown(testDD, true)
     UIDropDownMenu_Initialize(testDD, function(_, level)
         RefreshBuffingTestPaladinDropdown(f)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarTestPaladin
@@ -696,6 +1374,7 @@ local function EnsureSettingsFrame()
     f.buffingTestDD = testDD
 
     SelectSection(1)
+    f:HookScript("OnHide", CloseBuffOptions)
     settingsFrame = f
     return f
 end
@@ -723,12 +1402,9 @@ function WhoDoesWhat:OpenAddonSettingsView()
     local overviewAnchor = settings.overviewAnchor or "TOPLEFT"
     UIDropDownMenu_SetText(f.overviewAnchorDD,
         f.overviewAnchorLabels[overviewAnchor] or f.overviewAnchorLabels.TOPLEFT)
-    f.overviewPallyPowerCheck:SetChecked(settings.overviewShowPallyPower)
-    f.overviewPallyPowerOnlyDesyncedCheck:SetChecked(
-        settings.overviewPallyPowerOnlyDesynced)
-    f.overviewPallyPowerOnlyDesyncedCheck:SetEnabled(
-        settings.overviewShowPallyPower ~= false)
-    f.overviewHideCompletedCheck:SetChecked(settings.overviewHideCompleted)
+    local overviewDisplay = settings.overviewDefaultDisplay or "percent"
+    UIDropDownMenu_SetText(f.overviewDefaultDisplayDD,
+        STATUS_DISPLAY_LABELS[overviewDisplay] or STATUS_DISPLAY_LABELS.percent)
     RefreshStatusBuffRows(f)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.showLogsCheck:SetChecked(settings.showLogsButton)

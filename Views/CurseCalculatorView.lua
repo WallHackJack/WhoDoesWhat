@@ -467,7 +467,7 @@ local function EnsureCalcFrame()
     f.fightDD = CreateFrame("Frame", "WhoDoesWhatCurseCalcFightDD", f, "UIDropDownMenuTemplate")
     f.fightDD:SetPoint("LEFT", pickLabel, "RIGHT", -6, -2)
     UIDropDownMenu_SetWidth(f.fightDD, 320)
-    WhoDoesWhat:StyleDropdown(f.fightDD)
+    WhoDoesWhat:StyleDropdown(f.fightDD, true)
 
     -- Fight header + damage breakdown (two aligned columns)
     local y = top + 30
@@ -500,7 +500,7 @@ local function EnsureCalcFrame()
     f.armorDD = CreateFrame("Frame", "WhoDoesWhatCurseCalcArmorDD", f, "UIDropDownMenuTemplate")
     f.armorDD:SetPoint("LEFT", armorLabel, "RIGHT", -10, -2)
     UIDropDownMenu_SetWidth(f.armorDD, 70)
-    WhoDoesWhat:StyleDropdown(f.armorDD)
+    WhoDoesWhat:StyleDropdown(f.armorDD, true)
     UIDropDownMenu_Initialize(f.armorDD, function(_, level)
         for _, v in ipairs(BOSS_ARMORS) do
             local info = UIDropDownMenu_CreateInfo()

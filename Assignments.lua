@@ -1303,6 +1303,18 @@ local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
         and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
 end
 
+local function BestAvailableCoreBuffRank(buff, key, disconnected)
+    if not buff.improvedTalent or not buff.className then return nil end
+    local best
+    for _, provider in ipairs(MembersOfClass(buff.className)) do
+        if not disconnected[provider] then
+            local rank = WhoDoesWhat:GetCoreBuffTalent(provider, key)
+            if rank ~= nil and (best == nil or rank > best) then best = rank end
+        end
+    end
+    return best
+end
+
 -- Live coverage for the non-paladin checks in WDW Status. Only real, connected
 -- raiders count; a check may opt into scanned hunter pets through Data.lua.
 -- Fake-development members and the Non-raider role remain excluded.
@@ -1311,17 +1323,17 @@ local function ComputeCoreRaidBuffCoverage()
     local members = GetEligibleMembers(nil)
     local pets = GetPetMembers()
     local correct, total, rows = 0, 0, {}
-    for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+    for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
         local buff = WhoDoesWhat.StatusBarChecks[key]
-        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
-        -- A class-provided status row is irrelevant when that class is not in
-        -- the active raider pool. Food has no provider class and always stays.
-        if not buff.className or #MembersOfClass(buff.className) > 0 then
-            local requireImproved = buff.improvedTalent
-                and not options.includeUnimproved
+        if not buff.customOptions and not buff.customCoverage then
+            local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
+            local bestRank = options.bestAvailable
+                and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
+                available = not options.requiredClass
+                    or #MembersOfClass(options.requiredClass) > 0,
             }
             local targets = members
             if options.hunterPets and not buff.hunterPetsOptionDisabled then
@@ -1340,9 +1352,10 @@ local function ComputeCoreRaidBuffCoverage()
                     row.total = row.total + 1
                     total = total + 1
                     local covered
-                    if requireImproved then
-                        local state = WhoDoesWhat:GetImprovedBuffState(m.name, key)
-                        covered = state == "max" or state == "partial"
+                    if bestRank and bestRank > 0 then
+                        local _, _, rank =
+                            WhoDoesWhat:GetImprovedBuffState(m.name, key)
+                        covered = rank ~= nil and rank >= bestRank
                     else
                         covered = WhoDoesWhat:HasBuff(m.name, key) == true
                     end

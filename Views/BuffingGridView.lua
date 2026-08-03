@@ -59,13 +59,19 @@ local function RemainingText(seconds)
     return seconds .. "s"
 end
 
-local function VisibleCoreBuffKeys()
+local function VisibleCoreBuffKeys(coverageByKey)
     local keys = {}
     for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
-        local buff = WhoDoesWhat.StatusBarChecks[key]
         local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
+        local unavailable = options.requiredClass
+            and #A.MembersOfClass(options.requiredClass) == 0
+        local coverage = coverageByKey[key]
+        local complete = coverage and coverage.total > 0
+            and (options.negative and coverage.correct == 0
+                or not options.negative and coverage.correct >= coverage.total)
         if options.grid
-            and (not buff.className or #A.MembersOfClass(buff.className) > 0) then
+            and not (options.hideColumnUnavailable and unavailable)
+            and not (options.hideColumnComplete and complete) then
             keys[#keys + 1] = key
         end
     end
@@ -187,6 +193,10 @@ local function CreateCoreHeader(f, index)
         GameTooltip:SetText(buff.gridName or buff.name, 1, 1, 1)
         GameTooltip:AddLine(buff.description or "Tracked raid status.",
             0.8, 0.8, 0.8, true)
+        if self.available == false then
+            GameTooltip:AddLine("Unavailable: requires " .. self.requiredClass .. ".",
+                1, 0.45, 0.2, true)
+        end
         if buff.improvedTalent then
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(buff.improvedTalent.name .. " providers:", 1, 0.82, 0)
@@ -425,7 +435,10 @@ end
 local function RefreshGrid(f)
     local members = SortedMembers()
     local paladins = GroupPaladins()
-    local coreKeys = VisibleCoreBuffKeys()
+    local _, _, coverage = A.ComputeCoreRaidBuffCoverage()
+    local coverageByKey = {}
+    for _, row in ipairs(coverage) do coverageByKey[row.key] = row end
+    local coreKeys = VisibleCoreBuffKeys(coverageByKey)
     local disconnected = WhoDoesWhat.Assign.DisconnectedGroupTargets()
     local providerPools, bestProviders, coreOptions = {}, {}, {}
     for _, key in ipairs(coreKeys) do
@@ -459,6 +472,10 @@ local function RefreshGrid(f)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.buffKey = key
             header.providers = providerPools[key]
+            local options = coreOptions[key]
+            header.requiredClass = options.requiredClass
+            header.available = not options.requiredClass
+                or #A.MembersOfClass(options.requiredClass) > 0
             header.icon:SetTexture(WhoDoesWhat.StatusBarChecks[key].icon)
             header:Show()
         end
@@ -467,6 +484,8 @@ local function RefreshGrid(f)
         f.coreHeaders[i]:Hide()
         f.coreHeaders[i].buffKey = nil
         f.coreHeaders[i].providers = nil
+        f.coreHeaders[i].requiredClass = nil
+        f.coreHeaders[i].available = nil
     end
 
     -- Role-icon paladin headers follow the raid-buff columns.
@@ -598,9 +617,11 @@ local function RefreshGrid(f)
             cell.icon:SetDesaturated(not connected)
             cell.missing:ClearAllPoints()
             if options.negative then
+                cell.missing:SetTexture(CORE_MISSING_ICON)
                 cell.missing:SetSize(11, 11)
                 cell.missing:SetPoint("BOTTOMRIGHT", 1, -1)
             else
+                cell.missing:SetTexture(CORE_MISSING_ICON)
                 cell.missing:SetSize(CORE_CELL_ICON_SIZE, CORE_CELL_ICON_SIZE)
                 cell.missing:SetPoint("CENTER")
             end

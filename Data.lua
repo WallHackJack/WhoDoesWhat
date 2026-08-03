@@ -256,12 +256,11 @@ end
 -- Core coverage is players-only unless a check explicitly includes hunter
 -- pets. Target filters are defaults that each check's cog options may change.
 WhoDoesWhat.CoreRaidBuffOrder = {
-    "fortitude", "gift", "food", "shadowProtection", "intellect",
+    "gift", "fortitude", "intellect", "shadowProtection", "food",
 }
 WhoDoesWhat.ManaExcludedClasses = { Warrior = true, Rogue = true }
-WhoDoesWhat.StatusBarBackgroundOrder = {
-    "default", "red", "orange", "yellow", "green", "blue", "purple", "gray",
-}
+-- Legacy palette values remain readable so existing profiles migrate cleanly;
+-- new color-picker choices are stored directly as RGB.
 WhoDoesWhat.StatusBarBackgrounds = {
     default = { name = "Default" },
     red = { name = "Red", colorRGB = { r = 0.85, g = 0.15, b = 0.15 } },
@@ -279,6 +278,8 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
         auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
         className = "Priest",
+        colorRGB = { r = 225 / 255, g = 1, b = 202 / 255 }, -- #E1FFCA
+        includeHunterPets = true,
         improvedTalent = {
             name = "Improved Power Word: Fortitude",
             tab = 1, tier = 2, column = 2, maxRank = 2,
@@ -291,6 +292,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
         auraNames = { "Mark of the Wild", "Gift of the Wild" },
         className = "Druid",
+        includeHunterPets = true,
         improvedTalent = {
             name = "Improved Mark of the Wild",
             tab = 3, tier = 1, column = 2, maxRank = 5,
@@ -312,6 +314,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
         className = "Priest",
+        colorRGB = { r = 109 / 255, g = 60 / 255, b = 129 / 255 }, -- #6D3C81
     },
     intellect = {
         name = "Intellect",
@@ -325,33 +328,72 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
 }
 
--- Every non-paladin row available to WDW Status and the Buffing Grid.
+-- Every ordered tracking group available to WDW Status and the Buffing Grid.
 WhoDoesWhat.StatusBarCheckOrder = {
-    "fortitude", "gift", "food", "shadowProtection", "intellect",
+    "pallyPower", "paladinBuffs", "gift",
+    "fortitude", "intellect", "shadowProtection",
 }
 WhoDoesWhat.StatusBarChecks = {}
 for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
     local buff = WhoDoesWhat.CoreRaidBuffs[key]
     WhoDoesWhat.StatusBarChecks[key] = buff
 end
+local paladinInfo, shamanInfo
+for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+    if classInfo.name == "Paladin" then paladinInfo = classInfo end
+    if classInfo.name == "Shaman" then shamanInfo = classInfo end
+end
+WhoDoesWhat.StatusBarChecks.paladinBuffs = {
+    name = "Paladin Buff Progress",
+    description = "Shows assigned blessing coverage for each Paladin.",
+    icon = paladinInfo.classIcon,
+    colorRGB = paladinInfo.colorRGB,
+    className = "Paladin",
+    customCoverage = true,
+    gridOptionDisabled = true,
+    hunterPetsOptionDisabled = true,
+    hiddenOptions = {
+        negative = true,
+        bestAvailable = true,
+        onlyManaUsers = true,
+        onlyTanks = true,
+        hunterPets = true,
+        hideColumnUnavailable = true,
+        hideColumnComplete = true,
+    },
+}
+WhoDoesWhat.StatusBarChecks.pallyPower = {
+    name = "Paladin Buff Notifications",
+    description = "Shows whether the active blessing assignments match PallyPower.",
+    customOptions = "pallyPower",
+    gridOptionDisabled = true,
+}
 WhoDoesWhat.StatusBarChecks.thorns = {
     name = "Thorns",
     description = "Deals Nature damage to attackers.",
     icon = "Interface\\Icons\\Spell_Nature_Thorns",
     auraNames = { "Thorns" },
     className = "Druid",
+    colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
 }
 WhoDoesWhat.StatusBarChecks.dead = {
     name = "Dead",
     description = "Shows whether each raider is dead or a ghost.",
     icon = 132331,
-    colorRGB = { r = 0.9, g = 0.15, b = 0.15 },
+    colorRGB = { r = 0.46, g = 0.48, b = 0.52 },
+    defaultNegative = true,
+    defaultHideComplete = true,
+    defaultHideColumnComplete = true,
+    defaultSaturatedStyle = "x",
     gridOptionDisabled = true,
     hunterPetsOptionDisabled = true,
+    hiddenOptions = {
+        hideColumnUnavailable = true,
+        hideColumnComplete = true,
+    },
 }
 if not features.isClassicEra then
-    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "sated"
     WhoDoesWhat.StatusBarChecks.sated = {
         name = "Sated (lust / hero)",
         description = "Shows Sated or Exhaustion after Bloodlust or Heroism.",
@@ -359,13 +401,14 @@ if not features.isClassicEra then
         auraNames = { "Sated", "Exhaustion" },
         harmful = true,
         defaultNegative = true,
-        colorRGB = { r = 0.95, g = 0.45, b = 0.15 },
+        defaultHideComplete = true,
+        defaultHideColumnComplete = true,
+        defaultSaturatedStyle = "check",
+        colorRGB = shamanInfo.colorRGB,
+        className = "Shaman",
     }
 end
-WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
-WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "dead"
 if not features.isClassicEra then
-    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "drumsUsed"
     WhoDoesWhat.StatusBarChecks.drumsUsed = {
         name = "Tinnitus (drums)",
         description = "Shows Tinnitus after a party receives a drums effect.",
@@ -373,15 +416,42 @@ if not features.isClassicEra then
         auraNames = { "Tinnitus" },
         harmful = true,
         defaultNegative = true,
-        colorRGB = { r = 0.85, g = 0.55, b = 0.2 },
+        defaultHideComplete = true,
+        defaultHideColumnComplete = true,
+        defaultSaturatedStyle = "check",
+        colorRGB = { r = 0.78, g = 0.14, b = 0.10 },
         hunterPetsOptionDisabled = true,
     }
 end
 
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "food"
+if not features.isClassicEra then
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "sated"
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "drumsUsed"
+end
+WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "dead"
+
 for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
     local definition = WhoDoesWhat.StatusBarChecks[key]
-    definition.defaultEnabled = true
+    if definition.defaultEnabled == nil then definition.defaultEnabled = true end
     definition.defaultGrid = not definition.gridOptionDisabled
+end
+
+-- Saved order is a full list so newly-added checks can be appended safely.
+function WhoDoesWhat:GetStatusBarCheckOrder()
+    local saved = self.db.profile.settings.statusBarOrder
+    local order, seen = {}, {}
+    for _, key in ipairs(saved or {}) do
+        if self.StatusBarChecks[key] and not seen[key] then
+            order[#order + 1] = key
+            seen[key] = true
+        end
+    end
+    for _, key in ipairs(self.StatusBarCheckOrder) do
+        if not seen[key] then order[#order + 1] = key end
+    end
+    return order
 end
 
 function WhoDoesWhat:GetStatusBarCheckOptions(key)
@@ -405,21 +475,81 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     if onlyTanks == nil then onlyTanks = definition.defaultOnlyTanks == true end
     local negative = saved.negative
     if negative == nil then negative = definition.defaultNegative == true end
-    if definition.gridOptionDisabled then negative = false end
-    local background = saved.background
-    if not self.StatusBarBackgrounds[background] then background = "default" end
+    local bestAvailable = saved.bestAvailable
+    if bestAvailable == nil and saved.includeUnimproved ~= nil then
+        bestAvailable = not saved.includeUnimproved
+    end
+    if bestAvailable == nil then bestAvailable = true end
+    local requiredClass = saved.requiredClass
+    if requiredClass == nil then requiredClass = definition.className or false end
+    if requiredClass then
+        local valid
+        for _, classInfo in ipairs(self.Classes) do
+            if classInfo.name == requiredClass then
+                valid = true
+                break
+            end
+        end
+        if not valid then requiredClass = definition.className or false end
+    end
+    local barColor = saved.barColor
+    if barColor == nil then barColor = saved.backgroundColor end
+    if barColor == false then
+        barColor = nil
+    elseif type(barColor) ~= "table" or type(barColor.r) ~= "number"
+        or type(barColor.g) ~= "number"
+        or type(barColor.b) ~= "number" then
+        barColor = nil
+        local legacy = self.StatusBarBackgrounds[saved.background]
+        if legacy then barColor = legacy.colorRGB end
+    end
+    local display = saved.display
+    if display ~= "percent" and display ~= "missing" and display ~= "fraction"
+        and display ~= "applied" then display = "default" end
+    local hideBarUnavailable = requiredClass
+        and saved.hideBarUnavailable ~= false or false
+    local hideColumnUnavailable = requiredClass
+        and saved.hideColumnUnavailable ~= false or false
+    local hideComplete = saved.hideComplete
+    if hideComplete == nil then
+        hideComplete = definition.defaultHideComplete == true
+    end
+    local hideColumnComplete = saved.hideColumnComplete
+    if hideColumnComplete == nil then
+        hideColumnComplete = definition.defaultHideColumnComplete == true
+    end
+    local saturatedStyle = saved.saturatedStyle
+    if saturatedStyle ~= "hide" and saturatedStyle ~= "x"
+        and saturatedStyle ~= "check" then
+        saturatedStyle = definition.defaultSaturatedStyle or "check"
+    end
+    local hideWhenSynced = saved.hideWhenSynced
+    if hideWhenSynced == nil then
+        hideWhenSynced = saved.onlyDesynced == true
+    end
+    local hideWhenInactive = saved.hideWhenInactive
+    if hideWhenInactive == nil then hideWhenInactive = true end
     return {
         bar = bar,
         grid = grid,
         scope = saved.scope or "always",
-        display = saved.display == "missing" and "missing" or "percent",
-        hideComplete = saved.hideComplete == true,
-        includeUnimproved = saved.includeUnimproved == true,
+        display = display,
+        hideComplete = hideComplete,
+        hideColumnComplete = hideColumnComplete,
+        bestAvailable = bestAvailable,
         onlyManaUsers = onlyManaUsers,
         onlyTanks = onlyTanks,
         hunterPets = hunterPets,
         negative = negative,
-        background = background,
+        saturatedStyle = saturatedStyle,
+        requiredClass = requiredClass,
+        hideBarUnavailable = hideBarUnavailable,
+        hideColumnUnavailable = hideColumnUnavailable,
+        barColor = barColor,
+        combinePaladinBars = saved.combinePaladinBars == true,
+        hideWhenSynced = hideWhenSynced,
+        hideWhenInactive = hideWhenInactive,
+        assignmentIssuesGlow = saved.assignmentIssuesGlow ~= false,
     }
 end
 

@@ -157,7 +157,7 @@ local function EnsureLogFrame()
         "UIDropDownMenuTemplate")
     sourceDD:SetPoint("TOPLEFT", MARGIN - 15, -(f.titleBarHeight + 1))
     UIDropDownMenu_SetWidth(sourceDD, 125)
-    WhoDoesWhat:StyleDropdown(sourceDD)
+    WhoDoesWhat:StyleDropdown(sourceDD, true)
     UIDropDownMenu_Initialize(sourceDD, function(_, level)
         for _, key in ipairs({ "wdw", "pp" }) do
             local selected = key
@@ -175,7 +175,7 @@ local function EnsureLogFrame()
         "UIDropDownMenuTemplate")
     displayDD:SetPoint("LEFT", sourceDD, "RIGHT", -25, 0)
     UIDropDownMenu_SetWidth(displayDD, 145)
-    WhoDoesWhat:StyleDropdown(displayDD)
+    WhoDoesWhat:StyleDropdown(displayDD, true)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
         for _, option in ipairs(DISPLAY_OPTIONS[source]) do
             local selected = option.key

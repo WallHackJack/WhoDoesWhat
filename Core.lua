@@ -211,10 +211,8 @@ local defaults = {
             buffingMenuWarnExpiring = true,
             -- Movable per-paladin live blessing coverage window.
             overviewEnabled = false,
-            overviewShowPallyPower = true,
-            overviewPallyPowerOnlyDesynced = false,
             overviewAnchor = "TOPLEFT",
-            overviewHideCompleted = false,
+            overviewDefaultDisplay = "percent",
             overviewWidth = 220,
             statusBarChecks = {},
         },
@@ -242,11 +240,46 @@ function WhoDoesWhat:OnInitialize()
 
     -- Alive became the inverse Dead status; keep any per-row preferences under
     -- the new key while the grid option itself remains hard-disabled in Data.
-    local statusChecks = self.db.profile.settings.statusBarChecks
+    local settings = self.db.profile.settings
+    local statusChecks = settings.statusBarChecks
     if statusChecks.alive and not statusChecks.dead then
         statusChecks.dead = statusChecks.alive
     end
     statusChecks.alive = nil
+
+    -- The PallyPower row now lives in Buff Tracking with the other ordered
+    -- status rows. Preserve its two former Status Bars toggles once.
+    if not statusChecks.pallyPower then
+        statusChecks.pallyPower = {
+            bar = settings.overviewShowPallyPower ~= false,
+            hideWhenSynced = settings.overviewPallyPowerOnlyDesynced == true,
+            hideWhenInactive = true,
+            assignmentIssuesGlow = true,
+        }
+    end
+    if not statusChecks.paladinBuffs then
+        statusChecks.paladinBuffs = {
+            hideComplete = settings.overviewHideCompleted == true,
+        }
+    end
+    settings.overviewShowPallyPower = nil
+    settings.overviewPallyPowerOnlyDesynced = nil
+    settings.overviewHideCompleted = nil
+    if settings.statusBarPaladinModel ~= 2 then
+        local statusOrder = settings.statusBarOrder
+        if statusOrder then
+            local corrected = { "pallyPower", "paladinBuffs" }
+            for _, key in ipairs(statusOrder) do
+                if key ~= "pallyPower" and key ~= "paladinBuffs"
+                    and key ~= "paladinBuffProgress" then
+                    corrected[#corrected + 1] = key
+                end
+            end
+            settings.statusBarOrder = corrected
+        end
+        statusChecks.paladinBuffProgress = nil
+        settings.statusBarPaladinModel = 2
+    end
 
     -- tankAssignments migrated from one-row-per-marker { player, marker } to
     -- one-row-per-tank { player, markers = { ... } } (multi-select markers on
