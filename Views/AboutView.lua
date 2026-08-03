@@ -19,6 +19,20 @@ local LINKS = {
 -- entry is presented as the latest release in the window.
 local RELEASES = {
     {
+        version = "1.0.9",
+        date = "2026-08-03",
+        notes = {
+            "Added support for improved thorns.",
+            "Added Minimap Button with shortcuts.",
+            "Improve Buff Tracking options for status bars + Grid.",
+            "Respect PallyPower Free Assignment permissions.",
+            "Improved PP buff-source mode, and diffs page.",
+            "Added About section with Update Notes.",
+            "Count only meaningful PallyPower blessing optimizations.",
+            "Use PallyPower talent data for unknown paladins.",
+        },
+    },
+    {
         version = "1.0.8",
         date = "2026-08-01",
         notes = {
