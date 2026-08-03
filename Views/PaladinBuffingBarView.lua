@@ -276,24 +276,35 @@ local function CountColor(covered, total)
     return 1, 0.82, 0.2
 end
 
-local function CountMissingRaiderBuffs(jobs)
-    local missing = 0
-    for _, job in ipairs(jobs) do
-        for _, raider in ipairs(job.raiders) do
-            if not raider.isPet and raider.has ~= true then
-                missing = missing + 1
-            end
+local function CountUnassignedClassBuffs(paladin, buffPlan, members)
+    if not paladin then return 0 end
+    local activeClasses = {}
+    for _, member in ipairs(members or WhoDoesWhat:GetGroupMembers(nil)) do
+        if not member.isFake and not WhoDoesWhat:IsNonRaider(member.name) then
+            activeClasses[member.classInfo.name] = true
         end
     end
-    return missing
+    local assigned = buffPlan and buffPlan.greaterByPaladin
+        and buffPlan.greaterByPaladin[paladin] or {}
+    local unassigned = 0
+    for className in pairs(activeClasses) do
+        if not assigned[className] then unassigned = unassigned + 1 end
+    end
+    return unassigned
 end
 
--- Small in-game check for the PP companion count (pets never contribute).
+-- Small in-game check for the PP companion count: duplicate raiders count as
+-- one class, and fake development members never contribute.
 function WhoDoesWhat:TestPallyPowerBuffButtonCount()
-    local jobs = { { raiders = {
-        { has = true }, { has = false }, {}, { has = false, isPet = true },
-    } } }
-    assert(CountMissingRaiderBuffs(jobs) == 2)
+    local paladin = "__WDWTestPaladin"
+    local warrior = { name = "__WDWTestWarrior", classInfo = { name = "Warrior" } }
+    local mage = { name = "__WDWTestMage", classInfo = { name = "Mage" } }
+    local plan = { greaterByPaladin = { [paladin] = { Warrior = "might" } } }
+    assert(CountUnassignedClassBuffs(paladin, plan,
+        { warrior, mage, { name = "__WDWTestMageTwo", classInfo = mage.classInfo } }) == 1)
+    plan.greaterByPaladin[paladin].Mage = "wisdom"
+    assert(CountUnassignedClassBuffs(paladin, plan,
+        { warrior, mage, { name = "Fake", classInfo = { name = "Priest" }, isFake = true } }) == 0)
     self:Print("PallyPower buff-button count check passed.")
 end
 
@@ -763,12 +774,13 @@ local function CreatePallyPowerButton()
     btn.count = count
 
     btn:SetScript("OnEnter", function(self)
-        local missing = self.missingCount or 0
+        local unassigned = self.unassignedCount or 0
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("PallyPower Blessings", 1, 1, 1)
-        GameTooltip:AddLine(missing .. " assigned blessing"
-            .. (missing == 1 and " is" or "s are")
-            .. " currently missing on raiders. Pets are excluded.",
+        GameTooltip:AddLine(unassigned .. " active raid class"
+            .. (unassigned == 1 and " has" or "es have")
+            .. " no blessing assignment for this paladin."
+            .. " Pets and Non-raiders are excluded.",
             0.8, 0.8, 0.8, true)
         if _G.PallyPower and type(_G.PallyPowerBlessings_Toggle) == "function" then
             GameTooltip:AddLine("Click to open /pp blessings.", 0.4, 0.7, 1, true)
@@ -793,9 +805,9 @@ local function CreatePallyPowerButton()
     return btn
 end
 
-local function UpdatePallyPowerButton(btn, jobs)
-    btn.missingCount = CountMissingRaiderBuffs(jobs)
-    btn.count:SetText(btn.missingCount)
+local function UpdatePallyPowerButton(btn, paladin, buffPlan)
+    btn.unassignedCount = CountUnassignedClassBuffs(paladin, buffPlan)
+    btn.count:SetText(btn.unassignedCount)
     SetButtonGlow(btn, true, PP_GLOW_COLOR)
 end
 
@@ -1004,7 +1016,8 @@ end
 function WhoDoesWhat:RefreshPaladinBuffingBar()
     if not bar or not bar:IsShown() then return end
     local paladin = ResolveBarPaladin()
-    local allJobs = paladin and self.Assign.GetPaladinBuffJobs(paladin) or {}
+    local buffPlan = self.Assign.GetActivePaladinBuffPlan()
+    local allJobs = paladin and self.Assign.GetPaladinBuffJobs(paladin, buffPlan) or {}
     -- Drop classes with no real raiders to buff (read 0/0) -- nothing to show.
     local jobs = {}
     for _, job in ipairs(allJobs) do
@@ -1030,7 +1043,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
             end
         end
         if pallyPowerMode and bar.ppButton:IsShown() then
-            UpdatePallyPowerButton(bar.ppButton, jobs)
+            UpdatePallyPowerButton(bar.ppButton, paladin, buffPlan)
         end
         return
     end
@@ -1060,7 +1073,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
 
     local n = #jobs
     if pallyPowerMode then
-        UpdatePallyPowerButton(bar.ppButton, jobs)
+        UpdatePallyPowerButton(bar.ppButton, paladin, buffPlan)
         bar.ppButton:ClearAllPoints()
         bar.ppButton:SetPoint("TOPLEFT", bar, "TOPLEFT",
             INSET + PAD + n * (BTN_SIZE + BTN_GAP), -CONTENT_TOP)

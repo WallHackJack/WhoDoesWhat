@@ -524,6 +524,14 @@ function Refresh(f) -- forward declared above
     local _, _, byPaladin = ComputePaladinBuffCoverage(buffPlan)
     local editable = WhoDoesWhat:CanEditAssignments()
     local source = GetPallyBuffSource()
+    local awaiting = {}
+    if source == "wdw" then
+        for _, paladin in ipairs(summary) do
+            if paladin.awaitingTalents then
+                awaiting[#awaiting + 1] = paladin.name
+            end
+        end
+    end
     UIDropDownMenu_SetText(state.pallyBuffSourceDD,
         source == "pallypower" and "PallyPower" or "WDW")
     if editable then
@@ -537,28 +545,37 @@ function Refresh(f) -- forward declared above
         state.rows[i] = row
         row.paladinName = p.name
         row:Show()
-        row.mailBtn:SetShown(editable)
+        local awaitingTalents = source == "wdw" and p.awaitingTalents
+        row.mailBtn:SetShown(editable and not awaitingTalents)
         row.coveragePercent:ClearAllPoints()
         if editable then
             row.coveragePercent:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
         else
             row.coveragePercent:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         end
-        row.moreText:SetShown(#p.buffs > PALLY_MAX_BUFFS)
+        row.moreText:SetShown(not awaitingTalents and #p.buffs > PALLY_MAX_BUFFS)
         row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE))
         local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct == coverage.total
         local hasMissing = coverage.correct < coverage.total
         row.mailBtn:SetEnabled(hasMissing)
         row.mailBtn.icon:SetDesaturated(not hasMissing)
-        row.coverageIcon:SetTexture(COVERAGE_OK_ICON)
-        row.coverageIcon:SetShown(complete)
-        local coverageText, coveragePercent = CoverageText(coverage.correct, coverage.total)
-        row.coverageText:SetText(coverageText)
-        row.coveragePercent:SetText(coveragePercent)
-        row.coverageText:SetTextColor(1, 1, 1)
+        row.coverageIcon:SetTexture(awaitingTalents and WhoDoesWhat.WARNING_ICON
+            or COVERAGE_OK_ICON)
+        row.coverageIcon:SetShown(awaitingTalents or complete)
+        if awaitingTalents then
+            row.coverageText:SetText("Awaiting talents")
+            row.coveragePercent:SetText("")
+            row.coverageText:SetTextColor(1, 0.62, 0.25)
+        else
+            local coverageText, coveragePercent = CoverageText(
+                coverage.correct, coverage.total)
+            row.coverageText:SetText(coverageText)
+            row.coveragePercent:SetText(coveragePercent)
+            row.coverageText:SetTextColor(1, 1, 1)
+        end
         for bi, slot in ipairs(row.slots) do
-            local b = p.buffs[bi]
+            local b = not awaitingTalents and p.buffs[bi]
             if b then
                 slot.icon:SetTexture(WhoDoesWhat.PaladinBuffs[b.key].iconId)
                 slot.buffKey = b.key
@@ -587,12 +604,31 @@ function Refresh(f) -- forward declared above
     state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD, -ppRowTop)
     state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -ppRowTop)
 
-    local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
+    local ppState, ppText, ppDiffCount
+    if #awaiting == 0 then
+        ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
+    end
+    state.ppArea.tooltipTitle = nil
+    state.ppArea.tooltipText = nil
     state.ppIcon:ClearAllPoints()
     state.ppStatus:ClearAllPoints()
     state.ppDiffBtn:ClearAllPoints()
     state.ppApplyBtn:ClearAllPoints()
-    if ppState == "inactive" then
+    if #awaiting > 0 then
+        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
+        state.ppIcon:Show()
+        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
+        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
+        state.ppStatus:SetTextColor(1, 0.62, 0.25)
+        state.ppDiffBtn:Hide()
+        state.ppApplyBtn:Hide()
+        ppText = "Awaiting Paladin talents"
+        state.ppArea.tooltipTitle = ppText
+        state.ppArea.tooltipText = "WDW will not assign blessings to "
+            .. table.concat(awaiting, ", ") .. " until talent data arrives."
+            .. " Rescan when they are in range, or mark a paladin as Non-raider"
+            .. " if they are sitting out."
+    elseif ppState == "inactive" then
         state.ppIcon:Hide()
         state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
         state.ppStatus:SetTextColor(0.5, 0.5, 0.5)
@@ -780,6 +816,15 @@ local function CreatePallyPowerArea(box)
     local area = CreateFrame("Frame", nil, box)
     area:SetHeight(PALLY_ROW_H)
     area:SetFrameLevel(box:GetFrameLevel() + 1)
+    area:EnableMouse(true)
+    area:SetScript("OnEnter", function(self)
+        if not self.tooltipText then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.tooltipTitle or "Paladin Buffs", 1, 0.82, 0)
+        GameTooltip:AddLine(self.tooltipText, 0.9, 0.9, 0.9, true)
+        GameTooltip:Show()
+    end)
+    area:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local icon = area:CreateTexture(nil, "ARTWORK")
     icon:SetSize(16, 16)

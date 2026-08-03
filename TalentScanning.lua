@@ -110,9 +110,10 @@ function WhoDoesWhat:ScanPaladinBuffTalents(guid, playerKey, isInspect)
     self.db.profile.paladinBuffTalents[playerKey] = ranks
 end
 
--- A paladin's scanned buff-talent ranks ({ might, wisdom, kings, sanctuary }),
--- or nil while their talents haven't been seen yet. Consumed by the main
--- assignments view for its dropdown preferences, warnings and auto-assign.
+-- A paladin's buff-talent ranks ({ might, wisdom, kings, sanctuary }), or nil
+-- while their talents haven't been seen yet. A provisional PallyPower import
+-- also has _source="pallypower"; this native scan replaces the whole table,
+-- removing that tag and solidifying the result.
 function WhoDoesWhat:GetPaladinBuffTalents(playerName)
     return self.db and self.db.profile.paladinBuffTalents[playerName] or nil
 end

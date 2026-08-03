@@ -806,8 +806,9 @@ end
 -- There is no stored per-buff assignment: coverage is derived from the roster
 -- + roles + talents + the custom rules above. The complete derived plan is
 -- cached by those inputs so every view reads the same snapshot and the exact
--- matcher runs only when an input changes. Every (non-non-raider) paladin
--- takes part.
+-- matcher runs only when an input changes. Every non-raider-excluded paladin
+-- with known buff talents takes part; unknown paladins wait rather than being
+-- assigned commodity blessings on an unsafe zero-rank assumption.
 --
 -- Each raider's paladins-to-buffs matching is solved as a whole (a tiny
 -- assignment problem over at most 6x6, done exactly by DP over buff subsets)
@@ -1071,7 +1072,12 @@ local function ComputePaladinBuffPlan()
     local cacheKey = BuffPlanKey(ignored, prioritized)
     if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
 
-    local pool = MembersOfClass("Paladin") -- sorted names
+    local pool = {}
+    for _, name in ipairs(MembersOfClass("Paladin")) do
+        if WhoDoesWhat:GetPaladinBuffTalents(name) then
+            pool[#pool + 1] = name
+        end
+    end
     local primary, forced = ComputePrimaries(pool, ignored, prioritized, preferred)
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
@@ -1381,9 +1387,15 @@ local function ComputePaladinBuffSummary(buffPlan)
             if a.count ~= b.count then return a.count > b.count end
             return canonIndex[a.key] < canonIndex[b.key]
         end)
-        out[#out + 1] = { name = name, total = total, buffs = buffs }
+        out[#out + 1] = {
+            name = name,
+            total = total,
+            buffs = buffs,
+            awaitingTalents = WhoDoesWhat:GetPaladinBuffTalents(name) == nil,
+        }
     end
     table.sort(out, function(a, b)
+        if a.awaitingTalents ~= b.awaitingTalents then return a.awaitingTalents end
         if a.total ~= b.total then return a.total > b.total end
         return a.name < b.name
     end)

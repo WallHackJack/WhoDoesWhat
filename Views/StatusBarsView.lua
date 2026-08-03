@@ -181,7 +181,9 @@ local function LayoutProgressLabel(row)
         row.completeIcon:ClearAllPoints()
         row.completeIcon:SetSize(14, unavailable and 14 or math.floor(14 * 0.8 + 0.5))
         row.completeIcon:SetPoint("RIGHT", row.status, "RIGHT", -2, 0)
-        row.completeIcon:SetTexture(unavailable and NOT_READY_ICON or READY_ICON)
+        row.completeIcon:SetTexture(unavailable
+            and (row.awaitingTalents and WhoDoesWhat.WARNING_ICON or NOT_READY_ICON)
+            or READY_ICON)
         row.completeIcon:Show()
         row.name:SetPoint("RIGHT", row.completeIcon, "LEFT", -4, 0)
         return
@@ -573,6 +575,8 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 name = paladin.name,
                 icon = RoleIcon(paladin.name),
                 isPaladin = true,
+                awaitingTalents = (self.db.profile.settings.pallyBuffSource or "wdw")
+                    == "wdw" and paladin.awaitingTalents,
                 coverage = coverage,
                 colorRGB = paladinClass.colorRGB,
             }
@@ -667,9 +671,11 @@ function WhoDoesWhat:RefreshStatusBarsView()
         local row = view.rows[i] or CreateRow(i)
         local coverage = entry.coverage
         row.icon:SetTexture(entry.icon)
-        row.name:SetText(entry.name)
+        row.name:SetText(entry.awaitingTalents
+            and ("Awaiting talents - " .. entry.name) or entry.name)
         row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
         row.isPaladin = entry.isPaladin
+        row.awaitingTalents = entry.awaitingTalents
         row.correct = coverage.correct
         row.total = coverage.total
         row.status:SetMinMaxValues(0, math.max(coverage.total, 1))

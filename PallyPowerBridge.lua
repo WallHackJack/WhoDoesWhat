@@ -161,6 +161,68 @@ local function ShortName(name)
     return name and name:match("^([^%-]+)") or name
 end
 
+-- SELF's first field is six rank/talent hex pairs in blessing order:
+-- Wisdom, Might, Kings, Salvation, Light, Sanctuary. PallyPower only records
+-- improvement ranks for Wisdom/Might; the learned spell is the talent proof
+-- for Kings/Sanctuary. This is useful provisional evidence, but unlike WDW's
+-- native row/column scan it carries no talent-tree totals or spec identity.
+local function DecodePallyPowerBuffTalents(numbers)
+    if type(numbers) ~= "string" or #numbers < 12 then return nil end
+    local function HexAt(index)
+        local ch = numbers:sub(index, index)
+        return ch ~= "n" and tonumber(ch, 16) or nil
+    end
+    local wisdom, might = HexAt(2), HexAt(4)
+    if wisdom == nil or might == nil then return nil end
+    return {
+        wisdom = math.min(wisdom, 2),
+        might = math.min(might, 5),
+        kings = HexAt(5) and 1 or 0,
+        sanctuary = HexAt(11) and 1 or 0,
+        _source = "pallypower",
+    }
+end
+
+local function GroupPaladinKey(sender)
+    local short = ShortName(sender)
+    local match
+    for _, member in ipairs(WhoDoesWhat:GetGroupMembers("Paladin")) do
+        if member.classInfo.name == "Paladin" then
+            if member.name == sender then return member.name end
+            if ShortName(member.name) == short then
+                if match then return nil end -- same name on two realms
+                match = member.name
+            end
+        end
+    end
+    return match
+end
+
+local function ImportPallyPowerBuffTalents(sender, message)
+    local numbers = message:match("^SELF ([0-9a-fn]*)@")
+    local playerKey = numbers and GroupPaladinKey(sender)
+    local ranks = playerKey and DecodePallyPowerBuffTalents(numbers)
+    if not ranks then return false end
+
+    local current = WhoDoesWhat:GetPaladinBuffTalents(playerKey)
+    if current and current._source ~= "pallypower" then return false end
+    WhoDoesWhat.db.profile.paladinBuffTalents[playerKey] = ranks
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBuffingGridView()
+    return true
+end
+
+function WhoDoesWhat:TestPallyPowerTalentDecode()
+    local ranks = DecodePallyPowerBuffTalents("727510405011")
+    assert(ranks and ranks.wisdom == 2 and ranks.might == 5)
+    assert(ranks.kings == 1 and ranks.sanctuary == 1)
+    ranks = DecodePallyPowerBuffTalents("7170nn4050nn")
+    assert(ranks and ranks.wisdom == 1 and ranks.might == 0)
+    assert(ranks.kings == 0 and ranks.sanctuary == 0)
+    assert(DecodePallyPowerBuffTalents("nnnnnnn4n5nn") == nil)
+    self:Print("PallyPower talent-decode check passed.")
+end
+
 -- The wire mirror is deliberately session-only. REQ/SELF reconstructs it
 -- from the PallyPower clients currently in the group.
 local observedBoard = { assignments = {}, normal = {} }
@@ -1049,6 +1111,7 @@ function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)
     if prefix ~= PP_PREFIX then return end
     local who = Ambiguate(sender, "none")
     if who == UnitName("player") then return end -- own echo; the send hook logged it
+    ImportPallyPowerBuffTalents(who, message)
     if ApplyPallyPowerMessage(observedBoard, who, message) then
         QueueMirrorRefresh()
     end

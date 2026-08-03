@@ -85,6 +85,20 @@ function WhoDoesWhat:ShowRaiderTooltip(owner, name)
     end
 
     local talents = self:GetPaladinBuffTalents(name)
+    if not talents then
+        GameTooltip:AddLine(Icon(self.WARNING_ICON)
+            .. " |cffff9f40Awaiting Paladin talents|r", 1, 1, 1)
+        GameTooltip:AddLine("WDW will not assign this paladin any blessings until talent data arrives.",
+            0.9, 0.8, 0.6, true)
+        GameTooltip:AddLine("If they are sitting out, mark them as Non-raider instead.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+    elseif talents._source == "pallypower" then
+        GameTooltip:AddLine("|cff909090Talent data from external addon (PallyPower).|r",
+            1, 1, 1)
+        GameTooltip:AddLine("A WDW rescan will confirm and replace it.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+    end
     local entries = {}
     for order, line in ipairs(TALENT_LINES) do
         local text, status = TalentLine(line, talents and talents[line.key])

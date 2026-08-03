@@ -444,7 +444,7 @@ intentional:
 | Three tree totals and primary tree | LibClassicInspector cache, initial WDW `HELLO` for immediate join inference |
 | General role inference | WDW's class-to-tree role table |
 | Third-party tree totals | Fresh live inspection, then deduplicated WDW `OBSERVE` |
-| Exact utility-talent ranks | Native row/column scan, then own `RANKS` or third-party `OBSERVE`; leader cache relayed in initial `STATE` |
+| Exact utility-talent ranks | Native row/column scan, then own `RANKS` or third-party `OBSERVE`; leader cache relayed in initial `STATE`; non-relayed PallyPower fallback for otherwise-unknown paladins |
 | Manual/final board role | WDW `ROLE` or `STATE` |
 
 ## LibClassicInspector traffic
@@ -482,7 +482,7 @@ only the messages required for discovery and explicit synchronization.
 | Message | Meaning | WDW behavior |
 | --- | --- | --- |
 | `REQ` | Ask PallyPower clients to identify themselves | WDW sends on group join/reload, at most once per channel per 10 seconds |
-| `SELF ...@<row>` | Sender's own blessing class row | Observed; marks sender as a PallyPower peer and resets their mirrored exceptions before replay |
+| `SELF <rank/talent pairs>@<row>` | Sender's blessing capabilities and own class row | Observed; fills otherwise-unknown paladin buff talents as provisional external data, marks sender as a PallyPower peer, and resets their mirrored exceptions before replay |
 | `ASELF ...@<aura>` | Sender's own aura state | Logged, not part of the blessing-grid mirror |
 | `PPLEADER <name>` | Announce PallyPower leader | Logged |
 | `PASSIGN <paladin>@<row>` | Replace one paladin's full class blessing row | Observed; WDW sends during an explicit full push |

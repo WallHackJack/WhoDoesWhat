@@ -485,7 +485,8 @@ end
 -- Our own scanned ranks, or nil when we're not a paladin / not scanned yet.
 local function OwnRanks()
     if select(2, UnitClass("player")) ~= "PALADIN" then return nil end
-    return WhoDoesWhat.db.profile.paladinBuffTalents[UnitName("player")]
+    local ranks = WhoDoesWhat.db.profile.paladinBuffTalents[UnitName("player")]
+    return ranks and not ranks._source and ranks or nil
 end
 
 local function OwnHealthstoneRank()
@@ -618,7 +619,9 @@ local function PeerDirectory()
             version = own and Sync:GetReportedAddonVersion() or peerVersions[name],
             talents = own and WhoDoesWhat:GetOwnTalentTreePoints()
                 or (fact and fact.talents),
-            ranks = own and OwnRanks() or p.paladinBuffTalents[name],
+            ranks = own and OwnRanks() or (p.paladinBuffTalents[name]
+                and not p.paladinBuffTalents[name]._source
+                and p.paladinBuffTalents[name] or nil),
             healthstone = own and OwnHealthstoneRank() or p.warlockHealthstoneTalents[name],
             coreRanks = own and OwnCoreBuffRanks() or p.coreBuffTalents[name],
         }
