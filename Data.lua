@@ -315,6 +315,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
         className = "Priest",
         colorRGB = { r = 109 / 255, g = 60 / 255, b = 129 / 255 }, -- #6D3C81
+        defaultIncludeInTotal = false,
     },
     intellect = {
         name = "Intellect",
@@ -350,14 +351,13 @@ WhoDoesWhat.StatusBarChecks.paladinBuffs = {
     colorRGB = paladinInfo.colorRGB,
     className = "Paladin",
     customCoverage = true,
+    includeHunterPets = true,
     gridOptionDisabled = true,
-    hunterPetsOptionDisabled = true,
     hiddenOptions = {
         negative = true,
         bestAvailable = true,
         onlyManaUsers = true,
         onlyTanks = true,
-        hunterPets = true,
         hideColumnUnavailable = true,
         hideColumnComplete = true,
     },
@@ -475,6 +475,10 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     if onlyTanks == nil then onlyTanks = definition.defaultOnlyTanks == true end
     local negative = saved.negative
     if negative == nil then negative = definition.defaultNegative == true end
+    local includeInTotal = saved.includeInTotal
+    if includeInTotal == nil then
+        includeInTotal = definition.defaultIncludeInTotal ~= false
+    end
     local bestAvailable = saved.bestAvailable
     if bestAvailable == nil and saved.includeUnimproved ~= nil then
         bestAvailable = not saved.includeUnimproved
@@ -541,6 +545,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         onlyTanks = onlyTanks,
         hunterPets = hunterPets,
         negative = negative,
+        includeInTotal = includeInTotal,
         saturatedStyle = saturatedStyle,
         requiredClass = requiredClass,
         hideBarUnavailable = hideBarUnavailable,

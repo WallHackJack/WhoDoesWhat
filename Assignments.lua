@@ -1269,11 +1269,12 @@ end
 -- Live completion of the active plan, raid-wide and per paladin. Simulated
 -- paladin -> simulated raider cells count as covered because neither side can
 -- produce real aura data; disconnected real targets are left out entirely.
-local function ComputePaladinBuffCoverage(buffPlan)
+local function ComputePaladinBuffCoverage(buffPlan, includePets)
     local disconnected = DisconnectedGroupTargets()
     local correct, total, byPaladin = 0, 0, {}
     for raider, cells in pairs((buffPlan or GetActivePaladinBuffPlan()).grid) do
-        if not disconnected[raider] then
+        if not disconnected[raider]
+            and (includePets ~= false or not raider:match("'s Pet$")) then
             for paladin, key in pairs(cells) do
                 local p = byPaladin[paladin]
                 if not p then

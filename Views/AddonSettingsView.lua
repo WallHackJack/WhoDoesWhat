@@ -429,6 +429,9 @@ local function RefreshBuffOptionsFrame()
         and "Hide grid column when debuff missing"
         or "Hide grid column when complete")
     y = PlaceOption("hideColumnComplete", showHideColumnComplete, y)
+    local showIncludeInTotal = not options.negative
+        and not hidden.includeInTotal
+    y = PlaceOption("includeInTotal", showIncludeInTotal, y)
 
     local showMana = not hidden.onlyManaUsers
     local showTanks = not hidden.onlyTanks
@@ -439,7 +442,8 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("onlyTanks", showTanks, y)
     y = PlaceOption("hunterPets", showPets, y)
     for _, option in ipairs({ "bestAvailable", "hideBarUnavailable",
-        "hideColumnUnavailable", "combinePaladinBars", "negative", "hideComplete",
+        "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
+        "negative", "hideComplete",
         "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
         if not f.optionChecks[option]:IsShown() then
             f.optionLabels[option]:Hide()
@@ -773,6 +777,8 @@ local function EnsureBuffOptionsFrame(owner, key)
             "Hide the Buff Grid column while the required class is absent." },
         { "combinePaladinBars", "Show single combined Paladin row",
             "Replace the individual Paladin progress bars with one raid-wide blessing progress bar." },
+        { "includeInTotal", "Include in Total Coverage Calculation",
+            "Count this buff in the percentage shown in the WDW Status header." },
     }
     for index, entry in ipairs(checkboxOptions) do
         local option, labelText, tooltip = entry[1], entry[2], entry[3]

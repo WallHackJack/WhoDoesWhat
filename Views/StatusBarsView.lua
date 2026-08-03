@@ -24,7 +24,7 @@ local BAR_H = 18
 local EMPTY_ICON_SIZE = math.floor(BAR_H * 0.8 + 0.5)
 local DEFAULT_W = 220
 local MIN_W = 90
-local RESIZE_MIN_W = 70
+local RESIZE_MIN_W = 68
 local HIDE_NAMES_W = 105
 local ULTRA_COMPACT_W = 115
 local HANDLE_W = 4
@@ -365,14 +365,16 @@ local function ApplyResizeBounds()
 end
 
 local function LayoutHeader()
-    local percentageOnly = view:GetWidth() < MIN_W
-    view.titleText:SetShown(not percentageOnly)
+    local compact = view:GetWidth() < MIN_W
+    view.titleText:Show()
+    view.titleText:SetText(view:GetWidth() < ULTRA_COMPACT_W
+        and "Status" or "WDW Status")
+    view.titleText:ClearAllPoints()
+    view.titleText:SetPoint("LEFT", compact and 2 or 5, 0)
     view.totalPercent:ClearAllPoints()
-    if percentageOnly then
-        view.totalPercent:SetPoint("CENTER", view.title, "CENTER", 0, 0)
+    if compact then
+        view.totalPercent:SetPoint("RIGHT", view.title, "RIGHT", -2, 0)
     else
-        view.titleText:SetText(view:GetWidth() < ULTRA_COMPACT_W
-            and "Status" or "WDW Status")
         view.totalPercent:SetPoint("LEFT", view.titleText, "RIGHT", 4, 0)
     end
 end
@@ -532,8 +534,10 @@ function WhoDoesWhat:RefreshStatusBarsView()
     if not view or not view:IsShown() then return end
     local buffPlan = self.Assign.GetActivePaladinBuffPlan()
     local summary = self.Assign.ComputePaladinBuffSummary(buffPlan)
+    local paladinOptions = self:GetStatusBarCheckOptions("paladinBuffs")
     local paladinCorrect, paladinTotal, coverageByPaladin =
-        self.Assign.ComputePaladinBuffCoverage(buffPlan)
+        self.Assign.ComputePaladinBuffCoverage(buffPlan,
+            paladinOptions.hunterPets)
     local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
     local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
     local colorPreviewMode = self.statusBarColorPreviewKey ~= nil
@@ -544,7 +548,6 @@ function WhoDoesWhat:RefreshStatusBarsView()
         coreCoverageByKey[coverage.key] = coverage
     end
 
-    local paladinOptions = self:GetStatusBarCheckOptions("paladinBuffs")
     local paladinPreview = colorPreviewMode
         and (paladinOptions.bar
             or self.statusBarColorPreviewKey == "paladinBuffs")
@@ -630,6 +633,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 local available = coverage.available
                     or not options.hideBarUnavailable
                 if options.bar and inScope and available
+                    and not options.negative and options.includeInTotal
                     and coverage.total > 0 then
                     coreCorrect = coreCorrect + coverage.correct
                     coreTotal = coreTotal + coverage.total
@@ -653,8 +657,10 @@ function WhoDoesWhat:RefreshStatusBarsView()
             end
         end
     end
-    local correct = (normalPaladinBars and paladinCorrect or 0) + coreCorrect
-    local total = (normalPaladinBars and paladinTotal or 0) + coreTotal
+    local countPaladinCoverage = normalPaladinBars
+        and paladinOptions.includeInTotal
+    local correct = (countPaladinCoverage and paladinCorrect or 0) + coreCorrect
+    local total = (countPaladinCoverage and paladinTotal or 0) + coreTotal
     local totalPercent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     view.totalPercent:SetText(total > 0 and ("(" .. totalPercent .. "%)")
         or ("|T" .. NOT_READY_ICON .. ":12:12:0:0|t"))
