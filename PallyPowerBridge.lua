@@ -225,7 +225,7 @@ end
 
 -- The wire mirror is deliberately session-only. REQ/SELF reconstructs it
 -- from the PallyPower clients currently in the group.
-local observedBoard = { assignments = {}, normal = {} }
+local observedBoard = { assignments = {}, normal = {}, freeAssign = {} }
 WhoDoesWhat.PallyPowerMirror = observedBoard
 
 local function CurrentPallyPowerBoard()
@@ -264,17 +264,29 @@ local function SetClassRow(board, name, row)
     end
 end
 
-local function CanApplyAssignment(sender, paladin, senderHasAuthority)
-    return ShortName(sender) == ShortName(paladin) or senderHasAuthority
+local function CanApplyAssignment(board, sender, paladin, senderHasAuthority)
+    paladin = ShortName(paladin)
+    return ShortName(sender) == paladin or senderHasAuthority
+        or board.freeAssign and board.freeAssign[paladin]
 end
 
--- Apply only the PLPWR messages that can change the blessing grid. Aura,
+-- Apply the PLPWR messages that can change the blessing grid, plus the
+-- FREEASSIGN permission needed to accept another player's edits. Aura,
 -- cooldown, symbol, and UI messages are intentionally outside this mirror.
 local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
     sender = ShortName(sender)
     local senderHasAuthority = authorityOverride
     if senderHasAuthority == nil then
         senderHasAuthority = SenderCanAssignOthers(sender)
+    end
+
+    local freeAssign = message:match("^FREEASSIGN (%u+)")
+    if freeAssign then
+        board.freeAssign = board.freeAssign or {}
+        local enabled = freeAssign == "YES" or nil
+        local changed = board.freeAssign[sender] ~= enabled
+        board.freeAssign[sender] = enabled
+        return changed
     end
 
     local selfRow = message:match("^SELF [0-9a-fn]*@([0-9n]*)")
@@ -287,14 +299,14 @@ local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
     end
 
     local paladin, row = message:match("^PASSIGN (%S+)@([0-9n]*)")
-    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+    if paladin and CanApplyAssignment(board, sender, paladin, senderHasAuthority) then
         SetClassRow(board, paladin, row)
         return true
     end
 
     local classId, blessing
     paladin, classId, blessing = message:match("^ASSIGN (%S+) (%d+) (%d+)")
-    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+    if paladin and CanApplyAssignment(board, sender, paladin, senderHasAuthority) then
         paladin, classId = ShortName(paladin), tonumber(classId)
         board.assignments[paladin] = board.assignments[paladin] or {}
         board.assignments[paladin][classId] = tonumber(blessing) or 0
@@ -302,7 +314,7 @@ local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
     end
 
     paladin, blessing = message:match("^MASSIGN (%S+) (%d+)")
-    if paladin and CanApplyAssignment(sender, paladin, senderHasAuthority) then
+    if paladin and CanApplyAssignment(board, sender, paladin, senderHasAuthority) then
         local rowText = string.rep(tostring(tonumber(blessing) or 0), PP_MAX_CLASSES)
         SetClassRow(board, paladin, rowText)
         return true
@@ -313,7 +325,7 @@ local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
         local changed = false
         for pname, cid, target, value in
             body:gmatch("([^@ ]+) ([^@ ]+) ([^@ ]+) ([^@ ]+)") do
-            if CanApplyAssignment(sender, pname, senderHasAuthority) then
+            if CanApplyAssignment(board, sender, pname, senderHasAuthority) then
                 pname, cid = ShortName(pname), tonumber(cid)
                 value = tonumber(value)
                 if cid and value then
@@ -328,10 +340,20 @@ local function ApplyPallyPowerMessage(board, sender, message, authorityOverride)
         return changed
     end
 
-    if message:find("^CLEAR") and senderHasAuthority then
-        wipe(board.assignments)
-        wipe(board.normal)
-        return true
+    if message:find("^CLEAR") then
+        if senderHasAuthority then
+            wipe(board.assignments)
+            wipe(board.normal)
+            return true
+        end
+        local changed = false
+        for paladin in pairs(board.freeAssign or {}) do
+            changed = board.assignments[paladin] ~= nil
+                or board.normal[paladin] ~= nil or changed
+            board.assignments[paladin] = nil
+            board.normal[paladin] = nil
+        end
+        return changed
     end
     return false
 end
@@ -345,7 +367,7 @@ local function SendPallyPowerMessage(message)
         return
     end
 
-    ApplyPallyPowerMessage(observedBoard, UnitName("player"), message, true)
+    ApplyPallyPowerMessage(observedBoard, UnitName("player"), message)
     local channel = GroupChannel()
     if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
         C_ChatInfo.SendAddonMessage(PP_PREFIX, message, channel)
@@ -375,8 +397,37 @@ local function CanBroadcastAssignments()
     return UnitIsGroupLeader("player")
 end
 
-function WhoDoesWhat:CanFixPallyPowerAssignments()
-    return CanBroadcastAssignments()
+function WhoDoesWhat:CanFixPallyPowerPaladin(paladin)
+    local pshort = ShortName(paladin)
+    return CanBroadcastAssignments() or pshort == ShortName(UnitName("player"))
+        or observedBoard.freeAssign[pshort] == true
+end
+
+local function BlockedPallyPowerPaladin(self, playerName, diffs)
+    if CanBroadcastAssignments() then return nil end
+    diffs = diffs or self:CheckPallyPowerSync()
+    for _, diff in ipairs(diffs or {}) do
+        local target = diff.planTarget or diff.target
+        if (target == playerName or ShortName(target) == ShortName(playerName))
+            and not self:CanFixPallyPowerPaladin(diff.paladin) then
+            return diff.paladin
+        end
+    end
+end
+
+function WhoDoesWhat:CanFixAllPallyPowerAssignments()
+    for _, member in ipairs(self:GetGroupMembers("Paladin")) do
+        if member.classInfo.name == "Paladin" and not IsFakeName(member.name)
+            and not self:CanFixPallyPowerPaladin(member.name) then
+            return false, ShortName(member.name)
+        end
+    end
+    return true
+end
+
+function WhoDoesWhat:CanFixPlayerBuffsInPallyPower(playerName, diffs)
+    local blocked = BlockedPallyPowerPaladin(self, playerName, diffs)
+    return blocked == nil, blocked
 end
 
 -- ---------------------------------------------------------------------------
@@ -496,7 +547,7 @@ end
 
 -- Small parser check, callable through LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat").
 function WhoDoesWhat:TestPallyPowerMirror()
-    local board = { assignments = {}, normal = {} }
+    local board = { assignments = {}, normal = {}, freeAssign = {} }
     assert(ApplyPallyPowerMessage(board, "Alice", "SELF nnnnnn@3n2nnnnnn", false))
     assert(board.assignments.Alice[1] == 3 and board.assignments.Alice[3] == 2)
     assert(ApplyPallyPowerMessage(board, "Alice", "ASSIGN Alice 1 4", false))
@@ -505,6 +556,18 @@ function WhoDoesWhat:TestPallyPowerMirror()
         "NASSIGN Alice 1 Bob 2@Alice 1 Cara 0", false))
     assert(board.normal.Alice[1].Bob == 2 and board.normal.Alice[1].Cara == nil)
     assert(not ApplyPallyPowerMessage(board, "Bob", "PASSIGN Alice@111111111", false))
+    assert(ApplyPallyPowerMessage(board, "Alice", "FREEASSIGN YES", false))
+    assert(ApplyPallyPowerMessage(board, "Bob", "ASSIGN Alice 1 3", false))
+    assert(board.assignments.Alice[1] == 3)
+    assert(ApplyPallyPowerMessage(board, "Bob", "NASSIGN Alice 1 Cara 4", false))
+    assert(board.normal.Alice[1].Cara == 4)
+    assert(ApplyPallyPowerMessage(board, "Bob", "CLEAR SKIP", false))
+    assert(board.assignments.Alice == nil and board.normal.Alice == nil)
+    assert(ApplyPallyPowerMessage(board, "Bob", "ASSIGN Alice 1 3", false))
+    assert(ApplyPallyPowerMessage(board, "Alice", "FREEASSIGN NO", false))
+    assert(not ApplyPallyPowerMessage(board, "Bob", "CLEAR SKIP", false))
+    assert(board.assignments.Alice[1] == 3)
+    assert(not ApplyPallyPowerMessage(board, "Bob", "ASSIGN Alice 1 2", false))
     local kind, value = TargetedAssignment(3, 4, true)
     assert(kind == "greater" and value == 3)
     kind, value = TargetedAssignment(3, 4, false)
@@ -619,6 +682,12 @@ function WhoDoesWhat:SyncToPallyPower()
         self:Print("No paladins in the group; nothing to sync to PallyPower.")
         return
     end
+    local canFix, blocked = self:CanFixAllPallyPowerAssignments()
+    if not canFix then
+        self:Print(blocked .. " has Free Assignment disabled; the complete"
+            .. " PallyPower plan cannot be applied.")
+        return false
+    end
 
     local assignments, normal, classCount, singleCount, skipped =
         BuildDesired(self, paladins)
@@ -686,6 +755,7 @@ function WhoDoesWhat:SyncToPallyPower()
             .. " paladins' PallyPower will only accept these if they enabled"
             .. " Free Assignment.")
     end
+    return true
 end
 
 -- Read-only drift check: does PallyPower give every active target the blessing
@@ -870,8 +940,13 @@ local function PushPlayerBuffs(self, playerName, explicit)
         and (self.db.profile.settings.pallyBuffSource or "wdw") ~= "wdw" then
         return false
     end
-    if not CanBroadcastAssignments() then
-        return Refuse("You do not have permission to update PallyPower assignments.")
+    if not explicit and not CanBroadcastAssignments() then return false end
+    if explicit then
+        local canFix, blocked = self:CanFixPlayerBuffsInPallyPower(playerName)
+        if not canFix then
+            return Refuse(blocked .. " has Free Assignment disabled; this row"
+                .. " cannot be fixed.")
+        end
     end
 
     -- The raider's class id, as PallyPower keys it. Untracked classes (no
@@ -1110,6 +1185,7 @@ local function QueueMirrorRefresh()
     mirrorRefreshPending = true
     C_Timer.After(0.1, function()
         mirrorRefreshPending = false
+        WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshBuffingGridView()
     end)
 end
@@ -1154,10 +1230,11 @@ function Bridge:PetRosterChanged()
     petCheckPending = true
     C_Timer.After(0.25, function()
         petCheckPending = false
-        if not IsInGroup()
-            and (next(observedBoard.assignments) or next(observedBoard.normal)) then
+        if not IsInGroup() and (next(observedBoard.assignments)
+            or next(observedBoard.normal) or next(observedBoard.freeAssign)) then
             wipe(observedBoard.assignments)
             wipe(observedBoard.normal)
+            wipe(observedBoard.freeAssign)
             QueueMirrorRefresh()
         end
         if not IsInGroup() then

@@ -6,7 +6,7 @@ local K = WhoDoesWhat.SectionKit
 --   [role icon] [Paladin name                     % / check]
 --               [dark red ---------------------------> paladin pink]
 --   [buff icon] [Fortitude                        % / check]
---   [   PP    ] [sync status                       actions]
+--   [   PP    ] [sync status]
 --
 -- It shares the Paladin Buffing Bar's small window chrome and Alt-drag
 -- behavior, but is display-only. Coverage comes from the same active plan and
@@ -24,11 +24,8 @@ local BAR_H = 18
 local EMPTY_ICON_SIZE = math.floor(BAR_H * 0.8 + 0.5)
 local DEFAULT_W = 220
 local MIN_W = 90
-local NO_PP_MIN_W = 65
+local RESIZE_MIN_W = 70
 local HIDE_NAMES_W = 105
-local COMPACT_PP_W = 150
-local SHORT_PP_W = 125
-local COUNT_ONLY_PP_W = 105
 local ULTRA_COMPACT_W = 115
 local HANDLE_W = 4
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
@@ -209,36 +206,18 @@ local function LayoutProgressLabel(row)
     row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
 end
 
-local function LayoutPallyPowerActions(row)
+local function LayoutPallyPowerRow(row)
     local width = view:GetWidth()
-    local compact = width < COMPACT_PP_W
-    row.diffBtn:SetWidth(compact and 16 or 30)
-    row.diffBtn.label:SetText(compact and "?" or "Diff")
-    row.fixBtn:SetWidth(compact and 16 or 26)
-    row.fixBtn.label:SetText(compact and "F" or "Fix")
-    if row.actionFont then
-        local size = row.actionFontSize + (compact and 2 or 0)
-        row.diffBtn.label:SetFont(row.actionFont, size, row.actionFontFlags)
-        row.fixBtn.label:SetFont(row.actionFont, size, row.actionFontFlags)
-    end
     row.inactiveMark:SetShown(width < MIN_W and row.ppState == "inactive")
-    if row.ppState ~= "desynced" and width < MIN_W then
+    if row.ppState == "desynced" then
+        row.statusText:SetText(width < MIN_W and tostring(row.ppDiffCount)
+            or (row.ppDiffCount .. " issue" .. (row.ppDiffCount == 1 and "" or "s")))
+        row.statusText:Show()
+    elseif width < MIN_W then
         row.statusText:Hide()
-    elseif row.ppState ~= "desynced" then
-        row.statusText:SetText(row.ppText)
-        row.statusText:Show()
-    elseif width >= COMPACT_PP_W then
-        row.statusText:SetText(row.ppText)
-        row.statusText:Show()
-    elseif width >= SHORT_PP_W then
-        row.statusText:SetText(row.ppDiffCount .. " Buff"
-            .. (row.ppDiffCount == 1 and "" or "s"))
-        row.statusText:Show()
-    elseif width >= COUNT_ONLY_PP_W then
-        row.statusText:SetText(row.ppDiffCount)
-        row.statusText:Show()
     else
-        row.statusText:Hide()
+        row.statusText:SetText(row.ppText)
+        row.statusText:Show()
     end
 end
 
@@ -296,8 +275,33 @@ local function CreateRow(index)
 end
 
 local function CreatePallyPowerRow()
-    local row = CreateFrame("Frame", nil, view)
+    local row = CreateFrame("Button", nil, view)
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
+    row:RegisterForClicks("LeftButtonUp")
+    row:SetScript("OnClick", function(self)
+        if self.ppState == "desynced" then
+            WhoDoesWhat:OpenPallyPowerDiffView()
+        end
+    end)
+    row:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("PallyPower status", 1, 1, 1)
+        if self.ppState == "synced" then
+            GameTooltip:AddLine(self.ppText or "", 0.3, 1, 0.3, true)
+        else
+            GameTooltip:AddLine(self.ppText or "", 1, 0.55, 0, true)
+        end
+        if self.ppState == "desynced" then
+            GameTooltip:AddLine("Click to open PallyPower Differences.",
+                0.8, 0.8, 0.8, true)
+        end
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.04)
+    row.highlight = highlight
 
     local badge = K.CreatePallyPowerBadge(row, ICON_SIZE)
     badge:SetPoint("TOPLEFT", 0, 0)
@@ -322,45 +326,12 @@ local function CreatePallyPowerRow()
     inactiveMark:Hide()
     row.inactiveMark = inactiveMark
 
-    local iconHit = CreateFrame("Frame", nil, body)
-    iconHit:SetAllPoints(icon)
-    iconHit:EnableMouse(true)
-    iconHit:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("PallyPower out of sync", 1, 0.55, 0.55)
-        GameTooltip:AddLine(row.ppText or "", 1, 1, 1)
-        GameTooltip:AddLine("Inspect the differences or apply the current WDW plan using the actions to the right.",
-            0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    iconHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    iconHit:Hide()
-    row.stateIconHit = iconHit
-
-    local status = body:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local status = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     status:SetHeight(BAR_H)
     status:SetPoint("LEFT", icon, "RIGHT", 2, 0)
-    status:SetJustifyH("LEFT")
+    status:SetJustifyH("RIGHT")
     status:SetWordWrap(false)
     row.statusText = status
-
-    local fix = K.CreatePallyPowerActionButton(body, "Fix", 26,
-        "Fix PallyPower", "Broadcast the current WDW blessing plan and update the local PP mirror.", function()
-            WhoDoesWhat:SyncToPallyPower()
-            WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshStatusBarsView()
-        end)
-    fix:SetPoint("RIGHT", -2, 0)
-    row.fixBtn = fix
-
-    local diff = K.CreatePallyPowerActionButton(body, "Diff", 30,
-        "Show PallyPower differences",
-        "Open the detailed comparison between WDW and PallyPower.", function()
-            WhoDoesWhat:OpenPallyPowerDiffView()
-        end)
-    diff:SetPoint("RIGHT", fix, "LEFT", -2, 0)
-    row.diffBtn = diff
-    row.actionFont, row.actionFontSize, row.actionFontFlags = fix.label:GetFont()
 
     return row
 end
@@ -380,17 +351,11 @@ local function StatusCheckInScope(scope)
     return true
 end
 
-local function MinimumWidth(ppState)
-    return ShowPallyPowerRow(ppState) and (not ppState or ppState == "desynced")
-        and MIN_W or NO_PP_MIN_W
-end
-
-local function ApplyResizeBounds(ppState)
-    local minWidth = MinimumWidth(ppState)
+local function ApplyResizeBounds()
     if view.SetResizeBounds then
-        view:SetResizeBounds(minWidth, 1)
+        view:SetResizeBounds(RESIZE_MIN_W, 1)
     elseif view.SetMinResize then
-        view:SetMinResize(minWidth, 1)
+        view:SetMinResize(RESIZE_MIN_W, 1)
     end
 end
 
@@ -547,7 +512,7 @@ local function EnsureView()
         end
         if self.ppRow then
             self.ppRow:SetWidth(rowW)
-            LayoutPallyPowerActions(self.ppRow)
+            LayoutPallyPowerRow(self.ppRow)
         end
     end)
 
@@ -566,6 +531,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
         self.Assign.ComputePaladinBuffCoverage(buffPlan)
     local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
     local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
+    local ppMode = self.db.profile.settings.pallyBuffSource == "pallypower"
     local showPallyPower = ShowPallyPowerRow(ppState)
     local displayed = {}
     local hideCompleted = self.db.profile.settings.overviewHideCompleted
@@ -615,9 +581,9 @@ function WhoDoesWhat:RefreshStatusBarsView()
     local showEmptyCheck = #displayed == 0 and not showPallyPower
     local rowsH = (#displayed + (showEmptyCheck and 1 or 0)) * ROW_H
     local contentH = ppHeight + rowsH
-    ApplyResizeBounds(ppState)
-    local minWidth = MinimumWidth(ppState)
-    view:SetSize(math.max(self.db.profile.settings.overviewWidth or DEFAULT_W, minWidth),
+    ApplyResizeBounds()
+    view:SetSize(math.max(self.db.profile.settings.overviewWidth or DEFAULT_W,
+            RESIZE_MIN_W),
         CONTENT_TOP + contentH + PAD + INSET)
     LayoutHeader()
     if not view.moving and not view.resizing then LoadPosition() end
@@ -628,42 +594,38 @@ function WhoDoesWhat:RefreshStatusBarsView()
         view.ppRow = ppRow
         ppRow.ppState, ppRow.ppText, ppRow.ppDiffCount =
             ppState, ppText, ppDiffCount
-        ppRow.diffBtn.tooltipDetail = ppText
-        ppRow.fixBtn.tooltipDetail = ppText
+        ppRow.highlight:SetAlpha(self:IsRaidAssistant()
+            and ppState == "desynced" and 1 or 0)
         ppRow:ClearAllPoints()
         ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -CONTENT_TOP)
-        SetDesyncGlow(ppRow, ppState == "desynced")
+        SetDesyncGlow(ppRow, ppState == "desynced" and not ppMode)
 
         ppRow.stateIcon:ClearAllPoints()
-        ppRow.stateIcon:SetPoint("LEFT", ppState == "desynced" and 4 or 3,
-            ppState == "desynced" and -1 or 0)
-        ppRow.stateIconHit:SetShown(ppState == "desynced")
+        ppRow.stateIcon:SetSize(ppState == "desynced" and 12 or 14,
+            ppState == "desynced" and 12 or 14)
         ppRow.statusText:ClearAllPoints()
         if ppState == "inactive" then
+            ppRow.stateIcon:SetPoint("LEFT", 3, 0)
             ppRow.stateIcon:Hide()
             ppRow.statusText:SetPoint("LEFT", 4, 0)
             ppRow.statusText:SetPoint("RIGHT", -3, 0)
             ppRow.statusText:SetTextColor(0.6, 0.6, 0.6)
-            ppRow.diffBtn:Hide()
-            ppRow.fixBtn:Hide()
         elseif ppState == "synced" then
             ppRow.stateIcon:SetTexture(READY_ICON)
+            ppRow.stateIcon:SetPoint("RIGHT", -3, 0)
             ppRow.stateIcon:Show()
-            ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
-            ppRow.statusText:SetPoint("RIGHT", -3, 0)
+            ppRow.statusText:SetPoint("LEFT", 3, 0)
+            ppRow.statusText:SetPoint("RIGHT", ppRow.stateIcon, "LEFT", -2, 0)
             ppRow.statusText:SetTextColor(0.3, 1, 0.3)
-            ppRow.diffBtn:Hide()
-            ppRow.fixBtn:Hide()
         else
             ppRow.stateIcon:SetTexture(self.WARNING_ICON)
+            ppRow.stateIcon:SetPoint("RIGHT", -3, 0)
             ppRow.stateIcon:Show()
-            ppRow.statusText:SetPoint("LEFT", ppRow.stateIcon, "RIGHT", 2, 0)
-            ppRow.statusText:SetPoint("RIGHT", ppRow.diffBtn, "LEFT", -3, 0)
-            ppRow.statusText:SetTextColor(1, 0.55, 0.55)
-            ppRow.diffBtn:Show()
-            ppRow.fixBtn:Show()
+            ppRow.statusText:SetPoint("LEFT", 3, 0)
+            ppRow.statusText:SetPoint("RIGHT", ppRow.stateIcon, "LEFT", -3, 0)
+            ppRow.statusText:SetTextColor(1, 0.55, 0)
         end
-        LayoutPallyPowerActions(ppRow)
+        LayoutPallyPowerRow(ppRow)
         ppRow:Show()
     else
         if view.ppRow then

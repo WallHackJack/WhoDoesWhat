@@ -115,9 +115,9 @@ function K.PaladinColumnOffset(index, paladins, columnWidth)
         + (localFirst and index > 1 and K.PALADIN_GRID_LOCAL_GAP or 0)
 end
 
-function K.PaladinColumnsWidth(paladins, columnWidth)
+function K.PaladinColumnsWidth(paladins, columnWidth, minimumColumns)
     local width = columnWidth or K.PALADIN_GRID_COL_W
-    local count = math.max(#(paladins or {}), 1)
+    local count = math.max(#(paladins or {}), minimumColumns or 1)
     local localFirst = paladins and paladins[1] and K.IsLocalPaladin(paladins[1])
     return count * width + (localFirst and count > 1 and K.PALADIN_GRID_LOCAL_GAP or 0)
 end
@@ -127,6 +127,49 @@ function K.CreateLocalPaladinStripe(parent)
     stripe:SetColorTexture(0.72, 0.72, 0.72, 0.14)
     stripe:Hide()
     return stripe
+end
+
+-- A paladin grid can keep its column headings outside this surface while its
+-- rows scroll. The scrollbar and track are hidden when every row fits.
+function K.CreatePaladinGridScroll(parent, globalName)
+    local scroll = CreateFrame("ScrollFrame", globalName, parent,
+        "UIPanelScrollFrameTemplate")
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetPoint("TOPLEFT")
+    content:SetSize(1, 1)
+    scroll:SetScrollChild(content)
+    scroll.scrollBarHideable = 1
+
+    local scrollName = scroll:GetName()
+    local scrollBar = scrollName and _G[scrollName .. "ScrollBar"]
+    if scrollBar then
+        local track = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
+        track:SetAllPoints(scrollBar)
+        track:SetFrameLevel(math.max(scroll:GetFrameLevel(),
+            scrollBar:GetFrameLevel() - 1))
+        track:SetBackdrop({
+            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        scroll.wdwScrollBar = scrollBar
+        scroll.wdwScrollTrack = track
+    end
+    scroll:HookScript("OnSizeChanged", function(self)
+        if self.wdwContentHeight then
+            K.UpdatePaladinGridScroll(self, self.wdwContentHeight)
+        end
+    end)
+    return scroll, content
+end
+
+function K.UpdatePaladinGridScroll(scroll, contentHeight)
+    scroll.wdwContentHeight = contentHeight
+    local needed = contentHeight > scroll:GetHeight() + 0.5
+    if scroll.wdwScrollBar then scroll.wdwScrollBar:SetShown(needed) end
+    if scroll.wdwScrollTrack then scroll.wdwScrollTrack:SetShown(needed) end
+    if not needed then scroll:SetVerticalScroll(0) end
 end
 
 function K.CreatePaladinGridHeader(parent)
@@ -300,34 +343,6 @@ function K.CreatePallyPowerBadge(parent, size)
     label:SetText("PP")
     label:SetTextColor(paladinColor.r, paladinColor.g, paladinColor.b)
     return badge
-end
-
--- Matching compact flat-red action button for PallyPower status areas.
-function K.CreatePallyPowerActionButton(parent, text, width, tooltipTitle, tooltipText, OnClick)
-    local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(width, 16)
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.42, 0.06, 0.09, 1)
-    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetAllPoints()
-    highlight:SetColorTexture(1, 0.35, 0.42, 0.18)
-    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("CENTER", 0, 0)
-    label:SetText(text)
-    btn.label = label
-    btn:SetScript("OnClick", OnClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(tooltipTitle, 1, 1, 1)
-        GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true)
-        if self.tooltipDetail then
-            GameTooltip:AddLine(self.tooltipDetail, 1, 0.55, 0.55, true)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
 end
 
 -- One source of truth for the PallyPower status text shown in both views.

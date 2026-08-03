@@ -8,13 +8,15 @@ local A = WhoDoesWhat.Assign
 local diffFrame = nil
 local RenderDiffs
 
-local FRAME_MIN_W = 560
-local FRAME_H = 470
+local FRAME_MAX_H = 470
+local FRAME_MIN_H = 150
 local COMPACT_W = 390
-local COMPACT_H = 92
+local COMPACT_H = 54
 local MARGIN = 10
 local BOTTOM_STRIP = 30
-local STATUS_H = 46
+local WARNING_H = 34
+local SCROLLBAR_W = 26
+local SCROLLBAR_GAP = 8
 local GRID_GAP = 6
 local PLAYER_COL_W = 116
 local ROLE_COL_W = 112
@@ -138,6 +140,7 @@ local function LiveComparisonData()
         current = CurrentPallyPowerPlan(),
         suggested = A.GetPaladinBuffPlan(),
         diffCount = #diffs,
+        diffs = diffs,
     }
 end
 
@@ -265,9 +268,17 @@ local function CreateFixButton(content, index)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Fix " .. (self.member and self.member.displayName or "row"),
             1, 1, 1)
-        GameTooltip:AddLine(self.isDemo and "Disabled for view-only demo data."
-            or "Send only this player's WDW blessing plan to PallyPower.",
-            0.8, 0.8, 0.8, true)
+        if self.isDemo then
+            GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+        elseif self.blockedPaladin then
+            GameTooltip:AddLine(self.blockedPaladin
+                .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
+            GameTooltip:AddLine("This row cannot be fixed by a non-assistant.",
+                0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("Send only this player's WDW blessing plan to PallyPower.",
+                0.8, 0.8, 0.8, true)
+        end
         GameTooltip:Show()
     end)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -318,23 +329,36 @@ local function CellOutline(data, member, paladin, buffKey)
     end
 end
 
-local function SetCompact(f, reason)
+local function SetCompact(f)
     f:SetSize(COMPACT_W, COMPACT_H)
-    f.titleText:SetText("WhoDoesWhat - PallyPower")
+    f.warning:Hide()
+    f.header:Hide()
     f.scroll:Hide()
     f.sendBtn:Hide()
     f.secondaryBtn:Hide()
-    if reason == "no-paladins" then
-        f.status:SetText("|cff909090There are no paladins in the group"
-            .. " -- nothing to compare.|r")
-    else
-        f.status:SetText("|cff40ff40PallyPower matches the current WDW plan.|r")
-    end
 end
 
-local function SetExpanded(f, width)
-    f:SetSize(math.max(FRAME_MIN_W, width), FRAME_H)
-    f.titleText:SetText("WhoDoesWhat - PallyPower Differences")
+local function SetExpanded(f, width, bodyHeight, showWarning)
+    local headerTop = f.titleBarHeight + 10
+    if showWarning then
+        f.warning:ClearAllPoints()
+        f.warning:SetPoint("TOPLEFT", MARGIN, -headerTop)
+        f.warning:SetPoint("TOPRIGHT", -MARGIN, -headerTop)
+        f.warning:Show()
+        headerTop = headerTop + WARNING_H
+    else
+        f.warning:Hide()
+    end
+    f.header:ClearAllPoints()
+    f.header:SetPoint("TOPLEFT", MARGIN, -headerTop)
+    f.scroll:ClearAllPoints()
+    f.scroll:SetPoint("TOPLEFT", f.header, "BOTTOMLEFT")
+    f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W),
+        MARGIN + BOTTOM_STRIP)
+    local height = headerTop + TITLE_H + HEADER_H + bodyHeight
+        + MARGIN + BOTTOM_STRIP
+    f:SetSize(width, math.min(FRAME_MAX_H, math.max(FRAME_MIN_H, height)))
+    f.header:Show()
     f.scroll:Show()
     f.sendBtn:Show()
     f.secondaryBtn:Show()
@@ -342,19 +366,17 @@ end
 
 local function RenderGrid(f, data)
     local paladins = data.paladins
-    local localGap = paladins[1] and K.IsLocalPaladin(paladins[1])
-        and K.PALADIN_GRID_LOCAL_GAP or 0
-    local paladinW = math.max(K.PaladinColumnsWidth(paladins, COL_W),
-        COL_W * 3 + localGap)
+    local paladinW = K.PaladinColumnsWidth(paladins, COL_W, 3)
     local leftW = LEFT_PREFIX_W + paladinW
     local rightW = paladinW
     local rightX = leftW + GRID_GAP
     local fixX = rightX + rightW + FIX_GAP
-    local canFix = WhoDoesWhat:CanFixPallyPowerAssignments()
-    local showRowFix = data.isDemo or canFix
-    local contentW = showRowFix and (fixX + FIX_W) or (rightX + rightW)
-    local frameW = contentW + MARGIN * 2 + 24
-    SetExpanded(f, frameW)
+    local contentW = fixX + FIX_W
+    local frameW = contentW + MARGIN * 2 + SCROLLBAR_GAP + SCROLLBAR_W
+    local bodyHeight = #data.members * ROW_H
+    SetExpanded(f, frameW, bodyHeight,
+        not data.isDemo and IsInRaid() and not WhoDoesWhat:IsRaidAssistant())
+    f.header:SetSize(contentW, TITLE_H + HEADER_H)
     f.content:SetWidth(contentW)
 
     local gridX = { 0, rightX }
@@ -371,17 +393,17 @@ local function RenderGrid(f, data)
         local x = gridX[side]
         local title = f.gridTitles[side]
         title:ClearAllPoints()
-        title:SetPoint("TOPLEFT", f.content, "TOPLEFT", x + columnStart[side], 0)
+        title:SetPoint("TOPLEFT", f.header, "TOPLEFT", x + columnStart[side], 0)
         title:SetWidth(paladinW)
         title:SetJustifyH("CENTER")
         title:SetText(sourceLabels[side])
         title:Show()
 
         for column, paladin in ipairs(paladins) do
-            local header = f.content.headers[side][column]
-                or CreatePaladinHeader(f.content, side, column)
+            local header = f.header.headers[side][column]
+                or CreatePaladinHeader(f.header, side, column)
             header:ClearAllPoints()
-            header:SetPoint("TOPLEFT", f.content, "TOPLEFT",
+            header:SetPoint("TOPLEFT", f.header, "TOPLEFT",
                 x + columnStart[side]
                     + K.PaladinColumnOffset(column, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2,
@@ -395,19 +417,26 @@ local function RenderGrid(f, data)
                 color and color.g or 0.55, color and color.b or 0.73)
             header:Show()
         end
-        for column = #paladins + 1, #f.content.headers[side] do
-            f.content.headers[side][column]:Hide()
+        for column = #paladins + 1, #f.header.headers[side] do
+            f.header.headers[side][column]:Hide()
         end
 
-        local stripe = f.localPaladinStripes[side]
+        local headerStripe = f.headerPaladinStripes[side]
+        local bodyStripe = f.bodyPaladinStripes[side]
         if paladins[1] and K.IsLocalPaladin(paladins[1]) then
-            stripe:ClearAllPoints()
-            stripe:SetPoint("TOPLEFT", f.content, "TOPLEFT",
+            headerStripe:ClearAllPoints()
+            headerStripe:SetPoint("TOPLEFT", f.header, "TOPLEFT",
                 x + columnStart[side], -TITLE_H)
-            stripe:SetSize(COL_W, HEADER_H + #data.members * ROW_H)
-            stripe:Show()
+            headerStripe:SetSize(COL_W, HEADER_H)
+            headerStripe:Show()
+            bodyStripe:ClearAllPoints()
+            bodyStripe:SetPoint("TOPLEFT", f.content, "TOPLEFT",
+                x + columnStart[side], 0)
+            bodyStripe:SetSize(COL_W, bodyHeight)
+            bodyStripe:Show()
         else
-            stripe:Hide()
+            headerStripe:Hide()
+            bodyStripe:Hide()
         end
 
         for index, member in ipairs(data.members) do
@@ -415,7 +444,7 @@ local function RenderGrid(f, data)
                 or CreateComparisonRow(f.content, side, index)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", f.content, "TOPLEFT", x,
-                -(TITLE_H + HEADER_H + (index - 1) * ROW_H))
+                -((index - 1) * ROW_H))
             row:SetWidth(gridW[side])
             row.member = member
             row.data = data
@@ -487,35 +516,38 @@ local function RenderGrid(f, data)
         button.member = member
         button.ownerFrame = f
         button.isDemo = data.isDemo
-        if showRowFix then
-            button:ClearAllPoints()
-            button:SetPoint("TOPLEFT", f.content, "TOPLEFT", fixX,
-                -(TITLE_H + HEADER_H + (index - 1) * ROW_H + 2))
-            button:SetEnabled(not data.isDemo)
-            button:Show()
-        else
-            button:Hide()
+        local canFix, blocked = false, nil
+        if not data.isDemo then
+            canFix, blocked = WhoDoesWhat:CanFixPlayerBuffsInPallyPower(
+                member.planName, data.diffs)
         end
+        button.blockedPaladin = blocked
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", f.content, "TOPLEFT", fixX,
+            -((index - 1) * ROW_H + 2))
+        button:SetEnabled(not data.isDemo and canFix)
+        button:Show()
     end
     for index = #data.members + 1, #f.content.fixButtons do
         f.content.fixButtons[index]:Hide()
         f.content.fixButtons[index].member = nil
     end
 
-    f.content:SetHeight(TITLE_H + HEADER_H + #data.members * ROW_H)
+    f.content:SetHeight(bodyHeight)
     f.scroll:SetVerticalScroll(0)
     f.scroll:UpdateScrollChildRect()
+    K.UpdatePaladinGridScroll(f.scroll, bodyHeight)
 end
 
 RenderDiffs = function(f)
-    local data, reason
+    local data
     if f.demoData then
         data = f.demoData
     else
-        data, reason = LiveComparisonData()
+        data = LiveComparisonData()
     end
     if not data then
-        SetCompact(f, reason)
+        SetCompact(f)
         return false
     end
 
@@ -523,21 +555,13 @@ RenderDiffs = function(f)
     f.diffCount = data.diffCount
     f.sendBtn:SetText("Fix All (" .. data.diffCount .. ")")
     if data.isDemo then
-        f.status:SetText("|cffffd000Demo data:|r side-by-side current and suggested"
-            .. " assignments. Red is outside top X; yellow has a better improved caster.")
         f.sendBtn:Disable()
         f.secondaryBtn:SetText("Close")
     else
-        f.sendBtn.canFix = WhoDoesWhat:CanFixPallyPowerAssignments()
+        f.sendBtn.canFix, f.sendBtn.blockedPaladin =
+            WhoDoesWhat:CanFixAllPallyPowerAssignments()
         f.sendBtn:SetEnabled(f.sendBtn.canFix)
         f.secondaryBtn:SetText(f.warningText and "Ignore" or "Recheck")
-        f.status:SetText(f.warningText
-            and ("|cffff6060PallyPower was not auto-updated.|r " .. f.warningText)
-            or ("|cffffd000" .. #data.members .. " player"
-                .. (#data.members == 1 and " differs" or "s differ")
-                .. " from the WDW plan.|r " .. data.diffCount .. " changed buff"
-                .. (data.diffCount == 1 and ". " or "s. ")
-                .. "Red is outside top X; yellow has a better improved caster."))
     end
     return true
 end
@@ -546,7 +570,9 @@ local function EnsureFrame()
     if diffFrame then return diffFrame end
 
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatPallyPowerDiffFrame",
-        FRAME_MIN_W, FRAME_H, "WhoDoesWhat - PallyPower Differences")
+        COMPACT_W, COMPACT_H, "Paladin Assignment Differences")
+    f.titleText:ClearAllPoints()
+    f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
 
     local sendBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     sendBtn:SetSize(130, 22)
@@ -559,19 +585,27 @@ local function EnsureFrame()
         StaticPopup_Show("WHODOESWHAT_FIX_ALL_PALLYPOWER", f.diffCount, nil,
             function()
                 f.warningText = nil
-                WhoDoesWhat:SyncToPallyPower()
-                WhoDoesWhat:RefreshMainAssignmentsView()
-                f:Hide()
+                if WhoDoesWhat:SyncToPallyPower() then
+                    WhoDoesWhat:RefreshMainAssignmentsView()
+                    f:Hide()
+                end
             end)
     end)
     sendBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Fix all PallyPower assignments", 1, 1, 1)
-        local detail = f.demoData and "Disabled for view-only demo data."
-            or not self.canFix and "Only the party leader or a raid lead/assist can fix PallyPower."
-            or "Broadcast the complete WDW blessing plan to PallyPower clients"
-                .. " and update WDW's local mirror."
-        GameTooltip:AddLine(detail, 0.8, 0.8, 0.8, true)
+        if f.demoData then
+            GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+        elseif not self.canFix then
+            GameTooltip:AddLine(self.blockedPaladin
+                .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
+            GameTooltip:AddLine("Fix All cannot be used by a non-assistant until"
+                .. " every paladin enables it.", 0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("Broadcast the complete WDW blessing plan to"
+                .. " PallyPower clients and update WDW's local mirror.",
+                0.8, 0.8, 0.8, true)
+        end
         GameTooltip:Show()
     end)
     sendBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -592,35 +626,35 @@ local function EnsureFrame()
     end)
     f.secondaryBtn = secondary
 
-    local status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    status:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10))
-    status:SetPoint("TOPRIGHT", -MARGIN, -(f.titleBarHeight + 10))
-    status:SetHeight(STATUS_H)
-    status:SetJustifyH("LEFT")
-    status:SetJustifyV("TOP")
-    f.status = status
+    local warning = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    warning:SetHeight(WARNING_H)
+    warning:SetJustifyH("CENTER")
+    warning:SetJustifyV("TOP")
+    warning:SetTextColor(1, 0.2, 0.2)
+    warning:SetText("You are not raid lead/assist. Use fixes sparingly; they rely"
+        .. " on paladins who enabled Free Assignment.")
+    warning:Hide()
+    f.warning = warning
 
-    local scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10 + STATUS_H))
-    scroll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN + BOTTOM_STRIP)
-    local content = CreateFrame("Frame", nil, scroll)
-    content:SetPoint("TOPLEFT")
-    content:SetSize(1, 1)
-    scroll:SetScrollChild(content)
-    scroll.scrollBarHideable = 1
+    local header = CreateFrame("Frame", nil, f)
+    local scroll, content = K.CreatePaladinGridScroll(f,
+        "WhoDoesWhatPallyPowerDiffScroll")
+    f.header = header
     f.scroll = scroll
     f.content = content
 
-    content.headers = { {}, {} }
+    header.headers = { {}, {} }
     content.rows = { {}, {} }
     content.fixButtons = {}
     f.gridTitles = {}
-    f.localPaladinStripes = {}
+    f.headerPaladinStripes = {}
+    f.bodyPaladinStripes = {}
     for side = 1, 2 do
-        local title = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:Hide()
         f.gridTitles[side] = title
-        f.localPaladinStripes[side] = K.CreateLocalPaladinStripe(content)
+        f.headerPaladinStripes[side] = K.CreateLocalPaladinStripe(header)
+        f.bodyPaladinStripes[side] = K.CreateLocalPaladinStripe(content)
     end
 
     WhoDoesWhat:LogUiBuilding("Building PallyPower diff grids.")
@@ -755,6 +789,7 @@ end
 
 local function ValidateDummyData(data)
     assert(#data.paladins == 3)
+    assert(K.PaladinColumnsWidth({}, COL_W, 3) == COL_W * 3)
     local red, yellow, changed = 0, 0, 0
     for _, member in ipairs(data.members) do
         local differs = false
