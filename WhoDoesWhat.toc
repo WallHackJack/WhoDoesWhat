@@ -4,8 +4,7 @@
 ## Author: Wallhackjack
 ## Version: @project-version@
 #@debug@
-# Keep this literal synchronized with the release tag; the in-game title and
-# peer-version warning read it in the live checkout.
+# Keep this literal synchronized with the release tag, it's used in additional add-on GUI and features
 ## Version: 1.0.8
 #@end-debug@
 ## SavedVariables: WhoDoesWhatDB
