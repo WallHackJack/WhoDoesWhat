@@ -139,7 +139,7 @@ function WhoDoesWhat:ScanCoreBuffTalents(guid, playerKey, class, isInspect)
 
     local group = GetActiveTalentGroup(isInspect) or 1
     local ranks = {}
-    for key, buff in pairs(self.CoreRaidBuffs) do
+    for key, buff in pairs(self.StatusBarChecks) do
         local talent = buff.improvedTalent
         if talent and string.upper(buff.className) == class then
             ranks[key] = NativeRankAt(talent, isInspect, group)

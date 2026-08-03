@@ -14,15 +14,16 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     agreement.
 --     IsSyncedStaticRow still filters the keys as a safety.
 --   - talent ranks: players broadcast their OWN class utility ranks: paladin
---     blessing talents, Improved Healthstone, Improved Fortitude, and Improved
---     Mark of the Wild. All are read from the
+--     blessing talents, Improved Healthstone, Improved Fortitude, Improved
+--     Mark of the Wild, and Improved Thorns/Brambles. All are read from the
 --     sender's native
 --     talent API -- the one source that is always in range and never hits the
 --     shuffled-index bug (see TalentScanning.lua). Receivers drop the ranks
---     straight into db.profile.paladinBuffTalents. This is what the old NRC
---     talent-string reference code in this file was for; reading ranks on the
---     SENDER makes an order-proof wire encoding unnecessary, so four small
---     numbers replace the whole string format. The leader relays its cached
+--     straight into the matching class-specific talent cache. The old NRC
+--     talent-string reference code in this file existed for this; ranks read
+--     on the
+--     SENDER makes an order-proof wire encoding unnecessary, so small rank
+--     tables replace the whole string format. The leader relays its cached
 --     sender-supplied ranks inside the initial STATE peer directory. The
 --     initial HELLO also carries
 --     the sender's three talent-tree totals so every WDW client can infer the
@@ -72,8 +73,9 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- ordinary HELLO broadcasts individually. 6: live third-party inspections
 -- gained OBSERVE, and leader directories gained cached talent observations.
 -- 7: STATE gained the shared paladinStrategy rules table. 8: STATE gained
--- the raid's permission-gated PallyBuffSource selection.
-local PROTOCOL = 8
+-- the raid's permission-gated PallyBuffSource selection. 9: Druid coreRanks
+-- gained the Improved Thorns/Brambles rank.
+local PROTOCOL = 9
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting
@@ -525,7 +527,7 @@ end
 local function StoreCoreBuffRanks(senderKey, ranks)
     if type(ranks) ~= "table" then return end
     local stored = {}
-    for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
+    for key, buff in pairs(WhoDoesWhat.StatusBarChecks) do
         if buff.improvedTalent and ranks[key] ~= nil then
             local rank = tonumber(ranks[key]) or 0
             stored[key] = math.floor(math.max(0,
@@ -571,7 +573,7 @@ local function NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks
             WhoDoesWhat.WarlockHealthstone.maxRank)
     elseif (class == "DRUID" or class == "PRIEST") and type(coreRanks) == "table" then
         fact.coreRanks = {}
-        for key, buff in pairs(WhoDoesWhat.CoreRaidBuffs) do
+        for key, buff in pairs(WhoDoesWhat.StatusBarChecks) do
             if buff.improvedTalent and string.upper(buff.className) == class then
                 local rank = ClampedInteger(coreRanks[key], buff.improvedTalent.maxRank)
                 if rank ~= nil then fact.coreRanks[key] = rank end

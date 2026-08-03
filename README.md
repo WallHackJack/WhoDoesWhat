@@ -40,9 +40,9 @@ PallyPower clients normally accept assignments for other Paladins only from the 
 
 ## Buff Tracking and Buffing Buttons
 
-Blessing progress is visible on the main window, the **WDW Status** bars, and the **Buffing Grid**. These views can also track raid buffs such as Fortitude, Mark/Gift of the Wild, Intellect, Shadow Protection, and Well Fed. Scanned Fortitude and Mark/Gift buffs warn when a stronger talented provider was available.
+Blessing progress is visible on the main window, the **WDW Status** bars, and the **Buffing Grid**. These views can also track raid buffs such as Fortitude, Mark/Gift of the Wild, Intellect, Shadow Protection, and Well Fed. Scanned Fortitude, Mark/Gift, and Thorns buffs warn when a stronger talented provider was available.
 
-TBC checks include Sated/Exhaustion, Tinnitus from drums, Thorns, and deaths. Every applicable check appears in both views by default; Dead is status-bar-only and cannot be enabled in the Buffing Grid. Active Hunter pets participate in the blessing plan, and their planned blessings and Well Fed status can be tracked.
+Thorns and deaths are also tracked; TBC additionally includes Sated/Exhaustion and Tinnitus from drums. Every applicable check appears in both views by default; Dead is status-bar-only and cannot be enabled in the Buffing Grid. Active Hunter pets participate in the blessing plan, and their planned blessings and Well Fed status can be tracked.
 
 The **Buff Tracking** settings page independently chooses which checks appear in WDW Status and the Buffing Grid. Arrow buttons order the status rows; disabling Bars moves a check below a divider that appears only when needed. Paladin Buff Notifications reports PallyPower assignment drift. Paladin Buff Progress normally shows one row per Paladin, with a cog option to combine them into one raid-wide row. Debuff checks can hide empty rows and grid columns and choose their saturated indicator. Each cog exposes only relevant options, including compact text/color, provider availability, target filters, and notification visibility or assistant glows. The color picker fills every status bar for live comparison, and the page can reset every check to defaults at once.
 

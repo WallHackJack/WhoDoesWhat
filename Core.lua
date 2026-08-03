@@ -112,8 +112,8 @@ local defaults = {
         -- Improved Healthstone rank per warlock (0-2), keyed like assignments.
         -- A missing player has not had their talent confirmed yet.
         warlockHealthstoneTalents = {},
-        -- Druid/Priest improvement ranks for the raid-wide buffs tracked in
-        -- CoreRaidBuffs: player name -> { gift = 0-5 } or { fortitude = 0-2 }.
+        -- Druid/Priest improvement ranks for tracked raid buffs: player name
+        -- -> { gift = 0-5, thorns = 0-3 } or { fortitude = 0-2 }.
         coreBuffTalents = {},
         -- Raid assignments from the main assignments view, keyed by row id
         -- ("curse_reck", "curse_elements") -> player name. Paladin blessings

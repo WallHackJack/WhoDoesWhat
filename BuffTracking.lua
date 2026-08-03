@@ -312,7 +312,7 @@ function WhoDoesWhat:GetImprovedBuffState(name, key)
     local has = self:HasBuff(name, key)
     if has ~= true then return has == false and "missing" or "unknown" end
 
-    local buff = self.CoreRaidBuffs[key]
+    local buff = self.StatusBarChecks[key]
     local talent = buff and buff.improvedTalent
     if not talent then return "present" end
 

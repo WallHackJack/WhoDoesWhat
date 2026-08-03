@@ -376,6 +376,10 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     className = "Druid",
     colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
+    improvedTalent = {
+        name = features.isClassicEra and "Improved Thorns" or "Brambles",
+        tab = 1, tier = 3, column = 1, maxRank = 3,
+    },
 }
 WhoDoesWhat.StatusBarChecks.dead = {
     name = "Dead",

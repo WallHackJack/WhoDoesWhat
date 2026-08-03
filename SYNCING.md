@@ -23,7 +23,7 @@ message:
 ```lua
 {
     t = "HELLO", -- message type
-    p = 7,       -- WDW wire-protocol version
+    p = 9,       -- WDW wire-protocol version
     v = "1.0.6",-- addon version reported by this client
     -- type-specific fields follow
 }
@@ -72,7 +72,7 @@ Initial join/reload shape:
 ```lua
 {
     t = "HELLO",
-    p = 7,
+    p = 9,
     v = "1.0.6",
     talents = { 41, 20, 0 },
     ranks = {                 -- paladin only, once locally known
@@ -85,6 +85,7 @@ Initial join/reload shape:
     coreRanks = {
         fortitude = 2,        -- priest only
         gift = 5,             -- druid only
+        thorns = 3,           -- druid only
     },
 }
 ```
@@ -124,7 +125,7 @@ Shape:
 ```lua
 {
     t = "STATE",
-    p = 7,
+    p = 9,
     v = "1.0.6",
     rev = 1785432100,
     state = {
@@ -231,11 +232,11 @@ protocol-incompatible leader fallback.
 ```lua
 {
     t = "RANKS",
-    p = 7,
+    p = 9,
     v = "1.0.6",
     ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
     healthstone = 2,
-    coreRanks = { fortitude = 2, gift = 5 },
+    coreRanks = { fortitude = 2, gift = 5, thorns = 3 },
 }
 ```
 
@@ -261,7 +262,7 @@ Channel: group broadcast only. Whispers are rejected.
 ```lua
 {
     t = "OBSERVE",
-    p = 7,
+    p = 9,
     v = "1.0.6",
     player = "Other-Realm",
     class = "PALADIN",
@@ -304,7 +305,7 @@ Channel: group broadcast.
 ```lua
 {
     t = "ROLE",
-    p = 7,
+    p = 9,
     v = "1.0.6",
     role = "druid_feral_tank",
 }
@@ -328,7 +329,7 @@ addonless or protocol-incompatible leader fallback.
 ```lua
 {
     t = "VERSION",
-    p = 7,
+    p = 9,
     v = "1.0.6",
 }
 ```

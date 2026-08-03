@@ -38,14 +38,14 @@ local FakeRaid = WhoDoesWhat.FakeRaid
 FakeRaid.CORE = {
     { name = "Ironhide",     class = "WARRIOR", role = "warrior_prot" },
     { name = "Bearback",     class = "DRUID",   role = "druid_feral_tank",
-      coreBuffTalents = { gift = 0 } },
+      coreBuffTalents = { gift = 0, thorns = 0 } },
     { name = "Lightwell",    class = "PRIEST",  role = "priest_holy",
       coreBuffTalents = { fortitude = 0 } },
     { name = "Painsuppress", class = "PRIEST",  role = "priest_disc",
       coreBuffTalents = { fortitude = 2 } },
     { name = "Tidecaller",   class = "SHAMAN",  role = "shaman_resto" },
     { name = "Lifebloom",    class = "DRUID",   role = "druid_resto",
-      coreBuffTalents = { gift = 5 } },
+      coreBuffTalents = { gift = 5, thorns = 0 } },
 }
 
 -- Paladins in inclusion order for fakeRaidPaladinCount: the Prot tank is the
@@ -85,7 +85,8 @@ FakeRaid.DPS_POOL = {
     { name = "Lavaburst",    class = "SHAMAN",  role = "shaman_ele" },
     { name = "Stormstrike",  class = "SHAMAN",  role = "shaman_enh" },
     { name = "Windfury",     class = "SHAMAN",  role = "shaman_enh" },
-    { name = "Moonfire",     class = "DRUID",   role = "druid_balance" },
+    { name = "Moonfire",     class = "DRUID",   role = "druid_balance",
+      coreBuffTalents = { gift = 0, thorns = 3 } },
     { name = "Falconeye",    class = "HUNTER",  role = "hunter_mm" },
     { name = "Poisontip",    class = "ROGUE",   role = "rogue_assassin" },
 }
