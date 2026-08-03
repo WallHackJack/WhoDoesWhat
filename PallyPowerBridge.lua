@@ -710,6 +710,66 @@ local function DiffEntry(pshort, target, isClass, want, have, targetInfo, planTa
     }
 end
 
+-- PP source mode only needs a quiet quality signal: provider swaps are fine
+-- when the same blessing remains covered. Count a desired blessing only when
+-- nobody supplies it, or when its confirmed provider talent is worse than
+-- the provider WDW would use. Unknown ranks are deliberately non-alarming.
+local function CountUnoptimizedBlessings(wanted, current, petTargets, talentRanks)
+    local count = 0
+    local function Rank(paladin, key)
+        local ranks = talentRanks and talentRanks[paladin]
+        if not talentRanks then
+            ranks = WhoDoesWhat:GetPaladinBuffTalents(paladin)
+        end
+        return ranks and ranks[key]
+    end
+    for target, wantedBuffs in pairs(wanted) do
+        if not petTargets[target] then
+            local currentBuffs = current[target] or {}
+            for blessing, wantedPaladin in pairs(wantedBuffs) do
+                local providers = currentBuffs[blessing]
+                if not providers then
+                    count = count + 1
+                else
+                    local key = BlessingIdToBuffKey(blessing)
+                    local talent = key and WhoDoesWhat.Assign.BuffTalents[key]
+                    local wantedRank = talent and Rank(wantedPaladin, key)
+                    if wantedRank ~= nil then
+                        local bestRank, unknown = nil, false
+                        for _, paladin in ipairs(providers) do
+                            local rank = Rank(paladin, key)
+                            if rank == nil then
+                                unknown = true
+                            elseif not bestRank or rank > bestRank then
+                                bestRank = rank
+                            end
+                        end
+                        if not unknown and bestRank ~= nil and bestRank < wantedRank then
+                            count = count + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return count
+end
+
+function WhoDoesWhat:TestPallyPowerOptimizationCount()
+    local wanted = { Raider = { [2] = "MightFive", [1] = "Wisdom" } }
+    local current = { Raider = { [2] = { "MightOne" }, [1] = { "Wisdom" } } }
+    local ranks = {
+        MightFive = { might = 5 }, MightOne = { might = 1 },
+        Wisdom = { wisdom = 2 }, OtherFive = { might = 5 },
+    }
+    assert(CountUnoptimizedBlessings(wanted, current, {}, ranks) == 1)
+    current.Raider[2] = { "OtherFive" }
+    assert(CountUnoptimizedBlessings(wanted, current, {}, ranks) == 0)
+    current.Raider[1] = nil
+    assert(CountUnoptimizedBlessings(wanted, current, {}, ranks) == 1)
+    self:Print("PallyPower optimization-count check passed.")
+end
+
 -- Icons/labels used by the comparison view. Keep this sourced from Data.lua;
 -- current or previously seen hunter pets use the pet pseudo-role.
 local function DiffTargetInfo(self)
@@ -752,6 +812,7 @@ function WhoDoesWhat:CheckPallyPowerSync()
     local might = BuffKeyToBlessingId("might")
     local kings = BuffKeyToBlessingId("kings")
     local diffs = {}
+    local wantedByTarget, currentByTarget = {}, {}
     for _, pname in ipairs(paladins) do
         local pshort = ShortName(pname)
         local liveA = currentAssignments[pshort] or {}
@@ -764,6 +825,20 @@ function WhoDoesWhat:CheckPallyPowerSync()
             local live = liveN[cid] and liveN[cid][target]
             if not live or live == 0 then live = liveA[cid] or 0 end
 
+            if want ~= 0 then
+                wantedByTarget[target] = wantedByTarget[target] or {}
+                wantedByTarget[target][want] = pname
+            end
+            if live ~= 0 then
+                currentByTarget[target] = currentByTarget[target] or {}
+                local providers = currentByTarget[target][live]
+                if not providers then
+                    providers = {}
+                    currentByTarget[target][live] = providers
+                end
+                providers[#providers + 1] = pname
+            end
+
             -- Pet identities and rows are transient. None/Might/Kings are all
             -- safe; only an explicit unrelated blessing needs intervention.
             local acceptedPetBuff = petTargets[target]
@@ -774,7 +849,8 @@ function WhoDoesWhat:CheckPallyPowerSync()
             end
         end
     end
-    return diffs
+    return diffs, nil, CountUnoptimizedBlessings(
+        wantedByTarget, currentByTarget, petTargets)
 end
 
 -- Recompute one raider's whole WDW row after a role change. With classmates,

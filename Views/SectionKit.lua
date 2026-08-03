@@ -333,11 +333,19 @@ end
 -- One source of truth for the PallyPower status text shown in both views.
 function K.GetPallyPowerState(paladinCount)
     if paladinCount == 0 then return "inactive", "No Paladins, Inactive" end
-    local diffs, reason = WhoDoesWhat:CheckPallyPowerSync()
+    local diffs, reason, unoptimized = WhoDoesWhat:CheckPallyPowerSync()
     if reason == "no-paladins" then return "inactive", "No Paladins, Inactive" end
-    if #diffs == 0 then return "synced", "Optimized and synced" end
-    return "desynced", #diffs .. " Buff" .. (#diffs == 1 and "" or "s")
-        .. " out of sync", #diffs
+    local ppMode = WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
+    local count = ppMode and unoptimized or #diffs
+    if count == 0 then
+        return "synced", ppMode and "Optimized" or "Optimized and synced", 0
+    end
+    if ppMode then
+        return "desynced", count .. " unoptimized buff"
+            .. (count == 1 and "" or "s"), count
+    end
+    return "desynced", count .. " Buff" .. (count == 1 and "" or "s")
+        .. " out of sync", count
 end
 
 -- Warning (!) icon; the refresh passes set .tooltipText and show/hide it.
