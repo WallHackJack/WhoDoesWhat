@@ -96,7 +96,8 @@ function WhoDoesWhat:ShowRaiderTooltip(owner, name)
     elseif talents._source == "pallypower" then
         GameTooltip:AddLine("|cff909090Talent data from external addon (PallyPower).|r",
             1, 1, 1)
-        GameTooltip:AddLine("A WDW rescan will confirm and replace it.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Targeting them in range will confirm and replace it.",
+            0.8, 0.8, 0.8, true)
         GameTooltip:AddLine(" ")
     end
     local entries = {}

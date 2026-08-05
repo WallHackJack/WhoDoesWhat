@@ -13,9 +13,6 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- click-to-customize is the plan for later, which is why the cells are
 -- already buttons.
 --
--- The title bar's Rescan button force-inspects every reachable Paladin, Priest,
--- and Druid because talent data arrives asynchronously through the inspector.
---
 -- Each paladin column is headed by their role icon with an outlined initial;
 -- hovering it opens the shared paladin detail tooltip.
 
@@ -688,22 +685,6 @@ local function EnsureGridFrame()
         MIN_FRAME_W, MIN_FRAME_H, "Buffing Grid")
     f.titleText:ClearAllPoints()
     f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
-
-    -- "Rescan" in the title bar: inspect every reachable buff provider.
-    local rescan = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    rescan:SetSize(60, 18)
-    rescan:SetPoint("TOPRIGHT", -28, -6)
-    rescan:SetText("Rescan")
-    rescan:SetScript("OnClick", function() WhoDoesWhat:RescanBuffingTalents() end)
-    rescan:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:SetText("Rescan talents", 1, 1, 1)
-        GameTooltip:AddLine("Force a fresh inspect of every Paladin, Priest, and"
-            .. " Druid in range. Out-of-range providers keep their last-known"
-            .. " ranks until they come closer.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    rescan:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))

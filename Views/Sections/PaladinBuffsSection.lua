@@ -626,8 +626,8 @@ function Refresh(f) -- forward declared above
         state.ppArea.tooltipTitle = ppText
         state.ppArea.tooltipText = "WDW will not assign blessings to "
             .. table.concat(awaiting, ", ") .. " until talent data arrives."
-            .. " Rescan when they are in range, or mark a paladin as Non-raider"
-            .. " if they are sitting out."
+            .. " Target them once while in range to pull it, or mark a paladin"
+            .. " as Non-raider if they are sitting out."
     elseif ppState == "inactive" then
         state.ppIcon:Hide()
         state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)

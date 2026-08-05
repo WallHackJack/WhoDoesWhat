@@ -153,7 +153,7 @@ function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
     return ranks and ranks[buffKey] or nil
 end
 
--- Manual "Rescan" (Buffing Grid window). Talent data only becomes current when
+-- Manual "/wdw rescan". Talent data only becomes current when
 -- the library inspects a provider in range or receives their broadcast, so this
 -- forces a fresh inspect of reachable providers and replays cached data at once.
 -- Out-of-range providers keep their last-known ranks until they come closer.
