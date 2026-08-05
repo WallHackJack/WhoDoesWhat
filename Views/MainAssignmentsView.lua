@@ -147,8 +147,8 @@ local function InitPermissionsDropdown(_, level)
 end
 
 -- The strip at the window's top-left: the raid leader gets the picker
--- dropdown, every other raid member a note naming the rule (and whether the
--- board is read-only for them). Hidden outside raids -- parties and solo are
+-- dropdown, every other raid member a note: the rule if they may edit under it,
+-- otherwise just "Read Only Mode". Hidden outside raids -- parties and solo are
 -- always open, nothing to say.
 local function UpdatePermissionControls(f)
     if not IsInRaid() then
@@ -171,9 +171,9 @@ local function UpdatePermissionControls(f)
         f.permNote:Hide()
     else
         f.permDD:Hide()
-        f.permNote:SetText("|cff909090Editing: " .. WhoDoesWhat:PermissionModeLabel()
-            .. (WhoDoesWhat:CanEditAssignments() and ""
-                or " - the board is read-only for you") .. "|r")
+        f.permNote:SetText("|cff909090" .. (WhoDoesWhat:CanEditAssignments()
+            and ("Editing: " .. WhoDoesWhat:PermissionModeLabel())
+            or "Read Only Mode") .. "|r")
         f.permNote:Show()
     end
 end
