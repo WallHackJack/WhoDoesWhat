@@ -29,6 +29,9 @@ local STATUS_DISPLAY_LABELS = {
 local STATUS_SATURATED_LABELS = {
     hide = "Hide Bar", x = "X", check = "Checkmark",
 }
+local STATUS_TOOLTIP_ANCHOR_LABELS = {
+    LEFT = "Left", RIGHT = "Right", ABOVE = "Above", BELOW = "Below",
+}
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 local STATUS_BUFF_ROW_H = 26
 local STATUS_ARROW_NUDGE = { Up = 2, Down = -4 }
@@ -461,9 +464,14 @@ local function RefreshBuffOptionsFrame()
     local showHideColumnUnavailable = hasRequirement
         and not definition.gridOptionDisabled
         and not hidden.hideColumnUnavailable
+    -- Responsibility follows the "Requires Class" dropdown: clearing it means
+    -- nobody in particular owns the buff, so the glow has nothing to key on.
+    local showResponsibleGlow = hasRequirement and not options.negative
+        and not hidden.responsibleGlow
     y = y + ((showBest or showHideBarUnavailable
-        or showHideColumnUnavailable) and 18 or 25)
+        or showHideColumnUnavailable or showResponsibleGlow) and 18 or 25)
     y = PlaceOption("bestAvailable", showBest, y)
+    y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
     y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
     y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
 
@@ -498,7 +506,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("hunterPets", showPets, y)
     for _, option in ipairs({ "bestAvailable", "hideBarUnavailable",
         "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
-        "negative", "hideComplete",
+        "negative", "hideComplete", "responsibleGlow",
         "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
         if not f.optionChecks[option]:IsShown() then
             f.optionLabels[option]:Hide()
@@ -835,6 +843,11 @@ local function EnsureBuffOptionsFrame(owner, key)
             "Replace the individual Paladin progress bars with one raid-wide blessing progress bar." },
         { "includeInTotal", "Include in Total Coverage Calculation",
             "Count this buff in the percentage shown in the WDW Status header." },
+        { "responsibleGlow", "Glow when responsible",
+            "Glow this WDW Status row while you are the class that supplies the"
+                .. " buff and somebody is still missing it. With \"Only consider"
+                .. " best available\" on, only the raid's best-talented caster"
+                .. " is asked." },
     }
     for index, entry in ipairs(checkboxOptions) do
         local option, labelText, tooltip = entry[1], entry[2], entry[3]
@@ -1075,6 +1088,38 @@ local function EnsureSettingsFrame()
     AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel, "Default text-mode",
         "Used by paladin bars and any Buff Tracking row set to Default.")
     f.overviewDefaultDisplayDD = defaultDisplayDD
+    yL = yL + 32
+
+    local tooltipAnchorLabel = statusPage:CreateFontString(nil, "OVERLAY",
+        "GameFontHighlight")
+    tooltipAnchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    tooltipAnchorLabel:SetText("Tooltip side:")
+    local tooltipAnchorDD = CreateFrame("Frame",
+        "WhoDoesWhatStatusBarsTooltipAnchorDD", statusPage,
+        "UIDropDownMenuTemplate")
+    tooltipAnchorDD:SetPoint("LEFT", tooltipAnchorLabel, "RIGHT", -6, -2)
+    UIDropDownMenu_SetWidth(tooltipAnchorDD, 110)
+    WhoDoesWhat:StyleDropdown(tooltipAnchorDD, true)
+    UIDropDownMenu_Initialize(tooltipAnchorDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor
+            or "LEFT"
+        for _, anchor in ipairs({ "LEFT", "RIGHT", "ABOVE", "BELOW" }) do
+            local anchorName = anchor
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = STATUS_TOOLTIP_ANCHOR_LABELS[anchorName]
+            info.checked = saved == anchorName
+            info.func = function()
+                WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor = anchorName
+                UIDropDownMenu_SetText(tooltipAnchorDD,
+                    STATUS_TOOLTIP_ANCHOR_LABELS[anchorName])
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    AddDropdownTooltip(tooltipAnchorDD, tooltipAnchorLabel, "Tooltip side",
+        "Where a status bar's tooltip opens. Left and right follow the hovered"
+            .. " bar; above and below clear the whole window.")
+    f.overviewTooltipAnchorDD = tooltipAnchorDD
     yL = yL + 32
 
     -- ---- Buff Tracking ----
@@ -1537,6 +1582,10 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     local overviewDisplay = settings.overviewDefaultDisplay or "percent"
     UIDropDownMenu_SetText(f.overviewDefaultDisplayDD,
         STATUS_DISPLAY_LABELS[overviewDisplay] or STATUS_DISPLAY_LABELS.percent)
+    local tooltipAnchor = settings.statusBarTooltipAnchor or "LEFT"
+    UIDropDownMenu_SetText(f.overviewTooltipAnchorDD,
+        STATUS_TOOLTIP_ANCHOR_LABELS[tooltipAnchor]
+            or STATUS_TOOLTIP_ANCHOR_LABELS.LEFT)
     RefreshStatusBuffRows(f)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.showLogsCheck:SetChecked(settings.showLogsButton)
@@ -1559,6 +1608,21 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     self:LogUiBuilding("Opening Addon Settings View...")
     f:Show()
     f:Raise()
+end
+
+-- Open one check's cog options directly (WDW Status' shift-right-click on a
+-- bar). Selecting the page closes any open options popup, so the popup opens
+-- after the window is on the right page.
+function WhoDoesWhat:OpenBuffTrackingOptions(key)
+    if not self.StatusBarChecks[key] then return end
+    local f = EnsureSettingsFrame()
+    if f:IsShown() then
+        f.SelectSection("Buff Tracking")
+        f:Raise()
+    else
+        self:OpenAddonSettingsView("Buff Tracking")
+    end
+    OpenBuffOptions(f, key)
 end
 
 function WhoDoesWhat:RefreshAddonSettingsLoggingCheck()

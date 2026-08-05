@@ -296,6 +296,9 @@ local defaults = {
             overviewEnabled = false,
             overviewAnchor = "TOPLEFT",
             overviewDefaultDisplay = "percent",
+            -- Which side of a hovered status bar its tooltip opens on
+            -- (LEFT / RIGHT / ABOVE / BELOW).
+            statusBarTooltipAnchor = "LEFT",
             overviewWidth = 220,
             statusBarChecks = {},
         },

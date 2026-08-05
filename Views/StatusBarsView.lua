@@ -31,6 +31,14 @@ local HANDLE_W = 4
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local LCG = LibStub("LibCustomGlow-1.0", true)
+-- Tooltip name lists: short enough to read at a glance while a pull is
+-- starting. Under LIST_ALL_BELOW names the whole list fits; past that only the
+-- first few are named and the rest become a count.
+local LIST_ALL_BELOW = 6
+local LIST_TRUNCATED_TO = 3
+local TOOLTIP_ANCHORS = {
+    LEFT = true, RIGHT = true, ABOVE = true, BELOW = true,
+}
 
 local function StatusBarsAnchor()
     return WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
@@ -46,8 +54,10 @@ end
 
 local paladinClass
 local classColors = {}
+local classByName = {}
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
     classColors[classInfo.name] = classInfo.colorRGB
+    classByName[classInfo.name] = classInfo
     if classInfo.name == "Paladin" then
         paladinClass = classInfo
     end
@@ -143,21 +153,31 @@ end
 -- Shift-click anywhere in the window is a shortcut to the buff views. Shift on
 -- both halves matches the Paladin Bar's title strip, and leaves the plain
 -- clicks to the rows themselves (the PallyPower row opens the diff view).
-local function StatusBarsClick(_, button)
+-- A row carries the check it draws (optionsKey), so shift-right-click lands on
+-- that row's own cog options instead of the bare Buff Tracking list.
+local function StatusBarsClick(self, button)
     if not IsShiftKeyDown() then return end
     if button == "RightButton" then
-        WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
+        local key = self and self.optionsKey
+        if key then
+            WhoDoesWhat:OpenBuffTrackingOptions(key)
+        else
+            WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
+        end
     elseif button == "LeftButton" then
         WhoDoesWhat:OpenBuffingGridView()
     end
 end
 
--- Same double-line shortcut layout the minimap button uses.
+-- Same double-line shortcut layout the minimap button uses. Only the title
+-- strip carries these now; the bars keep their tooltips to their own status.
 local function AddShortcutTooltipLines()
     GameTooltip:AddDoubleLine("Shift-Left-Click:", "Buffing Grid",
         1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Shift-Right-Click:", "Buff Settings",
         1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddLine("Shift-right-click a bar for that bar's own options.",
+        0.6, 0.6, 0.6, true)
 end
 
 local function RoleIcon(name)
@@ -169,22 +189,264 @@ local function RoleIcon(name)
     return paladinClass and paladinClass.classIcon
 end
 
-local function SetDesyncGlow(row, shown)
+local function SetRowGlow(row, shown)
     if not LCG then return end
-    if shown and not row.desyncGlow then
+    if shown and not row.glowing then
         LCG.PixelGlow_Start(row, nil, 16, nil, 3, nil, nil, nil, nil, nil, 4)
-        row.desyncGlow = true
-    elseif not shown and row.desyncGlow then
+        row.glowing = true
+    elseif not shown and row.glowing then
         LCG.PixelGlow_Stop(row)
-        row.desyncGlow = nil
+        row.glowing = nil
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Row tooltips
+-- ---------------------------------------------------------------------------
+
+-- Names are shown the way the raid says them: no realm suffix, and a hunter
+-- pet keeps the "'s Pet" that identifies whose it is.
+local function ShortTargetName(name)
+    local petSuffix = name:match("('s Pet)$")
+    local base = petSuffix and name:sub(1, #name - #petSuffix) or name
+    base = base:match("^([^%-]+)") or base
+    return base .. (petSuffix or "")
+end
+
+local function ColoredName(name, classInfo)
+    return "|cff" .. ((classInfo and classInfo.colorHex) or "FFFFFF")
+        .. ShortTargetName(name) .. "|r"
+end
+
+local function IsLocalPlayerName(name)
+    local short = name and name:match("^([^%-]+)")
+    return short ~= nil and short == UnitName("player")
+end
+
+local function LocalPlayerKey()
+    local name, realm = UnitName("player")
+    if name and realm and realm ~= "" then return name .. "-" .. realm end
+    return name
+end
+
+-- The local player's class as WhoDoesWhat names it ("Priest"). A character
+-- can't change class mid-session, so this is resolved once.
+local localClassName
+local function LocalClassName()
+    if localClassName == nil then
+        local _, token = UnitClass("player")
+        localClassName = false
+        for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+            if token and classInfo.name:upper() == token then
+                localClassName = classInfo.name
+                break
+            end
+        end
+    end
+    return localClassName
+end
+
+-- "Glow when responsible": the local player's class is the one that supplies
+-- this buff and somebody in the group is still without it. Where the check
+-- only counts the best available rank, the raid's top-rank provider is the one
+-- being asked -- a weaker caster overwriting them would not move the bar, so
+-- their row stays quiet.
+local function ResponsibleForCheck(key, definition, options, coverage)
+    if not options.responsibleGlow or options.negative then return false end
+    if definition.hiddenOptions and definition.hiddenOptions.responsibleGlow then
+        return false
+    end
+    -- The check's "Requires Class" is the whole definition of whose job this
+    -- is; clearing it leaves nobody in particular on the hook.
+    if not options.requiredClass
+        or options.requiredClass ~= LocalClassName() then
+        return false
+    end
+    if coverage.total == 0 or coverage.correct >= coverage.total then
+        return false
+    end
+    if coverage.bestRank == nil then return true end
+    local mine = WhoDoesWhat:GetCoreBuffTalent(LocalPlayerKey(), key)
+    return mine ~= nil and mine >= coverage.bestRank
+end
+
+-- A hunter pet rides the paladin plan as a warrior; colour it as its owner's
+-- class instead, which is how the rest of the UI shows pets.
+local function TargetClassInfo(target, planClassName)
+    if target:match("'s Pet$") then return classByName.Hunter end
+    return planClassName and classByName[planClassName] or nil
+end
+
+local function ProgressHex(correct, total, negative)
+    if total == 0 then return "999999" end
+    if negative and correct == 0 or (not negative and correct >= total) then
+        return "4dff4d"
+    end
+    if negative and correct >= total or (not negative and correct == 0) then
+        return "ff4d4d"
+    end
+    return "ffd133"
+end
+
+-- Only the numbers that carry the state are coloured -- how many are done and
+-- the percentage -- so "of N" stays white and the eye lands on the two that
+-- matter.
+local function AddProgressLine(correct, total, negative)
+    local percent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
+    local hex = "|cff" .. ProgressHex(correct, total, negative)
+    GameTooltip:AddLine(hex .. correct .. "|r of " .. total
+        .. "  " .. hex .. "(" .. percent .. "%)|r", 1, 1, 1)
+end
+
+-- The actionable end of every tooltip: who still needs attention. `Format`
+-- turns one entry into its line, so the paladin rows can lead with the
+-- blessing icon while the raid-buff rows are just names.
+local function AddEntryLines(entries, Format)
+    local shown = #entries < LIST_ALL_BELOW and #entries or LIST_TRUNCATED_TO
+    for i = 1, shown do
+        local text, right = Format(entries[i])
+        if right then
+            GameTooltip:AddDoubleLine(text, right, 1, 1, 1, 0.6, 0.6, 0.6)
+        else
+            GameTooltip:AddLine(text, 1, 1, 1)
+        end
+    end
+    if shown < #entries then
+        GameTooltip:AddLine("... and " .. (#entries - shown) .. " more",
+            0.6, 0.6, 0.6)
+    end
+end
+
+-- The people to ask for this buff: the best-talented casters still in the
+-- group, or everyone of the class while no ranks have been scanned. The rank
+-- rides along so a raid-wide 0/2 is obvious; the full breakdown of who has
+-- what stays in the Buffing Grid's column headers.
+local function AddProviderLines(key, definition)
+    local talent = definition.improvedTalent
+    if not talent then return end
+    local providers = WhoDoesWhat.Assign.ComputeCoreBuffProviders(key)
+    local best
+    for _, provider in ipairs(providers) do
+        if provider.available and provider.rank ~= nil
+            and (best == nil or provider.rank > best) then
+            best = provider.rank
+        end
+    end
+    local classInfo = classByName[definition.className]
+    local rankText = best and (" |cff909090(" .. best .. "/"
+        .. talent.maxRank .. ")|r") or ""
+    for _, provider in ipairs(providers) do
+        if provider.available and provider.rank == best then
+            GameTooltip:AddLine(ColoredName(provider.name, classInfo) .. rankText,
+                1, 1, 1)
+        end
+    end
+end
+
+local function FillCoreTooltip(row)
+    local definition = row.buffKey and WhoDoesWhat.StatusBarChecks[row.buffKey]
+    if not definition then return end
+    GameTooltip:SetText(definition.name, 1, 1, 1)
+    -- With nobody present to cast it there is no progress to report and no
+    -- point naming everyone who lacks it: the missing class is the whole
+    -- story, and the check sits out of the raid's total coverage entirely.
+    if row.unavailableClass then
+        GameTooltip:AddLine("Unavailable: requires "
+            .. row.unavailableClass .. ".", 1, 0.45, 0.2, true)
+        GameTooltip:AddLine("Not counted toward raid coverage.",
+            0.6, 0.6, 0.6, true)
+        return
+    end
+    AddProviderLines(row.buffKey, definition)
+    GameTooltip:AddLine(" ")
+    -- Nothing in the group matches this check's target filters, so a 0 of 0
+    -- count would say less than the words do.
+    if row.total == 0 then
+        GameTooltip:AddLine("No Targets", 0.6, 0.6, 0.6)
+        return
+    end
+    AddProgressLine(row.correct, row.total, row.negative)
+
+    local flagged = row.flagged or {}
+    if #flagged == 0 then
+        -- The count above is already green; this line is just the words for it.
+        GameTooltip:AddLine(row.negative and "Nobody has it."
+            or "Everyone has it.", 0.6, 0.6, 0.6)
+    else
+        AddEntryLines(flagged, function(entry)
+            return ColoredName(entry.name, entry.classInfo)
+        end)
+    end
+end
+
+local function FillPaladinTooltip(row)
+    if row.paladinName then
+        GameTooltip:SetText("|T" .. (row.roleIcon or paladinClass.classIcon)
+            .. ":16:16:0:0|t " .. ColoredName(row.paladinName, paladinClass),
+            1, 1, 1)
+    else
+        GameTooltip:SetText(WhoDoesWhat.StatusBarChecks.paladinBuffs.name, 1, 1, 1)
+    end
+    if row.awaitingTalents then
+        GameTooltip:AddLine("Waiting on this paladin's talents; the plan is"
+            .. " provisional until they arrive.", 1, 0.55, 0, true)
+    end
+    GameTooltip:AddLine(" ")
+    AddProgressLine(row.correct, row.total)
+
+    local missing = row.missing or {}
+    if row.total == 0 then
+        GameTooltip:AddLine("No blessings are assigned.", 0.6, 0.6, 0.6)
+    elseif #missing == 0 then
+        GameTooltip:AddLine("Every assigned blessing is up.", 0.6, 0.6, 0.6)
+    else
+        AddEntryLines(missing, function(entry)
+            local buff = WhoDoesWhat.PaladinBuffs[entry.key]
+            return "|T" .. buff.icon .. ":14:14:0:0|t "
+                .. ColoredName(entry.target, entry.classInfo),
+                entry.isGreater and buff.name_long
+                    or (buff.name_long .. " (Lesser)")
+        end)
+    end
+end
+
+-- Which side of the hovered bar a tooltip opens on. Left and right track the
+-- hovered row so the tooltip lines up with the bar it describes; above and
+-- below clear the whole window, which keeps a tall tooltip off the other bars.
+local function TooltipAnchor()
+    local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor
+    return TOOLTIP_ANCHORS[saved] and saved or "LEFT"
+end
+
+local function ShowRowTooltip(frame)
+    GameTooltip:SetOwner(frame, "ANCHOR_NONE")
+    GameTooltip:ClearAllPoints()
+    local anchor = TooltipAnchor()
+    if anchor == "RIGHT" then
+        GameTooltip:SetPoint("TOPLEFT", frame, "TOPRIGHT", 6, 0)
+    elseif anchor == "ABOVE" then
+        GameTooltip:SetPoint("BOTTOMLEFT", view, "TOPLEFT", 0, 6)
+    elseif anchor == "BELOW" then
+        GameTooltip:SetPoint("TOPLEFT", view, "BOTTOMLEFT", 0, -6)
+    else
+        GameTooltip:SetPoint("TOPRIGHT", frame, "TOPLEFT", -6, 0)
+    end
+    frame:FillTooltip()
+    GameTooltip:Show()
+end
+
+local function HideRowTooltip(frame)
+    if GameTooltip:GetOwner() == frame then GameTooltip:Hide() end
 end
 
 -- Progress text stays right-aligned regardless of the fill position.
 local function LayoutProgressLabel(row)
     if row.correct == nil then return end
 
-    local unavailable = row.total == 0
+    -- A check whose required class is absent is not "0% done", it is
+    -- unanswerable. Kept visible only because its bar opted out of hiding, so
+    -- it reports why instead of showing a percentage nobody can move.
+    local unavailable = row.total == 0 or row.unavailableClass ~= nil
     local complete = not unavailable and row.correct >= row.total
     row.name:ClearAllPoints()
     row.name:SetPoint("LEFT", row.status, "LEFT", 2, 0)
@@ -202,17 +464,28 @@ local function LayoutProgressLabel(row)
     end
 
     if complete or unavailable then
-        row.percent:Hide()
         row.completeIcon:ClearAllPoints()
         row.completeIcon:SetSize(14, unavailable and 14 or math.floor(14 * 0.8 + 0.5))
         row.completeIcon:SetPoint("RIGHT", row.status, "RIGHT", -2, 0)
         local completeTexture = row.negative and row.saturatedStyle == "x"
             and NOT_READY_ICON or READY_ICON
         row.completeIcon:SetTexture(unavailable
-            and (row.awaitingTalents and WhoDoesWhat.WARNING_ICON or NOT_READY_ICON)
+            and ((row.awaitingTalents or row.unavailableClass)
+                and WhoDoesWhat.WARNING_ICON or NOT_READY_ICON)
             or completeTexture)
         row.completeIcon:Show()
-        row.name:SetPoint("RIGHT", row.completeIcon, "LEFT", -4, 0)
+        -- The missing class goes where the percentage would have been; at
+        -- ultra-compact widths the warning icon carries it alone.
+        if row.unavailableClass and view:GetWidth() >= ULTRA_COMPACT_W then
+            row.percent:SetText("No " .. row.unavailableClass)
+            row.percent:Show()
+            row.percent:ClearAllPoints()
+            row.percent:SetPoint("RIGHT", row.completeIcon, "LEFT", -3, 0)
+            row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
+        else
+            row.percent:Hide()
+            row.name:SetPoint("RIGHT", row.completeIcon, "LEFT", -4, 0)
+        end
         return
     end
 
@@ -251,6 +524,19 @@ end
 local function CreateRow(index)
     local row = CreateFrame("Frame", nil, view)
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
+    -- A mouse-enabled row swallows what the window behind it would have
+    -- handled, so it carries the Alt-drag and shift-click shortcuts itself.
+    AttachAltDrag(row)
+    row:SetScript("OnMouseUp", StatusBarsClick)
+    row.FillTooltip = function(self)
+        if self.isPaladinRow then
+            FillPaladinTooltip(self)
+        else
+            FillCoreTooltip(self)
+        end
+    end
+    row:SetScript("OnEnter", ShowRowTooltip)
+    row:SetScript("OnLeave", HideRowTooltip)
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
@@ -304,6 +590,7 @@ end
 local function CreatePallyPowerRow()
     local row = CreateFrame("Button", nil, view)
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
+    row.optionsKey = "pallyPower"
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", function(self)
         -- Shift-left-click belongs to the window shortcut below, so a plain
@@ -314,8 +601,7 @@ local function CreatePallyPowerRow()
         end
     end)
     row:SetScript("OnMouseUp", StatusBarsClick)
-    row:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    row.FillTooltip = function(self)
         GameTooltip:SetText("PallyPower status", 1, 1, 1)
         if self.ppState == "synced" then
             GameTooltip:AddLine(self.ppText or "", 0.3, 1, 0.3, true)
@@ -326,10 +612,9 @@ local function CreatePallyPowerRow()
             GameTooltip:AddLine("Click to open PallyPower Differences.",
                 0.8, 0.8, 0.8, true)
         end
-        AddShortcutTooltipLines()
-        GameTooltip:Show()
-    end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    row:SetScript("OnEnter", ShowRowTooltip)
+    row:SetScript("OnLeave", HideRowTooltip)
     local highlight = row:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
     highlight:SetColorTexture(1, 1, 1, 0.04)
@@ -587,8 +872,42 @@ function WhoDoesWhat:RefreshStatusBarsView()
         or not paladinOptions.hideBarUnavailable
     local showPaladinBars = paladinPreview
         or (paladinOptions.bar and paladinInScope and paladinAvailable)
+    -- Same rule as the core checks: coverage only counts while the class that
+    -- supplies it is actually here.
     local normalPaladinBars = paladinOptions.bar
-        and paladinInScope and paladinAvailable
+        and paladinInScope and paladinRequiredAvailable
+    -- Missing blessings for one paladin, greater-first: a lapsed class Greater
+    -- is a single cast that fixes several raiders, so it leads the tooltip.
+    local function MissingBlessings(paladinName)
+        local coverage = coverageByPaladin[paladinName]
+        local plan = buffPlan or {}
+        local greater = plan.greaterByPaladin
+            and plan.greaterByPaladin[paladinName]
+        local entries = {}
+        for _, cell in ipairs(coverage and coverage.missing or {}) do
+            local className = plan.targetClass
+                and plan.targetClass[cell.target]
+            entries[#entries + 1] = {
+                target = cell.target,
+                key = cell.key,
+                classInfo = TargetClassInfo(cell.target, className),
+                isGreater = greater ~= nil and className ~= nil
+                    and greater[className] == cell.key,
+            }
+        end
+        table.sort(entries, function(a, b)
+            if a.isGreater ~= b.isGreater then return a.isGreater end
+            if a.target ~= b.target then return a.target < b.target end
+            return a.key < b.key
+        end)
+        return entries
+    end
+
+    -- A paladin is responsible for their own bar only; the combined bar is the
+    -- whole raid's blessings, so any paladin owns a gap in it.
+    local paladinGlow = paladinOptions.responsibleGlow
+        and paladinOptions.requiredClass ~= false
+        and paladinOptions.requiredClass == LocalClassName()
     local paladinEntries = {}
     if paladinOptions.combinePaladinBars then
         local coverage = { correct = paladinCorrect, total = paladinTotal }
@@ -596,9 +915,18 @@ function WhoDoesWhat:RefreshStatusBarsView()
         if (paladinPreview or paladinTotal > 0) and showPaladinBars
             and (paladinPreview or not (paladinOptions.hideComplete and complete)) then
             local definition = self.StatusBarChecks.paladinBuffs
+            local missing = {}
+            for _, paladin in ipairs(summary) do
+                for _, entry in ipairs(MissingBlessings(paladin.name)) do
+                    missing[#missing + 1] = entry
+                end
+            end
             paladinEntries[#paladinEntries + 1] = {
                 name = definition.name,
                 icon = definition.icon,
+                paladinRow = true,
+                missing = missing,
+                glow = paladinGlow and not complete and paladinTotal > 0,
                 coverage = coverage,
                 display = paladinOptions.display,
                 colorPreview = paladinPreview,
@@ -619,6 +947,12 @@ function WhoDoesWhat:RefreshStatusBarsView()
                     name = paladin.name,
                     icon = RoleIcon(paladin.name),
                     isPaladin = true,
+                    paladinRow = true,
+                    paladinName = paladin.name,
+                    missing = MissingBlessings(paladin.name),
+                    glow = paladinGlow and not complete
+                        and coverage.total > 0
+                        and IsLocalPlayerName(paladin.name),
                     awaitingTalents =
                         (self.db.profile.settings.pallyBuffSource or "wdw")
                             == "wdw" and paladin.awaitingTalents,
@@ -666,7 +1000,9 @@ function WhoDoesWhat:RefreshStatusBarsView()
                     and options.saturatedStyle == "hide"
                 local available = coverage.available
                     or not options.hideBarUnavailable
-                if options.bar and inScope and available
+                -- An unavailable check never counts, shown or not: an
+                -- unfillable 0/25 would hold the raid total down forever.
+                if options.bar and inScope and coverage.available
                     and not options.negative and options.includeInTotal
                     and coverage.total > 0 then
                     coreCorrect = coreCorrect + coverage.correct
@@ -679,6 +1015,11 @@ function WhoDoesWhat:RefreshStatusBarsView()
                     displayed[#displayed + 1] = {
                         name = coverage.name,
                         icon = coverage.icon,
+                        buffKey = key,
+                        flagged = coverage.flagged,
+                        unavailableClass = not coverage.available
+                            and options.requiredClass or nil,
+                        glow = ResponsibleForCheck(key, buff, options, coverage),
                         coverage = coverage,
                         display = options.display,
                         colorPreview = colorPreview,
@@ -724,7 +1065,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
         ppRow:ClearAllPoints()
         ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
             -(CONTENT_TOP + (ppIndex - 1) * ROW_H))
-        SetDesyncGlow(ppRow, assignmentGlow)
+        SetRowGlow(ppRow, assignmentGlow)
 
         ppRow.stateIcon:ClearAllPoints()
         ppRow.stateIcon:SetSize(ppState == "desynced" and 12 or 14,
@@ -755,7 +1096,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
         ppRow:Show()
     else
         if view.ppRow then
-            SetDesyncGlow(view.ppRow, false)
+            SetRowGlow(view.ppRow, false)
             view.ppRow:Hide()
         end
     end
@@ -771,6 +1112,15 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 and ("Awaiting talents - " .. entry.name) or entry.name)
             row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
             row.isPaladin = entry.isPaladin
+            row.isPaladinRow = entry.paladinRow
+            row.paladinName = entry.paladinName
+            row.roleIcon = entry.paladinName and entry.icon or nil
+            row.buffKey = entry.buffKey
+            row.optionsKey = entry.buffKey
+                or (entry.paladinRow and "paladinBuffs" or nil)
+            row.flagged = entry.flagged
+            row.unavailableClass = entry.unavailableClass
+            row.missing = entry.missing
             row.awaitingTalents = entry.awaitingTalents
             row.colorPreview = entry.colorPreview
             row.negative = entry.negative
@@ -799,9 +1149,20 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 -(CONTENT_TOP + (displayIndex - 1) * ROW_H))
             row:Show()
             LayoutProgressLabel(row)
+            -- Started after Show so a freshly pooled row's glow animation
+            -- begins on a visible frame.
+            SetRowGlow(row, entry.glow and not entry.colorPreview)
+            -- Rebuild in place so a tooltip left open while buffs land keeps
+            -- showing the live list rather than the state it opened on.
+            if GameTooltip:IsShown() and GameTooltip:GetOwner() == row then
+                ShowRowTooltip(row)
+            end
         end
     end
-    for i = normalIndex + 1, #view.rows do view.rows[i]:Hide() end
+    for i = normalIndex + 1, #view.rows do
+        SetRowGlow(view.rows[i], false)
+        view.rows[i]:Hide()
+    end
 
     view.emptyCheck:ClearAllPoints()
     view.emptyCheck:SetPoint("TOP", view, "TOP", 0,

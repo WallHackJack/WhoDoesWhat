@@ -87,28 +87,7 @@ local function RankColor(rank, maxRank)
     return 1, 0.4, 0.4
 end
 
-local function ImprovedProviders(key, disconnected)
-    local buff = WhoDoesWhat.StatusBarChecks[key]
-    local talent = buff and buff.improvedTalent
-    local providers = {}
-    if not talent then return providers end
-    for _, member in ipairs(A.GetEligibleMembers(buff.className)) do
-        if member.classInfo.name == buff.className then
-            providers[#providers + 1] = {
-                name = member.name,
-                rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key),
-                available = member.isFake or not disconnected[member.name],
-            }
-        end
-    end
-    table.sort(providers, function(a, b)
-        if a.rank == nil and b.rank ~= nil then return false end
-        if a.rank ~= nil and b.rank == nil then return true end
-        if a.rank ~= b.rank then return (a.rank or -1) > (b.rank or -1) end
-        return a.name < b.name
-    end)
-    return providers
-end
+local ImprovedProviders = A.ComputeCoreBuffProviders
 
 local function BestAvailableProvider(providers)
     local best

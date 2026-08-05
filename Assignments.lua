@@ -1304,13 +1304,40 @@ local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
         and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
 end
 
+-- Everyone who can supply a talent-improved core buff, best rank first, each
+-- flagged with whether they are actually around to cast it. Unscanned talents
+-- sort last as an unknown rank rather than as a zero. Shared by the Buffing
+-- Grid's column headers and the WDW Status tooltips.
+local function ComputeCoreBuffProviders(key, disconnected)
+    local buff = WhoDoesWhat.StatusBarChecks[key]
+    local talent = buff and buff.improvedTalent
+    local providers = {}
+    if not talent or not buff.className then return providers end
+    disconnected = disconnected or DisconnectedGroupTargets()
+    for _, member in ipairs(GetEligibleMembers(buff.className)) do
+        if member.classInfo.name == buff.className then
+            providers[#providers + 1] = {
+                name = member.name,
+                rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key),
+                available = member.isFake or not disconnected[member.name],
+            }
+        end
+    end
+    table.sort(providers, function(a, b)
+        if (a.rank == nil) ~= (b.rank == nil) then return b.rank == nil end
+        if a.rank ~= b.rank then return a.rank > b.rank end
+        return a.name < b.name
+    end)
+    return providers
+end
+
 local function BestAvailableCoreBuffRank(buff, key, disconnected)
     if not buff.improvedTalent or not buff.className then return nil end
     local best
-    for _, provider in ipairs(MembersOfClass(buff.className)) do
-        if not disconnected[provider] then
-            local rank = WhoDoesWhat:GetCoreBuffTalent(provider, key)
-            if rank ~= nil and (best == nil or rank > best) then best = rank end
+    for _, provider in ipairs(ComputeCoreBuffProviders(key, disconnected)) do
+        if provider.available and provider.rank ~= nil
+            and (best == nil or provider.rank > best) then
+            best = provider.rank
         end
     end
     return best
@@ -1333,6 +1360,13 @@ local function ComputeCoreRaidBuffCoverage()
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
+                -- Targets worth acting on: raiders missing a buff, or carrying
+                -- a tracked debuff on a negative check. Drives the tooltip's
+                -- "who still needs this" list.
+                flagged = {},
+                -- The improvement rank this check is currently measured
+                -- against, so a view can tell who is on the hook for it.
+                bestRank = bestRank,
                 available = not options.requiredClass
                     or #MembersOfClass(options.requiredClass) > 0,
             }
@@ -1363,6 +1397,13 @@ local function ComputeCoreRaidBuffCoverage()
                     if covered then
                         row.correct = row.correct + 1
                         correct = correct + 1
+                    end
+                    if covered == (options.negative == true) then
+                        row.flagged[#row.flagged + 1] = {
+                            name = m.name,
+                            classInfo = m.classInfo,
+                            isPet = m.isPet,
+                        }
                     end
                 end
             end
@@ -2053,6 +2094,7 @@ WhoDoesWhat.Assign = {
     ComputePaladinBuffCoverage = ComputePaladinBuffCoverage,
     GetPaladinBuffWhisper = GetPaladinBuffWhisper,
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
+    ComputeCoreBuffProviders = ComputeCoreBuffProviders,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

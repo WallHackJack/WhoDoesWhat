@@ -452,6 +452,9 @@ if not features.isClassicEra then
         defaultSaturatedStyle = "check",
         colorRGB = shamanInfo.colorRGB,
         className = "Shaman",
+        -- Being a shaman does not make you responsible for other people's
+        -- Sated: the debuff is the cooldown, not a job left undone.
+        hiddenOptions = { responsibleGlow = true },
     }
 end
 if not features.isClassicEra then
@@ -579,6 +582,10 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     end
     local hideWhenInactive = saved.hideWhenInactive
     if hideWhenInactive == nil then hideWhenInactive = true end
+    -- Only offered on class-based checks (see responsibleGlow in
+    -- hiddenOptions); the status view still decides whether the local player
+    -- is the one on the hook.
+    local responsibleGlow = saved.responsibleGlow ~= false
     return {
         bar = bar,
         grid = grid,
@@ -598,6 +605,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         hideColumnUnavailable = hideColumnUnavailable,
         barColor = barColor,
         combinePaladinBars = saved.combinePaladinBars == true,
+        responsibleGlow = responsibleGlow,
         hideWhenSynced = hideWhenSynced,
         hideWhenInactive = hideWhenInactive,
         assignmentIssuesGlow = saved.assignmentIssuesGlow ~= false,
