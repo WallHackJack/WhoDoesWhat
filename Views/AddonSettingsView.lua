@@ -972,6 +972,14 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.db.profile.settings.minimapButton.hide = not value
             WhoDoesWhat:UpdateMinimapButtonVisibility()
         end)
+    f.unitTooltipCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+        "Show roles in unit tooltips",
+        "Add the player's assigned WhoDoesWhat role to Blizzard's unit tooltip "
+            .. "when you hover a group member. Display only - nothing is "
+            .. "scanned or sent.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.unitTooltipRole = value
+        end)
     f.announceRoleCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
         "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
         function(value)
@@ -1494,6 +1502,7 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     f.buffingMenuExpiringCheck:SetChecked(settings.buffingMenuWarnExpiring)
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
+    f.unitTooltipCheck:SetChecked(settings.unitTooltipRole ~= false)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.manageBlizzRolesCheck:SetChecked(settings.manageBlizzardRoles ~= false)
     f.overviewCheck:SetChecked(settings.overviewEnabled)

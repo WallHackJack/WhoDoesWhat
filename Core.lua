@@ -212,6 +212,9 @@ local defaults = {
             -- (the optional Log Operations entry and Blizzard's own role-flag
             -- message are separate and unaffected). See SetAssignedRole.
             announceRoleChanges = true,
+            -- Append the player's WDW role to Blizzard's unit tooltip
+            -- (UnitTooltipExtensions.lua). Display only, group members only.
+            unitTooltipRole = true,
             -- Master switch for WDW writing Blizzard group state: the
             -- tank/healer/damager group role (UnitSetRole) and the main-tank
             -- demotion. Off = WDW keeps its own board and never touches
