@@ -1245,17 +1245,38 @@ local function EnsureSettingsFrame()
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
 
+    f.buffingAuraCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
+        "Paladin Aura Helper",
+        "Add an aura swapper at the left end of the bar. Right-click offers the next aura you know, left-click casts it; it turns grey with a red glow while that aura isn't the one you're running.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.buffingBarAuraButton = value
+            WhoDoesWhat:LogUiBuilding("Paladin Aura Helper "
+                .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:RefreshPaladinBuffingBar()
+        end)
+
+    f.buffingRighteousFuryCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
+        "Righteous Fury Reminder",
+        "Add a Righteous Fury button next to the aura swapper, shown only while you hold a tank role. Left-click refreshes it; red glow when it's down, yellow with a countdown in its last ten minutes.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.buffingBarRighteousFury = value
+            WhoDoesWhat:LogUiBuilding("Righteous Fury Reminder "
+                .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:RefreshPaladinBuffingBar()
+        end)
+
     local growLabel = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     growLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     growLabel:SetText("Bar grows:")
-    local growLabels = { RIGHT = "Right", LEFT = "Left" }
+    local growLabels = { RIGHT = "Right", LEFT = "Left", CENTER = "From Center" }
+    f.buffingGrowLabels = growLabels
     local growDD = CreateFrame("Frame", "WhoDoesWhatBuffingGrowDD", paladinPage, "UIDropDownMenuTemplate")
     growDD:SetPoint("LEFT", growLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(growDD, 80)
+    UIDropDownMenu_SetWidth(growDD, 90)
     WhoDoesWhat:StyleDropdown(growDD, true)
     UIDropDownMenu_Initialize(growDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarGrow or "RIGHT"
-        for _, mode in ipairs({ "RIGHT", "LEFT" }) do
+        for _, mode in ipairs({ "RIGHT", "LEFT", "CENTER" }) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = growLabels[mode]
             info.checked = (saved == mode)
@@ -1496,10 +1517,14 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     local settings = self.db.profile.settings
     f.minimapCheck:SetChecked(not settings.minimapButton.hide)
     f.buffingBarCheck:SetChecked(settings.buffingBarEnabled)
-    UIDropDownMenu_SetText(f.buffingGrowDD, settings.buffingBarGrow == "LEFT" and "Left" or "Right")
+    UIDropDownMenu_SetText(f.buffingGrowDD,
+        f.buffingGrowLabels[settings.buffingBarGrow or "RIGHT"]
+            or f.buffingGrowLabels.RIGHT)
     UIDropDownMenu_SetText(f.buffingMenuGrowDD,
         settings.buffingMenuGrow == "UP" and "Up" or "Down")
     f.buffingMenuExpiringCheck:SetChecked(settings.buffingMenuWarnExpiring)
+    f.buffingAuraCheck:SetChecked(settings.buffingBarAuraButton ~= false)
+    f.buffingRighteousFuryCheck:SetChecked(settings.buffingBarRighteousFury ~= false)
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
     f.unitTooltipCheck:SetChecked(settings.unitTooltipRole ~= false)

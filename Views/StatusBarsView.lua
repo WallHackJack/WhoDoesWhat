@@ -140,19 +140,21 @@ local function AttachAltDrag(region)
     end)
 end
 
--- Right-click anywhere in the window is a shortcut to the buff views.
+-- Shift-click anywhere in the window is a shortcut to the buff views. Shift on
+-- both halves matches the Paladin Bar's title strip, and leaves the plain
+-- clicks to the rows themselves (the PallyPower row opens the diff view).
 local function StatusBarsClick(_, button)
-    if button ~= "RightButton" then return end
-    if IsShiftKeyDown() then
+    if not IsShiftKeyDown() then return end
+    if button == "RightButton" then
         WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
-    else
+    elseif button == "LeftButton" then
         WhoDoesWhat:OpenBuffingGridView()
     end
 end
 
 -- Same double-line shortcut layout the minimap button uses.
 local function AddShortcutTooltipLines()
-    GameTooltip:AddDoubleLine("Right-Click:", "Buffing Grid",
+    GameTooltip:AddDoubleLine("Shift-Left-Click:", "Buffing Grid",
         1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Shift-Right-Click:", "Buff Settings",
         1, 0.82, 0, 1, 1, 1)
@@ -304,6 +306,9 @@ local function CreatePallyPowerRow()
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", function(self)
+        -- Shift-left-click belongs to the window shortcut below, so a plain
+        -- click is the only one that opens Differences.
+        if IsShiftKeyDown() then return end
         if self.ppState == "desynced" then
             WhoDoesWhat:OpenPallyPowerDiffView()
         end

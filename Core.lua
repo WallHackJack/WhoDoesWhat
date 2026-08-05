@@ -275,13 +275,23 @@ local defaults = {
             -- on (a real or fake paladin's name); nil = the first one found.
             buffingBarTestPaladin = nil,
             -- Which way the buffing bar grows as blessings are added: "RIGHT"
-            -- (anchor its left edge) or "LEFT" (anchor its right edge).
+            -- (anchor its left edge), "LEFT" (anchor its right edge) or
+            -- "CENTER" (anchor its midpoint, spreading both ways).
             buffingBarGrow = "RIGHT",
             -- Preferred direction for the per-player menu shown by hovering a
             -- class button. The view flips it when that side lacks screen room.
             buffingMenuGrow = "DOWN",
             -- Highlight active blessings yellow during their final five minutes.
             buffingMenuWarnExpiring = true,
+            -- The two self-buff buttons anchored at the left end of the buffing
+            -- bar, ahead of the class buttons. Both act on the local player: an
+            -- aura swapper, and a Righteous Fury reminder that only appears
+            -- while the paladin holds a tank role.
+            buffingBarAuraButton = true,
+            buffingBarRighteousFury = true,
+            -- Which aura the swapper currently offers (a WhoDoesWhat.PaladinAuras
+            -- key); nil = the first aura this paladin knows.
+            buffingBarAura = nil,
             -- Movable per-paladin live blessing coverage window.
             overviewEnabled = false,
             overviewAnchor = "TOPLEFT",

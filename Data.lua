@@ -251,6 +251,48 @@ for _, buff in pairs(WhoDoesWhat.PaladinBuffs) do
     buff.normalIcon = GetSpellTexture(buff.normalSpellId) or buff.icon
 end
 
+-- The paladin's two self-buffs the Buffing Bar can drive: the aura they're
+-- running and, while tanking, Righteous Fury. Display order is the aura
+-- swapper's rotation order.
+--
+-- Ids are the BASE rank of each spell, on purpose. Casts go out as rank-less
+-- names so the client picks the highest rank known, and a base rank is the one
+-- id that never changes between Classic Era and TBC; only the localized name
+-- and icon are read off it. Concentration (Holy) and Sanctity (Retribution)
+-- are talent-granted and Crusader Aura is TBC-only at level 62, so the view
+-- filters this list down to what the paladin actually knows.
+WhoDoesWhat.PaladinAuras = {
+    { key = "devotion",      spellId = 465,   name_short = "Devo" },
+    { key = "retribution",   spellId = 7294,  name_short = "Ret" },
+    { key = "concentration", spellId = 19746, name_short = "Conc" },
+    { key = "fireResist",    spellId = 19891, name_short = "Fire" },
+    { key = "frostResist",   spellId = 19888, name_short = "Frost" },
+    { key = "shadowResist",  spellId = 19876, name_short = "Shadow" },
+    { key = "sanctity",      spellId = 20218, name_short = "Sanctity" },
+}
+if not features.isClassicEra then
+    -- Crusader Aura arrived with TBC (level 62, mounted speed).
+    table.insert(WhoDoesWhat.PaladinAuras,
+        { key = "crusader", spellId = 32223, name_short = "Crusader" })
+end
+-- Resolve names and icons off the ids, dropping anything this client's spell
+-- database doesn't know rather than carrying a nameless entry into the bar.
+local knownAuras = {}
+for _, aura in ipairs(WhoDoesWhat.PaladinAuras) do
+    aura.name = GetSpellInfo(aura.spellId)
+    aura.icon = GetSpellTexture(aura.spellId)
+    if aura.name then knownAuras[#knownAuras + 1] = aura end
+end
+WhoDoesWhat.PaladinAuras = knownAuras
+
+-- Righteous Fury: a 30 minute self-buff (not a toggle on these clients), so it
+-- can quietly lapse mid-raid on a tanking paladin.
+WhoDoesWhat.RighteousFury = {
+    spellId = 25780,
+    name = GetSpellInfo(25780) or "Righteous Fury",
+    icon = GetSpellTexture(25780),
+}
+
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
 -- rank-independent and include both the single-target and group versions.
 -- Core coverage is players-only unless a check explicitly includes hunter
