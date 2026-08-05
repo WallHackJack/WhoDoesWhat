@@ -201,11 +201,6 @@ local function LayoutProgressLabel(row)
 
     if complete or unavailable then
         row.percent:Hide()
-        if complete and row.negative and row.saturatedStyle == "hide" then
-            row.completeIcon:Hide()
-            row.name:SetPoint("RIGHT", row.status, "RIGHT", -3, 0)
-            return
-        end
         row.completeIcon:ClearAllPoints()
         row.completeIcon:SetSize(14, unavailable and 14 or math.floor(14 * 0.8 + 0.5))
         row.completeIcon:SetPoint("RIGHT", row.status, "RIGHT", -2, 0)
@@ -657,8 +652,13 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 local inScope = StatusCheckInScope(options.scope)
                 local complete = coverage.total > 0
                     and coverage.correct >= coverage.total
-                local resolved = options.negative
-                    and coverage.correct == 0 or complete
+                -- "Hide bar when debuff missing" is only about the empty end
+                -- of a debuff: full saturation is never a reason to hide it.
+                local resolved = options.negative and coverage.correct == 0
+                    or (not options.negative and complete)
+                -- A fully debuffed row is hidden only by its own style option.
+                local saturatedHidden = options.negative and complete
+                    and options.saturatedStyle == "hide"
                 local available = coverage.available
                     or not options.hideBarUnavailable
                 if options.bar and inScope and available
@@ -668,7 +668,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
                     coreTotal = coreTotal + coverage.total
                 end
                 if colorPreview or (options.bar and inScope and available
-                    and coverage.total > 0
+                    and coverage.total > 0 and not saturatedHidden
                     and not (options.hideComplete and resolved)) then
                     local buff = WhoDoesWhat.StatusBarChecks[key]
                     displayed[#displayed + 1] = {

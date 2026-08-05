@@ -27,7 +27,7 @@ local STATUS_DISPLAY_LABELS = {
     fraction = "Fraction", applied = "Applied Count",
 }
 local STATUS_SATURATED_LABELS = {
-    hide = "Hide", x = "X", check = "Checkmark",
+    hide = "Hide Bar", x = "X", check = "Checkmark",
 }
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 local STATUS_BUFF_ROW_H = 26
@@ -772,7 +772,7 @@ local function EnsureBuffOptionsFrame(owner, key)
 
     local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
         "GameFontHighlightSmall")
-    saturatedLabel:SetText("Full-Saturated Style:")
+    saturatedLabel:SetText("Fully Debuffed Style:")
     local saturatedDD = CreateFrame("Frame",
         "WhoDoesWhatBuffTrackingSaturatedStyleDD", f,
         "UIDropDownMenuTemplate")
@@ -797,8 +797,9 @@ local function EnsureBuffOptionsFrame(owner, key)
     f.saturatedLabel = saturatedLabel
     f.saturatedDD = saturatedDD
     AddDropdownTooltip(saturatedDD, saturatedLabel,
-        "Full-Saturated Style",
-        "Choose the indicator shown when every tracked target has the debuff.")
+        "Fully Debuffed Style",
+        "Choose what the status bar does once every tracked target has the"
+            .. " debuff: show a checkmark, show an X, or hide the bar.")
 
     f.displayDivider = CreateMiniDivider(f, "Display")
     f.requirementDivider = CreateMiniDivider(f, "Requirement")
