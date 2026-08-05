@@ -20,6 +20,8 @@ local gridFrame = nil
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 
+local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
+
 local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width tracks columns
 local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
 local MARGIN = 12
@@ -685,6 +687,28 @@ local function EnsureGridFrame()
         MIN_FRAME_W, MIN_FRAME_H, "Buffing Grid")
     f.titleText:ClearAllPoints()
     f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
+
+    -- Same title-bar cog as the main view, but straight to the page that
+    -- configures these columns.
+    local settingsBtn = CreateFrame("Button", nil, f)
+    settingsBtn:SetSize(32, 32)
+    settingsBtn:SetHitRectInsets(4, 4, 4, 4)
+    settingsBtn:SetPoint("TOPRIGHT", -20, 1)
+    settingsBtn:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
+    settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
+    settingsBtn:SetHighlightTexture(
+        "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
+    settingsBtn:SetScript("OnClick", function()
+        WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
+    end)
+    settingsBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Buff Tracking settings", 1, 1, 1)
+        GameTooltip:AddLine("Choose which buffs get a column here, and how"
+            .. " each one is tracked.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    settingsBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
