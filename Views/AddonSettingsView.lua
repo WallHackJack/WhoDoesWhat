@@ -940,6 +940,12 @@ local function EnsureSettingsFrame()
         end
     end
 
+    f.SelectSection = function(label)
+        for i, name in ipairs(sectionLabels) do
+            if name == label then SelectSection(i) return end
+        end
+    end
+
     for i, label in ipairs(sectionLabels) do
         local index = i
         local button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -1463,10 +1469,16 @@ local function EnsureSettingsFrame()
 end
 
 -- Toggle the settings window open/closed, loading checkbox state from the DB.
-function WhoDoesWhat:OpenAddonSettingsView()
+-- An optional section label opens straight to that page instead of toggling.
+function WhoDoesWhat:OpenAddonSettingsView(section)
     local f = EnsureSettingsFrame()
 
     if f:IsShown() then
+        if section then
+            f.SelectSection(section)
+            f:Raise()
+            return
+        end
         self:LogUiBuilding("Addon Settings View open, closing it.")
         f:Hide()
         return
@@ -1506,6 +1518,8 @@ function WhoDoesWhat:OpenAddonSettingsView()
 --@end-do-not-package@
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)
     UIDropDownMenu_SetText(f.fakePaladinDD, tostring(settings.fakeRaidPaladinCount or 3))
+
+    if section then f.SelectSection(section) end
 
     self:LogUiBuilding("Opening Addon Settings View...")
     f:Show()

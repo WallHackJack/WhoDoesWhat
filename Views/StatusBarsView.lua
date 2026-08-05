@@ -140,6 +140,22 @@ local function AttachAltDrag(region)
     end)
 end
 
+-- Right-click anywhere in the window is a shortcut to the buff views.
+local function StatusBarsClick(_, button)
+    if button ~= "RightButton" then return end
+    if IsShiftKeyDown() then
+        WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
+    else
+        WhoDoesWhat:OpenBuffingGridView()
+    end
+end
+
+local function AddShortcutTooltipLines()
+    GameTooltip:AddLine("Right-click: Buffing Grid.", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Shift-right-click: Buff Tracking settings.",
+        0.7, 0.7, 0.7)
+end
+
 local function RoleIcon(name)
     local roleId = WhoDoesWhat:GetAssignedRole(name)
     if roleId then
@@ -295,6 +311,7 @@ local function CreatePallyPowerRow()
             WhoDoesWhat:OpenPallyPowerDiffView()
         end
     end)
+    row:SetScript("OnMouseUp", StatusBarsClick)
     row:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("PallyPower status", 1, 1, 1)
@@ -307,6 +324,7 @@ local function CreatePallyPowerRow()
             GameTooltip:AddLine("Click to open PallyPower Differences.",
                 0.8, 0.8, 0.8, true)
         end
+        AddShortcutTooltipLines()
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -420,6 +438,7 @@ local function EnsureView()
     view:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
     view:SetBackdropBorderColor(0.4, 0.4, 0.4)
     AttachAltDrag(view)
+    view:SetScript("OnMouseUp", StatusBarsClick)
 
     local title = CreateFrame("Frame", nil, view)
     title:SetHeight(TITLE_H)
@@ -438,11 +457,13 @@ local function EnsureView()
     totalPercent:SetText("(0%)")
     view.totalPercent = totalPercent
     AttachAltDrag(title)
+    title:SetScript("OnMouseUp", StatusBarsClick)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("WDW Status", 1, 1, 1)
         GameTooltip:AddLine("Alt-drag to move.", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Alt-drag the marked edge to resize.", 0.7, 0.7, 0.7)
+        AddShortcutTooltipLines()
         GameTooltip:Show()
     end)
     title:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -492,7 +513,10 @@ local function EnsureView()
             ShowResizeTooltip(self)
         end
     end)
-    handle:SetScript("OnMouseUp", FinishResize)
+    handle:SetScript("OnMouseUp", function(self, button)
+        FinishResize(self)
+        StatusBarsClick(self, button)
+    end)
     handle:SetScript("OnEnter", function(self)
         handleLine:SetColorTexture(0.8, 0.8, 0.8, 1)
         self.tooltipWidth = nil
