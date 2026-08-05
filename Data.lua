@@ -1155,28 +1155,57 @@ function WhoDoesWhat:ClearRoleCustomization(roleId)
     self:RefreshBuffingGridView()
 end
 
+-- A custom role is only well-formed with all three of a name, an owning class,
+-- and a group role -- "unassigned" used to be allowed and is deliberately gone.
+-- Without a wowRole the role can't drive the Blizzard group-role flag, and a
+-- main tank switched onto one can't be recognised as no-longer-a-tank, so the
+-- main-tank mark sticks until somebody clears it by hand. Enforced here as well
+-- as in the editor so the invariant doesn't depend on which caller wrote it.
+-- Returns nil (and explains) when the arguments don't satisfy it.
+local function ValidateCustomRole(self, name, className, wowRole)
+    if type(name) ~= "string" or strtrim(name) == "" then
+        self:Print("A custom role needs a name.")
+        return nil
+    end
+    if type(className) ~= "string" or className == "" then
+        self:Print("A custom role needs a class.")
+        return nil
+    end
+    if not self.BasicWowRoles[wowRole] then
+        self:Print("A custom role needs a group role (Tank, Healer or DPS).")
+        return nil
+    end
+    return strtrim(name)
+end
+
 -- Create a new custom role with the given display name, owning class (by
--- name), and assigned wow role (false = unassigned); persist and register it.
--- Returns the new RolesAndCategories entry.
+-- name), and group role; persist and register it. Returns the new
+-- RolesAndCategories entry, or nil when the arguments are incomplete.
 function WhoDoesWhat:CreateCustomRole(name, className, wowRole)
+    name = ValidateCustomRole(self, name, className, wowRole)
+    if not name then return nil end
     local profile = self.db.profile
     profile.customRoleCounter = (profile.customRoleCounter or 0) + 1
     local id = "custom_" .. profile.customRoleCounter
-    table.insert(profile.customRoles, { id = id, name = name, class = className, wowRole = wowRole or false })
+    table.insert(profile.customRoles, { id = id, name = name, class = className, wowRole = wowRole })
     self:PopulateRolesAndCategories()
     return self.RolesAndCategories[id]
 end
 
--- Update an existing custom role's display name and assigned wow role.
+-- Update an existing custom role's display name and group role. Returns false
+-- when the new values are incomplete, leaving the stored role untouched.
 function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole)
     for _, cr in ipairs(self.db.profile.customRoles) do
         if cr.id == roleId then
-            cr.name = name
-            cr.wowRole = wowRole or false
+            local valid = ValidateCustomRole(self, name, cr.class, wowRole)
+            if not valid then return false end
+            cr.name = valid
+            cr.wowRole = wowRole
             break
         end
     end
     self:PopulateRolesAndCategories()
+    return true
 end
 
 -- Delete a custom role along with any saved customization for it.

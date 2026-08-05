@@ -971,6 +971,23 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
             WhoDoesWhat:LogUiBuilding("Announce role changes " .. (value and "enabled." or "disabled."))
         end)
+    f.manageBlizzRolesCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+        "Set Blizzard group roles",
+        "Keep each player's Blizzard group role (Tank / Healer / Damage Dealer) "
+            .. "and main-tank state matching their WhoDoesWhat role.\n\n"
+            .. "Turn off if group roles start flipping back and forth -- usually "
+            .. "another role addon, or a raider on an out-of-date WhoDoesWhat. "
+            .. "WhoDoesWhat's own assignments keep working either way; only "
+            .. "Blizzard's role flags are left alone.\n\n"
+            .. "This setting is yours alone and is not shared with the raid.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.manageBlizzardRoles = value
+            WhoDoesWhat:LogUiBuilding("Blizzard group roles "
+                .. (value and "managed." or "left alone."))
+            -- Turning it back on should catch the group up rather than wait for
+            -- the next role change or roster event.
+            if value then WhoDoesWhat:ReconcileBlizzardRoles() end
+        end)
 
     -- ---- Status Bars ----
     local statusPage = pages[2]
@@ -1465,6 +1482,7 @@ function WhoDoesWhat:OpenAddonSettingsView()
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
+    f.manageBlizzRolesCheck:SetChecked(settings.manageBlizzardRoles ~= false)
     f.overviewCheck:SetChecked(settings.overviewEnabled)
     local overviewAnchor = settings.overviewAnchor or "TOPLEFT"
     UIDropDownMenu_SetText(f.overviewAnchorDD,

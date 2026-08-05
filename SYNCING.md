@@ -43,6 +43,15 @@ Protocol mismatches are reported once and their type-specific payloads are
 ignored. The sender is still recorded as a WDW peer, and its addon version is
 recorded before the protocol check.
 
+Top-level `state` keys a receiving client does not recognize are preserved
+rather than discarded: they are captured when a board is applied and reattached
+to that client's own snapshots, so an older build relays a newer board's
+features instead of silently deleting them the next time it edits anything. The
+carried set is replaced wholesale on each apply, so a key a newer client removes
+stays removed. Carried keys participate in the fingerprint, because the
+snapshot must equal what would actually be sent. This is what makes purely
+additive protocol changes safe to accept across versions.
+
 The Sync Log's views correspond to different layers:
 
 - Summary is WDW's human description of the decoded message.

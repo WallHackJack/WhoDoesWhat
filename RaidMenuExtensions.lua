@@ -217,6 +217,11 @@ end)
 -- already pending, or already MAINTANK, is a no-op, so the 60s talent
 -- rebroadcast that re-runs the scan won't re-nag or replay the klaxon.
 function WhoDoesWhat:StartPromoteWatch(playerName)
+    -- Same master opt-out as the role flags (Settings > General): a raid that
+    -- has told WDW to keep its hands off Blizzard group state doesn't want the
+    -- klaxon and the arrow either. Guarded here rather than at each caller so
+    -- both the direct tank-role set and the first-scan sweep are covered.
+    if not self:ManagesBlizzardRoles() then return end
     local mainTank = GetPartyAssignment("MAINTANK", playerName, true)
     local pending = pendingPromotes[playerName] and true or false
     self:LogRolePromotion("Promotion watch",

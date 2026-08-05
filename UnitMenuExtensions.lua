@@ -73,53 +73,105 @@ function WhoDoesWhat:LogRolePromotion(...)
     end
 end
 
--- Sync blizzard group state to a WDW role (roles without a wowRole, e.g.
--- unassigned custom roles, leave it untouched):
---   - the unit's tank/heal/dps role flag (UnitSetRole)
---   - in a raid, demote off MAINTANK when the new role isn't a tank
+-- The role id we last wrote a flag for, per player. Keying on the ROLE ID
+-- rather than the blizz role means the latch invalidates itself the moment our
+-- board's opinion of that player changes -- no hunting down every scattered
+-- write site to clear it. See ApplyBlizzardRole's loop breaker.
+local lastWritten = {}
+
+function WhoDoesWhat:ClearRoleWriteLatch(playerName)
+    if playerName then lastWritten[playerName] = nil else wipe(lastWritten) end
+end
+
+-- Sync blizzard group state to a WDW role. Two independent halves:
+--   - the unit's tank/heal/dps group role flag (UnitSetRole). Needs a role
+--     WITH a wowRole; roles without one (a legacy custom role saved before
+--     they required a group role) leave the flag alone.
+--   - in a raid, demote off MAINTANK when the player isn't a tank. This half
+--     runs for ANY role INCLUDING nil -- "their role was cleared" and "their
+--     role has no group role" both mean not-a-tank, and a main tank left
+--     marked forever because we couldn't classify them is the worse failure.
 -- We do NOT promote to MAINTANK: SetPartyAssignment is a protected action and
 -- an addon calling it just trips the "only available to the Blizzard UI"
 -- block. Demotion (ClearPartyAssignment) isn't protected, so that half stays.
 -- The player-name + exactMatch args mirror Blizzard's own Set Main Tank button.
+-- `role` may be nil (assignment cleared).
 local function ApplyBlizzardRole(unit, playerName, role)
-    if not role or not role.wowRole then return end
+    -- Master opt-out (Settings > General). WDW keeps its own board either way;
+    -- this only stops it writing Blizzard's.
+    if not WhoDoesWhat:ManagesBlizzardRoles() then return end
 
-    -- Writing another member's flag takes single-writer authority (the group
-    -- leader; see CanSetOthersBlizzardRole); your OWN role is always yours.
-    -- Without this the UnitSetRole below silently no-ops on others while we
-    -- act as though it took -- or, worse, several assists set it at once.
-    local mayFlag = UnitIsUnit(unit, "player") or WhoDoesWhat:CanSetOthersBlizzardRole()
+    -- Writing another member's state takes the single-writer election (Core.lua
+    -- BlizzardRoleWriter); your OWN role is always yours. Without this the
+    -- UnitSetRole below silently no-ops on others while we act as though it
+    -- took -- or, worse, several assists set it at once.
+    local mayFlag = UnitIsUnit(unit, "player")
+        or WhoDoesWhat:CanSetOthersBlizzardRole()
     local inCombat = InCombatLockdown()
 
-    -- Only touch the flag when it actually differs: UnitSetRole on an
-    -- already-set role re-announces it to the group ("X is now Damage
-    -- Dealer") and invites a tug-of-war with anything else managing flags.
-    local meta = WhoDoesWhat.BasicWowRoles[role.wowRole]
-    local before = mayFlag and meta and UnitGroupRolesAssigned
-        and UnitGroupRolesAssigned(unit)
-    local setResult
-    -- UnitSetRole became protected for addon execution in combat in 2.5.6.
-    -- Skip only that call so the promotion/raid-window flow below can proceed;
-    -- PLAYER_REGEN_ENABLED reconciles the role flag afterward.
-    if not inCombat and mayFlag and meta and UnitSetRole and UnitGroupRolesAssigned
-        and before ~= meta.blizzRole then
-        setResult = UnitSetRole(unit, meta.blizzRole)
-    end
-    if not meta or before ~= meta.blizzRole then
-        WhoDoesWhat:LogRolePromotion("Blizzard role",
-            "player=" .. tostring(playerName),
-            "unit=" .. tostring(unit),
-            "combat=" .. tostring(inCombat),
-            "mayFlag=" .. tostring(mayFlag),
-            "before=" .. tostring(before),
-            "desired=" .. tostring(meta and meta.blizzRole),
-            "attempted=" .. tostring(setResult ~= nil),
-            "result=" .. tostring(setResult),
-            "after=" .. tostring(setResult ~= nil and UnitGroupRolesAssigned(unit) or before))
+    local meta = role and role.wowRole and WhoDoesWhat.BasicWowRoles[role.wowRole]
+    if meta then
+        -- Only touch the flag when it actually differs: UnitSetRole on an
+        -- already-set role re-announces it to the group ("X is now Damage
+        -- Dealer") and invites a tug-of-war with anything else managing flags.
+        local before = mayFlag and UnitGroupRolesAssigned
+            and UnitGroupRolesAssigned(unit)
+
+        -- Loop breaker. If we already wrote this exact role id for this player
+        -- and the flag now reads a DIFFERENT real role, someone else overrode
+        -- us. Re-asserting is what turns a one-off disagreement into an endless
+        -- ping-pong (our write fires GROUP_ROSTER_UPDATE on their client, their
+        -- sweep re-writes, which fires ours...). Stand down; whoever wrote last
+        -- keeps it, and the disagreement is a board problem to fix at the
+        -- source. A flag reading NONE is not contested -- that's the
+        -- kick/reinvite reset the roster sweep repairs -- so it re-applies
+        -- freely. Only the flag stands down; the demotion below is unrelated
+        -- and still runs.
+        local contested = before and before ~= "NONE" and before ~= meta.blizzRole
+        if contested and lastWritten[playerName] == role.id then
+            WhoDoesWhat:LogRolePromotion("Blizzard role contested (stood down)",
+                "player=" .. tostring(playerName),
+                "ours=" .. tostring(meta.blizzRole),
+                "theirs=" .. tostring(before))
+        else
+            local setResult
+            -- UnitSetRole became protected for addon execution in combat in
+            -- 2.5.6. Skip only that call; PLAYER_REGEN_ENABLED reconciles after.
+            if not inCombat and mayFlag and UnitSetRole and UnitGroupRolesAssigned
+                and before ~= meta.blizzRole then
+                setResult = UnitSetRole(unit, meta.blizzRole)
+                lastWritten[playerName] = role.id
+            end
+            if before ~= meta.blizzRole then
+                WhoDoesWhat:LogRolePromotion("Blizzard role",
+                    "player=" .. tostring(playerName),
+                    "unit=" .. tostring(unit),
+                    "combat=" .. tostring(inCombat),
+                    "mayFlag=" .. tostring(mayFlag),
+                    "before=" .. tostring(before),
+                    "desired=" .. tostring(meta.blizzRole),
+                    "attempted=" .. tostring(setResult ~= nil),
+                    "result=" .. tostring(setResult),
+                    "after=" .. tostring(setResult ~= nil
+                        and UnitGroupRolesAssigned(unit) or before))
+            end
+        end
     end
 
-    if mayFlag and IsInRaid() and role.wowRole ~= "tank"
+    -- Main-tank demotion, deliberately NOT in combat. ClearPartyAssignment is
+    -- callable mid-fight, but re-promoting is not: SetPartyAssignment is
+    -- protected, so it costs the leader the Raid tab, a right-click and a menu
+    -- -- during the pull. Fights that swap someone tank->dps->tank would pay
+    -- that every time. Holding the main-tank mark for the duration of the
+    -- fight is the cheaper mistake; PLAYER_REGEN_ENABLED runs
+    -- ReconcileBlizzardRoles, which lands here again and demotes then if the
+    -- player is still off a tank role.
+    if not inCombat and mayFlag and IsInRaid()
+        and not (role and role.wowRole == "tank")
         and GetPartyAssignment("MAINTANK", playerName, true) then
+        WhoDoesWhat:LogRolePromotion("Main-tank demote",
+            "player=" .. tostring(playerName),
+            "wowRole=" .. tostring(role and role.wowRole or "none"))
         ClearPartyAssignment("MAINTANK", playerName, true)
     end
 end
@@ -164,6 +216,7 @@ end
 -- TalentScanning.lua).
 function WhoDoesWhat:ReconcileBlizzardRoles()
     if not (UnitSetRole and UnitGroupRolesAssigned) then return end
+    if not self:ManagesBlizzardRoles() then return end
     local units = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
@@ -173,12 +226,17 @@ function WhoDoesWhat:ReconcileBlizzardRoles()
     end
     for _, unit in ipairs(units) do
         local name = GetUnitKey(unit)
-        local roleId = name and self.db.profile.assignments[name]
-        if roleId then
-            local _, role = self:FindRoleById(roleId)
-            if role and role.wowRole then
-                ApplyBlizzardRole(unit, name, role)
-            end
+        if name then
+            -- Deliberately unfiltered: members with no assignment, or one whose
+            -- role carries no wowRole, still need the main-tank demotion pass.
+            -- Filtering them out here is what used to leave a main tank marked
+            -- forever after being switched to a wowRole-less custom role or
+            -- having their role cleared. ApplyBlizzardRole no-ops the flag half
+            -- for them and handles the demotion half regardless.
+            local roleId = self.db.profile.assignments[name]
+            local _, role = nil, nil
+            if roleId then _, role = self:FindRoleById(roleId) end
+            ApplyBlizzardRole(unit, name, role)
         end
     end
 end
@@ -213,6 +271,9 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
             end
         end
     else
+        -- Clearing a role is still a Blizzard-side change: a cleared main tank
+        -- has to lose the mark, and nothing else would ever come back for them.
+        self:SyncBlizzardRoleState(playerName, nil, unit)
         self:LogOperation(playerName .. "'s role cleared.")
     end
 

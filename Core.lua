@@ -39,27 +39,86 @@ function WhoDoesWhat:IsRaidAssistant()
         and (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player"))
 end
 
--- True when the local player is the SINGLE authority for writing OTHER
--- members' Blizzard role flags (UnitSetRole) and main-tank state. The group
--- LEADER owns this exclusively -- and that exclusivity is the point. The role
--- flag has no range check and can be set from anywhere, so if every raid
--- assistant wrote it, several clients (each with its own, differently-stale
--- talent cache) would tug one player's flag back and forth. Routing every
--- other-member write through the one leader means exactly one UnitSetRole
--- happens. Solo counts. Your OWN role is always settable regardless, so
--- callers that can target themselves check UnitIsUnit(unit, "player") /
--- UnitName("player") separately. WDW's own assignments sync to everyone and
--- are never gated by this -- only the Blizzard-side flag is.
+-- Writing OTHER members' Blizzard role flags (UnitSetRole) and main-tank state
+-- goes through a SINGLE elected writer, and that exclusivity is the whole
+-- point. The role flag has no range check and can be set from anywhere, and
+-- every UnitSetRole fires GROUP_ROSTER_UPDATE on every client -- which drives
+-- each client's reconcile sweep. Two clients with differently-stale boards
+-- therefore don't just disagree once, they ping-pong the flag forever at the
+-- sweep interval, announcing "X is now Damage Dealer" on every bounce.
 --
--- Fallback: when no leader can own the board -- a battleground, or a raid
--- whose leader doesn't run WhoDoesWhat (the same conditions that stand the
--- editing rule down, PermissionsOpenReason) -- raid-assist rights are honoured
--- instead, so the flags are still managed by someone rather than nobody.
+-- Your OWN role is always settable regardless (callers that can target
+-- themselves check UnitIsUnit(unit, "player") / UnitName("player")
+-- separately), so a second writer always exists in principle -- the player
+-- themselves. The write latch in UnitMenuExtensions.lua is what stops that
+-- pair from looping; the election below is what stops everyone else joining in.
+--
+-- WDW's own assignments sync to everyone and are never gated by any of this --
+-- only the Blizzard-side flag is.
+
+-- Every current group member's name under our keying, roster order.
+function WhoDoesWhat:GroupMemberNames()
+    local names = {}
+    local function Add(unit)
+        local name, realm = UnitName(unit)
+        if not name then return end
+        names[#names + 1] = (realm and realm ~= "") and (name .. "-" .. realm) or name
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do Add("raid" .. i) end
+    else
+        Add("player")
+        for i = 1, GetNumSubgroupMembers() do Add("party" .. i) end
+    end
+    return names
+end
+
+-- Elect the ONE player who writes other members' Blizzard role flags, or nil
+-- when nobody is eligible (nobody writes then -- better than everybody).
+--
+-- The leader wins whenever they run our protocol. Requiring the PROTOCOL
+-- match, not just presence, is the fix for the out-of-date-leader case: a
+-- leader on an older build is recorded as a peer (senders are recorded before
+-- the protocol check) but silently ignores every board we send, so making them
+-- sole writer means their stale board stomps everyone forever.
+--
+-- Without such a leader we elect the alphabetically first permitted member
+-- running our protocol. Name order is identical on every client, so everyone
+-- elects the same writer with no negotiation round-trip -- which is what keeps
+-- ten assistants from all writing at once.
+function WhoDoesWhat:BlizzardRoleWriter()
+    if not IsInGroup() then return UnitName("player") end -- solo
+    local sync = self:GetModule("Sync", true)
+    if not sync then return nil end
+
+    local leader = sync:GroupLeaderName()
+    if leader and sync:RunsCompatibleProtocol(leader) then return leader end
+
+    local best
+    for _, name in ipairs(self:GroupMemberNames()) do
+        if sync:RunsCompatibleProtocol(name) and self:PlayerCanEditAssignments(name)
+            and (not best or name < best) then
+            best = name
+        end
+    end
+    return best
+end
+
+-- Master opt-out (Settings > General): whether WDW touches Blizzard group
+-- state at all -- the group role flag, the main-tank demotion, and the
+-- promote-to-main-tank prompt. Off is the escape hatch for a raid where flags
+-- are being fought over; WDW's own board keeps working untouched. Defaults on,
+-- and reads on rather than off before the DB exists (the addon's normal
+-- behavior shouldn't hinge on load order).
+function WhoDoesWhat:ManagesBlizzardRoles()
+    if not (self.db and self.db.profile) then return true end
+    return self.db.profile.settings.manageBlizzardRoles ~= false
+end
+
+-- True when we're the elected writer, and so may touch someone else's flag.
 function WhoDoesWhat:CanSetOthersBlizzardRole()
-    if not IsInGroup() then return true end -- solo
-    if UnitIsGroupLeader("player") then return true end
-    if self:PermissionsOpenReason() then return self:IsRaidAssistant() end
-    return false
+    local writer = self:BlizzardRoleWriter()
+    return writer ~= nil and writer == UnitName("player")
 end
 
 -- Whether a player's WDW role assignment (unit right-click menu) is a tank
@@ -153,6 +212,15 @@ local defaults = {
             -- (the optional Log Operations entry and Blizzard's own role-flag
             -- message are separate and unaffected). See SetAssignedRole.
             announceRoleChanges = true,
+            -- Master switch for WDW writing Blizzard group state: the
+            -- tank/healer/damager group role (UnitSetRole) and the main-tank
+            -- demotion. Off = WDW keeps its own board and never touches
+            -- Blizzard's, an escape hatch for a raid where role flags are
+            -- being fought over by another addon or a mismatched WDW build.
+            -- Local, deliberately NOT synced -- it's a per-client opt-out, and
+            -- one raider disabling it must not disable everyone. See
+            -- ApplyBlizzardRole.
+            manageBlizzardRoles = true,
             -- Whether the main-window Full view checkbox is off, showing only
             -- Paladin Buffs. Local view preference (not synced).
             paladinOnlyView = false,

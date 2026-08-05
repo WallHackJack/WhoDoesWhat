@@ -186,6 +186,28 @@ local function IsSyncedStaticRow(rowId)
     return not WhoDoesWhat.PaladinBuffs[rowId]
 end
 
+-- Every top-level board key THIS build produces. Anything else in a received
+-- board belongs to a newer build than ours.
+local KNOWN_STATE_KEYS = {
+    roles = true, tank = true, cc = true, md = true, static = true,
+    paladinStrategy = true, pallyBuffSource = true, perms = true,
+}
+
+-- Board keys from the last applied remote state that this build doesn't
+-- understand, carried through our own snapshots untouched.
+--
+-- Without this, one client on an older build silently deletes features it has
+-- never heard of: it applies a newer board, keeps only the keys it knows, and
+-- the next edit it makes broadcasts that truncated board back to everyone as
+-- authoritative. Carrying the strangers through means an old client is a
+-- faithful relay rather than a data shredder, which is what makes it safe to
+-- widen the protocol check later -- additive changes stop being breaking.
+--
+-- Replaced wholesale on each apply rather than merged, so a key a newer client
+-- legitimately REMOVES stays removed instead of being resurrected by us.
+-- Session-only: it mirrors the current group's board, not ours to persist.
+local carriedStateKeys = {}
+
 -- A read-only view of the synced state, ready for immediate fingerprinting or
 -- serialization. Those operations are synchronous, so copying the live tables
 -- every two-second poll would only create garbage.
@@ -195,7 +217,7 @@ local function Snapshot()
     for id, name in pairs(p.raidAssignments) do
         if IsSyncedStaticRow(id) then static[id] = name end
     end
-    return {
+    local state = {
         roles = p.assignments,
         tank = p.tankAssignments,
         cc = p.ccAssignments,
@@ -205,6 +227,13 @@ local function Snapshot()
         pallyBuffSource = p.settings.pallyBuffSource or "wdw",
         perms = { mode = p.permissions.mode, assistant = p.permissions.assistant },
     }
+    -- Newer builds' keys ride along. They're part of the fingerprint too, which
+    -- is correct: the snapshot has to equal what we'd actually send, or we'd
+    -- broadcast a board that doesn't match the hash we compared against.
+    for k, v in pairs(carriedStateKeys) do
+        if state[k] == nil then state[k] = v end
+    end
+    return state
 end
 
 -- Overwrite the synced slice with a received snapshot. Tables are wiped and
@@ -212,6 +241,16 @@ end
 -- paladin-buff rows keep their local values.
 local function ApplySnapshot(state)
     local p = WhoDoesWhat.db.profile
+
+    -- Capture (not merge) whatever a newer build sent that we can't interpret,
+    -- so our next broadcast relays it instead of dropping it. See
+    -- carriedStateKeys.
+    wipe(carriedStateKeys)
+    for k, v in pairs(state) do
+        if not KNOWN_STATE_KEYS[k] then
+            carriedStateKeys[k] = type(v) == "table" and CopyTable(v) or v
+        end
+    end
 
     local function refill(dst, src)
         wipe(dst)
@@ -438,6 +477,25 @@ function Sync:GetReportedAddonVersion()
     end
 --@end-do-not-package@
     return WhoDoesWhat.VERSION
+end
+
+-- The current group leader under our name keying, or nil. Public because the
+-- Blizzard-role writer election (Core.lua) needs to name the leader, not just
+-- ask whether it is us.
+function Sync:GroupLeaderName()
+    return LeaderName()
+end
+
+-- Does `name` run a WDW build speaking our exact wire protocol? Presence alone
+-- (syncPeers) is deliberately NOT enough for the role-flag writer election: a
+-- sender is recorded as a peer BEFORE the protocol check, so a leader on an
+-- out-of-date build still reads as "runs the addon" while ignoring every board
+-- we send them. Electing that leader as sole flag writer means their stale
+-- board wins forever and every other client fights it. Ourselves always count.
+function Sync:RunsCompatibleProtocol(name)
+    if not name then return false end
+    if name == UnitKey("player") then return true end
+    return peerProtocols[name] == PROTOCOL
 end
 
 local function RecordPeerVersion(name, version)
@@ -911,6 +969,9 @@ function Sync:OnGroupLeft()
     wipe(peerProtocols)
     wipe(talentFacts)
     wipe(talentFactFP)
+    -- Carried keys described the departed group's board, not ours to relay on.
+    wipe(carriedStateKeys)
+    WhoDoesWhat:ClearRoleWriteLatch()
 
     -- The fake testing roster (FakeRaid.lua) isn't part of any real group;
     -- leaving one shouldn't eat it. Re-inject after the wipe.

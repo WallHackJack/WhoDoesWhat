@@ -263,14 +263,13 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
 
     profile.assignments[playerName] = detectedRoleId
     local _, role = self:FindRoleById(detectedRoleId)
-    -- Only the single flag-authority (the leader, or ourselves) touches the
-    -- Blizzard flag here. A non-leader that detected this spec still SAVES the
-    -- WDW assignment (and syncs it if permitted); the leader picks it up over
-    -- the wire and does the one UnitSetRole -- so two clients scanning the same
-    -- newcomer don't fight over the flag. See CanSetOthersBlizzardRole.
-    if playerName == UnitName("player") or self:CanSetOthersBlizzardRole() then
-        self:SyncBlizzardRoleState(playerName, role)
-    end
+    -- Always go through the Blizzard-side sync: it decides internally whether
+    -- this client is the elected writer (write now), or merely permitted
+    -- (record an issue row to click), or neither (do nothing). Detecting a
+    -- respec is exactly when we want the flag corrected immediately, so no
+    -- caller-side gate -- two clients scanning the same newcomer still can't
+    -- fight, because only one of them is elected. See BlizzardRoleWriter.
+    self:SyncBlizzardRoleState(playerName, role)
     self:LogOperation(playerName .. (current and " respecced: now " or " detected: ")
         .. (role and role.name or detectedRoleId) .. ".")
     -- On TBC, a fresh Affliction warlock gets Curse of the Elements handed to

@@ -89,24 +89,23 @@ local function MarkDirty(f)
 end
 
 
--- Point the assign-role controls at a wowRole value (false = unassigned).
--- The dropdown itself is always usable; the checkbox only records whether the
--- role should actually be assigned.
+-- Point the group-role dropdown at a wowRole value. A custom role must carry
+-- one (see GetRoleControls), so a legacy role saved without one -- back when
+-- "unassigned" was allowed -- opens showing DPS and is fixed by saving.
 local function SetRoleControls(f, wowRole)
     local key = wowRole or "dps"
     UIDropDownMenu_SetSelectedValue(f.roleDropdown, key)
     UIDropDownMenu_SetText(f.roleDropdown, RoleText(key))
-    f.assignRoleCheck:SetChecked(wowRole and true or false)
 end
 
 
--- Read the assign-role controls back out: "dps"/"tank"/"healer", or false when
--- the assign checkbox is unticked.
+-- Read the group role back out: always one of "dps"/"tank"/"healer".
+-- "Unassigned" used to be selectable here and is deliberately gone: a custom
+-- role without a group role can't drive the Blizzard role flag, and -- worse --
+-- a main tank switched onto one couldn't be classified as not-a-tank, so the
+-- main-tank mark stuck until someone cleared it by hand.
 local function GetRoleControls(f)
-    if f.assignRoleCheck:GetChecked() then
-        return UIDropDownMenu_GetSelectedValue(f.roleDropdown) or "dps"
-    end
-    return false
+    return UIDropDownMenu_GetSelectedValue(f.roleDropdown) or "dps"
 end
 
 
@@ -207,6 +206,7 @@ local function OnApply(f)
             return
         end
         local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass, GetRoleControls(f))
+        if not role then return end -- storage rejected it and said why
         WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
         WhoDoesWhat:LogOperation("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
     else
@@ -220,7 +220,9 @@ local function OnApply(f)
                 f.nameEdit:SetFocus()
                 return
             end
-            WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f))
+            if not WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f)) then
+                return -- storage rejected it and said why
+            end
             WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
             WhoDoesWhat:LogOperation("Custom role '" .. name .. "' saved.")
         else
@@ -430,25 +432,14 @@ local function EnsureCustomizeFrame()
         f.buffRows[i] = row
     end
 
-    -- Assign-role row (custom roles / create mode only): checkbox + wow role
-    -- dropdown. The dropdown is always usable; the checkbox records whether
-    -- the role is actually assigned.
+    -- Group-role row (custom roles / create mode only). Every custom role has
+    -- one -- there is no "unassigned" any more, so this is a plain label +
+    -- dropdown rather than an opt-in checkbox.
     local optionsTop = listTop + (#canonical + 1) * BUFF_ROW_H + 8
 
-    local assignCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    assignCheck:SetSize(24, 24)
-    assignCheck:SetPoint("TOPLEFT", 16, -optionsTop)
-    assignCheck:SetScript("OnClick", function(self)
-        if self:GetChecked() then
-            ApplyWowRoleBans(f, UIDropDownMenu_GetSelectedValue(f.roleDropdown))
-        end
-        MarkDirty(f)
-    end)
-    f.assignRoleCheck = assignCheck
-
     local assignLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    assignLabel:SetPoint("LEFT", assignCheck, "RIGHT", 2, 0)
-    assignLabel:SetText("Assign role")
+    assignLabel:SetPoint("TOPLEFT", 18, -(optionsTop + 6))
+    assignLabel:SetText("Group role")
     f.assignLabel = assignLabel
 
     local roleDropdown = CreateFrame("Frame", "WhoDoesWhatRoleDropDown", f, "UIDropDownMenuTemplate")
@@ -464,9 +455,7 @@ local function EnsureCustomizeFrame()
             info.func = function(item)
                 UIDropDownMenu_SetSelectedValue(roleDropdown, item.value)
                 UIDropDownMenu_SetText(roleDropdown, RoleText(item.value))
-                if f.assignRoleCheck:GetChecked() then
-                    ApplyWowRoleBans(f, item.value)
-                end
+                ApplyWowRoleBans(f, item.value)
                 MarkDirty(f)
             end
             UIDropDownMenu_AddButton(info, level)
@@ -503,17 +492,9 @@ end
 
 -- Show/hide the custom-role widgets and size the window for the mode.
 local function SetCustomControlsShown(f, shown)
-    if shown then
-        f.assignRoleCheck:Show()
-        f.assignLabel:Show()
-        f.roleDropdown:Show()
-        f:SetHeight(FRAME_H_CUSTOM)
-    else
-        f.assignRoleCheck:Hide()
-        f.assignLabel:Hide()
-        f.roleDropdown:Hide()
-        f:SetHeight(FRAME_H)
-    end
+    f.assignLabel:SetShown(shown)
+    f.roleDropdown:SetShown(shown)
+    f:SetHeight(shown and FRAME_H_CUSTOM or FRAME_H)
 end
 
 
