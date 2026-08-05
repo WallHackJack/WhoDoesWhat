@@ -241,13 +241,13 @@ end
 
 local function MinimapTooltip(tooltip)
     tooltip:AddLine("WhoDoesWhat", 1, 1, 1)
-    tooltip:AddDoubleLine("Left-click:", "Assignments",
+    tooltip:AddDoubleLine("Left-Click:", "Assignments",
         1, 0.82, 0, 1, 1, 1)
-    tooltip:AddDoubleLine("Right-click:", "Buffing Grid",
+    tooltip:AddDoubleLine("Right-Click:", "Buffing Grid",
         1, 0.82, 0, 1, 1, 1)
-    tooltip:AddDoubleLine("Shift-left-click:", "Members",
+    tooltip:AddDoubleLine("Shift-Left-Click:", "Members",
         1, 0.82, 0, 1, 1, 1)
-    tooltip:AddDoubleLine("Shift-right-click:", "Settings",
+    tooltip:AddDoubleLine("Shift-Right-Click:", "Settings",
         1, 0.82, 0, 1, 1, 1)
 end
 

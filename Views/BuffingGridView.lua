@@ -27,7 +27,10 @@ local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width t
 local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
 local MARGIN = 12
 
-local NAME_COL_W = 150 -- role icon + raider name
+local NAME_COL_W = 150 -- role icon + raider name (minimum; grows to fill)
+-- The name column absorbs whatever width the window has beyond its columns,
+-- so a narrow grid still spans the window's minimum width. RefreshGrid sets it.
+local nameColW = NAME_COL_W
 local COL_W = K.PALADIN_GRID_COL_W -- one paladin column
 local ROW_H = 22
 local ROLE_ICON_SIZE = 18
@@ -231,13 +234,13 @@ end
 local function PositionCell(cell, row, column)
     cell:ClearAllPoints()
     cell:SetPoint("LEFT", row, "LEFT",
-        NAME_COL_W + (column - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
+        nameColW + (column - 1) * COL_W + (COL_W - CELL_SIZE) / 2, 0)
 end
 
 local function PositionPaladinCell(cell, row, coreCount, paladinColumn, paladins)
     cell:ClearAllPoints()
     cell:SetPoint("LEFT", row, "LEFT",
-        NAME_COL_W + coreCount * COL_W + PALADIN_SECTION_GAP
+        nameColW + coreCount * COL_W + PALADIN_SECTION_GAP
             + K.PaladinColumnOffset(paladinColumn, paladins, COL_W)
             + (COL_W - CELL_SIZE) / 2, 0)
 end
@@ -447,17 +450,34 @@ local function RefreshGrid(f)
         coreOptions[key] = WhoDoesWhat:GetStatusBarCheckOptions(key)
     end
 
+    -- With no paladins in the group there is nothing for the blessing source
+    -- row to control, so the header collapses to just the column icons.
+    local hasPaladins = #paladins > 0
+    f.sourceCaption:SetShown(hasPaladins)
+    f.sourceDD:SetShown(hasPaladins)
+    f.headerBottom = f.titleBarHeight + 8 + HEADER_H
+        + (hasPaladins and SOURCE_ROW_H or 0)
+    f.divider:ClearAllPoints()
+    f.divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
+    f.divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
+
     local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
     local rowsPerBlock = math.ceil(#members / numBlocks)
-    local paladinGap = #paladins > 0 and PALADIN_SECTION_GAP or 0
-    local blockW = NAME_COL_W + #coreKeys * COL_W + paladinGap
-        + K.PaladinColumnsWidth(paladins, COL_W)
+    local paladinGap = hasPaladins and PALADIN_SECTION_GAP or 0
+    local columnsW = #coreKeys * COL_W + paladinGap
+        + K.PaladinColumnsWidth(paladins, COL_W, 0)
+    local gaps = GRID_X + (numBlocks - 1) * BLOCK_GAP + MARGIN
+    local frameW = math.max(MIN_FRAME_W,
+        gaps + numBlocks * (NAME_COL_W + columnsW))
+    -- Spend the window's leftover width on the name column so the blocks
+    -- always reach the right edge, even at the minimum window width.
+    nameColW = (frameW - gaps) / numBlocks - columnsW
+    local blockW = nameColW + columnsW
     local function BlockX(b)
         return GRID_X + (b - 1) * (blockW + BLOCK_GAP)
     end
 
-    f:SetWidth(math.max(MIN_FRAME_W,
-        GRID_X + numBlocks * blockW + (numBlocks - 1) * BLOCK_GAP + MARGIN))
+    f:SetWidth(frameW)
 
     -- Raid-buff icon headers above every block, from one flat pool.
     local coreHeaderCount = 0
@@ -468,7 +488,7 @@ local function RefreshGrid(f)
                 or CreateCoreHeader(f, coreHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + NAME_COL_W + (c - 1) * COL_W
+                BlockX(b) + nameColW + (c - 1) * COL_W
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.buffKey = key
             header.providers = providerPools[key]
@@ -497,7 +517,7 @@ local function RefreshGrid(f)
                 or CreatePaladinHeader(f, paladinHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + NAME_COL_W + #coreKeys * COL_W
+                BlockX(b) + nameColW + #coreKeys * COL_W
                     + PALADIN_SECTION_GAP
                     + K.PaladinColumnOffset(c, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
@@ -521,7 +541,7 @@ local function RefreshGrid(f)
         if b <= numBlocks and paladins[1] and K.IsLocalPaladin(paladins[1]) then
             stripe:ClearAllPoints()
             stripe:SetPoint("TOPLEFT", f, "TOPLEFT",
-                BlockX(b) + NAME_COL_W + #coreKeys * COL_W
+                BlockX(b) + nameColW + #coreKeys * COL_W
                     + PALADIN_SECTION_GAP,
                 -(f.headerBottom - HEADER_H))
             stripe:SetSize(COL_W, HEADER_H + 4 + rowsPerBlock * ROW_H)
@@ -543,12 +563,6 @@ local function RefreshGrid(f)
         end
     end
 
-    f.emptyHint:SetShown(#paladins == 0)
-    f.emptyHint:ClearAllPoints()
-    f.emptyHint:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-        GRID_X + NAME_COL_W + #coreKeys * COL_W + paladinGap + 6,
-        -(f.headerBottom - 6))
-
     -- All three sources expose the assignment-model snapshot shape expected
     -- below, so the rendering path remains shared.
     local buffPlan = BuffPlanForSource(f.gridSource)
@@ -556,7 +570,11 @@ local function RefreshGrid(f)
         f.gridSource = DefaultGridSource()
         buffPlan = BuffPlanForSource(f.gridSource)
     end
-    UpdateSourceControl(f)
+    if hasPaladins then
+        UpdateSourceControl(f)
+    else
+        f.sourceWarning:Hide()
+    end
 
     for i, m in ipairs(members) do
         local row = f.rows[i] or CreateRow(f, i)
@@ -667,7 +685,9 @@ local function EnsureGridFrame()
     if gridFrame then return gridFrame end
 
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatBuffingGridFrame",
-        MIN_FRAME_W, MIN_FRAME_H, "WhoDoesWhat - Buffing Grid")
+        MIN_FRAME_W, MIN_FRAME_H, "Buffing Grid")
+    f.titleText:ClearAllPoints()
+    f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
 
     -- "Rescan" in the title bar: inspect every reachable buff provider.
     local rescan = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -688,6 +708,7 @@ local function EnsureGridFrame()
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
     sourceCaption:SetText("Show Pally Buff Source:")
+    f.sourceCaption = sourceCaption
 
     f.gridSource = DefaultGridSource()
     local sourceDD = CreateFrame("Frame", "WhoDoesWhatBuffGridSourceDD", f,
@@ -735,11 +756,7 @@ local function EnsureGridFrame()
     divider:SetHeight(1)
     divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
     divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
-
-    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetTextColor(0.55, 0.55, 0.55)
-    hint:SetText("No paladins in the group.")
-    f.emptyHint = hint
+    f.divider = divider
 
     WhoDoesWhat:LogUiBuilding("Building buffing grid content.")
 

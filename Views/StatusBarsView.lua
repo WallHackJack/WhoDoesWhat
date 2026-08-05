@@ -150,10 +150,12 @@ local function StatusBarsClick(_, button)
     end
 end
 
+-- Same double-line shortcut layout the minimap button uses.
 local function AddShortcutTooltipLines()
-    GameTooltip:AddLine("Right-click: Buffing Grid.", 0.7, 0.7, 0.7)
-    GameTooltip:AddLine("Shift-right-click: Buff Tracking settings.",
-        0.7, 0.7, 0.7)
+    GameTooltip:AddDoubleLine("Right-Click:", "Buffing Grid",
+        1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Shift-Right-Click:", "Buff Settings",
+        1, 0.82, 0, 1, 1, 1)
 end
 
 local function RoleIcon(name)
@@ -460,9 +462,11 @@ local function EnsureView()
     title:SetScript("OnMouseUp", StatusBarsClick)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("WDW Status", 1, 1, 1)
-        GameTooltip:AddLine("Alt-drag to move.", 0.7, 0.7, 0.7)
-        GameTooltip:AddLine("Alt-drag the marked edge to resize.", 0.7, 0.7, 0.7)
+        GameTooltip:SetText("WDW Status Bars", 1, 1, 1)
+        GameTooltip:AddDoubleLine("Alt-Drag:", "Move",
+            1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Alt-Drag-Edge:", "Resize",
+            1, 0.82, 0, 1, 1, 1)
         AddShortcutTooltipLines()
         GameTooltip:Show()
     end)
@@ -488,9 +492,10 @@ local function EnsureView()
         GameTooltip:SetOwner(self, IsRightAnchor(StatusBarsAnchor())
             and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
-        GameTooltip:SetText("Resize WDW Status", 1, 1, 1)
+        GameTooltip:SetText("Resize WDW Status Bars", 1, 1, 1)
         GameTooltip:AddLine("(" .. width .. "px)", 1, 0.82, 0)
-        GameTooltip:AddLine("Hold Alt and drag horizontally.", 0.7, 0.7, 0.7)
+        GameTooltip:AddDoubleLine("Alt-Drag:", "Resize",
+            1, 0.82, 0, 1, 1, 1)
         GameTooltip:Show()
     end
     local function FinishResize(self)
