@@ -993,6 +993,14 @@ local function EnsureSettingsFrame()
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipRole = value
         end)
+    f.unitTooltipDetailCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+        "Show class details in unit tooltips",
+        "Also append the summary the roster views show on hover: a Paladin's "
+            .. "blessing talents and addon status, or a Warlock's Improved "
+            .. "Healthstone. Only Paladins and Warlocks add anything.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.unitTooltipDetail = value
+        end)
     f.announceRoleCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
         "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
         function(value)
@@ -1573,6 +1581,7 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     f.buffingTestCheck:SetChecked(settings.buffingBarTestMode)
     RefreshBuffingTestPaladinDropdown(f)
     f.unitTooltipCheck:SetChecked(settings.unitTooltipRole ~= false)
+    f.unitTooltipDetailCheck:SetChecked(settings.unitTooltipDetail)
     f.announceRoleCheck:SetChecked(settings.announceRoleChanges)
     f.manageBlizzRolesCheck:SetChecked(settings.manageBlizzardRoles ~= false)
     f.overviewCheck:SetChecked(settings.overviewEnabled)

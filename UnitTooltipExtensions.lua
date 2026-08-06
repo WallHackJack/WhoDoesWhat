@@ -10,6 +10,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- have an assignment, and only while the setting is on. Nothing is added for
 -- strangers, NPCs, or roleless members, so tooltips stay their usual size
 -- next to a tooltip addon like TacoTip.
+--
+-- A second setting appends the roster hover summary (Views/RaiderTooltipView)
+-- under that line -- longer, so it is off by default and gated separately.
 
 local ICON_SIZE = 14
 
@@ -31,10 +34,9 @@ local function RoleLine(name)
 end
 
 local function AddRoleLine(tooltip)
-    if not (WhoDoesWhat.db
-        and WhoDoesWhat.db.profile.settings.unitTooltipRole) then
-        return
-    end
+    local settings = WhoDoesWhat.db and WhoDoesWhat.db.profile.settings
+    if not settings then return end
+    if not (settings.unitTooltipRole or settings.unitTooltipDetail) then return end
     local _, unit = tooltip:GetUnit()
     if not (unit and UnitIsPlayer(unit)) then return end
     if not (UnitIsUnit(unit, "player") or UnitInParty(unit)
@@ -42,10 +44,20 @@ local function AddRoleLine(tooltip)
         return
     end
     local name = UnitKey(unit)
-    local line = name and RoleLine(name)
-    if not line then return end
-    tooltip:AddLine(line .. " |cffffd100(WDW)|r", 1, 1, 1)
-    tooltip:Show()
+    if not name then return end
+    local added = false
+    local line = settings.unitTooltipRole and RoleLine(name)
+    if line then
+        tooltip:AddLine(line .. " |cffffd100(WDW)|r", 1, 1, 1)
+        added = true
+    end
+    -- The class summary the roster views show on hover: paladin blessing
+    -- talents, or a warlock's Improved Healthstone. Same data, no extra work.
+    if settings.unitTooltipDetail
+        and WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name) then
+        added = true
+    end
+    if added then tooltip:Show() end
 end
 
 GameTooltip:HookScript("OnTooltipSetUnit", AddRoleLine)

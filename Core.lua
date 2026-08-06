@@ -215,6 +215,10 @@ local defaults = {
             -- Append the player's WDW role to Blizzard's unit tooltip
             -- (UnitTooltipExtensions.lua). Display only, group members only.
             unitTooltipRole = true,
+            -- Also append the roster hover summary (paladin blessing talents,
+            -- warlock healthstone) to that tooltip. Off by default: it is
+            -- several lines, and most hovers do not want them.
+            unitTooltipDetail = false,
             -- Master switch for WDW writing Blizzard group state: the
             -- tank/healer/damager group role (UnitSetRole) and the main-tank
             -- demotion. Off = WDW keeps its own board and never touches

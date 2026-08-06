@@ -55,6 +55,60 @@ local function MemberClass(name)
     end
 end
 
+-- The detail lines alone, without the player header or the tooltip plumbing.
+-- Split out so Blizzard's unit tooltip can append the same summary under the
+-- role line (UnitTooltipExtensions.lua). Returns the class it wrote for, or
+-- nil when the raider has nothing worth saying.
+function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
+    local className = name and MemberClass(name)
+    if className ~= "Paladin" and className ~= "Warlock" then return nil end
+
+    if className == "Warlock" then
+        local healthstone = self.WarlockHealthstone
+        local rank = self:GetWarlockHealthstoneTalent(name)
+        local amount = rank ~= nil and healthstone.lifeByTalentRank[rank]
+        local detail = healthstone.name .. " (" .. (rank == nil and "?" or rank)
+            .. "/" .. healthstone.maxRank .. ")"
+        if amount then detail = detail .. " - " .. amount .. " life" end
+        tooltip:AddLine(Icon(healthstone.icon) .. " |cff909090" .. detail .. "|r",
+            1, 1, 1)
+        return className
+    end
+
+    local talents = self:GetPaladinBuffTalents(name)
+    if not talents then
+        tooltip:AddLine(Icon(self.WARNING_ICON)
+            .. " |cffff9f40Awaiting Paladin talents|r", 1, 1, 1)
+        tooltip:AddLine("WDW will not assign this paladin any blessings until talent data arrives.",
+            0.9, 0.8, 0.6, true)
+        tooltip:AddLine("If they are sitting out, mark them as Non-raider instead.",
+            0.8, 0.8, 0.8, true)
+        tooltip:AddLine(" ")
+    elseif talents._source == "pallypower" then
+        tooltip:AddLine("|cff909090Talent data from external addon (PallyPower).|r",
+            1, 1, 1)
+        tooltip:AddLine("Targeting them in range will confirm and replace it.",
+            0.8, 0.8, 0.8, true)
+        tooltip:AddLine(" ")
+    end
+    local entries = {}
+    for order, line in ipairs(TALENT_LINES) do
+        local text, status = TalentLine(line, talents and talents[line.key])
+        entries[#entries + 1] = { text = text, status = status, order = order }
+    end
+    table.sort(entries, function(a, b)
+        return a.status < b.status or (a.status == b.status and a.order < b.order)
+    end)
+    for _, entry in ipairs(entries) do
+        tooltip:AddLine(entry.text, 1, 1, 1)
+    end
+    tooltip:AddLine(" ")
+    tooltip:AddLine(AddonLine("PallyPower", self:PaladinHasPallyPower(name)), 1, 1, 1)
+    tooltip:AddLine(AddonLine("WDW",
+        name == UnitName("player") or self.syncPeers[name] == true), 1, 1, 1)
+    return className
+end
+
 function WhoDoesWhat:ShowRaiderTooltip(owner, name)
     local className = name and MemberClass(name)
     if className ~= "Paladin" and className ~= "Warlock" then return end
@@ -70,51 +124,7 @@ function WhoDoesWhat:ShowRaiderTooltip(owner, name)
         if background then GameTooltip:SetBackdropColor(unpack(background)) end
     end
     GameTooltip:SetText(self.Assign.PlayerTextWithRole(name, ICON_SIZE), 1, 1, 1)
-
-    if className == "Warlock" then
-        local healthstone = self.WarlockHealthstone
-        local rank = self:GetWarlockHealthstoneTalent(name)
-        local amount = rank ~= nil and healthstone.lifeByTalentRank[rank]
-        local detail = healthstone.name .. " (" .. (rank == nil and "?" or rank)
-            .. "/" .. healthstone.maxRank .. ")"
-        if amount then detail = detail .. " - " .. amount .. " life" end
-        GameTooltip:AddLine(Icon(healthstone.icon) .. " |cff909090" .. detail .. "|r",
-            1, 1, 1)
-        GameTooltip:Show()
-        return
-    end
-
-    local talents = self:GetPaladinBuffTalents(name)
-    if not talents then
-        GameTooltip:AddLine(Icon(self.WARNING_ICON)
-            .. " |cffff9f40Awaiting Paladin talents|r", 1, 1, 1)
-        GameTooltip:AddLine("WDW will not assign this paladin any blessings until talent data arrives.",
-            0.9, 0.8, 0.6, true)
-        GameTooltip:AddLine("If they are sitting out, mark them as Non-raider instead.",
-            0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine(" ")
-    elseif talents._source == "pallypower" then
-        GameTooltip:AddLine("|cff909090Talent data from external addon (PallyPower).|r",
-            1, 1, 1)
-        GameTooltip:AddLine("Targeting them in range will confirm and replace it.",
-            0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine(" ")
-    end
-    local entries = {}
-    for order, line in ipairs(TALENT_LINES) do
-        local text, status = TalentLine(line, talents and talents[line.key])
-        entries[#entries + 1] = { text = text, status = status, order = order }
-    end
-    table.sort(entries, function(a, b)
-        return a.status < b.status or (a.status == b.status and a.order < b.order)
-    end)
-    for _, entry in ipairs(entries) do
-        GameTooltip:AddLine(entry.text, 1, 1, 1)
-    end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(AddonLine("PallyPower", self:PaladinHasPallyPower(name)), 1, 1, 1)
-    GameTooltip:AddLine(AddonLine("WDW",
-        name == UnitName("player") or self.syncPeers[name] == true), 1, 1, 1)
+    self:AddRaiderTooltipDetail(GameTooltip, name)
     GameTooltip:Show()
 end
 
