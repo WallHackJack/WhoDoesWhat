@@ -83,57 +83,6 @@ function WhoDoesWhat:ClearRoleWriteLatch(playerName)
     if playerName then lastWritten[playerName] = nil else wipe(lastWritten) end
 end
 
--- Settle delay for flags a BACKGROUND SWEEP finds disagreeing with our board.
---
--- Every client writes its OWN flag the instant the user picks a role, but the
--- board that justifies that flag rides the 2s sync poll. The flag write fires
--- GROUP_ROSTER_UPDATE everywhere, waking the 1s roster sweep -- so for about a
--- second every other client holds a flag change it can see and a board change
--- it hasn't received, and "correct"s the player back to their old role using
--- evidence that is simply out of date. The player's board then lands and the
--- flag flips again: the tank -> dps -> tank flicker.
---
--- So a sweep that finds the flag on a DIFFERENT REAL role treats it as
--- somebody's deliberate change still in flight: remember it, write nothing,
--- and look again after SETTLE_SECONDS. If the board catches up meanwhile the
--- disagreement evaporates having cost zero writes. A flag reading NONE is not
--- deferred -- that's the kick/reinvite reset with nothing in flight behind it,
--- and the sweep exists to repair it promptly.
---
--- Explicit user actions never wait; only ReconcileBlizzardRoles defers.
-local SETTLE_SECONDS = 5
-local pendingSettle = {} -- playerName -> { roleId, since }
-local settleTimerArmed = false
-
-local function ArmSettleRecheck()
-    if settleTimerArmed or not C_Timer then return end
-    settleTimerArmed = true
-    C_Timer.After(SETTLE_SECONDS + 0.5, function()
-        settleTimerArmed = false
-        -- Nothing else would revisit a disagreement that nobody resolved; the
-        -- roster sweep only runs on roster events.
-        WhoDoesWhat:ReconcileBlizzardRoles()
-    end)
-end
-
--- Returns true when the flag write should be held back for now.
-local function ShouldWaitForBoard(playerName, roleId)
-    local pending = pendingSettle[playerName]
-    if not pending or pending.roleId ~= roleId then
-        pendingSettle[playerName] = { roleId = roleId, since = GetTime() }
-        ArmSettleRecheck()
-        return true
-    end
-    if (GetTime() - pending.since) < SETTLE_SECONDS then
-        ArmSettleRecheck()
-        return true
-    end
-    -- Waited it out and both sides still disagree: this is real drift, not a
-    -- message in flight. Write it.
-    pendingSettle[playerName] = nil
-    return false
-end
-
 -- Sync blizzard group state to a WDW role. Two independent halves:
 --   - the unit's tank/heal/dps group role flag (UnitSetRole). Needs a role
 --     WITH a wowRole; roles without one (a legacy custom role saved before
@@ -146,10 +95,12 @@ end
 -- an addon calling it just trips the "only available to the Blizzard UI"
 -- block. Demotion (ClearPartyAssignment) isn't protected, so that half stays.
 -- The player-name + exactMatch args mirror Blizzard's own Set Main Tank button.
--- `role` may be nil (assignment cleared). `deferrable` marks a background
--- sweep, whose flag writes wait out the settle delay above; an explicit user
--- action leaves it false and takes effect at once.
-local function ApplyBlizzardRole(unit, playerName, role, deferrable)
+-- `role` may be nil (assignment cleared).
+--
+-- Only ever reached from something the user just did on THIS client: a role
+-- picked in a menu or the main window, or re-enabling the Settings toggle.
+-- Nothing schedules, sweeps or syncs its way here any more.
+local function ApplyBlizzardRole(unit, playerName, role)
     -- Master opt-out (Settings > General). WDW keeps its own board either way;
     -- this only stops it writing Blizzard's.
     if not WhoDoesWhat:ManagesBlizzardRoles() then return end
@@ -181,18 +132,8 @@ local function ApplyBlizzardRole(unit, playerName, role, deferrable)
         -- freely. Only the flag stands down; the demotion below is unrelated
         -- and still runs.
         local contested = before and before ~= "NONE" and before ~= meta.blizzRole
-        -- The flag agreeing with us retires any settle timer we were running.
-        if before == meta.blizzRole then pendingSettle[playerName] = nil end
-
         if contested and lastWritten[playerName] == role.id then
             WhoDoesWhat:LogRolePromotion("Blizzard role contested (stood down)",
-                "player=" .. tostring(playerName),
-                "ours=" .. tostring(meta.blizzRole),
-                "theirs=" .. tostring(before))
-        elseif contested and deferrable and ShouldWaitForBoard(playerName, role.id) then
-            -- Somebody just set this deliberately and their board update is
-            -- probably still in flight. See SETTLE_SECONDS.
-            WhoDoesWhat:LogRolePromotion("Blizzard role deferred (waiting for board)",
                 "player=" .. tostring(playerName),
                 "ours=" .. tostring(meta.blizzRole),
                 "theirs=" .. tostring(before))
@@ -225,10 +166,10 @@ local function ApplyBlizzardRole(unit, playerName, role, deferrable)
     -- callable mid-fight, but re-promoting is not: SetPartyAssignment is
     -- protected, so it costs the leader the Raid tab, a right-click and a menu
     -- -- during the pull. Fights that swap someone tank->dps->tank would pay
-    -- that every time. Holding the main-tank mark for the duration of the
-    -- fight is the cheaper mistake; PLAYER_REGEN_ENABLED runs
-    -- ReconcileBlizzardRoles, which lands here again and demotes then if the
-    -- player is still off a tank role.
+    -- that every time, so the mark is held for the duration.
+    -- Nothing retries afterwards now that the automatic sweeps are gone: a
+    -- demotion missed to combat waits for the next time you set that player's
+    -- role, or for a Fix in Action Items.
     if not inCombat and mayFlag and IsInRaid()
         and not (role and role.wowRole == "tank")
         and GetPartyAssignment("MAINTANK", playerName, true) then
@@ -267,16 +208,21 @@ function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
     end
 end
 
--- Reconcile every group member's Blizzard role flag (and main-tank demotion)
--- to their stored WDW assignment. This is the ONE write path for OTHER
--- members' flags -- gated inside ApplyBlizzardRole on CanSetOthersBlizzardRole,
--- so only the leader ever pushes them -- however the role change reached us:
--- our own edit, a synced board (Sync.lua), a member's ROLE broadcast, a talent
--- auto-detect, a roster sweep, or combat ending. It no-ops on flags that
--- already match (re-setting re-announces and fights other role addons), and it
--- never opens a frame (no promote-watch). UnitSetRole itself is skipped in
--- combat; PLAYER_REGEN_ENABLED re-runs this to apply the deferred flag (see
--- TalentScanning.lua).
+-- Push every group member's Blizzard role flag (and main-tank demotion) to
+-- their stored WDW assignment in one pass, gated inside ApplyBlizzardRole on
+-- CanSetOthersBlizzardRole so only the elected writer touches other people.
+--
+-- ON-DEMAND ONLY. This used to run automatically on a synced board, a member's
+-- ROLE broadcast, every roster event and the end of combat, and every one of
+-- those had the same defect: the flag change and the board change reach a
+-- client by different routes at different speeds, so whoever swept first swept
+-- with stale evidence and overwrote a player who had just set their own role.
+-- Waiting first only delayed it. The remaining caller is the Settings toggle
+-- being switched back on, which is a person asking for exactly this.
+--
+-- It no-ops on flags that already match (re-setting re-announces to the group
+-- and fights other role addons) and never opens a frame (no promote-watch).
+-- UnitSetRole is skipped in combat and is NOT retried afterwards.
 function WhoDoesWhat:ReconcileBlizzardRoles()
     if not (UnitSetRole and UnitGroupRolesAssigned) then return end
     if not self:ManagesBlizzardRoles() then return end
@@ -299,10 +245,7 @@ function WhoDoesWhat:ReconcileBlizzardRoles()
             local roleId = self.db.profile.assignments[name]
             local _, role = nil, nil
             if roleId then _, role = self:FindRoleById(roleId) end
-            -- deferrable: this is a background sweep, so a flag that disagrees
-            -- waits out the settle delay rather than stomping a change whose
-            -- board update is still crossing the wire.
-            ApplyBlizzardRole(unit, name, role, true)
+            ApplyBlizzardRole(unit, name, role)
         end
     end
 end

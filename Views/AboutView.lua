@@ -19,6 +19,24 @@ local LINKS = {
 -- entry is presented as the latest release in the window.
 local RELEASES = {
     {
+        version = "1.0.10",
+        date = "2026-08-06",
+        notes = {
+            "WhoDoesWhat no longer changes anyone's Blizzard group role on its own.",
+            "Added the Action Items window: group roles that don't match, and tanks not promoted to Main Tank.",
+            "Added an Actions button to the main window that glows when something needs fixing.",
+            "Added a setting to stop WhoDoesWhat touching Blizzard group roles entirely.",
+            "Main tanks are no longer demoted during a fight.",
+            "Custom roles now require a name, a class, and a group role.",
+            "Show WhoDoesWhat roles in Blizzard unit tooltips, with optional class details.",
+            "Added a paladin blessing-spread overview to the PallyPower Differences window.",
+            "Added aura and Righteous Fury helpers to the Paladin Bar.",
+            "Added right-click shortcuts, tooltips, and per-row options to the status bars.",
+            "Added a settings cog to the Buffing Grid, and retired its Rescan button.",
+            "Fixed debuff bars hiding at full saturation.",
+        },
+    },
+    {
         version = "1.0.9",
         date = "2026-08-03",
         notes = {

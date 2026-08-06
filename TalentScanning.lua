@@ -453,10 +453,11 @@ function WhoDoesWhat:SyncRosterTalents()
         end
     end
 
-    -- A kick resets the flag, and AutoAssignDetectedRole above won't restore it
-    -- (the detection didn't change), so reconcile every member's flag back to
-    -- the board -- our own always, others' only when we're the flag-authority.
-    self:ReconcileBlizzardRoles()
+    -- No Blizzard-flag reconcile here any more. Replaying the cache is about
+    -- WDW's own board; pushing everyone's flag on every roster event is the
+    -- automation that kept overwriting players from a board that hadn't caught
+    -- up. A kick still resets the flag, and that now shows up in Action Items
+    -- rather than being repaired behind your back.
 end
 
 -- Joins fire GROUP_ROSTER_UPDATE in bursts, so the sweep runs once, a beat
@@ -473,14 +474,10 @@ rosterSync:SetScript("OnEvent", function()
     end)
 end)
 
--- UnitSetRole is protected from addon execution in combat on 2.5.6, so the
--- shared writer skips it mid-fight. The instant combat ends, reconcile every
--- member's flag to the board. Cheap and idempotent (already-correct flags no-op).
-local combatRoleSync = CreateFrame("Frame")
-combatRoleSync:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatRoleSync:SetScript("OnEvent", function()
-    WhoDoesWhat:ReconcileBlizzardRoles()
-end)
+-- There used to be a PLAYER_REGEN_ENABLED sweep here re-applying flags that
+-- combat had blocked. It was another automatic board -> flag push, so it went
+-- with the rest: a write blocked by combat is now simply not made, and the
+-- difference waits in Action Items.
 
 -- The library never fires TALENTS_READY for the local player (INSPECT_READY
 -- skips "player", and their own talent events only set an internal flag), so

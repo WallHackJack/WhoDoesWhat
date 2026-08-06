@@ -868,14 +868,11 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Run the change poll on a short debounce instead of waiting up to
--- POLL_INTERVAL. A role change is the one edit whose latency actually hurts:
--- the picking client writes that player's Blizzard flag instantly, which wakes
--- every other client's 1s roster sweep, while the board that JUSTIFIES the flag
--- would otherwise sit here for up to 2s. Everyone else therefore spends a
--- second able to see the flag change but not the board change, and "corrects"
--- it from stale evidence. Getting the board out first removes the race rather
--- than mitigating it; ApplyBlizzardRole's settle delay covers the remainder
--- (lag, a client that never sends, a flag changed outside WDW entirely).
+-- POLL_INTERVAL. A role change is the one edit whose latency actually shows:
+-- the picking client writes that player's Blizzard flag instantly, so everyone
+-- else can see the flag move up to two seconds before the board explains why.
+-- Nothing acts on that gap any more, but it still drives what Action Items
+-- reports, so getting the board out promptly keeps the list honest.
 --
 -- Debounced rather than immediate so a burst of edits still coalesces into one
 -- broadcast, which is the property the poll was built for.
@@ -1112,11 +1109,11 @@ function Sync:ApplyState(msg, senderKey)
     else
         LogSyncStatus("Assignments updated from " .. senderKey .. ".")
     end
-    -- The board just moved over the wire, which never touches Blizzard flags on
-    -- its own. If we're the flag-authority (leader), push the flags now so a
-    -- role an assist edited lands as one UnitSetRole from us -- not a race
-    -- between every assist. No-ops for non-leaders past their own flag.
-    WhoDoesWhat:ReconcileBlizzardRoles()
+    -- Deliberately does NOT push Blizzard role flags. The board and the flag
+    -- travel by different routes at different speeds, so a client acting here
+    -- acts on whichever arrived first -- which is how the leader ended up
+    -- "correcting" a player who had just set their own role. Differences are
+    -- surfaced in Action Items for a human to apply instead.
     RefreshAllViews()
 end
 
@@ -1258,10 +1255,10 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             local _, role = WhoDoesWhat:FindRoleById(msg.role or "")
             LogSyncStatus(senderKey .. " set their own role to "
                 .. (role and role.name or msg.role or "None") .. ".")
-            -- Their own broadcast carries no Blizzard flag; if we're the
-            -- flag-authority (leader), apply it for them so exactly one client
-            -- does the UnitSetRole.
-            WhoDoesWhat:ReconcileBlizzardRoles()
+            -- Their own broadcast carries no Blizzard flag, and we no longer
+            -- set one for them: they already wrote their own when they picked
+            -- the role, and us writing it again from a board that may or may
+            -- not have caught up is exactly the fight this removed.
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshRaiderRolesView()
             -- Their role reshapes the blessing plan, same as a local role

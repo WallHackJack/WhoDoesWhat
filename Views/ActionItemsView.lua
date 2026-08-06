@@ -1,19 +1,21 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- "Action Items" window: things worth tidying before a pull. Today that's
--- players whose Blizzard group role (Tank / Healer / Damage Dealer) disagrees
--- with their WhoDoesWhat role, plus WDW tanks who haven't been promoted to
--- Main Tank. Opened by hand from the main window's toolbar -- nothing here
--- pops up on its own; the toolbar button glows instead.
+-- "Action Items" window: things worth tidying before a pull. Three sources:
+--   * their Blizzard group role (Tank / Healer / Damage Dealer) disagrees with
+--     their WhoDoesWhat role
+--   * they have a WhoDoesWhat role but no group role at all
+--   * they're a WDW tank who hasn't been promoted to Main Tank
+-- Opened by hand from the main window's toolbar -- nothing here pops up on its
+-- own; the toolbar button glows instead.
 --
 -- Named for what it is rather than what it currently contains, so a later
 -- source of "you should look at this" has somewhere obvious to land.
 --
--- Fixes run in the direction the automatic paths DON'T: Blizzard's flag is
--- treated as the truth and adopted into WDW as a guessed spec. That is the
--- useful direction when someone set their role in Blizzard's own UI or another
--- addon, because the reverse (board -> flag) is what ReconcileBlizzardRoles
--- already does unprompted.
+-- Fixes treat Blizzard's flag as the truth and adopt it into WDW as a guessed
+-- spec. That's the useful direction when someone set their role in Blizzard's
+-- own UI or another addon -- and the only automatic write left anywhere is the
+-- one a player makes to their OWN flag when they pick a role, so nothing is
+-- going to undo a fix behind you.
 --
 -- What is deliberately NOT a mismatch: a player with no WDW role at all. Every
 -- unscanned raider arrives on Blizzard's default DAMAGER flag, and listing the
@@ -115,18 +117,32 @@ function WhoDoesWhat:GetActionItems()
             if blizzRole == "NONE" then blizzRole = nil end
             local wanted = role and role.wowRole or nil
 
-            -- A disagreement needs a real value on BOTH sides. No WDW role, no
-            -- group role, or a role that carries no group role at all (Non-raider,
-            -- a legacy custom role) means there is nothing to compare.
+            -- A DISAGREEMENT needs a real value on both sides. Whichever way it
+            -- points, the fix adopts Blizzard's answer as a guessed spec.
             local mismatched = (wanted and blizzRole
                 and BLIZZ_TO_WOW[blizzRole] ~= wanted) and true or false
+
+            -- UNSET: they have a WDW role but no group role at all. Nothing
+            -- writes this automatically any more, so it has to be visible or it
+            -- can never be fixed -- a kicked-and-reinvited player lands here,
+            -- since a kick clears the flag. Still NOT the unscanned-raider case
+            -- the header warns about: that one has no WDW role either, so there
+            -- is nothing to push and no row.
+            local unset = (wanted and not blizzRole) and true or false
 
             local needsPromote = (inRaid and wanted == "tank"
                 and not GetPartyAssignment("MAINTANK", key, true)) and true or false
 
-            if classInfo and (mismatched or needsPromote) then
-                local suggested = mismatched
-                    and GuessRoleId(classInfo, BLIZZ_TO_WOW[blizzRole]) or nil
+            if classInfo and (mismatched or unset or needsPromote) then
+                -- Mismatches adopt Blizzard's role; an unset flag has nothing to
+                -- adopt, so it pushes the role they already hold. Either way the
+                -- dropdown can overwrite it before Fix runs.
+                local suggested
+                if mismatched then
+                    suggested = GuessRoleId(classInfo, BLIZZ_TO_WOW[blizzRole])
+                elseif unset then
+                    suggested = roleId
+                end
                 rows[#rows + 1] = {
                     name = key,
                     unit = unit,
@@ -135,9 +151,9 @@ function WhoDoesWhat:GetActionItems()
                     roleId = roleId,
                     role = role,
                     mismatched = mismatched,
+                    unset = unset,
                     needsPromote = needsPromote,
                     suggestedId = suggested,
-                    -- What Fix will apply; the dropdown overwrites it.
                     selectedId = suggested,
                 }
             end
@@ -180,11 +196,16 @@ local function CanAct(playerName)
     return WhoDoesWhat:CanEditAssignments()
 end
 
--- A row can only be fixed from here when there is a role to adopt. A row that
+-- A row can only be fixed from here when there is a role to write. A row that
 -- is ONLY an unpromoted main tank has no button: promoting is protected, so
 -- there is no action this addon could perform on the user's behalf.
+--
+-- Both fixable kinds run the same call -- SetAssignedRole, which stores the
+-- role and syncs the flag even when the role itself didn't change. That's what
+-- lets one path serve "adopt Blizzard's answer" and "push the answer we
+-- already had".
 local function RowFixable(data)
-    return data.mismatched and data.selectedId ~= nil
+    return (data.mismatched or data.unset) and data.selectedId ~= nil
 end
 
 local function CreateRow(content, index)
@@ -249,6 +270,9 @@ local function CreateRow(content, index)
         GameTooltip:SetText("Fix role", 1, 1, 1)
         if self.blockedReason then
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
+        elseif self.unset then
+            GameTooltip:AddLine("Set this player's Blizzard group role to match "
+                .. "the spec shown.", 0.8, 0.8, 0.8, true)
         else
             GameTooltip:AddLine("Set this player's WhoDoesWhat role to the spec "
                 .. "shown, matching their Blizzard group role.", 0.8, 0.8, 0.8, true)
@@ -316,6 +340,7 @@ local function LayoutRow(row, data, index, ownerFrame)
         UIDropDownMenu_SetSelectedValue(row.dropdown, data.selectedId)
         UIDropDownMenu_SetText(row.dropdown, RoleText(role, data.classInfo))
         local allowed = CanAct(data.name)
+        row.fix.unset = data.unset
         row.fix:SetEnabled(allowed)
         row.fix.blockedReason = (not allowed)
             and (InCombatLockdown() and "Can't change roles in combat."
