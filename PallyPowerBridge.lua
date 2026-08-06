@@ -706,8 +706,18 @@ function WhoDoesWhat:SyncToPallyPower()
     -- reset everyone (SKIP keeps auras), give the tables a beat to land, then
     -- the full class rows and the exception batches. Without PallyPower, WDW
     -- sends these messages itself and updates its local wire mirror.
+    -- Bracket the whole push in the traffic log. PallyPower answers a push with
+    -- its own traffic (SELF replays, re-discovery REQ storms, main-tank
+    -- NASSIGN re-asserts), and telling ours from theirs by timestamp alone is
+    -- guesswork -- everything between these two markers is us.
+    local startedAt = GetTime()
+    self:LogPallyPowerMarker(string.format(
+        "PUSH START - %d paladin(s): %s | %d class blessing(s), %d exception(s)",
+        #paladins, table.concat(paladins, ", "), classCount, singleCount))
+
     SendPallyPowerMessage("CLEAR SKIP")
     C_Timer.After(0.25, function()
+        local sent = 1 -- the CLEAR SKIP above
         for _, pname in ipairs(paladins) do
             local pshort = ShortName(pname)
             local s = ""
@@ -716,6 +726,7 @@ function WhoDoesWhat:SyncToPallyPower()
                 s = s .. ((not v or v == 0) and "n" or v)
             end
             SendPallyPowerMessage("PASSIGN " .. pshort .. "@" .. s)
+            sent = sent + 1
         end
 
         local entries = {}
@@ -731,7 +742,12 @@ function WhoDoesWhat:SyncToPallyPower()
         for offset = 1, #entries, 5 do
             SendPallyPowerMessage("NASSIGN "
                 .. table.concat(entries, "@", offset, math.min(offset + 4, #entries)))
+            sent = sent + 1
         end
+
+        self:LogPallyPowerMarker(string.format(
+            "PUSH END - %d message(s) in %.2fs. Anything below this line is"
+            .. " PallyPower answering back.", sent, GetTime() - startedAt))
 
         if pp and pp.UpdateLayout then pp:UpdateLayout() end
         self:RefreshMainAssignmentsView()
@@ -1025,6 +1041,14 @@ local function PushPlayerBuffs(self, playerName, explicit)
 
     if #greaterMessages == 0 and #normalEntries == 0 then return false end
 
+    -- The automatic role-change path fires in bursts while a raid is filling
+    -- up, which is exactly the window PallyPower is least stable in. Mark it
+    -- too, so the log distinguishes "WDW pushed" from "PallyPower spoke".
+    self:LogPallyPowerMarker(string.format(
+        "PUSH (single) - %s: %d class change(s), %d exception(s)%s",
+        ShortName(playerName), #greaterMessages, #normalEntries,
+        explicit and "" or " [automatic]"))
+
     for _, message in ipairs(greaterMessages) do SendPallyPowerMessage(message) end
     for offset = 1, #normalEntries, 5 do
         SendPallyPowerMessage("NASSIGN "
@@ -1049,24 +1073,41 @@ end
 -- The PLPWR traffic log
 -- ---------------------------------------------------------------------------
 
-local MAX_LOG = 500
+-- Sized for a whole raid night rather than a few minutes: PallyPower's
+-- re-discovery storms (every paladin replaying SELF + ASELF + every saved
+-- NASSIGN row) can burn hundreds of lines during a single zone-in, and the
+-- traffic worth diagnosing is usually the burst BEFORE the one you noticed.
+local MAX_LOG = 4000
+local LOG_SHED = 500
 local log = {}
 WhoDoesWhat.PallyPowerLog = log
 local statusRefreshPending
 
+local function PushLogEntry(entry)
+    local trimmed = false
+    if #log >= MAX_LOG then
+        -- Shed the oldest chunk in one go so the shift isn't per-message.
+        for _ = 1, LOG_SHED do table.remove(log, 1) end
+        trimmed = true
+    end
+    entry.t = date("%H:%M:%S")
+    log[#log + 1] = entry
+    if WhoDoesWhat.PallyPowerLogAppended then
+        WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
+    end
+end
+
+-- A separator line in the traffic log, so an explicit push is visible as a
+-- bracket and everything PallyPower sends back lands underneath it. dir
+-- "mark" has no sender and is rendered full-width by the log view.
+function WhoDoesWhat:LogPallyPowerMarker(text)
+    if not self.LOG_SYNC then return end
+    PushLogEntry({ dir = "mark", msg = text })
+end
+
 Append = function(dir, who, msg)
     if WhoDoesWhat.LOG_SYNC then
-        local trimmed = false
-        if #log >= MAX_LOG then
-            -- Shed the oldest chunk in one go so the shift isn't per-message.
-            for _ = 1, 100 do table.remove(log, 1) end
-            trimmed = true
-        end
-        local entry = { t = date("%H:%M:%S"), dir = dir, who = who, msg = msg }
-        log[#log + 1] = entry
-        if WhoDoesWhat.PallyPowerLogAppended then
-            WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
-        end
+        PushLogEntry({ dir = dir, who = who, msg = msg })
     end
     if not statusRefreshPending and WhoDoesWhat.RefreshStatusBarsView then
         statusRefreshPending = true

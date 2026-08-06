@@ -503,9 +503,76 @@ only the messages required for discovery and explicit synchronization.
 | `CLEAR [SKIP]` | Clear assignments; `SKIP` retains auras | Observed; WDW sends `CLEAR SKIP` at the start of an explicit full push |
 | `FREEASSIGN ...` | Free-assignment, reagent, and cooldown information | Logged |
 
-PallyPower clients enforce their own sender authority. WDW's mirror similarly
-accepts another paladin's assignments only from that paladin or from a sender
-believed able to assign others.
+### There is no single PallyPower board
+
+`PallyPower_Assignments` and `PallyPower_NormalAssignments` are PallyPower
+SavedVariables. Every paladin's client holds its own complete, persistent copy
+that survives zoning, logout, and reload. There is no owning client and no
+revision number: the wire protocol is a stream of imperative edits, and the
+last accepted edit wins on each receiver independently. A WDW push is therefore
+never a handover — it is an attempt to converge N private copies, and it can be
+partially accepted, silently dropped, or later overwritten.
+
+### Sender authority, and where it differs from WDW's
+
+`PASSIGN`, `ASSIGN`, `MASSIGN`, `NASSIGN`, and `CLEAR` for a paladin other than
+the sender are accepted only when the receiver considers the sender a leader or
+has Free Assignment enabled. Two consequences matter for WDW:
+
+- **`SELF` carries no authority check at all**, and it *replaces* the sender's
+  class row rather than merging. Any paladin can revert their own row on every
+  client in the group at any time, outranking anything WDW pushed.
+- PallyPower recomputes its leader set from scratch on every roster refresh,
+  from raid-roster data that is incomplete for a few seconds after a zone. WDW
+  instead asks the client directly (`IsRaidAssistant`, see
+  `CanBroadcastAssignments` in `PallyPowerBridge.lua`). The two can disagree,
+  and in that window a WDW push is rejected with no error and no reply.
+
+WDW's own mirror mimics the authority rule: it accepts another paladin's
+assignments only from that paladin or from a sender believed able to assign
+others.
+
+### PallyPower re-asserts state on its own
+
+PallyPower is not a passive store. `SendSelf` re-broadcasts the sender's class
+row *and replays every one of its saved per-target exception rows* as `NASSIGN`
+batches. Observed triggers include casting any blessing, learning spells,
+joining a group, assigned-role changes, opening the blessings frame, a roster
+refresh that fails to account for a known paladin, and receiving a `REQ`.
+
+`REQ` is amplifying: a paladin answers a **non-leader** requester with a
+whisper, but answers a **leader** by broadcasting to the whole group. WDW sends
+`REQ` for peer discovery, so when the WDW user is raid lead every paladin
+replies to the entire raid. A group with several paladins turns one `REQ` into
+a large burst that resets each paladin's mirrored row to their private copy.
+
+PallyPower's optional Main Tank / Main Assist blessings are a second autonomous
+writer: while enabled, its roster refresh re-applies its configured exception
+for flagged raiders and broadcasts the resulting `NASSIGN`. Both options default
+to off. Separately, PallyPower suppresses any message identical to the one it
+sent immediately before, so a repeated identical push message can be dropped by
+the sender before it reaches the wire.
+
+### Known failure mode: pushing during a zone transition
+
+Zoning into an instance produces a window where the raid roster is still
+resolving. In that window a push can be rejected for lack of authority on some
+clients, and PallyPower's own re-discovery can broadcast a paladin's saved
+board back over it. The symptom is a push that appears to succeed, followed
+within a second or two by a burst of inbound `SELF` and `NASSIGN` from one
+paladin, restoring older assignments. It resolves when the roster settles or
+when that paladin reloads — reloading does not clear their saved rows, it
+restores correct authority so the next push is accepted.
+
+Distinguishing the causes from the traffic log:
+
+| Observation | Indicates |
+| --- | --- |
+| Inbound `SELF` + `ASELF` + `NASSIGN`, and a `REQ` from that paladin | Roster-driven re-discovery |
+| Inbound `NASSIGN` only, targeting main-tank-flagged raiders | PallyPower Main Tank / Main Assist blessings |
+| Our `PASSIGN` sent, and that paladin's next `SELF` disagrees with it | The push was rejected for lack of authority |
+
+### What WDW sends
 
 An explicit WDW-to-PallyPower full push sends:
 
@@ -516,6 +583,16 @@ An explicit WDW-to-PallyPower full push sends:
 The smaller automatic role-change path sends only the affected `NASSIGN`
 entries and only when the previous PallyPower board was aligned and the change
 does not alter broader class demand.
+
+Both paths write `PUSH` marker lines into the PallyPower traffic log, so
+everything below a marker is PallyPower answering rather than WDW sending. The
+full push brackets itself with `PUSH START` / `PUSH END` and records elapsed
+time and message count; the automatic path emits a single `PUSH (single)` line
+tagged `[automatic]`. The log window's sender filter narrows inbound traffic to
+one paladin while keeping our outbound messages and the markers visible.
+
+Traffic capture is session-only and starts disabled; a reload turns it back
+off. The PallyPower history holds 4000 entries, enough for a raid night.
 
 ## Current traffic characteristics
 

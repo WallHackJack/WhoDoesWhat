@@ -8,6 +8,10 @@ local logFrame = nil
 local source = "wdw"
 local SOURCE_LABELS = { wdw = "WhoDoesWhat", pp = "PallyPower" }
 local display = { wdw = "summary", pp = "summary" }
+-- Per-source inbound sender filter; nil means everyone. Our own outbound
+-- traffic and the push markers always survive the filter -- the whole point of
+-- picking one sender is reading their replies AGAINST what we sent.
+local senderFilter = { wdw = nil, pp = nil }
 local DISPLAY_OPTIONS = {
     wdw = {
         { key = "summary", label = "Summary" },
@@ -46,7 +50,35 @@ local function DisplayLabel(kind)
     end
 end
 
+local function Entries()
+    return source == "pp" and WhoDoesWhat.PallyPowerLog or WhoDoesWhat.SyncLog
+end
+
+-- Distinct inbound senders in the active log, sorted, for the filter dropdown.
+local function KnownSenders()
+    local seen, names = {}, {}
+    for _, e in ipairs(Entries()) do
+        if e.dir == "in" and e.who and not seen[e.who] then
+            seen[e.who] = true
+            names[#names + 1] = e.who
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+local function PassesFilter(e)
+    local want = senderFilter[source]
+    return not want or e.dir ~= "in" or e.who == want
+end
+
 local function FormatEntry(e, kind)
+    -- Push brackets written by the PallyPower bridge: no sender, full width,
+    -- so an explicit push and PallyPower's answer to it are visually separated.
+    if e.dir == "mark" then
+        return "|cff888888" .. e.t .. "|r |cff00d0ff== " .. e.msg .. " ==|r"
+    end
+
     local dirTag, who
     if e.dir == "out" then
         dirTag = "|cff40ff40OUT|r"
@@ -76,9 +108,14 @@ local function FormatEntry(e, kind)
     return "|cff888888" .. e.t .. "|r " .. dirTag .. " " .. who .. channel .. "  " .. body
 end
 
+local function SenderLabel()
+    return "From: " .. (senderFilter[source] or "All")
+end
+
 local function RenderAll(f)
     f.smf:Clear()
-    local entries = source == "pp" and WhoDoesWhat.PallyPowerLog or WhoDoesWhat.SyncLog
+    UIDropDownMenu_SetText(f.senderDD, SenderLabel())
+    local entries = Entries()
     if #entries == 0 then
         if not WhoDoesWhat.LOG_SYNC then
             f.smf:AddMessage("|cff909090Logging is off. Enable Log to capture new traffic.|r")
@@ -89,8 +126,16 @@ local function RenderAll(f)
         end
         return
     end
+    local shown = 0
     for _, e in ipairs(entries) do
-        f.smf:AddMessage(FormatEntry(e, source))
+        if PassesFilter(e) then
+            f.smf:AddMessage(FormatEntry(e, source))
+            shown = shown + 1
+        end
+    end
+    if shown == 0 then
+        f.smf:AddMessage("|cff909090Nothing from " .. tostring(senderFilter[source])
+            .. " in the captured traffic.|r")
     end
 end
 
@@ -100,6 +145,13 @@ local function SelectSource(f, selected)
     UIDropDownMenu_SetText(f.sourceDD, SOURCE_LABELS[source])
     UIDropDownMenu_SetSelectedValue(f.displayDD, display[source])
     UIDropDownMenu_SetText(f.displayDD, DisplayLabel(source))
+    UIDropDownMenu_SetSelectedValue(f.senderDD, senderFilter[source] or "")
+    RenderAll(f)
+end
+
+local function SelectSender(f, selected)
+    senderFilter[source] = selected ~= "" and selected or nil
+    UIDropDownMenu_SetSelectedValue(f.senderDD, selected)
     RenderAll(f)
 end
 
@@ -189,13 +241,38 @@ local function EnsureLogFrame()
     end)
     f.displayDD = displayDD
 
+    -- Rebuilt on every open: who has spoken changes as the raid fills up.
+    local senderDD = CreateFrame("Frame", "WhoDoesWhatSyncLogSenderDD", f,
+        "UIDropDownMenuTemplate")
+    senderDD:SetPoint("LEFT", displayDD, "RIGHT", -25, 0)
+    UIDropDownMenu_SetWidth(senderDD, 110)
+    WhoDoesWhat:StyleDropdown(senderDD, true)
+    UIDropDownMenu_Initialize(senderDD, function(_, level)
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "All senders"
+        info.value = ""
+        info.checked = senderFilter[source] == nil
+        info.func = function() SelectSender(f, "") end
+        UIDropDownMenu_AddButton(info, level)
+        for _, name in ipairs(KnownSenders()) do
+            local selected = name
+            info = UIDropDownMenu_CreateInfo()
+            info.text = ColoredWho(selected)
+            info.value = selected
+            info.checked = senderFilter[source] == selected
+            info.func = function() SelectSender(f, selected) end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.senderDD = senderDD
+
     local smf = CreateFrame("ScrollingMessageFrame", nil, f)
     smf:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 34))
     smf:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
     smf:SetFontObject(GameFontHighlightSmall)
     smf:SetJustifyH("LEFT")
     smf:SetFading(false)
-    smf:SetMaxLines(600)
+    smf:SetMaxLines(4000) -- must not undercut the bridge's history cap
     smf:SetIndentedWordWrap(true)
     smf:EnableMouseWheel(true)
     smf:SetScript("OnMouseWheel", function(self, delta)
@@ -231,7 +308,7 @@ function WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
     if not (logFrame and logFrame:IsShown() and source == "pp") then return end
     if trimmed then
         RenderAll(logFrame)
-    else
+    elseif PassesFilter(entry) then
         logFrame.smf:AddMessage(FormatEntry(entry, "pp"))
     end
 end
@@ -240,7 +317,7 @@ function WhoDoesWhat:SyncLogAppended(entry, trimmed)
     if not (logFrame and logFrame:IsShown() and source == "wdw") then return end
     if trimmed then
         RenderAll(logFrame)
-    else
+    elseif PassesFilter(entry) then
         logFrame.smf:AddMessage(FormatEntry(entry, "wdw"))
     end
 end
