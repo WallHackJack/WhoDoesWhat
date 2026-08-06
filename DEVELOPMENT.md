@@ -40,7 +40,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
   * `PaladinBuffingBarView.lua` — the clickable Paladin Buffing Bar (see Features)
   * `AboutView.lua` — About & Updates window: copyable links/contact details, installed version, and a static dated release-notes picker
   * `PallyPowerLogView.lua` — PallyPower traffic log window (/wdw pplog)
-  * `PallyPowerDiffView.lua` — PallyPower Differences window (Paladin Buffs section "Check" button): formatted per-paladin drift report from `CheckPallyPowerSync`, with Send + Recheck
+  * `PallyPowerDiffView.lua` — PallyPower Differences window (Paladin Buffs section "Check" button): formatted per-paladin drift report from `CheckPallyPowerSync`, with a per-paladin blessing-spread overview above each grid and Fix All / per-row Fix; it repaints itself from `RefreshBuffingGridView` and hides once nothing differs
   * `AllRolesView.lua` — "Role Preferences" landing page
   * `SingleRolesCustomizeView.lua` — customize a spec's buff priority + role
   * `AddonSettingsView.lua` — Developer Options

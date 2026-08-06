@@ -1,7 +1,10 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- Side-by-side paladin-buff grids for the players whose current PallyPower
--- coverage differs from WhoDoesWhat's suggested plan.
+-- coverage differs from WhoDoesWhat's suggested plan. Above each grid's
+-- columns sits a per-paladin overview strip -- the blessings that paladin
+-- mostly carries in that plan, count-descending -- the same shape as the
+-- Paladin Buffs rows in the main window.
 
 local K = WhoDoesWhat.SectionKit
 local A = WhoDoesWhat.Assign
@@ -28,6 +31,10 @@ local TITLE_H = 22
 local HEADER_H = 26
 local ROW_H = 24
 local ROLE_ICON_SIZE = 18
+local SUMMARY_ROW_H = 20
+local SUMMARY_MAX_BUFFS = 3
+local SUMMARY_ICON = 16
+local SUMMARY_SLOT_W = 20
 local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
 local COL_W = K.PALADIN_GRID_COL_W
 
@@ -329,6 +336,141 @@ local function CellOutline(data, member, paladin, buffKey)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Per-paladin overview strip (mirrors the Paladin Buffs rows in the main
+-- window): which blessings each paladin mostly carries, count-descending,
+-- for both plans. Computed straight off the plan grids so it also works for
+-- the demo data's simulated paladins.
+-- ---------------------------------------------------------------------------
+
+local function BuffSpread(plan, paladinName)
+    local counts = {}
+    for _, cells in pairs(plan and plan.grid or {}) do
+        local key = cells[paladinName]
+        if key then counts[key] = (counts[key] or 0) + 1 end
+    end
+    local canonIndex = {}
+    for i, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do canonIndex[key] = i end
+    local spread = {}
+    for key, count in pairs(counts) do
+        spread[#spread + 1] = { key = key, count = count }
+    end
+    table.sort(spread, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return canonIndex[a.key] < canonIndex[b.key]
+    end)
+    return spread
+end
+
+local function SummarySlotEnter(self)
+    if not self.buffKey then return end
+    local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(buff.name_long, 1, 1, 1)
+    GameTooltip:AddLine(self.sourceLabel .. ": " .. self.paladin .. " blesses "
+        .. self.buffCount .. (self.buffCount == 1 and " raider" or " raiders")
+        .. ".", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end
+
+local function CreateSummaryRow(f, index)
+    local row = CreateFrame("Frame", nil, f.header)
+    row:SetHeight(SUMMARY_ROW_H)
+
+    local bg = row:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.72, 0.72, 0.72, index % 2 == 1 and 0.07 or 0.03)
+
+    local roleIcon = row:CreateTexture(nil, "ARTWORK")
+    roleIcon:SetSize(SUMMARY_ICON, SUMMARY_ICON)
+    roleIcon:SetPoint("LEFT", 4, 0)
+    row.roleIcon = roleIcon
+
+    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    name:SetPoint("LEFT", roleIcon, "RIGHT", 6, 0)
+    name:SetWidth(LEFT_PREFIX_W - SUMMARY_ICON - 14)
+    name:SetJustifyH("LEFT")
+    row.name = name
+
+    row.sides = {}
+    for side = 1, 2 do
+        local slots = {}
+        for i = 1, SUMMARY_MAX_BUFFS do
+            local slot = CreateFrame("Frame", nil, row)
+            slot:SetSize(SUMMARY_SLOT_W, SUMMARY_ROW_H)
+            local icon = slot:CreateTexture(nil, "OVERLAY")
+            icon:SetSize(SUMMARY_ICON, SUMMARY_ICON)
+            icon:SetPoint("LEFT")
+            slot.icon = icon
+            slot:EnableMouse(true)
+            slot:SetScript("OnEnter", SummarySlotEnter)
+            slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            slot:Hide()
+            slots[i] = slot
+        end
+        local more = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        more:SetText("...")
+        more:Hide()
+        local none = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        none:SetText("none")
+        none:Hide()
+        row.sides[side] = { slots = slots, more = more, none = none }
+    end
+
+    f.summaryRows[index] = row
+    return row
+end
+
+local function RenderSummary(f, data, gridX, columnStart, plans, sourceLabels)
+    for index, paladin in ipairs(data.paladins) do
+        local row = f.summaryRows[index] or CreateSummaryRow(f, index)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", f.header, "TOPLEFT", 0, -(TITLE_H + (index - 1) * SUMMARY_ROW_H))
+        row:SetWidth(f.header:GetWidth())
+
+        local icon = RoleIconFor(paladin)
+        row.roleIcon:SetTexture(icon)
+        row.roleIcon:SetShown(icon ~= nil)
+        local colorHex = paladin.classInfo and paladin.classInfo.colorHex or "f58cba"
+        row.name:SetText("|cff" .. colorHex .. paladin.name .. "|r")
+
+        for side = 1, 2 do
+            local x = gridX[side] + columnStart[side]
+            local spread = BuffSpread(plans[side], paladin.name)
+            local shown = 0
+            for i, slot in ipairs(row.sides[side].slots) do
+                local entry = spread[i]
+                if entry then
+                    slot:ClearAllPoints()
+                    slot:SetPoint("LEFT", row, "LEFT", x + (i - 1) * SUMMARY_SLOT_W, 0)
+                    slot.icon:SetTexture(WhoDoesWhat.PaladinBuffs[entry.key].iconId)
+                    slot.buffKey = entry.key
+                    slot.buffCount = entry.count
+                    slot.paladin = paladin.name
+                    slot.sourceLabel = sourceLabels[side]
+                    slot:Show()
+                    shown = i
+                else
+                    slot.buffKey = nil
+                    slot:Hide()
+                end
+            end
+            local more = row.sides[side].more
+            more:ClearAllPoints()
+            more:SetPoint("LEFT", row, "LEFT", x + shown * SUMMARY_SLOT_W + 1, 0)
+            more:SetShown(#spread > SUMMARY_MAX_BUFFS)
+            local none = row.sides[side].none
+            none:ClearAllPoints()
+            none:SetPoint("LEFT", row, "LEFT", x, 0)
+            none:SetShown(#spread == 0)
+        end
+        row:Show()
+    end
+    for index = #data.paladins + 1, #f.summaryRows do
+        f.summaryRows[index]:Hide()
+    end
+end
+
 local function SetCompact(f)
     f:SetSize(COMPACT_W, COMPACT_H)
     f.warning:Hide()
@@ -338,7 +480,7 @@ local function SetCompact(f)
     f.secondaryBtn:Hide()
 end
 
-local function SetExpanded(f, width, bodyHeight, showWarning)
+local function SetExpanded(f, width, summaryHeight, bodyHeight, showWarning)
     local headerTop = f.titleBarHeight + 10
     if showWarning then
         f.warning:ClearAllPoints()
@@ -355,7 +497,7 @@ local function SetExpanded(f, width, bodyHeight, showWarning)
     f.scroll:SetPoint("TOPLEFT", f.header, "BOTTOMLEFT")
     f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W),
         MARGIN + BOTTOM_STRIP)
-    local height = headerTop + TITLE_H + HEADER_H + bodyHeight
+    local height = headerTop + TITLE_H + summaryHeight + HEADER_H + bodyHeight
         + MARGIN + BOTTOM_STRIP
     f:SetSize(width, math.min(FRAME_MAX_H, math.max(FRAME_MIN_H, height)))
     f.header:Show()
@@ -374,9 +516,10 @@ local function RenderGrid(f, data)
     local contentW = fixX + FIX_W
     local frameW = contentW + MARGIN * 2 + SCROLLBAR_GAP + SCROLLBAR_W
     local bodyHeight = #data.members * ROW_H
-    SetExpanded(f, frameW, bodyHeight,
+    local summaryHeight = #paladins * SUMMARY_ROW_H
+    SetExpanded(f, frameW, summaryHeight, bodyHeight,
         not data.isDemo and IsInRaid() and not WhoDoesWhat:IsRaidAssistant())
-    f.header:SetSize(contentW, TITLE_H + HEADER_H)
+    f.header:SetSize(contentW, TITLE_H + summaryHeight + HEADER_H)
     f.content:SetWidth(contentW)
 
     local gridX = { 0, rightX }
@@ -384,6 +527,9 @@ local function RenderGrid(f, data)
     local columnStart = { LEFT_PREFIX_W, 0 }
     local plans = { data.current, data.suggested }
     local sourceLabels = { "Current", "Suggested" }
+    local headerIconsTop = TITLE_H + summaryHeight
+
+    RenderSummary(f, data, gridX, columnStart, plans, sourceLabels)
 
     for _, member in ipairs(data.members) do
         member.topBuffs = TopBuffSet(data, member)
@@ -407,7 +553,7 @@ local function RenderGrid(f, data)
                 x + columnStart[side]
                     + K.PaladinColumnOffset(column, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2,
-                -(TITLE_H + (HEADER_H - CELL_SIZE) / 2))
+                -(headerIconsTop + (HEADER_H - CELL_SIZE) / 2))
             header.paladin = paladin.name
             header.paladinMember = paladin
             header.icon:SetTexture(RoleIconFor(paladin))
@@ -427,7 +573,7 @@ local function RenderGrid(f, data)
             headerStripe:ClearAllPoints()
             headerStripe:SetPoint("TOPLEFT", f.header, "TOPLEFT",
                 x + columnStart[side], -TITLE_H)
-            headerStripe:SetSize(COL_W, HEADER_H)
+            headerStripe:SetSize(COL_W, summaryHeight + HEADER_H)
             headerStripe:Show()
             bodyStripe:ClearAllPoints()
             bodyStripe:SetPoint("TOPLEFT", f.content, "TOPLEFT",
@@ -561,8 +707,12 @@ RenderDiffs = function(f)
         f.sendBtn.canFix, f.sendBtn.blockedPaladin =
             WhoDoesWhat:CanFixAllPallyPowerAssignments()
         f.sendBtn:SetEnabled(f.sendBtn.canFix)
-        f.secondaryBtn:SetText(f.warningText and "Ignore" or "Recheck")
+        f.secondaryBtn:SetText("Ignore")
     end
+    -- The window repaints itself on every plan change (RefreshBuffingGridView
+    -- is the "buff plan changed" hook and reaches us), so the second button
+    -- only exists to dismiss the two modes that aren't live diffs.
+    f.secondaryBtn:SetShown(data.isDemo or f.warningText ~= nil)
     return true
 end
 
@@ -614,15 +764,11 @@ local function EnsureFrame()
     local secondary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     secondary:SetSize(80, 22)
     secondary:SetPoint("RIGHT", sendBtn, "LEFT", -6, 0)
-    secondary:SetText("Recheck")
+    secondary:SetText("Ignore")
     secondary:SetScript("OnClick", function()
-        if f.demoData or f.warningText then
-            f.demoData = nil
-            f.warningText = nil
-            f:Hide()
-        else
-            RenderDiffs(f)
-        end
+        f.demoData = nil
+        f.warningText = nil
+        f:Hide()
     end)
     f.secondaryBtn = secondary
 
@@ -646,6 +792,7 @@ local function EnsureFrame()
     header.headers = { {}, {} }
     content.rows = { {}, {} }
     content.fixButtons = {}
+    f.summaryRows = {}
     f.gridTitles = {}
     f.headerPaladinStripes = {}
     f.bodyPaladinStripes = {}
@@ -833,9 +980,13 @@ function WhoDoesWhat:OpenPallyPowerDiffTestView()
     f:Raise()
 end
 
+-- Repainted from RefreshBuffingGridView, the addon's "buff plan changed" hook,
+-- so the open window tracks PallyPower traffic, role changes, buffing rules
+-- and talent arrivals without the user asking. Nothing left to differ means
+-- nothing left to show, so the window gets out of the way.
 function WhoDoesWhat:RefreshPallyPowerDiffView()
     if diffFrame and diffFrame:IsShown() and not diffFrame.demoData then
         diffFrame.warningText = nil
-        RenderDiffs(diffFrame)
+        if not RenderDiffs(diffFrame) then diffFrame:Hide() end
     end
 end

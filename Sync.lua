@@ -1241,6 +1241,9 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             WhoDoesWhat:ReconcileBlizzardRoles()
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshRaiderRolesView()
+            -- Their role reshapes the blessing plan, same as a local role
+            -- change: repaint the grid/bars/diff window off the plan hook.
+            WhoDoesWhat:RefreshBuffingGridView()
         end
     end
 end
