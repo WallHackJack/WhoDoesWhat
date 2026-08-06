@@ -152,15 +152,19 @@ end
 -- Dropdown display text for an assignment: class-colored name while the
 -- player is in the group, gray name once they've left, gray "Unassigned"
 -- when nothing is saved.
-local function PlayerText(name)
+-- `label` overrides the shown text while the color still comes from `name`'s
+-- class -- for the rows that want a realm-tag-free name without losing the
+-- lookup key.
+local function PlayerText(name, label)
     if not name then
         return "|cff909090Unassigned|r"
     end
+    label = label or name
     local m = FindMember(name)
     if m then
-        return "|cff" .. m.classInfo.colorHex .. name .. "|r"
+        return "|cff" .. m.classInfo.colorHex .. label .. "|r"
     end
-    return "|cff909090" .. name .. "|r"
+    return "|cff909090" .. label .. "|r"
 end
 
 -- Role-icon markup for a player's assigned spec, or "" when they're roleless
@@ -177,8 +181,8 @@ end
 
 -- PlayerText with the player's role icon in front (assignment dropdowns). Falls
 -- back to plain PlayerText when there's no name or no resolvable role.
-local function PlayerTextWithRole(name, size)
-    return RoleIconMarkup(name, size) .. PlayerText(name)
+local function PlayerTextWithRole(name, size, label)
+    return RoleIconMarkup(name, size) .. PlayerText(name, label)
 end
 
 local function GetAssignment(rowId)
@@ -708,6 +712,10 @@ end
 --                                                as their primary, as a hard
 --                                                lock that beats talent ranks
 --
+-- One implicit rule rides along: Salvation is ignored inside a battleground or
+-- arena unless the user wrote a Salvation rule of their own -- see
+-- PvpSalvationIgnored below.
+--
 -- Shared as STATE.paladinStrategy so identical roster/role/talent inputs yield
 -- the same plan on every client. Rules are group-scoped; the leader prunes a
 -- prefer rule when its named paladin leaves, and group leave clears them all.
@@ -715,6 +723,20 @@ end
 
 local function GetBuffRules()
     return WhoDoesWhat.db.profile.paladinBuffRules
+end
+
+-- Salvation is threat reduction, which buys nothing in a battleground or
+-- arena, so it drops out of the plan there without anyone having to add a
+-- rule. Everyone in the instance evaluates this the same way, so the derived
+-- plan stays identical across clients. Any explicit Salvation rule -- of any
+-- kind -- means the user has an opinion, and theirs wins.
+local function PvpSalvationIgnored()
+    local _, instanceType = IsInInstance()
+    if instanceType ~= "pvp" and instanceType ~= "arena" then return false end
+    for _, rule in ipairs(GetBuffRules()) do
+        if rule.buff == "salv" then return false end
+    end
+    return true
 end
 
 -- The rules split into the shapes the plan consumes: the ignored-buff set,
@@ -733,6 +755,7 @@ local function CompileBuffRules()
             end
         end
     end
+    if PvpSalvationIgnored() then ignored.salv = true end
     return ignored, prioritized, preferred
 end
 
@@ -2099,6 +2122,8 @@ WhoDoesWhat.Assign = {
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,
     GetBuffRules = GetBuffRules,
+    PvpSalvationIgnored = PvpSalvationIgnored,
+    ShortAssignmentName = ShortAssignmentName,
     -- storage
     EnsureAutoRows = EnsureAutoRows,
     ReconcileRosterAssignments = ReconcileRosterAssignments,
@@ -2125,4 +2150,15 @@ rosterReconcileFrame:SetScript("OnEvent", function()
         ReconcileRosterAssignments()
         WhoDoesWhat:RefreshMainAssignmentsView()
     end)
+end)
+
+-- Zoning into (or out of) a battleground silently changes the plan via the
+-- implicit Salvation rule, so repaint off the plan hook. The plan cache keys
+-- on the rule-adjusted orders, so it invalidates itself.
+local pvpRuleFrame = CreateFrame("Frame")
+pvpRuleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+pvpRuleFrame:SetScript("OnEvent", function()
+    if not WhoDoesWhat.db then return end
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBuffingGridView()
 end)

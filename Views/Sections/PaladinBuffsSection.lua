@@ -20,7 +20,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   [buff v] [Is Ignored / Prioritized for / Preferred by v] [target v] (!) [x]
 --
 -- One rule per blessing, six at most (the buff dropdown only offers unruled
--- blessings). Rules are shared strategy config in the synced board, so the
+-- blessings). WDW's own implicit rule -- Salvation ignored in PvP instances --
+-- appears above them as a read-only line. Rules are shared strategy config in the synced board, so the
 -- same assignment permission applies to editing them.
 --
 -- The whole section grays out while the group has no paladins (Developer
@@ -39,6 +40,8 @@ local ComputePaladinBuffSummary = A.ComputePaladinBuffSummary
 local GetPaladinBuffWhisper = A.GetPaladinBuffWhisper
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
+local PvpSalvationIgnored = A.PvpSalvationIgnored
+local ShortAssignmentName = A.ShortAssignmentName
 
 local PALLY_ROW_H = K.ROW_H
 local PALLY_STATUS_GAP = 6
@@ -51,6 +54,7 @@ local RULE_BUFF_DD_W = 68
 local RULE_KIND_DD_W = 80
 local RULE_TARGET_DD_W = 76
 local RULE_HEADER_H = 30
+local AUTO_RULE_H = 18
 
 local PALLY_BUFF_SOURCES = {
     { key = "wdw", text = "WDW Assignments", short = "WDW" },
@@ -554,7 +558,11 @@ function Refresh(f) -- forward declared above
             row.coveragePercent:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         end
         row.moreText:SetShown(not awaitingTalents and #p.buffs > PALLY_MAX_BUFFS)
-        row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE))
+        -- Realm tags eat the narrow name column here; the paladin's full
+        -- name still identifies them everywhere it matters (tooltips, the
+        -- diffs window, whispers).
+        row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE,
+            ShortAssignmentName(p.name)))
         local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
         local complete = coverage.total > 0 and coverage.correct == coverage.total
         local hasMissing = coverage.correct < coverage.total
@@ -698,6 +706,15 @@ function Refresh(f) -- forward declared above
 
     local rulesTop = ruleHeaderTop + RULE_HEADER_H
 
+    -- The one rule WDW writes itself, shown as a read-only line above the
+    -- user's rules so a missing Salvation in a battleground isn't a mystery.
+    local autoSalv = showRules and PvpSalvationIgnored()
+    state.autoRuleText:ClearAllPoints()
+    state.autoRuleText:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 2))
+    state.autoRuleText:SetShown(autoSalv)
+    local autoH = autoSalv and AUTO_RULE_H or 0
+    rulesTop = rulesTop + autoH
+
     for i, rule in ipairs(rules) do
         local row = state.ruleRows[i] or CreateRuleRow(f, i)
         row:ClearAllPoints()
@@ -725,8 +742,9 @@ function Refresh(f) -- forward declared above
 
     state.rulesEmptyHint:ClearAllPoints()
     state.rulesEmptyHint:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 4))
-    state.rulesEmptyHint:SetShown(showRules and #rules == 0)
-    local rulesH = (#rules > 0) and (#rules * RULE_ROW_H) or K.DYN_EMPTY_H
+    state.rulesEmptyHint:SetShown(showRules and #rules == 0 and not autoSalv)
+    local rulesH = (#rules > 0) and (#rules * RULE_ROW_H)
+        or (autoSalv and 2 or K.DYN_EMPTY_H)
 
     state.box:SetHeight(showRules and (rulesTop + rulesH + K.BOX_PAD)
         or (ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + K.BOX_PAD))
@@ -935,6 +953,12 @@ local function Build(f, content)
     rulesEmptyHint:SetText("No rules exist")
     rulesEmptyHint:SetTextColor(0.55, 0.55, 0.55)
 
+    local autoRuleText = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    autoRuleText:SetText("|T" .. WhoDoesWhat.PaladinBuffs.salv.iconId
+        .. ":14:14:0:0|t Salvation is ignored in PvP instances")
+    autoRuleText:SetTextColor(0.75, 0.75, 0.75)
+    autoRuleText:Hide()
+
     local ppArea, ppIcon, ppStatus, ppDiffBtn, ppApplyBtn =
         CreatePallyPowerArea(box)
 
@@ -948,6 +972,7 @@ local function Build(f, content)
         ruleBtn = ruleBtn,
         clearRulesBtn = clearRulesBtn,
         rulesEmptyHint = rulesEmptyHint,
+        autoRuleText = autoRuleText,
         pallyBuffSourceDD = sourceDD,
         ppArea = ppArea,
         ppIcon = ppIcon,

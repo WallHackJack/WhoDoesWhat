@@ -32,6 +32,7 @@ local HEADER_H = 26
 local ROW_H = 24
 local ROLE_ICON_SIZE = 18
 local SUMMARY_ROW_H = 20
+local SUMMARY_GAP = 10
 local SUMMARY_MAX_BUFFS = 3
 local SUMMARY_ICON = 16
 local SUMMARY_SLOT_W = 20
@@ -516,7 +517,9 @@ local function RenderGrid(f, data)
     local contentW = fixX + FIX_W
     local frameW = contentW + MARGIN * 2 + SCROLLBAR_GAP + SCROLLBAR_W
     local bodyHeight = #data.members * ROW_H
-    local summaryHeight = #paladins * SUMMARY_ROW_H
+    -- The overview strip keeps a gap between itself and the column headers so
+    -- it reads as its own block rather than the grid's first rows.
+    local summaryHeight = #paladins * SUMMARY_ROW_H + SUMMARY_GAP
     SetExpanded(f, frameW, summaryHeight, bodyHeight,
         not data.isDemo and IsInRaid() and not WhoDoesWhat:IsRaidAssistant())
     f.header:SetSize(contentW, TITLE_H + summaryHeight + HEADER_H)
