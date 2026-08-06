@@ -175,6 +175,7 @@ local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
     WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshRoleMismatchView()
 end
 
 -- ---------------------------------------------------------------------------
@@ -865,6 +866,28 @@ end
 -- ---------------------------------------------------------------------------
 -- The local-change poll
 -- ---------------------------------------------------------------------------
+
+-- Run the change poll on a short debounce instead of waiting up to
+-- POLL_INTERVAL. A role change is the one edit whose latency actually hurts:
+-- the picking client writes that player's Blizzard flag instantly, which wakes
+-- every other client's 1s roster sweep, while the board that JUSTIFIES the flag
+-- would otherwise sit here for up to 2s. Everyone else therefore spends a
+-- second able to see the flag change but not the board change, and "corrects"
+-- it from stale evidence. Getting the board out first removes the race rather
+-- than mitigating it; ApplyBlizzardRole's settle delay covers the remainder
+-- (lag, a client that never sends, a flag changed outside WDW entirely).
+--
+-- Debounced rather than immediate so a burst of edits still coalesces into one
+-- broadcast, which is the property the poll was built for.
+local pushPending = false
+function Sync:PushSoon()
+    if pushPending then return end
+    pushPending = true
+    C_Timer.After(0.25, function()
+        pushPending = false
+        Sync:PollLocalChanges()
+    end)
+end
 
 function Sync:PollLocalChanges()
     if not GroupChannel() or awaitingSync then return end

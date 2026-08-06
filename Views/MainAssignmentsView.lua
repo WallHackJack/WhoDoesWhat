@@ -231,8 +231,8 @@ end
 local function UpdateToolbar(f)
     local showLogs = WhoDoesWhat.db.profile.settings.showLogsButton
     f.logsBtn:SetShown(showLogs)
-    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth()
-        + f.membersBtn:GetWidth() + f.editRolesBtn:GetWidth() + BUTTON_GAP * 2
+    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth() + f.groupRolesBtn:GetWidth()
+        + f.membersBtn:GetWidth() + f.editRolesBtn:GetWidth() + BUTTON_GAP * 3
     if showLogs then
         width = width + f.logsBtn:GetWidth() + BUTTON_GAP
     end
@@ -348,16 +348,24 @@ local function EnsureMainFrame()
         WhoDoesWhat:OpenRaiderRolesView()
     end)
 
+    local groupRolesBtn = CreateToolbarButton(toolbarBox, "Group Roles", 86, "Group Roles",
+        "Show players whose Blizzard group role (Tank / Healer / Damage Dealer) "
+            .. "doesn't match their WhoDoesWhat role, and tanks not yet promoted "
+            .. "to Main Tank.",
+        function() WhoDoesWhat:OpenRoleMismatchView() end)
+    groupRolesBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
+
     local buffGridBtn = CreateToolbarButton(toolbarBox, "Buff Grid", 72, "Buffing Grid",
         "Open the raid-wide paladin blessing plan and live buff status.",
         function() WhoDoesWhat:OpenBuffingGridView() end)
-    buffGridBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
+    buffGridBtn:SetPoint("RIGHT", groupRolesBtn, "LEFT", -BUTTON_GAP, 0)
 
     local logsBtn = CreateToolbarButton(toolbarBox, "Logs", 52, "Sync traffic",
         "Open the combined WhoDoesWhat and PallyPower addon-message logs.",
         function() WhoDoesWhat:OpenSyncLogView("wdw") end)
     logsBtn:SetPoint("RIGHT", buffGridBtn, "LEFT", -BUTTON_GAP, 0)
     f.toolbarBox = toolbarBox
+    f.groupRolesBtn = groupRolesBtn
     f.editRolesBtn = editRolesBtn
     f.membersBtn = membersBtn
     f.buffGridBtn = buffGridBtn
