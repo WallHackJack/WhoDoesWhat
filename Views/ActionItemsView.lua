@@ -1,9 +1,13 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
--- "Group Roles" window: players whose Blizzard group role (Tank / Healer /
--- Damage Dealer) disagrees with their WhoDoesWhat role, plus WDW tanks who
--- haven't been promoted to Main Tank. Opened by hand from the main window's
--- toolbar -- nothing here pops up on its own.
+-- "Action Items" window: things worth tidying before a pull. Today that's
+-- players whose Blizzard group role (Tank / Healer / Damage Dealer) disagrees
+-- with their WhoDoesWhat role, plus WDW tanks who haven't been promoted to
+-- Main Tank. Opened by hand from the main window's toolbar -- nothing here
+-- pops up on its own; the toolbar button glows instead.
+--
+-- Named for what it is rather than what it currently contains, so a later
+-- source of "you should look at this" has somewhere obvious to land.
 --
 -- Fixes run in the direction the automatic paths DON'T: Blizzard's flag is
 -- treated as the truth and adopted into WDW as a guessed spec. That is the
@@ -23,7 +27,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local K = WhoDoesWhat.SectionKit
 
-local mismatchFrame = nil
+local actionsFrame = nil
 local RenderRows
 
 local FRAME_W = 620
@@ -85,7 +89,7 @@ end
 
 -- Every row the window should show, roster order. See the header for why a
 -- player with no WDW role is never a mismatch.
-function WhoDoesWhat:GetRoleMismatches()
+function WhoDoesWhat:GetActionItems()
     local rows = {}
     if not (self.db and UnitGroupRolesAssigned) then return rows end
     local inRaid = IsInRaid()
@@ -140,6 +144,13 @@ function WhoDoesWhat:GetRoleMismatches()
         end
     end
     return rows
+end
+
+-- How many items the toolbar button should advertise. Cheap enough to call
+-- from every main-window refresh -- it's one pass over the roster with no
+-- frame work -- and always agreeing with the window by construction.
+function WhoDoesWhat:CountActionItems()
+    return #self:GetActionItems()
 end
 
 -- ---------------------------------------------------------------------------
@@ -247,7 +258,7 @@ local function CreateRow(content, index)
     fix:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.fix = fix
 
-    local dropdown = CreateFrame("Frame", "WhoDoesWhatRoleMismatchDD" .. index,
+    local dropdown = CreateFrame("Frame", "WhoDoesWhatActionItemsDD" .. index,
         row, "UIDropDownMenuTemplate")
     dropdown:SetPoint("RIGHT", fix, "LEFT", 6, -2)
     UIDropDownMenu_SetWidth(dropdown, DD_W - 24)
@@ -315,7 +326,7 @@ local function LayoutRow(row, data, index, ownerFrame)
 end
 
 RenderRows = function(f)
-    local rows = WhoDoesWhat:GetRoleMismatches()
+    local rows = WhoDoesWhat:GetActionItems()
     local content = f.content
 
     for i, data in ipairs(rows) do
@@ -345,10 +356,10 @@ RenderRows = function(f)
 end
 
 local function EnsureFrame()
-    if mismatchFrame then return mismatchFrame end
+    if actionsFrame then return actionsFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatRoleMismatchFrame",
-        FRAME_W, FRAME_MIN_H, "Group Roles")
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatActionItemsFrame",
+        FRAME_W, FRAME_MIN_H, "Action Items")
     f.titleText:ClearAllPoints()
     f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
 
@@ -375,7 +386,7 @@ local function EnsureFrame()
     Header("WhoDoesWhat", NAME_COL_W + BLIZZ_COL_W, WDW_COL_W)
     -- The main-tank column is deliberately header-less: it's a flag, not data.
 
-    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatRoleMismatchScroll", f,
+    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatActionItemsScroll", f,
         "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", MARGIN, -(headerY + HEADER_H))
     scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN + BOTTOM_STRIP)
@@ -431,22 +442,22 @@ local function EnsureFrame()
         if self:IsShown() then RenderRows(self) end
     end)
 
-    mismatchFrame = f
+    actionsFrame = f
     return f
 end
 
-function WhoDoesWhat:RefreshRoleMismatchView()
-    if mismatchFrame and mismatchFrame:IsShown() then RenderRows(mismatchFrame) end
+function WhoDoesWhat:RefreshActionItemsView()
+    if actionsFrame and actionsFrame:IsShown() then RenderRows(actionsFrame) end
 end
 
-function WhoDoesWhat:OpenRoleMismatchView()
+function WhoDoesWhat:OpenActionItemsView()
     local f = EnsureFrame()
     if f:IsShown() then
         f:Hide()
         return
     end
     RenderRows(f)
-    self:LogUiBuilding("Opening Group Roles...")
+    self:LogUiBuilding("Opening Action Items...")
     f:Show()
     f:Raise()
 end

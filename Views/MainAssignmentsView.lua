@@ -42,6 +42,9 @@ local TOOLBAR_PAD = 6
 local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
 local BUTTON_GAP = 6
 local ABOUT_BUTTON_W = 52
+-- Wide enough for "Actions (99)" so a changing count never resizes the button
+-- (which would shift the whole centered toolbar sideways).
+local ACTIONS_BUTTON_W = 86
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
@@ -228,10 +231,46 @@ local function ApplyViewMode(f)
     f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
 end
 
+-- Nova-style pixel glow, same helper shape the buffing bar uses: track the
+-- state so a refresh doesn't restart the animation every two seconds.
+local LCG = LibStub("LibCustomGlow-1.0", true)
+local ACTIONS_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
+
+local function SetActionsGlow(btn, on)
+    if not LCG then return end
+    if on and not btn.glowing then
+        LCG.PixelGlow_Start(btn, ACTIONS_GLOW_COLOR, 12, nil, 4, nil,
+            2, 2, false, nil, 5)
+        btn.glowing = true
+    elseif not on and btn.glowing then
+        LCG.PixelGlow_Stop(btn)
+        btn.glowing = false
+    end
+end
+
+-- The Actions button advertises its own count and lights up when there's
+-- something to do. It stays CLICKABLE at zero rather than disabled -- opening
+-- it to confirm "nothing to fix" is a legitimate thing to want before a pull --
+-- so "nothing here" is said with grey text instead of a dead button.
+local function UpdateActionsButton(f)
+    local count = WhoDoesWhat:CountActionItems()
+    f.actionsBtn:SetText("Actions (" .. count .. ")")
+    local label = f.actionsBtn:GetFontString()
+    if label then
+        if count > 0 then
+            label:SetTextColor(1, 0.82, 0.2)
+        else
+            label:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+    SetActionsGlow(f.actionsBtn, count > 0)
+end
+
 local function UpdateToolbar(f)
     local showLogs = WhoDoesWhat.db.profile.settings.showLogsButton
     f.logsBtn:SetShown(showLogs)
-    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth() + f.groupRolesBtn:GetWidth()
+    UpdateActionsButton(f)
+    local width = TOOLBAR_PAD * 2 + f.actionsBtn:GetWidth() + f.buffGridBtn:GetWidth()
         + f.membersBtn:GetWidth() + f.editRolesBtn:GetWidth() + BUTTON_GAP * 3
     if showLogs then
         width = width + f.logsBtn:GetWidth() + BUTTON_GAP
@@ -348,24 +387,31 @@ local function EnsureMainFrame()
         WhoDoesWhat:OpenRaiderRolesView()
     end)
 
-    local groupRolesBtn = CreateToolbarButton(toolbarBox, "Group Roles", 86, "Group Roles",
-        "Show players whose Blizzard group role (Tank / Healer / Damage Dealer) "
-            .. "doesn't match their WhoDoesWhat role, and tanks not yet promoted "
-            .. "to Main Tank.",
-        function() WhoDoesWhat:OpenRoleMismatchView() end)
-    groupRolesBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
-
     local buffGridBtn = CreateToolbarButton(toolbarBox, "Buff Grid", 72, "Buffing Grid",
         "Open the raid-wide paladin blessing plan and live buff status.",
         function() WhoDoesWhat:OpenBuffingGridView() end)
-    buffGridBtn:SetPoint("RIGHT", groupRolesBtn, "LEFT", -BUTTON_GAP, 0)
+    buffGridBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
 
     local logsBtn = CreateToolbarButton(toolbarBox, "Logs", 52, "Sync traffic",
         "Open the combined WhoDoesWhat and PallyPower addon-message logs.",
         function() WhoDoesWhat:OpenSyncLogView("wdw") end)
     logsBtn:SetPoint("RIGHT", buffGridBtn, "LEFT", -BUTTON_GAP, 0)
+
+    -- Actions sits alone on the LEFT edge while everything else chains inward
+    -- from the right. UpdateToolbar sizes the box to fit them all, so the two
+    -- runs meet in the middle with no gap to manage. Fixed width on purpose:
+    -- the label carries a changing count, and sizing to text would jitter every
+    -- other button sideways whenever an item appeared.
+    local actionsBtn = CreateToolbarButton(toolbarBox, "Actions (0)", ACTIONS_BUTTON_W,
+        "Action Items",
+        "Players whose Blizzard group role (Tank / Healer / Damage Dealer) "
+            .. "doesn't match their WhoDoesWhat role, plus tanks not yet "
+            .. "promoted to Main Tank.",
+        function() WhoDoesWhat:OpenActionItemsView() end)
+    actionsBtn:SetPoint("LEFT", toolbarBox, "LEFT", TOOLBAR_PAD, 0)
+
     f.toolbarBox = toolbarBox
-    f.groupRolesBtn = groupRolesBtn
+    f.actionsBtn = actionsBtn
     f.editRolesBtn = editRolesBtn
     f.membersBtn = membersBtn
     f.buffGridBtn = buffGridBtn

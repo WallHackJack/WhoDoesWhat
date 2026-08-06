@@ -175,7 +175,7 @@ local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
     WhoDoesWhat:RefreshBuffingGridView()
-    WhoDoesWhat:RefreshRoleMismatchView()
+    WhoDoesWhat:RefreshActionItemsView()
 end
 
 -- ---------------------------------------------------------------------------

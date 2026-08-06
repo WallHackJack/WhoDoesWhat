@@ -65,7 +65,7 @@ Views\Sections\WarlockCursesSection.lua
 Views\AboutView.lua
 Views\MainAssignmentsView.lua
 Views\RaiderRolesView.lua
-Views\RoleMismatchView.lua
+Views\ActionItemsView.lua
 Views\BuffingGridView.lua
 Views\PaladinBuffingBarView.lua
 Views\StatusBarsView.lua

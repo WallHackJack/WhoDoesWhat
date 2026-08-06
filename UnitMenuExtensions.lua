@@ -366,7 +366,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     self:RefreshMainAssignmentsView()
     self:RefreshRaiderRolesView()
     self:RefreshBuffingGridView()
-    self:RefreshRoleMismatchView()
+    self:RefreshActionItemsView()
 end
 
 
