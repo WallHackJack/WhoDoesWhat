@@ -608,6 +608,10 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     local hideWhenClear = saved.hideWhenClear == true
     local hideWhenSolo = saved.hideWhenSolo
     if hideWhenSolo == nil then hideWhenSolo = true end
+    -- Default ON: a raider with no rights over anyone's role but their own
+    -- can't act on a list of other people's, so by default they aren't shown
+    -- one. Off restores the honest-count-without-a-glow behaviour.
+    local hideWhenNotYours = saved.hideWhenNotYours ~= false
     -- Only offered on class-based checks (see responsibleGlow in
     -- hiddenOptions); the status view still decides whether the local player
     -- is the one on the hook.
@@ -637,6 +641,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         assignmentIssuesGlow = saved.assignmentIssuesGlow ~= false,
         hideWhenClear = hideWhenClear,
         hideWhenSolo = hideWhenSolo,
+        hideWhenNotYours = hideWhenNotYours,
         actionItemsGlow = saved.actionItemsGlow ~= false,
     }
 end

@@ -1059,12 +1059,18 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 displayed[#displayed + 1] = { stateRow = "pallyPower" }
             end
         elseif key == "actionItems" then
-            local bucket = stateData.actionItems and stateData.actionItems.bucket
+            local state = stateData.actionItems
+            local bucket = state and state.bucket
             showState.actionItems = actionItemsOptions.bar
                 and StatusCheckInScope(actionItemsOptions.scope)
                 and not (actionItemsOptions.hideWhenClear and bucket == "ok")
                 and not (actionItemsOptions.hideWhenSolo
                     and bucket == "inactive")
+                -- Only ever suppresses a row that's REPORTING work. A clear
+                -- list is `ok`, and hiding that is hideWhenClear's job.
+                and not (actionItemsOptions.hideWhenNotYours
+                    and bucket == "attention"
+                    and state.actionable == false)
             if showState.actionItems then
                 displayed[#displayed + 1] = { stateRow = "actionItems" }
             end

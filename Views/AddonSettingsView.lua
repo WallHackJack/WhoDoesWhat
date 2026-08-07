@@ -395,6 +395,8 @@ local function RefreshBuffOptionsFrame()
         actionItems = {
             { f.aiHideClearCheck, f.aiHideClearLabel, options.hideWhenClear },
             { f.aiHideSoloCheck, f.aiHideSoloLabel, options.hideWhenSolo },
+            { f.aiHideNotYoursCheck, f.aiHideNotYoursLabel,
+                options.hideWhenNotYours },
             { f.aiGlowCheck, f.aiGlowLabel, options.actionItemsGlow },
         },
     }
@@ -407,7 +409,9 @@ local function RefreshBuffOptionsFrame()
     end
     if activeRows then
         PlaceDropdown(f.scopeLabel, f.scopeDD, 36)
-        f:SetHeight(140)
+        -- Sized to the stack rather than a constant: the two custom checks no
+        -- longer have the same number of rows.
+        f:SetHeight(74 + #activeRows * 22)
         for index, row in ipairs(activeRows) do
             row[1]:ClearAllPoints()
             row[1]:SetPoint("TOPLEFT", 7, -(66 + (index - 1) * 22))
@@ -932,6 +936,16 @@ local function EnsureBuffOptionsFrame(owner, key)
             RefreshBuffOptionsFrame()
         end)
     f.aiHideSoloCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.aiHideNotYoursCheck, _, f.aiHideNotYoursLabel = AddCompactCheckboxRow(
+        f, 7, 132, "Hide when nothing is yours to fix",
+        "Hide this row while every outstanding item belongs to someone else "
+            .. "and you have no permission to set their roles. Turn this off "
+            .. "to keep an informational count instead.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "hideWhenNotYours", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.aiHideNotYoursCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.aiGlowCheck, _, f.aiGlowLabel = AddCompactCheckboxRow(
         f, 7, 132, "Action items glow",
         "This bar will glow while items are waiting and you have permission to"
@@ -948,6 +962,7 @@ local function EnsureBuffOptionsFrame(owner, key)
         f.ppGlowCheck, f.ppGlowLabel,
         f.aiHideClearCheck, f.aiHideClearLabel,
         f.aiHideSoloCheck, f.aiHideSoloLabel,
+        f.aiHideNotYoursCheck, f.aiHideNotYoursLabel,
         f.aiGlowCheck, f.aiGlowLabel,
     }) do
         region:Hide()
