@@ -373,7 +373,7 @@ WhoDoesWhat.CoreRaidBuffs = {
 
 -- Every ordered tracking group available to WDW Status and the Buffing Grid.
 WhoDoesWhat.StatusBarCheckOrder = {
-    "pallyPower", "paladinBuffs", "gift",
+    "actionItems", "pallyPower", "paladinBuffs", "gift",
     "fortitude", "intellect", "shadowProtection",
 }
 WhoDoesWhat.StatusBarChecks = {}
@@ -409,6 +409,26 @@ WhoDoesWhat.StatusBarChecks.pallyPower = {
     description = "Shows whether the active blessing assignments match PallyPower.",
     customOptions = "pallyPower",
     gridOptionDisabled = true,
+}
+-- Not a buff at all: the count from the Action Items window (roles waiting to
+-- be set, group roles that disagree, tanks not promoted). It rides the status
+-- rows because it answers the same question they do -- "is anything left to do
+-- before the pull" -- and it's the first thing you want answered, so it leads
+-- the default order. Shown ON by default: an addon that quietly collects action
+-- items nobody is told about isn't worth the pass over the roster.
+WhoDoesWhat.StatusBarChecks.actionItems = {
+    name = "Action Items",
+    description = "Shows players still waiting on a role, group roles that "
+        .. "disagree, and tanks not promoted to Main Tank.",
+    -- The group-role tank shield, the same one the Action Items dropdowns
+    -- draw. `icon` is the fallback for clients without the micro role atlas,
+    -- spelled out rather than read from BasicWowRoles: that table is defined
+    -- further down this file.
+    wowRoleIcon = "tank",
+    icon = "Interface\\Icons\\INV_Shield_06",
+    customOptions = "actionItems",
+    gridOptionDisabled = true,
+    defaultEnabled = true,
 }
 WhoDoesWhat.StatusBarChecks.thorns = {
     name = "Thorns",
@@ -582,6 +602,12 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     end
     local hideWhenInactive = saved.hideWhenInactive
     if hideWhenInactive == nil then hideWhenInactive = true end
+    -- Action Items' pair, mirroring the two above: whether a clear list still
+    -- gets a row, and whether the row survives being ungrouped (where there is
+    -- nothing to check and never will be until you join something).
+    local hideWhenClear = saved.hideWhenClear == true
+    local hideWhenSolo = saved.hideWhenSolo
+    if hideWhenSolo == nil then hideWhenSolo = true end
     -- Only offered on class-based checks (see responsibleGlow in
     -- hiddenOptions); the status view still decides whether the local player
     -- is the one on the hook.
@@ -609,6 +635,9 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         hideWhenSynced = hideWhenSynced,
         hideWhenInactive = hideWhenInactive,
         assignmentIssuesGlow = saved.assignmentIssuesGlow ~= false,
+        hideWhenClear = hideWhenClear,
+        hideWhenSolo = hideWhenSolo,
+        actionItemsGlow = saved.actionItemsGlow ~= false,
     }
 end
 
@@ -758,6 +787,23 @@ function WhoDoesWhat:GetWowRoleIconMarkup(key, size)
         return CreateAtlasMarkup(GetMicroIconForRole(meta.blizzRole), size, size)
     end
     return "|T" .. meta.iconType1 .. ":" .. size .. ":" .. size .. ":0:0|t"
+end
+
+-- Texture twin of GetWowRoleIconMarkup, for status checks that draw their icon
+-- into a texture rather than a string. A check may name a `wowRoleIcon` to wear
+-- the client's micro role atlas -- the same shield/plus/sword the group-role
+-- dropdowns use -- instead of an icon file. Atlas art is already trimmed, so
+-- only the file path takes the usual inset TexCoord; the reset matters because
+-- one shared texture (the options panel's header) switches between checks.
+function WhoDoesWhat:ApplyStatusCheckIcon(texture, definition)
+    local meta = definition.wowRoleIcon
+        and self.BasicWowRoles[definition.wowRoleIcon]
+    if meta and GetMicroIconForRole and texture.SetAtlas then
+        texture:SetAtlas(GetMicroIconForRole(meta.blizzRole))
+        return
+    end
+    texture:SetTexture(definition.icon)
+    texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 end
 
 -- Canonical full ordering of all six paladin buffs. Partial PaladinBuffDefaults

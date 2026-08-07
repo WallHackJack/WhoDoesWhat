@@ -506,17 +506,47 @@ local function LayoutProgressLabel(row)
     row.name:SetPoint("RIGHT", row.percent, "LEFT", -4, 0)
 end
 
-local function LayoutPallyPowerRow(row)
+-- PallyPower and Action Items are not coverage bars: each is one line of state
+-- plus a click that opens the window which fixes it. They share the builder,
+-- the layout and the three visual buckets below --
+--   "inactive"  grey text, no icon   (PallyPower absent / you're not grouped)
+--   "ok"        green text + check   (in sync / nothing to fix)
+--   "attention" orange text + warning, and the row becomes clickable
+-- -- so only the icon, the tooltip wording and the target window differ.
+local STATE_ROW_TYPES = {
+    pallyPower = {
+        title = "PallyPower status",
+        openHint = "Click to open PallyPower Differences.",
+        Open = function() WhoDoesWhat:OpenPallyPowerDiffView() end,
+        CreateIcon = function(row)
+            return K.CreatePallyPowerBadge(row, ICON_SIZE)
+        end,
+    },
+    actionItems = {
+        title = "Action Items",
+        openHint = "Click to open Action Items.",
+        Open = function() WhoDoesWhat:OpenActionItemsView() end,
+        CreateIcon = function(row)
+            local icon = row:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(ICON_SIZE, ICON_SIZE)
+            WhoDoesWhat:ApplyStatusCheckIcon(icon,
+                WhoDoesWhat.StatusBarChecks.actionItems)
+            return icon
+        end,
+    },
+}
+
+local function LayoutStateRow(row)
     local width = view:GetWidth()
-    row.inactiveMark:SetShown(width < MIN_W and row.ppState == "inactive")
-    if row.ppState == "desynced" then
-        row.statusText:SetText(width < MIN_W and tostring(row.ppDiffCount)
-            or (row.ppDiffCount .. " issue" .. (row.ppDiffCount == 1 and "" or "s")))
+    row.inactiveMark:SetShown(width < MIN_W and row.bucket == "inactive")
+    if row.bucket == "attention" then
+        row.statusText:SetText(width < MIN_W and tostring(row.count)
+            or row.shortLabel)
         row.statusText:Show()
     elseif width < MIN_W then
         row.statusText:Hide()
     else
-        row.statusText:SetText(row.ppText)
+        row.statusText:SetText(row.label)
         row.statusText:Show()
     end
 end
@@ -587,30 +617,28 @@ local function CreateRow(index)
     return row
 end
 
-local function CreatePallyPowerRow()
+local function CreateStateRow(key)
+    local kind = STATE_ROW_TYPES[key]
     local row = CreateFrame("Button", nil, view)
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
-    row.optionsKey = "pallyPower"
+    row.optionsKey = key
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", function(self)
         -- Shift-left-click belongs to the window shortcut below, so a plain
-        -- click is the only one that opens Differences.
+        -- click is the only one that opens anything.
         if IsShiftKeyDown() then return end
-        if self.ppState == "desynced" then
-            WhoDoesWhat:OpenPallyPowerDiffView()
-        end
+        if self.bucket == "attention" then kind.Open() end
     end)
     row:SetScript("OnMouseUp", StatusBarsClick)
     row.FillTooltip = function(self)
-        GameTooltip:SetText("PallyPower status", 1, 1, 1)
-        if self.ppState == "synced" then
-            GameTooltip:AddLine(self.ppText or "", 0.3, 1, 0.3, true)
+        GameTooltip:SetText(kind.title, 1, 1, 1)
+        if self.bucket == "ok" then
+            GameTooltip:AddLine(self.label or "", 0.3, 1, 0.3, true)
         else
-            GameTooltip:AddLine(self.ppText or "", 1, 0.55, 0, true)
+            GameTooltip:AddLine(self.label or "", 1, 0.55, 0, true)
         end
-        if self.ppState == "desynced" then
-            GameTooltip:AddLine("Click to open PallyPower Differences.",
-                0.8, 0.8, 0.8, true)
+        if self.bucket == "attention" then
+            GameTooltip:AddLine(kind.openHint, 0.8, 0.8, 0.8, true)
         end
     end
     row:SetScript("OnEnter", ShowRowTooltip)
@@ -620,7 +648,7 @@ local function CreatePallyPowerRow()
     highlight:SetColorTexture(1, 1, 1, 0.04)
     row.highlight = highlight
 
-    local badge = K.CreatePallyPowerBadge(row, ICON_SIZE)
+    local badge = kind.CreateIcon(row)
     badge:SetPoint("TOPLEFT", 0, 0)
 
     local body = CreateFrame("Frame", nil, row)
@@ -651,6 +679,44 @@ local function CreatePallyPowerRow()
     row.statusText = status
 
     return row
+end
+
+-- The two state providers. Each returns the bucket plus the two strings the
+-- row draws: `label` at full width, `shortLabel` once the count is the only
+-- thing that fits.
+local function PallyPowerRowState(paladinCount)
+    -- The count is only returned once there is something to count; the
+    -- inactive answers ("No Paladins") carry no third value at all.
+    local ppState, ppText, ppDiffCount = K.GetPallyPowerState(paladinCount)
+    local count = ppDiffCount or 0
+    return {
+        bucket = ppState == "synced" and "ok"
+            or ppState == "inactive" and "inactive" or "attention",
+        label = ppText,
+        count = count,
+        shortLabel = count .. " issue" .. (count == 1 and "" or "s"),
+    }
+end
+
+local function ActionItemsRowState()
+    -- Ungrouped is "inactive", not "clear": Action Items is empty solo by
+    -- construction, and a green tick for a check that cannot fail says nothing.
+    if not IsInGroup() then
+        return { bucket = "inactive", label = "Not in a group.", count = 0 }
+    end
+    local count, actionable = WhoDoesWhat:CountActionItems()
+    if count == 0 then
+        return { bucket = "ok", label = "Nothing to fix.", count = 0 }
+    end
+    return {
+        bucket = "attention",
+        label = count .. " action" .. (count == 1 and "" or "s") .. " waiting.",
+        count = count,
+        shortLabel = count .. " to fix",
+        -- Nothing here is yours to set: the row still reports the count, but
+        -- it doesn't pulse about it.
+        actionable = actionable > 0,
+    }
 end
 
 local function StatusCheckInScope(scope)
@@ -824,6 +890,7 @@ local function EnsureView()
     emptyCheck:Hide()
     view.emptyCheck = emptyCheck
     view.rows = {}
+    view.stateRows = {}
     view:SetScript("OnSizeChanged", function(self)
         LayoutHeader()
         local rowW = self:GetWidth() - INSET * 2 - PAD * 2
@@ -831,9 +898,9 @@ local function EnsureView()
             row:SetWidth(rowW)
             if row:IsShown() then LayoutProgressLabel(row) end
         end
-        if self.ppRow then
-            self.ppRow:SetWidth(rowW)
-            LayoutPallyPowerRow(self.ppRow)
+        for _, row in pairs(self.stateRows) do
+            row:SetWidth(rowW)
+            if row:IsShown() then LayoutStateRow(row) end
         end
     end)
 
@@ -853,7 +920,6 @@ function WhoDoesWhat:RefreshStatusBarsView()
         self.Assign.ComputePaladinBuffCoverage(buffPlan,
             paladinOptions.hunterPets)
     local _, _, coreCoverage = self.Assign.ComputeCoreRaidBuffCoverage()
-    local ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
     local colorPreviewMode = self.statusBarColorPreviewKey ~= nil
     local displayed = {}
     local coreCorrect, coreTotal = 0, 0
@@ -965,22 +1031,42 @@ function WhoDoesWhat:RefreshStatusBarsView()
             end
         end
     end
+    -- Both state rows are computed up front: their own visibility options are
+    -- phrased in terms of the state ("hide when synced", "hide when clear"), so
+    -- there is nothing to decide before knowing it.
     local pallyPowerOptions = self:GetStatusBarCheckOptions("pallyPower")
-    local showPallyPower = false
+    local actionItemsOptions = self:GetStatusBarCheckOptions("actionItems")
+    local stateData = {
+        pallyPower = PallyPowerRowState(#summary),
+        -- Skipped outright when the row is switched off. It walks the whole
+        -- roster, and this function repaints on every buff-tracking notify.
+        actionItems = actionItemsOptions.bar and ActionItemsRowState() or nil,
+    }
+    local showState = {}
     for _, key in ipairs(self:GetStatusBarCheckOrder()) do
         if key == "paladinBuffs" then
             for _, entry in ipairs(paladinEntries) do
                 displayed[#displayed + 1] = entry
             end
         elseif key == "pallyPower" then
-            showPallyPower = pallyPowerOptions.bar
+            local bucket = stateData.pallyPower.bucket
+            showState.pallyPower = pallyPowerOptions.bar
                 and StatusCheckInScope(pallyPowerOptions.scope)
-                and not (pallyPowerOptions.hideWhenSynced
-                    and ppState == "synced")
+                and not (pallyPowerOptions.hideWhenSynced and bucket == "ok")
                 and not (pallyPowerOptions.hideWhenInactive
-                    and ppState == "inactive")
-            if showPallyPower then
-                displayed[#displayed + 1] = { pallyPower = true }
+                    and bucket == "inactive")
+            if showState.pallyPower then
+                displayed[#displayed + 1] = { stateRow = "pallyPower" }
+            end
+        elseif key == "actionItems" then
+            local bucket = stateData.actionItems and stateData.actionItems.bucket
+            showState.actionItems = actionItemsOptions.bar
+                and StatusCheckInScope(actionItemsOptions.scope)
+                and not (actionItemsOptions.hideWhenClear and bucket == "ok")
+                and not (actionItemsOptions.hideWhenSolo
+                    and bucket == "inactive")
+            if showState.actionItems then
+                displayed[#displayed + 1] = { stateRow = "actionItems" }
             end
         else
             local coverage = coreCoverageByKey[key]
@@ -1050,60 +1136,72 @@ function WhoDoesWhat:RefreshStatusBarsView()
     LayoutHeader()
     if not view.moving and not view.resizing then LoadPosition() end
 
-    if showPallyPower then
-        local ppRow = view.ppRow or CreatePallyPowerRow()
-        view.ppRow = ppRow
-        ppRow.ppState, ppRow.ppText, ppRow.ppDiffCount =
-            ppState, ppText, ppDiffCount
-        local assignmentGlow = pallyPowerOptions.assignmentIssuesGlow
-            and self:IsRaidAssistant() and ppState == "desynced"
-        ppRow.highlight:SetAlpha(assignmentGlow and 1 or 0)
-        local ppIndex
-        for i, entry in ipairs(displayed) do
-            if entry.pallyPower then ppIndex = i break end
-        end
-        ppRow:ClearAllPoints()
-        ppRow:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-            -(CONTENT_TOP + (ppIndex - 1) * ROW_H))
-        SetRowGlow(ppRow, assignmentGlow)
+    -- The two state rows draw identically off their bucket; only who is
+    -- allowed to be nagged by the glow differs. PallyPower's assignments are
+    -- the assistants' to push, so only they see it glow. Action Items goes
+    -- finer: `state.actionable` is false when every outstanding item belongs to
+    -- someone else, so a raider with no rights over anyone's role but their own
+    -- still gets an honest count and no pulsing.
+    local stateGlow = {
+        pallyPower = pallyPowerOptions.assignmentIssuesGlow
+            and self:IsRaidAssistant(),
+        actionItems = actionItemsOptions.actionItemsGlow,
+    }
+    for key in pairs(STATE_ROW_TYPES) do
+        if showState[key] then
+            local row = view.stateRows[key] or CreateStateRow(key)
+            view.stateRows[key] = row
+            local state = stateData[key]
+            row.bucket, row.label = state.bucket, state.label
+            row.count, row.shortLabel = state.count, state.shortLabel
+            local glow = stateGlow[key] and state.bucket == "attention"
+                and state.actionable ~= false or false
+            row.highlight:SetAlpha(glow and 1 or 0)
+            local index
+            for i, entry in ipairs(displayed) do
+                if entry.stateRow == key then index = i break end
+            end
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
+                -(CONTENT_TOP + (index - 1) * ROW_H))
+            SetRowGlow(row, glow)
 
-        ppRow.stateIcon:ClearAllPoints()
-        ppRow.stateIcon:SetSize(ppState == "desynced" and 12 or 14,
-            ppState == "desynced" and 12 or 14)
-        ppRow.statusText:ClearAllPoints()
-        if ppState == "inactive" then
-            ppRow.stateIcon:SetPoint("LEFT", 3, 0)
-            ppRow.stateIcon:Hide()
-            ppRow.statusText:SetPoint("LEFT", 4, 0)
-            ppRow.statusText:SetPoint("RIGHT", -3, 0)
-            ppRow.statusText:SetTextColor(0.6, 0.6, 0.6)
-        elseif ppState == "synced" then
-            ppRow.stateIcon:SetTexture(READY_ICON)
-            ppRow.stateIcon:SetPoint("RIGHT", -3, 0)
-            ppRow.stateIcon:Show()
-            ppRow.statusText:SetPoint("LEFT", 3, 0)
-            ppRow.statusText:SetPoint("RIGHT", ppRow.stateIcon, "LEFT", -2, 0)
-            ppRow.statusText:SetTextColor(0.3, 1, 0.3)
-        else
-            ppRow.stateIcon:SetTexture(self.WARNING_ICON)
-            ppRow.stateIcon:SetPoint("RIGHT", -3, 0)
-            ppRow.stateIcon:Show()
-            ppRow.statusText:SetPoint("LEFT", 3, 0)
-            ppRow.statusText:SetPoint("RIGHT", ppRow.stateIcon, "LEFT", -3, 0)
-            ppRow.statusText:SetTextColor(1, 0.55, 0)
-        end
-        LayoutPallyPowerRow(ppRow)
-        ppRow:Show()
-    else
-        if view.ppRow then
-            SetRowGlow(view.ppRow, false)
-            view.ppRow:Hide()
+            local attention = state.bucket == "attention"
+            row.stateIcon:ClearAllPoints()
+            row.stateIcon:SetSize(attention and 12 or 14, attention and 12 or 14)
+            row.statusText:ClearAllPoints()
+            if state.bucket == "inactive" then
+                row.stateIcon:SetPoint("LEFT", 3, 0)
+                row.stateIcon:Hide()
+                row.statusText:SetPoint("LEFT", 4, 0)
+                row.statusText:SetPoint("RIGHT", -3, 0)
+                row.statusText:SetTextColor(0.6, 0.6, 0.6)
+            elseif state.bucket == "ok" then
+                row.stateIcon:SetTexture(READY_ICON)
+                row.stateIcon:SetPoint("RIGHT", -3, 0)
+                row.stateIcon:Show()
+                row.statusText:SetPoint("LEFT", 3, 0)
+                row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -2, 0)
+                row.statusText:SetTextColor(0.3, 1, 0.3)
+            else
+                row.stateIcon:SetTexture(self.WARNING_ICON)
+                row.stateIcon:SetPoint("RIGHT", -3, 0)
+                row.stateIcon:Show()
+                row.statusText:SetPoint("LEFT", 3, 0)
+                row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -3, 0)
+                row.statusText:SetTextColor(1, 0.55, 0)
+            end
+            LayoutStateRow(row)
+            row:Show()
+        elseif view.stateRows[key] then
+            SetRowGlow(view.stateRows[key], false)
+            view.stateRows[key]:Hide()
         end
     end
 
     local normalIndex = 0
     for displayIndex, entry in ipairs(displayed) do
-        if not entry.pallyPower then
+        if not entry.stateRow then
             normalIndex = normalIndex + 1
             local row = view.rows[normalIndex] or CreateRow(normalIndex)
             local coverage = entry.coverage

@@ -100,6 +100,27 @@ function WhoDoesWhat:CanEditAssignments()
     return self:PlayerCanEditAssignments(UnitName("player"))
 end
 
+-- Whether `name` holds the WoW group rank required to set OTHER members' role
+-- flags. This is BLIZZARD's rule and it is not ours to widen: UnitSetRole on
+-- someone else is refused for a plain member whatever the board says.
+--
+-- The two rules come apart exactly where it hurts. PlayerCanEditAssignments
+-- errs OPEN when the raid leader doesn't run WhoDoesWhat (PermissionsOpenReason
+-- -- otherwise nobody could touch a board nobody leads), so a rank-0 raider can
+-- read as fully permitted while the server still refuses every flag write they
+-- make. Checking this alongside board rights is what stops the UI offering an
+-- edit that cannot land. In a party only the leader qualifies; solo there is
+-- nobody else to set.
+function WhoDoesWhat:PlayerCanSetGroupRoles(name)
+    if not name then return false end
+    if not IsInGroup() then return true end
+    if IsInRaid() then
+        local rank = RaidRankOf(name)
+        return rank ~= nil and rank >= 1
+    end
+    return UnitIsGroupLeader(name) == true
+end
+
 -- Your own role is always yours to set; everyone else's takes board rights.
 function WhoDoesWhat:CanEditRoleOf(name)
     return name == UnitName("player") or self:CanEditAssignments()

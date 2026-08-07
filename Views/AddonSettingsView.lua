@@ -360,10 +360,16 @@ local function RefreshBuffOptionsFrame()
     if not f or not f.buffKey then return end
     local definition = WhoDoesWhat.StatusBarChecks[f.buffKey]
     local options = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey)
-    local pallyPower = definition.customOptions == "pallyPower"
+    -- Checks with `customOptions` are not coverage checks: they replace the
+    -- whole normal option stack with their own short list. PallyPower has no
+    -- icon of its own (it wears the addon's badge); Action Items does.
+    local custom = definition.customOptions
+    local pallyPower = custom == "pallyPower"
     f.buffIcon:SetShown(not pallyPower)
     f.ppHeaderBadge:SetShown(pallyPower)
-    if not pallyPower then f.buffIcon:SetTexture(definition.icon) end
+    if not pallyPower then
+        WhoDoesWhat:ApplyStatusCheckIcon(f.buffIcon, definition)
+    end
     f.buffName:SetText(definition.name)
     UIDropDownMenu_SetText(f.scopeDD,
         STATUS_SCOPE_LABELS[options.scope] or STATUS_SCOPE_LABELS.always)
@@ -375,30 +381,39 @@ local function RefreshBuffOptionsFrame()
         dd:SetPoint("LEFT", label, "RIGHT", -7, -4)
     end
     for _, region in ipairs(f.normalOptionRegions) do
-        region:SetShown(not pallyPower)
+        region:SetShown(not custom)
     end
-    f.ppHideSyncedCheck:SetShown(pallyPower)
-    f.ppHideSyncedLabel:SetShown(pallyPower)
-    f.ppHideInactiveCheck:SetShown(pallyPower)
-    f.ppHideInactiveLabel:SetShown(pallyPower)
-    f.ppGlowCheck:SetShown(pallyPower)
-    f.ppGlowLabel:SetShown(pallyPower)
-    if pallyPower then
+    -- Both custom stacks are three checkboxes under the Party type dropdown,
+    -- so they share the placement below; only which trio is shown differs.
+    local customRows = {
+        pallyPower = {
+            { f.ppHideSyncedCheck, f.ppHideSyncedLabel, options.hideWhenSynced },
+            { f.ppHideInactiveCheck, f.ppHideInactiveLabel,
+                options.hideWhenInactive },
+            { f.ppGlowCheck, f.ppGlowLabel, options.assignmentIssuesGlow },
+        },
+        actionItems = {
+            { f.aiHideClearCheck, f.aiHideClearLabel, options.hideWhenClear },
+            { f.aiHideSoloCheck, f.aiHideSoloLabel, options.hideWhenSolo },
+            { f.aiGlowCheck, f.aiGlowLabel, options.actionItemsGlow },
+        },
+    }
+    local activeRows = custom and customRows[custom]
+    for key, rows in pairs(customRows) do
+        for _, row in ipairs(rows) do
+            row[1]:SetShown(rows == activeRows)
+            row[2]:SetShown(rows == activeRows)
+        end
+    end
+    if activeRows then
         PlaceDropdown(f.scopeLabel, f.scopeDD, 36)
         f:SetHeight(140)
-        local ppRows = {
-            { f.ppHideSyncedCheck, 66 },
-            { f.ppHideInactiveCheck, 88 },
-            { f.ppGlowCheck, 110 },
-        }
-        for _, row in ipairs(ppRows) do
+        for index, row in ipairs(activeRows) do
             row[1]:ClearAllPoints()
-            row[1]:SetPoint("TOPLEFT", 7, -row[2])
+            row[1]:SetPoint("TOPLEFT", 7, -(66 + (index - 1) * 22))
+            row[1]:SetChecked(row[3])
+            SetOptionAvailable(row[1], row[2], true)
         end
-        f.ppHideSyncedCheck:SetChecked(options.hideWhenSynced)
-        f.ppHideInactiveCheck:SetChecked(options.hideWhenInactive)
-        f.ppGlowCheck:SetChecked(options.assignmentIssuesGlow)
-        SetOptionAvailable(f.ppGlowCheck, f.ppGlowLabel, true)
         return
     end
 
@@ -897,12 +912,46 @@ local function EnsureBuffOptionsFrame(owner, key)
             RefreshBuffOptionsFrame()
         end)
     f.ppGlowCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
-    f.ppHideSyncedCheck:Hide()
-    f.ppHideSyncedLabel:Hide()
-    f.ppHideInactiveCheck:Hide()
-    f.ppHideInactiveLabel:Hide()
-    f.ppGlowCheck:Hide()
-    f.ppGlowLabel:Hide()
+
+    -- Action Items' trio, the same shape as PallyPower's above: two "when is
+    -- this row worth a line" toggles and one glow. RefreshBuffOptionsFrame
+    -- places them; the y values here are overwritten on the first open.
+    f.aiHideClearCheck, _, f.aiHideClearLabel = AddCompactCheckboxRow(
+        f, 7, 76, "Hide when nothing to fix",
+        "Hide this row while the Action Items list is empty.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "hideWhenClear", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.aiHideClearCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.aiHideSoloCheck, _, f.aiHideSoloLabel = AddCompactCheckboxRow(
+        f, 7, 104, "Hide when not in a group",
+        "Hide this row while you are solo, where there is nothing to check.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "hideWhenSolo", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.aiHideSoloCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+    f.aiGlowCheck, _, f.aiGlowLabel = AddCompactCheckboxRow(
+        f, 7, 132, "Action items glow",
+        "This bar will glow while items are waiting and you have permission to"
+            .. " edit assignments.",
+        function(value)
+            SetStatusBuffOption(owner, f.buffKey, "actionItemsGlow", value)
+            RefreshBuffOptionsFrame()
+        end)
+    f.aiGlowCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
+
+    for _, region in ipairs({
+        f.ppHideSyncedCheck, f.ppHideSyncedLabel,
+        f.ppHideInactiveCheck, f.ppHideInactiveLabel,
+        f.ppGlowCheck, f.ppGlowLabel,
+        f.aiHideClearCheck, f.aiHideClearLabel,
+        f.aiHideSoloCheck, f.aiHideSoloLabel,
+        f.aiGlowCheck, f.aiGlowLabel,
+    }) do
+        region:Hide()
+    end
 
     buffOptionsFrame = f
     return f
@@ -1228,8 +1277,7 @@ local function EnsureSettingsFrame()
             icon = row:CreateTexture(nil, "ARTWORK")
             icon:SetSize(16, 16)
             icon:SetPoint("LEFT", index, "RIGHT", 1, 0)
-            icon:SetTexture(definition.icon)
-            icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            WhoDoesWhat:ApplyStatusCheckIcon(icon, definition)
         end
         local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         name:SetPoint("LEFT", icon, "RIGHT", 7, 0)

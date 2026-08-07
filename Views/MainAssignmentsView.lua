@@ -252,18 +252,22 @@ end
 -- something to do. It stays CLICKABLE at zero rather than disabled -- opening
 -- it to confirm "nothing to fix" is a legitimate thing to want before a pull --
 -- so "nothing here" is said with grey text instead of a dead button.
+-- The gold label and the glow are a PROMPT, so they follow what this client
+-- may actually fix, not the raw total. An unpermitted raider still sees an
+-- honest "Actions (23)" if they go looking, in plain grey -- nothing pulses at
+-- them about roles that are the leader's to set.
 local function UpdateActionsButton(f)
-    local count = WhoDoesWhat:CountActionItems()
+    local count, actionable = WhoDoesWhat:CountActionItems()
     f.actionsBtn:SetText("Actions (" .. count .. ")")
     local label = f.actionsBtn:GetFontString()
     if label then
-        if count > 0 then
+        if actionable > 0 then
             label:SetTextColor(1, 0.82, 0.2)
         else
             label:SetTextColor(0.5, 0.5, 0.5)
         end
     end
-    SetActionsGlow(f.actionsBtn, count > 0)
+    SetActionsGlow(f.actionsBtn, actionable > 0)
 end
 
 local function UpdateToolbar(f)
@@ -404,9 +408,9 @@ local function EnsureMainFrame()
     -- other button sideways whenever an item appeared.
     local actionsBtn = CreateToolbarButton(toolbarBox, "Actions (0)", ACTIONS_BUTTON_W,
         "Action Items",
-        "Players whose Blizzard group role (Tank / Healer / Damage Dealer) "
-            .. "doesn't match their WhoDoesWhat role, plus tanks not yet "
-            .. "promoted to Main Tank.",
+        "Players still waiting on a WhoDoesWhat role, or whose group role "
+            .. "(Tank / Healer / Damage Dealer) doesn't match it, plus tanks "
+            .. "not yet promoted to Main Tank.",
         function() WhoDoesWhat:OpenActionItemsView() end)
     actionsBtn:SetPoint("LEFT", toolbarBox, "LEFT", TOOLBAR_PAD, 0)
 

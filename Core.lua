@@ -94,9 +94,16 @@ function WhoDoesWhat:BlizzardRoleWriter()
     local leader = sync:GroupLeaderName()
     if leader and sync:RunsCompatibleProtocol(leader) then return leader end
 
+    -- Candidates must also hold the WoW rank that lets them set someone else's
+    -- flag (Permissions.lua). Board rights alone aren't enough and read wide
+    -- open in exactly this case -- an addonless leader -- so without this the
+    -- election happily picks a rank-0 raider whose every write the server
+    -- refuses, leaving a writer who writes nothing and a UI that offers edits
+    -- that can't land.
     local best
     for _, name in ipairs(self:GroupMemberNames()) do
         if sync:RunsCompatibleProtocol(name) and self:PlayerCanEditAssignments(name)
+            and self:PlayerCanSetGroupRoles(name)
             and (not best or name < best) then
             best = name
         end
@@ -378,6 +385,18 @@ function WhoDoesWhat:OnInitialize()
         end
         statusChecks.paladinBuffProgress = nil
         settings.statusBarPaladinModel = 2
+    end
+
+    -- The Action Items row is new and belongs at the TOP. A saved
+    -- statusBarOrder has no entry for it, and GetStatusBarCheckOrder appends
+    -- unknown keys to the end -- which would bury the one row that says what
+    -- still needs doing under every buff row. Runs once, keyed on the check
+    -- having no saved options at all.
+    if not statusChecks.actionItems then
+        statusChecks.actionItems = { bar = true }
+        if settings.statusBarOrder then
+            table.insert(settings.statusBarOrder, 1, "actionItems")
+        end
     end
 
     -- tankAssignments migrated from one-row-per-marker { player, marker } to
