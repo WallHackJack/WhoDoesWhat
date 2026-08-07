@@ -189,12 +189,13 @@ end
 -- APIs involved, so callers without a token (talent auto-detection) omit it.
 function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
     ApplyBlizzardRole(unit or playerName, playerName, role)
-    -- Promoting to main tank is the leader's job, so only the flag-authority
-    -- raises the promote arrow -- a non-leader (or someone setting their own
-    -- tank role) can't promote anyone and doesn't want a useless pointer.
+    -- Only someone who could actually promote raises the arrow -- a plain
+    -- raider can't promote anyone and doesn't want a useless pointer. That's
+    -- every assistant, not just the flag-writer: promoting is a click a human
+    -- makes in Blizzard's own UI, not a write we coordinate.
     local isTank = role and role.wowRole == "tank"
     local inRaid = IsInRaid()
-    local authority = isTank and inRaid and self:CanSetOthersBlizzardRole() or false
+    local authority = isTank and self:CanPromoteMainTank() or false
     local mainTank = authority and GetPartyAssignment("MAINTANK", playerName, true) or false
     self:LogRolePromotion("Promotion gate",
         "player=" .. tostring(playerName),

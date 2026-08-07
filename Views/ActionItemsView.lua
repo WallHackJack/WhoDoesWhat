@@ -213,15 +213,15 @@ end
 -- The two numbers differ for an unpermitted raider, and that gap is the whole
 -- point: they still get an honest count of what's outstanding, but nothing
 -- glows or turns gold at them, because none of it is theirs to fix. Promotions
--- count only for the elected flag writer, who is the one the promote-watch
--- arrow would actually fire for.
+-- count for anyone who could actually promote -- leader or assistant, the same
+-- rule the promote-watch arrow fires on.
 function WhoDoesWhat:CountActionItems()
     local roleRows, promoteRows = self:GetActionItems()
     local actionable = 0
     for _, data in ipairs(roleRows) do
         if self:CanEditRoleOf(data.name) then actionable = actionable + 1 end
     end
-    if self:CanSetOthersBlizzardRole() then
+    if self:CanPromoteMainTank() then
         actionable = actionable + #promoteRows
     end
     return #roleRows + #promoteRows, actionable

@@ -355,11 +355,12 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     end
 
     -- First-scan main-tank sweep: a player whose WDW role is a tank but who
-    -- isn't MAINTANK yet gets the promote arrow. Only the single flag-authority
-    -- (the leader) drives it, only in a raid; StartPromoteWatch is idempotent
+    -- isn't MAINTANK yet gets the promote arrow. Anyone who could actually
+    -- promote them drives it (CanPromoteMainTank -- leader or assistant, NOT
+    -- the single flag-writer), only in a raid; StartPromoteWatch is idempotent
     -- per player, so the 60s talent rebroadcast that re-runs this won't re-nag
     -- once they're pending or promoted.
-    if IsInRaid() and self:CanSetOthersBlizzardRole() and self:IsMarkedTank(key)
+    if self:CanPromoteMainTank() and self:IsMarkedTank(key)
         and not GetPartyAssignment("MAINTANK", key, true) then
         self:StartPromoteWatch(key)
     end

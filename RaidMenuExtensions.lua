@@ -14,6 +14,7 @@ local promoteWatcher = CreateFrame("Frame")
 local pendingPromotes = {} -- set: player name -> true, tanks awaiting MAINTANK
 local highlights = {}      -- player name -> { arrow = frame, glow = frame } shown now
 local highlightPool = {}   -- released highlight pairs, reused for the next tank
+local lastKlaxon           -- GetTime() of the last promote ping, to coalesce bursts
 
 -- Find the Raid-tab row for a player. Blizzard_RaidUI names the member rows
 -- RaidGroupButton<i> where i is the player's raid roster index (the
@@ -238,10 +239,50 @@ function WhoDoesWhat:StartPromoteWatch(playerName)
         "shown=" .. tostring(FriendsFrame and FriendsFrame:IsShown()),
         "selectedTab=" .. tostring(FriendsFrame and FriendsFrame.selectedTab),
         "raidButton1Exists=" .. tostring(_G["RaidGroupButton1"] ~= nil))
-    -- Audible "action required" ping (raid-warning klaxon)
-    if PlaySound and SOUNDKIT then
+    -- Audible "action required" ping (raid-warning klaxon). Coalesced: a sweep
+    -- that turns up three unpromoted tanks at once is ONE piece of news, and
+    -- three overlapping raid warnings is just noise.
+    if PlaySound and SOUNDKIT
+        and (not lastKlaxon or GetTime() - lastKlaxon > 1) then
+        lastKlaxon = GetTime()
         PlaySound(SOUNDKIT.RAID_WARNING)
     end
     self:PointArrowAtRaidMember(playerName)
     promoteWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
 end
+
+-- Catch up on every tank already waiting. Both the normal entry points are
+-- EDGE-triggered -- a watch starts when this client sets a tank role, or when a
+-- talent scan lands -- and neither fires when OUR OWN rank changes. So an
+-- assistant promoted after the tanks were assigned had an empty pending set and
+-- saw nothing on opening the Raid tab, indefinitely: opening the tab only draws
+-- pending entries, it never discovers them.
+--
+-- Idempotent through StartPromoteWatch, so a tank already pending or already
+-- promoted costs nothing and never re-klaxons.
+function WhoDoesWhat:SweepPromoteWatch()
+    if not self.db then return end
+    if not self:CanPromoteMainTank() then return end
+    for _, name in ipairs(self:GroupMemberNames()) do
+        if self:IsMarkedTank(name)
+            and not GetPartyAssignment("MAINTANK", name, true) then
+            self:StartPromoteWatch(name)
+        end
+    end
+end
+
+-- Watch the one transition that leaves the flow stranded: gaining the rank
+-- that lets us promote. Only on the false -> true edge, so the sweep isn't
+-- paying for a roster walk on every GROUP_ROSTER_UPDATE -- and that event
+-- fires on every UnitSetRole anyone makes.
+local rankWatcher = CreateFrame("Frame")
+local couldPromote = false
+rankWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+rankWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+rankWatcher:SetScript("OnEvent", function()
+    local now = WhoDoesWhat.db and WhoDoesWhat:CanPromoteMainTank() or false
+    if now and not couldPromote then
+        WhoDoesWhat:SweepPromoteWatch()
+    end
+    couldPromote = now
+end)

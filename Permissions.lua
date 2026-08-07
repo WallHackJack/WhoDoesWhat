@@ -121,6 +121,19 @@ function WhoDoesWhat:PlayerCanSetGroupRoles(name)
     return UnitIsGroupLeader(name) == true
 end
 
+-- Whether the local player may promote someone to Main Tank, and so should be
+-- shown the promote prompt (klaxon + Raid-tab arrow).
+--
+-- Deliberately NOT the flag-writer election. That election exists to stop
+-- several clients writing the same flag at once; promoting is not a write we
+-- make at all -- SetPartyAssignment is protected, so all we do is point at a
+-- row for a human to click, and EVERY assistant can click it. Gating the
+-- prompt on the single writer meant exactly one person in the raid ever saw
+-- it, and nobody at all when the leader doesn't run WhoDoesWhat.
+function WhoDoesWhat:CanPromoteMainTank()
+    return IsInRaid() and self:PlayerCanSetGroupRoles(UnitName("player"))
+end
+
 -- Your own role is always yours to set; everyone else's takes board rights.
 function WhoDoesWhat:CanEditRoleOf(name)
     return name == UnitName("player") or self:CanEditAssignments()
