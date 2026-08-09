@@ -437,13 +437,13 @@ local function RefreshBuffOptionsFrame()
 
     local hidden = definition.hiddenOptions or {}
     local hasRequirement = options.requiredClass ~= false
-    local function PlaceOption(option, shown, y)
+    local function PlaceOption(option, shown, y, indent)
         local check, label = f.optionChecks[option], f.optionLabels[option]
         check:SetShown(shown)
         label:SetShown(shown)
         if shown then
             check:ClearAllPoints()
-            check:SetPoint("TOPLEFT", 7, -y)
+            check:SetPoint("TOPLEFT", 7 + (indent or 0), -y)
             return y + 21
         end
         return y
@@ -490,6 +490,9 @@ local function RefreshBuffOptionsFrame()
     y = y + ((showBest or showHideBarUnavailable
         or showHideColumnUnavailable or showResponsibleGlow) and 18 or 25)
     y = PlaceOption("bestAvailable", showBest, y)
+    -- A sub-option of the box above it: indented, and gone entirely while the
+    -- rule it relaxes is switched off.
+    y = PlaceOption("anyInCombat", showBest and options.bestAvailable, y, 14)
     y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
     y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
     y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
@@ -523,7 +526,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("onlyManaUsers", showMana, y)
     y = PlaceOption("onlyTanks", showTanks, y)
     y = PlaceOption("hunterPets", showPets, y)
-    for _, option in ipairs({ "bestAvailable", "hideBarUnavailable",
+    for _, option in ipairs({ "bestAvailable", "anyInCombat", "hideBarUnavailable",
         "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
         "negative", "hideComplete", "responsibleGlow",
         "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
@@ -848,6 +851,10 @@ local function EnsureBuffOptionsFrame(owner, key)
             "Hide the Buffing Grid column when the check is complete, or when a debuff is absent from everyone." },
         { "bestAvailable", "Only consider best available",
             "Untalented buffs will not be counted toward the total buffing progress while a better buff is available." },
+        { "anyInCombat", "Consider all in combat and BGs",
+            "While you are in combat, or anywhere in a battleground or arena,"
+                .. " count any buff as covered. Mid-fight there is no time to"
+                .. " chase a better rank." },
         { "onlyManaUsers", "Only for mana-users",
             "Only include classes that use mana." },
         { "onlyTanks", "Only for tanks",

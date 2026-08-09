@@ -553,6 +553,11 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         bestAvailable = not saved.includeUnimproved
     end
     if bestAvailable == nil then bestAvailable = true end
+    -- Sub-option of "best available". Once the pull is under way -- or in a
+    -- battleground, where the roster is strangers and rebuffing is a luxury --
+    -- a weaker buff is the answer, so the check stops asking for the best one.
+    local anyInCombat = saved.anyInCombat
+    if anyInCombat == nil then anyInCombat = true end
     local requiredClass = saved.requiredClass
     if requiredClass == nil then requiredClass = definition.className or false end
     if requiredClass then
@@ -624,6 +629,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         hideComplete = hideComplete,
         hideColumnComplete = hideColumnComplete,
         bestAvailable = bestAvailable,
+        anyInCombat = anyInCombat,
         onlyManaUsers = onlyManaUsers,
         onlyTanks = onlyTanks,
         hunterPets = hunterPets,

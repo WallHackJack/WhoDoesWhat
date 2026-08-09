@@ -1601,6 +1601,15 @@ local function BestAvailableCoreBuffRank(buff, key, disconnected)
     return best
 end
 
+-- Where "Only consider best available" stops applying under its sub-option:
+-- mid-fight there is no time to chase a better rank, and a battleground group
+-- is strangers whose talents nobody is going to redistribute.
+local function AnyBuffContext()
+    if UnitAffectingCombat("player") then return true end
+    local _, instanceType = IsInInstance()
+    return instanceType == "pvp" or instanceType == "arena"
+end
+
 -- Live coverage for the non-paladin checks in WDW Status. Only real, connected
 -- raiders count; a check may opt into scanned hunter pets through Data.lua.
 -- Fake-development members and the Non-raider role remain excluded.
@@ -1609,15 +1618,21 @@ local function ComputeCoreRaidBuffCoverage()
     local members = GetEligibleMembers(nil)
     local pets = GetPetMembers()
     local correct, total, rows = 0, 0, {}
+    local anyContext = AnyBuffContext()
     for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
         local buff = WhoDoesWhat.StatusBarChecks[key]
         if not buff.customOptions and not buff.customCoverage then
             local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
             local bestRank = options.bestAvailable
+                and not (options.anyInCombat and anyContext)
                 and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
+                -- How many carry the buff at all, regardless of rank. Equal to
+                -- `correct` unless a best-rank requirement is in force, which
+                -- is exactly when the tooltip splits the two apart.
+                anyCorrect = 0,
                 -- Targets worth acting on: raiders missing a buff, or carrying
                 -- a tracked debuff on a negative check. Drives the tooltip's
                 -- "who still needs this" list.
@@ -1644,14 +1659,15 @@ local function ComputeCoreRaidBuffCoverage()
                 if IsEligibleCoreBuffTarget(m, buff, options, disconnected) then
                     row.total = row.total + 1
                     total = total + 1
-                    local covered
+                    local hasBuff = WhoDoesWhat:HasBuff(m.name, key) == true
+                    local covered, rank = hasBuff, nil
                     if bestRank and bestRank > 0 then
-                        local _, _, rank =
+                        local _, _, r =
                             WhoDoesWhat:GetImprovedBuffState(m.name, key)
-                        covered = rank ~= nil and rank >= bestRank
-                    else
-                        covered = WhoDoesWhat:HasBuff(m.name, key) == true
+                        rank = r
+                        covered = r ~= nil and r >= bestRank
                     end
+                    if hasBuff then row.anyCorrect = row.anyCorrect + 1 end
                     if covered then
                         row.correct = row.correct + 1
                         correct = correct + 1
@@ -1661,6 +1677,10 @@ local function ComputeCoreRaidBuffCoverage()
                             name = m.name,
                             classInfo = m.classInfo,
                             isPet = m.isPet,
+                            -- Buffed, just not by the best caster available:
+                            -- a different problem from having nothing at all.
+                            unoptimal = not covered and hasBuff or nil,
+                            rank = rank,
                         }
                     end
                 end

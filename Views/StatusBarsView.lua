@@ -295,6 +295,24 @@ local function AddProgressLine(correct, total, negative)
         .. "  " .. hex .. "(" .. percent .. "%)|r", 1, 1, 1)
 end
 
+-- Where a best-rank requirement is in force, one number can't tell the story:
+-- somebody carrying a weaker Fortitude is in a different place from somebody
+-- carrying none. Three lines split it -- what's optimal, what's buffed at all,
+-- and the bare count of who has nothing.
+local function AddSplitProgressLines(correct, anyCorrect, total)
+    local function Percent(count)
+        return math.floor(count / total * 100 + 0.5)
+    end
+    GameTooltip:AddLine("|cff4dff4d" .. correct .. "/" .. total
+        .. " with best buff (" .. Percent(correct) .. "%)|r", 1, 1, 1)
+    GameTooltip:AddLine("|cffffd133" .. anyCorrect .. "/" .. total
+        .. " with any buff (" .. Percent(anyCorrect) .. "%)|r", 1, 1, 1)
+    if anyCorrect < total then
+        GameTooltip:AddLine("|cffff4d4d" .. (total - anyCorrect)
+            .. " missing buff|r", 1, 1, 1)
+    end
+end
+
 -- The actionable end of every tooltip: who still needs attention. `Format`
 -- turns one entry into its line, so the paladin rows can lead with the
 -- blessing icon while the raid-buff rows are just names.
@@ -362,7 +380,12 @@ local function FillCoreTooltip(row)
         GameTooltip:AddLine("No Targets", 0.6, 0.6, 0.6)
         return
     end
-    AddProgressLine(row.correct, row.total, row.negative)
+    local split = row.anyCorrect ~= nil and row.anyCorrect > row.correct
+    if split then
+        AddSplitProgressLines(row.correct, row.anyCorrect, row.total)
+    else
+        AddProgressLine(row.correct, row.total, row.negative)
+    end
 
     local flagged = row.flagged or {}
     if #flagged == 0 then
@@ -370,8 +393,26 @@ local function FillCoreTooltip(row)
         GameTooltip:AddLine(row.negative and "Nobody has it."
             or "Everyone has it.", 0.6, 0.6, 0.6)
     else
+        if split then
+            -- Nothing beats nothing: the unbuffed lead the list, so a truncated
+            -- one names the people who actually need a cast.
+            table.sort(flagged, function(a, b)
+                if (a.unoptimal == true) ~= (b.unoptimal == true) then
+                    return b.unoptimal == true
+                end
+                return a.name < b.name
+            end)
+        end
+        local maxRank = definition.improvedTalent
+            and definition.improvedTalent.maxRank
         AddEntryLines(flagged, function(entry)
-            return ColoredName(entry.name, entry.classInfo)
+            local right
+            if entry.unoptimal then
+                right = entry.rank and maxRank
+                    and ("weaker (" .. entry.rank .. "/" .. maxRank .. ")")
+                    or "weaker buff"
+            end
+            return ColoredName(entry.name, entry.classInfo), right
         end)
     end
 end
@@ -902,6 +943,11 @@ local function EnsureView()
     end)
 
     view:RegisterEvent("GROUP_ROSTER_UPDATE")
+    -- "Consider all in combat and BGs" changes what counts as covered without
+    -- a single aura moving, so the bars have to be told when it flips.
+    view:RegisterEvent("PLAYER_REGEN_DISABLED")
+    view:RegisterEvent("PLAYER_REGEN_ENABLED")
+    view:RegisterEvent("PLAYER_ENTERING_WORLD")
     view:SetScript("OnEvent", function(self)
         if self:IsShown() then WhoDoesWhat:RefreshStatusBarsView() end
     end)
@@ -1227,6 +1273,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             row.negative = entry.negative
             row.saturatedStyle = entry.saturatedStyle or "check"
             row.correct = coverage.correct
+            row.anyCorrect = coverage.anyCorrect
             row.total = coverage.total
             row.display = entry.display
             if not row.display or row.display == "default" then
