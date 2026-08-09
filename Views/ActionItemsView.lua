@@ -10,9 +10,15 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --   * OUT-DATED ROLES -- one row per player whose group role and WDW role need
 --     attention. Both middle columns ARE dropdowns: pick on the left to write
 --     their Blizzard group flag, pick on the right to set their WhoDoesWhat role
---     (which pushes the flag to match). The Set Role button on the right is the
---     one-click version of the right-hand dropdown, pre-loaded with the spec
---     this row would take if you didn't want to think about it.
+--     (which pushes the flag to match). The last column is EVIDENCE, not a
+--     control: the talent spread we've actually seen, the spec it reads as, and
+--     a Rescan button to go and look again.
+--
+-- There is deliberately no "fix" here -- neither per row nor a Fix All. Both
+-- applied a guess derived from Blizzard's flag, which is the least trustworthy
+-- thing on the row: Blizzard drops every new raider on DAMAGER, so "fix" mostly
+-- meant writing that guess onto the board in bulk. Talents are the real
+-- evidence, so the column offers them and lets you pick from the dropdown.
 --
 -- Rows wear the class tinting and spec/class icon of the Members window, since
 -- they are the same thing -- a roster line you change a role on.
@@ -41,7 +47,7 @@ local K = WhoDoesWhat.SectionKit
 local actionsFrame = nil
 local RenderRows
 
-local FRAME_W = 620
+local FRAME_W = 660
 local FRAME_MAX_H = 500
 -- Floor for the populated window. Sizing exactly to the rows left the scroll
 -- viewport the same height as its content, which is a rounding error away from
@@ -61,7 +67,6 @@ local EMPTY_BULLETS = {
 }
 local MARGIN = 10
 local TOP_PAD = 18          -- breathing room under the title bar
-local BOTTOM_STRIP = 32
 -- Section chrome copied from the Members window: a GameFontNormal title with
 -- the small column headings on its right, and a hairline under both.
 local HEADER_H = 26
@@ -74,12 +79,16 @@ local SCROLLBAR_W = 26
 local NAME_COL_W = 134
 local GROUP_DD_W = 128
 local WDW_DD_W = 170
-local SET_COL_W = 142
-local CONTENT_W = NAME_COL_W + GROUP_DD_W + WDW_DD_W + SET_COL_W
+-- The talents column, laid out left to right inside its own width: the point
+-- spread, the spec icon(s) it reads as, then Rescan.
+local TALENT_COL_W = 178
+local TALENT_X = NAME_COL_W + GROUP_DD_W + WDW_DD_W
+local TALENT_POINTS_W = 52
+local TALENT_ICON_SIZE = 16
+local TALENT_ICON_X = TALENT_POINTS_W + 8
+local RESCAN_BTN_W = 66
+local CONTENT_W = TALENT_X + TALENT_COL_W
 local CLASS_ICON_SIZE = 20
-local SET_ICON_SIZE = 16
-local SET_BTN_PAD = 16      -- UIPanelButtonTemplate's end caps, both sides
-local SET_BTN_MIN_W = 44
 
 -- UIDropDownMenuTemplate's visible box starts inset from the frame's own left
 -- edge, so every anchor below backs off by this much to line the box up with
@@ -92,30 +101,6 @@ local DD_INSET = 15
 
 local BLIZZ_TO_WOW = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
 local GROUP_ROLE_ORDER = { "tank", "healer", "dps" }
-
--- Which spec to offer when adopting a Blizzard role into WDW. The class's own
--- role list already yields the common answer for almost everything -- its first
--- entry matching the group role is Beast Mastery, Combat, Protection, Feral
--- Tank, Restoration and so on. PREFERRED_GUESS only overrides where the list
--- order disagrees with what people actually mean; add to it rather than
--- reordering Data.lua, which drives menus everywhere else.
-local PREFERRED_GUESS = {
-    PRIEST_healer = "priest_holy", -- list order would offer Discipline first
-}
-
-local function GuessRoleId(classInfo, wowRole)
-    if not (classInfo and wowRole) then return nil end
-    local preferred = PREFERRED_GUESS[classInfo.name:upper() .. "_" .. wowRole]
-    if preferred then
-        for _, role in ipairs(classInfo.roles) do
-            if role.id == preferred then return role.id end
-        end
-    end
-    for _, role in ipairs(classInfo.roles) do
-        if role.wowRole == wowRole then return role.id end
-    end
-    return nil
-end
 
 local function ClassInfoForToken(englishClass)
     if not englishClass then return nil end
@@ -167,17 +152,6 @@ function WhoDoesWhat:GetActionItems()
             local pending = (not roleId) and true or false
 
             if classInfo and (mismatched or unset or pending) then
-                -- What the row's Set Role button offers, and what Fix All
-                -- applies. Blizzard's flag is the evidence wherever there is
-                -- one: a mismatch adopts it as a guessed spec, and so does a
-                -- player with no WDW role at all. An unset flag has nothing to
-                -- adopt, so it pushes the role they already hold.
-                local suggested
-                if unset then
-                    suggested = roleId
-                elseif blizzRole then
-                    suggested = GuessRoleId(classInfo, BLIZZ_TO_WOW[blizzRole])
-                end
                 roleRows[#roleRows + 1] = {
                     name = key,
                     unit = unit,
@@ -188,7 +162,6 @@ function WhoDoesWhat:GetActionItems()
                     mismatched = mismatched,
                     unset = unset,
                     pending = pending,
-                    suggestedId = suggested,
                 }
             end
 
@@ -251,10 +224,11 @@ end
 --
 -- These decide whether a column is a CONTROL or plain text. Permission is a
 -- standing fact about the raid: a dropdown that can only ever answer "no" is
--- worse than no dropdown, and a Set Role button nobody may press is exactly the
--- "prompting someone who can't apply the fix" this window has to stop doing.
+-- worse than no dropdown, so an unpermitted client reads the column instead.
 -- Combat is not the same thing -- it passes -- so it leaves the controls in
--- place and merely disables them, with the reason in the tooltip.
+-- place and merely disables them, with the reason in the tooltip. Rescan is
+-- outside all of this: looking at someone's talents changes nothing and needs
+-- no rights.
 local function MayEditRole(data)
     return WhoDoesWhat:CanEditRoleOf(data.name)
 end
@@ -275,11 +249,6 @@ local function MayEditGroupRole(data)
 end
 
 local COMBAT_REASON = "Can't change roles in combat."
-
-local function CanAct(playerName)
-    if InCombatLockdown() then return false end
-    return WhoDoesWhat:CanEditRoleOf(playerName)
-end
 
 -- Write the group flag straight, without touching the WDW board -- the opposite
 -- direction from the WhoDoesWhat dropdown, which writes the board and lets
@@ -311,12 +280,6 @@ local function SetDropdownEnabled(dd, enabled)
     else
         UIDropDownMenu_DisableDropDown(dd)
     end
-end
-
--- A row can be settled from here only when there's a role to write -- which is
--- exactly when its Set Role button has something to show.
-local function RowFixable(data)
-    return data.suggestedId ~= nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -562,46 +525,51 @@ local function CreateRow(content, index)
     wdwText:SetJustifyH("LEFT")
     row.wdwText = wdwText
 
-    -- The one-click answer: the spec this row would take if you didn't want to
-    -- think about it. Hidden outright when there's nothing to suggest, so an
-    -- empty cell means "you have to choose this one yourself".
-    -- The spec icon sits OUTSIDE the button, immediately left of it: inline
-    -- |T..|t markup inside the label forces the button wide enough to hold
-    -- both, which is the opposite of shrink-to-fit.
-    local setIcon = row:CreateTexture(nil, "ARTWORK")
-    setIcon:SetSize(SET_ICON_SIZE, SET_ICON_SIZE)
-    setIcon:SetPoint("LEFT", row, "LEFT",
-        NAME_COL_W + GROUP_DD_W + WDW_DD_W + 6, 0)
-    row.setIcon = setIcon
+    -- Talents: what we have actually seen, not what anyone picked. The spread
+    -- reads left to right in talent-tab order, and the icons beside it are the
+    -- spec that spread means -- two of them for a feral druid, whose tree can't
+    -- distinguish cat from bear.
+    local talentText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    talentText:SetPoint("LEFT", row, "LEFT", TALENT_X + 6, 0)
+    talentText:SetWidth(TALENT_POINTS_W)
+    talentText:SetJustifyH("LEFT")
+    row.talentText = talentText
 
-    local setBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    setBtn:SetHeight(ROW_H - 8)
-    setBtn:SetPoint("LEFT", setIcon, "RIGHT", 4, 0)
-    setBtn:SetMotionScriptsWhileDisabled(true)
-    setBtn:SetScript("OnClick", function()
+    row.talentIcons = {}
+    for i = 1, 2 do
+        local icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(TALENT_ICON_SIZE, TALENT_ICON_SIZE)
+        icon:SetPoint("LEFT", row, "LEFT",
+            TALENT_X + TALENT_ICON_X + (i - 1) * (TALENT_ICON_SIZE + 2), 0)
+        row.talentIcons[i] = icon
+    end
+
+    -- Go and look again. Not a fix and not gated on permissions -- an inspect
+    -- writes nothing to anyone's board, it just refreshes the evidence the rest
+    -- of the row is judged against.
+    local rescanBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    rescanBtn:SetSize(RESCAN_BTN_W, ROW_H - 8)
+    rescanBtn:SetPoint("LEFT", row, "LEFT", TALENT_X + TALENT_COL_W - RESCAN_BTN_W - 8, 0)
+    rescanBtn:SetText("Rescan")
+    rescanBtn:SetMotionScriptsWhileDisabled(true)
+    rescanBtn:SetScript("OnClick", function()
         local data = row.data
-        if not (data and RowFixable(data)) then return end
-        WhoDoesWhat:SetAssignedRole(data.name, data.suggestedId, data.unit)
-        RenderRows(row.ownerFrame)
+        if not data then return end
+        WhoDoesWhat:RescanPlayerTalents(data.unit, data.name)
     end)
-    setBtn:SetScript("OnEnter", function(self)
-        local data = row.data
+    rescanBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Set role", 1, 1, 1)
-        if data and data.unset then
-            GameTooltip:AddLine("Push the role they already hold to their "
-                .. "Blizzard group flag.", 0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:AddLine("Adopt their Blizzard group role as this spec.",
-                0.8, 0.8, 0.8, true)
-        end
+        GameTooltip:SetText("Rescan talents", 1, 1, 1)
+        GameTooltip:AddLine("Queue a fresh inspect. They have to be in range "
+            .. "-- out of range, their last-known talents stand.",
+            0.8, 0.8, 0.8, true)
         if self.blockedReason then
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
         end
         GameTooltip:Show()
     end)
-    setBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    row.setBtn = setBtn
+    rescanBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.rescanBtn = rescanBtn
 
     content.rows[index] = row
     return row
@@ -646,24 +614,32 @@ local function LayoutRow(row, data, index, ownerFrame)
         row.wdwText:SetText(RoleText(data.role, data.classInfo))
     end
 
-    -- The button is the WDW column's one-click twin, so it lives and dies with
-    -- that column's permission.
-    local fixable = RowFixable(data) and mayRole
-    row.setBtn:SetShown(fixable)
-    row.setIcon:SetShown(fixable)
-    if fixable then
-        local _, suggested = WhoDoesWhat:FindRoleById(data.suggestedId)
-        row.setIcon:SetTexture(suggested and suggested.icon)
-        row.setBtn:SetText(suggested and suggested.name or "Set")
-        -- Shrink to the label. The template's end caps need a fixed allowance
-        -- either side, so measure the text and add it rather than guessing a
-        -- column width that "Beast Mastery" and "Holy" would both have to fit.
-        local label = row.setBtn:GetFontString()
-        local textW = label and label:GetStringWidth() or 0
-        row.setBtn:SetWidth(math.max(SET_BTN_MIN_W, textW + SET_BTN_PAD))
-        row.setBtn:SetEnabled(not combat)
-        row.setBtn.blockedReason = reason
+    -- Talents, or a grey "not scanned yet" where none have been seen: an
+    -- unknown spread has to read as unknown, not as a player with no points.
+    -- The label borrows the icons' room when there are no icons to draw.
+    local snapshot = WhoDoesWhat:GetTalentSnapshot(data.unit)
+    if snapshot then
+        row.talentText:SetWidth(TALENT_POINTS_W)
+        row.talentText:SetText(table.concat(snapshot.points, "/"))
+    else
+        row.talentText:SetWidth(TALENT_COL_W - RESCAN_BTN_W - 20)
+        row.talentText:SetText("|cff909090not scanned|r")
     end
+    for i, icon in ipairs(row.talentIcons) do
+        local roleId = snapshot and snapshot.roleIds and snapshot.roleIds[i]
+        local _, role = roleId and WhoDoesWhat:FindRoleById(roleId)
+        icon:SetTexture(role and role.icon)
+        icon:SetShown(role ~= nil)
+    end
+
+    -- Already queued: the button has done its job and pressing it again just
+    -- re-queues the same inspect, so it goes quiet until the answer lands or
+    -- the request times out.
+    local pendingScan = WhoDoesWhat:IsTalentRescanPending(data.name)
+    row.rescanBtn:SetEnabled(not combat and not pendingScan)
+    row.rescanBtn:SetText(pendingScan and "Queued" or "Rescan")
+    row.rescanBtn.blockedReason = combat and "Can't inspect in combat."
+        or (pendingScan and "Waiting for their talents to arrive." or nil)
     row:Show()
 end
 
@@ -682,7 +658,6 @@ local function SetCompact(f, inGroup)
     f.promoteHeader:Hide()
     f.rolesHeader:Hide()
     f.scroll:Hide()
-    f.fixAllBtn:Hide()
     for _, row in ipairs(f.promoteRows) do row:Hide() end
 
     local y = f.titleBarHeight + 16
@@ -751,8 +726,7 @@ RenderRows = function(f)
 
         f.scroll:ClearAllPoints()
         f.scroll:SetPoint("TOPLEFT", MARGIN, -y)
-        f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W),
-            MARGIN + BOTTOM_STRIP)
+        f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
     else
         -- Nothing below the promotes, so the bottom strip has nothing to hold
         -- either; trim the gap it would have left.
@@ -768,26 +742,13 @@ RenderRows = function(f)
     end
     for i = #rows + 1, #content.rows do content.rows[i]:Hide() end
 
-    -- Fix All counts only rows this client may write. When that is none it is
-    -- hidden outright rather than shown dead: "Fix All (0)" greyed out still
-    -- reads as an offer, and offering a fix to someone who has no rights over
-    -- anyone's role but their own is the thing this window must not do.
-    local fixable = 0
-    for _, data in ipairs(rows) do
-        if RowFixable(data) and MayEditRole(data) then fixable = fixable + 1 end
-    end
-    f.fixAllBtn:SetShown(fixable > 0)
-    f.fixAllBtn:SetText("Fix All (" .. fixable .. ")")
-    f.fixAllBtn:SetEnabled(not InCombatLockdown())
-    f.fixAllRows = rows
-
     local bodyHeight = #rows * ROW_H
     content:SetHeight(math.max(1, bodyHeight))
     if #rows > 0 then
         -- The floor only earns its keep while there IS a scroll box to give
-        -- slack to; the bottom strip is Fix All's.
+        -- slack to.
         f:SetSize(FRAME_W, math.max(FRAME_MIN_H, math.min(FRAME_MAX_H,
-            y + bodyHeight + MARGIN + BOTTOM_STRIP)))
+            y + bodyHeight + MARGIN * 2)))
         -- After the resize, so the scrollbar decision sees the height it got.
         K.UpdatePaladinGridScroll(f.scroll, bodyHeight)
     else
@@ -838,8 +799,7 @@ local function EnsureFrame()
     -- No "Player" heading: the section title already owns that column.
     f.rolesHeader:Heading("Group role", NAME_COL_W, GROUP_DD_W)
     f.rolesHeader:Heading("WhoDoesWhat", NAME_COL_W + GROUP_DD_W, WDW_DD_W)
-    f.rolesHeader:Heading("Set Role:",
-        NAME_COL_W + GROUP_DD_W + WDW_DD_W + 4, SET_COL_W)
+    f.rolesHeader:Heading("Talents", TALENT_X + 4, TALENT_COL_W)
 
     local scroll, content = K.CreatePaladinGridScroll(f,
         "WhoDoesWhatActionItemsScroll")
@@ -861,30 +821,6 @@ local function EnsureFrame()
         line:SetText("- " .. text)
         f.emptyBullets[index] = line
     end
-
-    local fixAll = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    fixAll:SetSize(110, 22)
-    fixAll:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
-    fixAll:SetText("Fix All (0)")
-    fixAll:SetMotionScriptsWhileDisabled(true)
-    fixAll:SetScript("OnClick", function()
-        for _, data in ipairs(f.fixAllRows or {}) do
-            if RowFixable(data) and CanAct(data.name) then
-                WhoDoesWhat:SetAssignedRole(data.name, data.suggestedId, data.unit)
-            end
-        end
-        RenderRows(f)
-    end)
-    fixAll:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Fix all roles", 1, 1, 1)
-        GameTooltip:AddLine("Apply every row's suggested spec at once -- the "
-            .. "same thing as pressing each Set Role button.",
-            0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    fixAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.fixAllBtn = fixAll
 
     -- No Refresh button: every source that can change this list already
     -- repaints it -- GROUP_ROSTER_UPDATE below, and RefreshActionItemsView from

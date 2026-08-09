@@ -55,6 +55,72 @@ local function DetectedRoleFor(playerKey, class, specIndex)
     return detected
 end
 
+-- Which WDW roles a talent spread reads as -- normally one, but a feral druid
+-- gets both: cat and bear share the Feral Combat tree, so the points genuinely
+-- cannot tell them apart and showing one icon would be picking a side.
+local function RolesForSpec(class, specIndex)
+    local id = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
+    if not id then return nil end
+    if id == "druid_feral_dps" then return { id, "druid_feral_tank" } end
+    return { id }
+end
+
+-- What the Action Items window shows in its Talents column: the per-tab point
+-- spread the library has cached for this unit, and the role(s) that spread
+-- reads as. nil while nothing has been seen -- an out-of-range player who
+-- doesn't run the library themselves stays unknown until someone gets close.
+function WhoDoesWhat:GetTalentSnapshot(unit)
+    local guid = Inspector and unit and UnitExists(unit) and UnitGUID(unit)
+    if not guid then return nil end
+    local t1, t2, t3 = Inspector:GetTalentPoints(guid)
+    if not (t1 and t2 and t3) or t1 + t2 + t3 <= 0 then return nil end
+    local specIndex = Inspector:GetSpecialization(guid)
+    local _, class = UnitClass(unit)
+    return { points = { t1, t2, t3 }, roleIds = RolesForSpec(class, specIndex) }
+end
+
+-- Players we've asked the library to re-inspect and not yet heard back on, as
+-- playerKey -> the time the request goes stale. An inspect can simply never
+-- answer (they walked out of range, we're in combat, they logged), so entries
+-- expire rather than leaving a Rescan button dead for the rest of the raid.
+local rescanPending = {}
+local RESCAN_TIMEOUT = 10
+
+function WhoDoesWhat:IsTalentRescanPending(playerKey)
+    local expiry = rescanPending[playerKey]
+    if not expiry then return false end
+    if GetTime() >= expiry then
+        rescanPending[playerKey] = nil
+        return false
+    end
+    return true
+end
+
+-- One player's RescanUtilityTalents: replay whatever is cached right now, then
+-- ask for a fresh inspect. The inspect lands async through TALENTS_READY, which
+-- clears the pending mark and repaints; the timer covers the case where it
+-- never lands at all.
+function WhoDoesWhat:RescanPlayerTalents(unit, playerKey)
+    if not (Inspector and self.db and unit and UnitExists(unit)) then return end
+    local guid = UnitGUID(unit)
+    if not guid then return end
+
+    local isSelf = guid == UnitGUID("player")
+    if isSelf or (Inspector:GetLastCacheTime(guid) or 0) ~= 0 then
+        self:OnTalentsReady("TALENTS_READY", guid, false)
+    end
+    -- Our own talents come from the client directly; there is nothing to
+    -- inspect and so nothing to wait for.
+    if not isSelf then
+        rescanPending[playerKey] = GetTime() + RESCAN_TIMEOUT
+        Inspector:DoInspect(unit)
+        C_Timer.After(RESCAN_TIMEOUT + 0.1, function()
+            self:RefreshActionItemsView()
+        end)
+    end
+    self:RefreshActionItemsView()
+end
+
 -- The four talents that decide which paladin should carry which blessing,
 -- located by their fixed grid position: tab (1 Holy, 2 Protection,
 -- 3 Retribution), tier (row, top = 1) and column (left = 1). ClientFeatures
@@ -280,6 +346,10 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
     self:PushPlayerBuffToPallyPower(playerName)
     self:RefreshMainAssignmentsView()
     self:RefreshRaiderRolesView()
+    -- Covers the sync path too: talent points arriving from another client
+    -- never touch the inspect cache the Talents column reads, but they do
+    -- settle a role, which can take the row off the list entirely.
+    self:RefreshActionItemsView()
 end
 
 -- The initial WDW HELLO carries only these three derived totals, not a role or
@@ -346,6 +416,13 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     if not (IsGUIDInGroup(guid) or guid == UnitGUID("player")) then return end
 
     local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
+
+    -- Their data arrived, so a hand-pressed Rescan on this player is answered
+    -- and the Talents column has something new to say. Repaint either way --
+    -- the spread and its spec icon change on any scan, not only ones we asked
+    -- for, and the window is usually open precisely while a raid is filling in.
+    rescanPending[key] = nil
+    self:RefreshActionItemsView()
 
     local detected = DetectedRoleFor(key, class, specIndex)
 
