@@ -15,14 +15,24 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- header; its compact sync/action row leads the summary rows.
 --
 -- Below the summary sit the custom rule rows (the model docs the semantics
--- at CompileBuffRules in Assignments.lua):
+-- above CompileBuffRules in Assignments.lua):
 --
---   [buff v] [Is Ignored / Prioritized for / Preferred by v] [target v] (!) [x]
+--   [icon] Salvation is guaranteed for [icon] Healers           (!) [x]
+--   [icon] Sanctuary is all <paladin> casts                     (!) [x]
 --
--- One rule per blessing, six at most (the buff dropdown only offers unruled
--- blessings). WDW's own implicit rule -- Salvation ignored in PvP instances --
--- appears above them as a read-only line. Rules are shared strategy config in the synced board, so the
--- same assignment permission applies to editing them.
+-- One string per row rather than a blessing column and a detail column: the
+-- rule reads as a sentence, so a short blessing name can't leave a gap in the
+-- middle of one.
+--
+-- Read-only text, because rules are written whole from the "Add (+)" pop-out
+-- and can't be edited in place -- delete and re-add instead. WDW's own
+-- implicit rule -- Salvation ignored in PvP instances -- appears above them as
+-- a read-only line. Rules are shared strategy config in the synced board, so
+-- the same assignment permission applies to adding and removing them.
+--
+-- A (!) beside "Add (+)", inside its menu, and on a paladin's summary row all
+-- point at the same thing: a paladin running neither WDW nor PallyPower, who
+-- no board can reach and who needs an assign rule to be useful.
 --
 -- The whole section grays out while the group has no paladins (Developer
 -- Mode keeps it live, same as it lifts class filters).
@@ -32,7 +42,6 @@ local K = WhoDoesWhat.SectionKit
 
 local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
-local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local GetActivePaladinBuffPlan = A.GetActivePaladinBuffPlan
 local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
@@ -41,6 +50,8 @@ local GetPaladinBuffWhisper = A.GetPaladinBuffWhisper
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
 local PvpSalvationIgnored = A.PvpSalvationIgnored
+local UnhandledDisabledPaladins = A.UnhandledDisabledPaladins
+local PaladinBuffSlots = A.PaladinBuffSlots
 local ShortAssignmentName = A.ShortAssignmentName
 
 local PALLY_ROW_H = K.ROW_H
@@ -50,9 +61,6 @@ local PALLY_BUFF_ICON = K.ROW_ICON_SIZE
 local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
 local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local RULE_ROW_H = K.ROW_H
-local RULE_BUFF_DD_W = 68
-local RULE_KIND_DD_W = 80
-local RULE_TARGET_DD_W = 76
 local RULE_HEADER_H = 30
 local AUTO_RULE_H = 18
 
@@ -72,12 +80,9 @@ end
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
--- Menu text / collapsed text per rule kind.
-local RULE_KINDS = {
-    { kind = "ignore", menu = "Is Ignored", short = "Ignored" },
-    { kind = "prioritize", menu = "Is Prioritized for...", short = "Priority for" },
-    { kind = "prefer", menu = "Is Preferred by...", short = "Preferred by" },
-}
+-- How many rules the list will hold. Guarantees are per (buff, target), so the
+-- old "one rule per blessing" ceiling of six is far too low now.
+local MAX_RULES = 12
 
 local Refresh -- the section's registered refresh; forward-declared to stay a
               -- file-local (rule callbacks repaint via RefreshMainAssignmentsView)
@@ -86,35 +91,71 @@ local Refresh -- the section's registered refresh; forward-declared to stay a
 -- Rule-row text + warning helpers
 -- ---------------------------------------------------------------------------
 
+local function BuffIcon(key, size)
+    local buff = WhoDoesWhat.PaladinBuffs[key]
+    if not buff then return "" end
+    size = size or 14
+    return "|T" .. buff.iconId .. ":" .. size .. ":" .. size .. ":0:0|t "
+end
+
+-- Tooltip sentences name three kinds of moving part, and each keeps its own
+-- colour so a glance finds the one you came for: the blessing, the paladin
+-- (Paladin pink, same as their name anywhere else), and the counts and groups
+-- the rule turns on.
+local function BuffName(key)
+    local buff = WhoDoesWhat.PaladinBuffs[key]
+    return "|cffffd100" .. (buff and buff.name_long or "this blessing") .. "|r"
+end
+
+local paladinColor
+local function PaladinColor()
+    if not paladinColor then
+        for _, ci in ipairs(WhoDoesWhat.Classes) do
+            if ci.name == "Paladin" then paladinColor = ci.colorHex end
+        end
+        paladinColor = paladinColor or "f58cba"
+    end
+    return paladinColor
+end
+
+local function PaladinName(name)
+    return "|cff" .. PaladinColor() .. ShortAssignmentName(name) .. "|r"
+end
+
+-- A count of paladins wears their class colour, so the number and the people
+-- it counts read as the same thing.
+local function PaladinCount(n)
+    return "|cff" .. PaladinColor() .. n .. "|r"
+end
+
+-- Tanks / Healers / DPS wearing the same role icons as the rest of the UI.
+local function WowRoleLabel(wowRole)
+    return WhoDoesWhat:GetWowRoleIconMarkup(wowRole, 14) .. " "
+        .. (WOW_ROLE_LABELS[wowRole] or "?")
+end
+
 local function RuleBuffText(rule)
     local buff = WhoDoesWhat.PaladinBuffs[rule.buff]
     if not buff then return "?" end
-    return "|T" .. buff.iconId .. ":14:14:0:0|t " .. buff.name_short
+    return BuffIcon(rule.buff) .. buff.name_long
 end
 
-local function RuleKindText(rule)
-    for _, k in ipairs(RULE_KINDS) do
-        if k.kind == rule.kind then return k.short end
-    end
-    return "?"
-end
-
--- A paladin's scanned rank in a rule's buff talent: 0..max once scanned, nil
+-- A paladin's scanned rank in a blessing's talent: 0..max once scanned, nil
 -- while unscanned OR when the buff has no talent at all (Salv/Light).
-local function RuleBuffRank(rule, paladinName)
-    if not BuffTalents[rule.buff] then return nil end
+local function BuffRank(buffKey, paladinName)
+    if not BuffTalents[buffKey] then return nil end
     local t = WhoDoesWhat:GetPaladinBuffTalents(paladinName)
-    return t and t[rule.buff]
+    return t and t[buffKey]
 end
 
--- Talent note behind a paladin's name in the prefer dropdown: green
--- (talented) / red (can't cast) for the talent-granted blessings, gray n/max
--- for the Improved ones, gray (not scanned) while their data hasn't arrived.
--- nil (no note) for Salvation/Light -- every paladin casts those equally.
-local function RulePaladinNote(rule, paladinName)
-    local meta = BuffTalents[rule.buff]
+-- Talent note behind a blessing in the assign menu: green (talented) / red
+-- (can't cast) for the talent-granted blessings, gray n/max for the Improved
+-- ones, gray (not scanned) while their data hasn't arrived. nil (no note) for
+-- Salvation/Light -- every paladin casts those equally.
+local function BuffTalentNote(buffKey, paladinName)
+    local meta = BuffTalents[buffKey]
     if not meta then return nil end
-    local rank = RuleBuffRank(rule, paladinName)
+    local rank = BuffRank(buffKey, paladinName)
     if rank == nil then
         return "|cff909090(not scanned)|r"
     end
@@ -124,30 +165,10 @@ local function RulePaladinNote(rule, paladinName)
     return "|cff909090(" .. rank .. "/" .. meta.maxRank .. ")|r"
 end
 
--- Warning for a prefer rule whose paladin has a known 0 in the buff's
--- talent: for the gated blessings the rule is outright inert, for the
--- Improved ones the blessing lands unimproved. Unscanned paladins don't
--- warn -- no data is not the same as no talent.
-local function RuleWarningText(rule)
-    if rule.kind ~= "prefer" or not rule.value then return nil end
-    local meta = BuffTalents[rule.buff]
-    if not meta or RuleBuffRank(rule, rule.value) ~= 0 then return nil end
-    local buffName = WhoDoesWhat.PaladinBuffs[rule.buff].name_long
-    if meta.maxRank == 1 then
-        return rule.value .. " has not talented " .. meta.talent
-            .. " and can't cast " .. buffName .. " at all - this rule does nothing."
-    end
-    return rule.value .. " has no " .. meta.talent .. " ranks; their "
-        .. buffName .. " will be unimproved while better-talented paladins exist."
-end
-
-local function RuleTargetText(rule)
-    if rule.kind == "prefer" then
-        return rule.value and PlayerTextWithRole(rule.value, K.DROPDOWN_ICON_SIZE)
-            or "|cff909090Choose...|r"
-    end
+-- The scope half of a rule, as text: who a guarantee covers.
+local function RuleScopeText(rule)
     if rule.scope == "wowrole" then
-        return WOW_ROLE_LABELS[rule.value] or "?"
+        return WowRoleLabel(rule.value)
     elseif rule.scope == "class" then
         for _, ci in ipairs(WhoDoesWhat.Classes) do
             if ci.name == rule.value then
@@ -165,13 +186,369 @@ local function RuleTargetText(rule)
     return "Everyone"
 end
 
+-- The rule as one read-only sentence: what it does, then who to. Rules can't
+-- be edited in place, so this is text rather than a row of dropdowns.
+local function RuleDetailText(rule)
+    if rule.kind == "ignore" then
+        return "|cff909090is ignored|r"
+    end
+    if rule.kind == "assign" then
+        local who = rule.value
+            and PlayerTextWithRole(rule.value, K.DROPDOWN_ICON_SIZE, ShortAssignmentName(rule.value))
+            or "|cff909090?|r"
+        if rule.only then
+            return "|cff909090is all|r " .. who .. " |cff909090casts|r"
+        end
+        return "|cff909090is|r " .. who .. "|cff909090's|r"
+    end
+    if rule.kind == "guarantee" then
+        return "|cff909090is guaranteed for|r " .. RuleScopeText(rule)
+    end
+    return "|cff909090?|r"
+end
+
+-- The hover explanation for a rule row: what the rule does to the plan, which
+-- the row's one line has no room to say. Returns title, body.
+local function RuleTooltip(rule)
+    local buff = BuffName(rule.buff)
+
+    if rule.kind == "ignore" then
+        return "Ignored", buff .. " is ignored from the plan and won't be"
+            .. " assigned. Automatic in PvP."
+    end
+
+    if rule.kind == "assign" then
+        local who = rule.value and PaladinName(rule.value) or "?"
+        if rule.only then
+            return "Assigned, and nothing else",
+                who .. " casts " .. buff .. " alone and sits out the planning."
+                .. " Raiders who don't want it get nothing from them - empty"
+                .. " grid cells are correct here."
+        end
+        return "Assigned",
+            who .. " is handed " .. buff .. " wherever it's wanted, ahead of"
+            .. " better-talented paladins. They still cover other blessings"
+            .. " elsewhere."
+    end
+
+    if rule.kind == "guarantee" then
+        local slots = PaladinBuffSlots()
+        local who = RuleScopeText(rule)
+        if slots == 0 then
+            return "Guaranteed", buff .. " will be pulled into what " .. who
+                .. " receive - but no paladin is buffing right now."
+        end
+        return "Guaranteed",
+            buff .. " reaches " .. who .. " even when it falls outside their top "
+            .. PaladinCount(slots) .. " choices, given " .. PaladinCount(slots)
+            .. " paladins."
+    end
+
+    return nil
+end
+
+-- Row warnings, in the order they'd bite. An assign rule can name a paladin
+-- who can't cast the blessing well (or at all), and its `only` flag -- which
+-- is frozen at creation time on purpose, see the rule model in
+-- Assignments.lua -- can drift out of step with who is actually running an
+-- addon by now.
+local function RuleWarningText(rule)
+    if rule.kind ~= "assign" or not rule.value then return nil end
+    local meta = BuffTalents[rule.buff]
+    local who, buff = PaladinName(rule.value), BuffName(rule.buff)
+    if meta and BuffRank(rule.buff, rule.value) == 0 then
+        if meta.maxRank == 1 then
+            return who .. " can't cast " .. buff .. " at all - this rule does nothing."
+        end
+        return who .. " has no " .. meta.talent .. " ranks; their " .. buff
+            .. " will be unimproved."
+    end
+    local disabled = WhoDoesWhat:IsPaladinDisabled(rule.value)
+    if rule.only and not disabled then
+        return who .. " is running an addon now, but this rule still limits them"
+            .. " to " .. buff .. ". Delete and re-add to put them back in the plan."
+    end
+    if disabled and not rule.only then
+        return who .. " can't see a blessing board, so they'll be planned"
+            .. " blessings they never receive. Delete and re-add to give them "
+            .. buff .. " alone."
+    end
+    return nil
+end
+
+-- What the three (!) marks for an unreachable paladin all say.
+local function DisabledPaladinTooltip(names)
+    local who = {}
+    for i, name in ipairs(names) do who[i] = PaladinName(name) end
+    return table.concat(who, ", ") .. (#names == 1 and " is" or " are")
+        .. " running neither WhoDoesWhat nor PallyPower, so no board can reach"
+        .. " them. Assign them one blessing (Add (+) > Assign a Paladin) and"
+        .. " whisper it over."
+end
+
 -- ---------------------------------------------------------------------------
--- Rule rows
+-- Rules: the "Add (+)" pop-out that writes them, and the read-only rows below
+--
+-- A rule is picked whole out of one nested menu -- kind, then blessing, then
+-- who -- and is never edited afterwards; to change one, delete it and add it
+-- again. That is what keeps the model honest: no rule ever exists with half
+-- its fields filled in, so nothing downstream has to defend against one, and
+-- the row is text plus an [x] rather than a line of dropdowns.
 -- ---------------------------------------------------------------------------
 
+local WARN_MARKUP = "|T" .. WhoDoesWhat.WARNING_ICON .. ":14:14:0:0|t"
+
+-- The guarantee branch runs four levels deep (kind > blessing > target > that
+-- class's roles). Nothing here has to arrange that: UIDropDownMenu_AddButton
+-- builds the list frame for a level on demand and raises
+-- UIDROPDOWNMENU_MAXLEVELS itself as it goes. Do NOT raise that global by
+-- hand -- it counts the DropDownList frames that exist, so setting it ahead of
+-- them makes CloseDropDownMenus index a nil frame and takes the whole UI down
+-- with it.
+local addRuleMenu
+
+local function FindRule(Match)
+    for _, r in ipairs(GetBuffRules()) do
+        if Match(r) then return r end
+    end
+    return nil
+end
+
+local function SalvationIgnored()
+    return FindRule(function(r) return r.kind == "ignore" end) ~= nil
+end
+
+local function AssignRuleFor(paladinName)
+    return FindRule(function(r)
+        return r.kind == "assign" and r.value == paladinName
+    end)
+end
+
+local function BuffAssignedTo(buffKey)
+    local rule = FindRule(function(r)
+        return r.kind == "assign" and r.buff == buffKey
+    end)
+    return rule and rule.value
+end
+
+local function GuaranteeExists(buffKey, scope, value)
+    return FindRule(function(r)
+        return r.kind == "guarantee" and r.buff == buffKey
+            and r.scope == scope and r.value == value
+    end) ~= nil
+end
+
+local function AddRule(rule)
+    if not WhoDoesWhat:RequireEditPermission() then return end
+    CloseDropDownMenus()
+    if rule.kind == "guarantee"
+        and GuaranteeExists(rule.buff, rule.scope, rule.value) then
+        return
+    end
+    local rules = GetBuffRules()
+    if #rules >= MAX_RULES then
+        WhoDoesWhat:Print("Paladin Buffs: the rule list is full (" .. MAX_RULES
+            .. " rules). Remove one before adding another.")
+        return
+    end
+    rules[#rules + 1] = rule
+    WhoDoesWhat:LogOperation("Paladin Buffs: rule added (" .. tostring(rule.kind)
+        .. " " .. tostring(rule.buff)
+        .. (rule.value and (" -> " .. tostring(rule.value)) or "") .. ").")
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBuffingGridView()
+end
+
+-- Level 2 of the assign branch: the group's paladins, the ones running
+-- neither addon flagged, the ones already spoken for closed off.
+local function AddAssignPaladins(level)
+    local paladins = MembersOfClass("Paladin")
+    if #paladins == 0 then
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "|cff909090No paladins in group|r"
+        info.notCheckable = true
+        info.disabled = true
+        UIDropDownMenu_AddButton(info, level)
+        return
+    end
+    for _, name in ipairs(paladins) do
+        local existing = AssignRuleFor(name)
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = (WhoDoesWhat:IsPaladinDisabled(name) and (WARN_MARKUP .. " ") or "")
+            .. PlayerTextWithRole(name, K.DROPDOWN_ICON_SIZE)
+            .. (existing and " |cff909090(already assigned)|r" or "")
+        info.notCheckable = true
+        info.disabled = existing ~= nil
+        info.hasArrow = existing == nil
+        info.keepShownOnClick = true
+        info.value = { kind = "assign", paladin = name }
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+-- Level 3 of the assign branch: what to give them, annotated with how well
+-- they cast it. A paladin running neither addon gets `only` baked in -- the
+-- whole point of assigning them is that one blessing is all they can act on.
+local function AddAssignBuffs(level, paladinName)
+    local locked = WhoDoesWhat:IsPaladinDisabled(paladinName)
+    for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+        -- A blessing they're known not to have talented isn't offered at all:
+        -- Kings and Sanctuary are granted BY the talent, so assigning one is
+        -- an instruction they couldn't follow. An unscanned paladin still
+        -- gets the full list -- no data is not the same as no talent.
+        local meta = BuffTalents[key]
+        local castable = not (meta and meta.maxRank == 1
+            and BuffRank(key, paladinName) == 0)
+        if castable then
+            local takenBy = BuffAssignedTo(key)
+            local note = BuffTalentNote(key, paladinName)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = BuffIcon(key) .. WhoDoesWhat.PaladinBuffs[key].name_long
+                .. (note and (" " .. note) or "")
+                .. (takenBy and (" |cff909090(" .. ShortAssignmentName(takenBy) .. ")|r") or "")
+            info.notCheckable = true
+            info.disabled = takenBy ~= nil
+            info.func = function()
+                AddRule({ kind = "assign", buff = key, value = paladinName,
+                    only = locked or nil })
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+end
+
+local function AddGuaranteeBuffs(level)
+    for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = BuffIcon(key) .. WhoDoesWhat.PaladinBuffs[key].name_long
+        info.notCheckable = true
+        info.hasArrow = true
+        info.keepShownOnClick = true
+        info.value = { kind = "guarantee", buff = key }
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+-- Level 3 of the guarantee branch: who the promise covers. Each class is both
+-- a pick of its own ("All Mages") and a door to its roles on level 4.
+local function AddGuaranteeTargets(level, buffKey)
+    local function Target(text, scope, value)
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = text
+        info.notCheckable = true
+        info.func = function()
+            AddRule({ kind = "guarantee", buff = buffKey, scope = scope, value = value })
+        end
+        return info
+    end
+
+    local everyone = Target("Everyone", "everyone", nil)
+    everyone.disabled = GuaranteeExists(buffKey, "everyone", nil)
+    UIDropDownMenu_AddButton(everyone, level)
+    for _, wr in ipairs({ "tank", "healer", "dps" }) do
+        local info = Target(WowRoleLabel(wr), "wowrole", wr)
+        info.disabled = GuaranteeExists(buffKey, "wowrole", wr)
+        UIDropDownMenu_AddButton(info, level)
+    end
+    K.AddDropdownDivider(level)
+    for _, ci in ipairs(WhoDoesWhat.Classes) do
+        local info = Target("|cff" .. ci.colorHex .. "All " .. ci.name .. "s|r",
+            "class", ci.name)
+        info.hasArrow = true
+        info.keepShownOnClick = true
+        info.value = { kind = "guarantee", buff = buffKey, class = ci.name }
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+local function AddGuaranteeRoles(level, buffKey, className)
+    local classInfo
+    for _, ci in ipairs(WhoDoesWhat.Classes) do
+        if ci.name == className then
+            classInfo = ci
+            break
+        end
+    end
+    if not classInfo then return end
+    for _, list in ipairs({ classInfo.roles, classInfo.customRoles or {} }) do
+        for _, role in ipairs(list) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "|T" .. role.icon .. ":14:14:0:0|t |cff"
+                .. classInfo.colorHex .. role.name .. "|r"
+            info.notCheckable = true
+            info.disabled = GuaranteeExists(buffKey, "role", role.id)
+            info.func = function()
+                AddRule({ kind = "guarantee", buff = buffKey,
+                    scope = "role", value = role.id })
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+end
+
+local function InitAddRuleMenu(_, level)
+    level = level or 1
+    if level == 1 then
+        local ignored = SalvationIgnored()
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = BuffIcon("salv") .. "Ignore Salvation"
+            .. (ignored and " |cff909090(already ignored)|r" or "")
+        info.notCheckable = true
+        info.disabled = ignored
+        info.func = function() AddRule({ kind = "ignore", buff = "salv" }) end
+        UIDropDownMenu_AddButton(info, level)
+
+        -- The (!) here is the same one the header wears: somebody in the group
+        -- can't be reached by any board, and this branch is where that gets
+        -- fixed.
+        local unhandled = UnhandledDisabledPaladins()
+        local assign = UIDropDownMenu_CreateInfo()
+        assign.text = "Assign a Paladin a Blessing"
+            .. (#unhandled > 0 and (" " .. WARN_MARKUP) or "")
+        assign.notCheckable = true
+        assign.hasArrow = true
+        assign.keepShownOnClick = true
+        assign.value = "assign"
+        UIDropDownMenu_AddButton(assign, level)
+
+        local guarantee = UIDropDownMenu_CreateInfo()
+        guarantee.text = "Guarantee a Blessing"
+        guarantee.notCheckable = true
+        guarantee.hasArrow = true
+        guarantee.keepShownOnClick = true
+        guarantee.value = "guarantee"
+        UIDropDownMenu_AddButton(guarantee, level)
+        return
+    end
+
+    local value = UIDROPDOWNMENU_MENU_VALUE
+    if value == "assign" then
+        AddAssignPaladins(level)
+    elseif value == "guarantee" then
+        AddGuaranteeBuffs(level)
+    elseif type(value) == "table" then
+        if value.kind == "assign" then
+            AddAssignBuffs(level, value.paladin)
+        elseif value.class then
+            AddGuaranteeRoles(level, value.buff, value.class)
+        else
+            AddGuaranteeTargets(level, value.buff)
+        end
+    end
+end
+
+local function OpenAddRuleMenu(button)
+    if not addRuleMenu then
+        addRuleMenu = CreateFrame("Frame", "WhoDoesWhatPallyAddRuleMenu",
+            UIParent, "UIDropDownMenuTemplate")
+    end
+    UIDropDownMenu_Initialize(addRuleMenu, InitAddRuleMenu, "MENU")
+    ToggleDropDownMenu(1, nil, addRuleMenu, button, 0, 0)
+end
+
 -- Build pooled rule row #index. Position comes from Refresh (it sits below
--- however many summary rows there are); every callback looks its rule up by
--- index at click time.
+-- however many summary rows there are); the [x] looks its rule up by index at
+-- click time.
 local function CreateRuleRow(f, index)
     local state = f.pallySection
     local row = CreateFrame("Frame", nil, state.box)
@@ -179,198 +556,17 @@ local function CreateRuleRow(f, index)
     row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, RULE_ROW_H)
     K.AddRowBackground(row, index)
 
-    local function Entry() return GetBuffRules()[index] end
-    local function Changed()
-        -- Route through the main refresh (not the section-local Refresh) so
-        -- ApplyViewMode refits the window height -- adding/removing a rule
-        -- grows/shrinks the box, and the collapsed view must follow.
-        WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBuffingGridView()
-    end
-
-    -- Buff picker: only blessings no other rule already claims.
-    local buffDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleBuffDD" .. index, row, "UIDropDownMenuTemplate")
-    buffDD:SetPoint("LEFT", row, "LEFT", -13, -2)
-    UIDropDownMenu_SetWidth(buffDD, RULE_BUFF_DD_W)
-    K.LeftAlignDropdown(buffDD)
-    UIDropDownMenu_Initialize(buffDD, function(_, level)
-        local rule = Entry()
-        if not rule then return end
-        local taken = {}
-        for _, r in ipairs(GetBuffRules()) do
-            if r ~= rule then taken[r.buff] = true end
-        end
-        for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
-            if not taken[key] then
-                local buff = WhoDoesWhat.PaladinBuffs[key]
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = "|T" .. buff.iconId .. ":14:14:0:0|t " .. buff.name_long
-                info.checked = (rule.buff == key)
-                info.func = function()
-                    if not WhoDoesWhat:RequireEditPermission() then return end
-                    rule.buff = key
-                    Changed()
-                end
-                UIDropDownMenu_AddButton(info, level)
-            end
-        end
+    -- Hovering the row explains the rule (RuleTooltip); the [x] and the (!)
+    -- are children and keep their own, more specific tooltips.
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", function(self)
+        if not self.tooltipTitle then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.tooltipTitle, 1, 0.82, 0)
+        GameTooltip:AddLine(self.tooltipText, 0.9, 0.9, 0.9, true)
+        GameTooltip:Show()
     end)
-    row.buffDD = buffDD
-
-    local kindDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleKindDD" .. index, row, "UIDropDownMenuTemplate")
-    kindDD:SetPoint("LEFT", buffDD, "RIGHT", -30, 0)
-    UIDropDownMenu_SetWidth(kindDD, RULE_KIND_DD_W)
-    K.LeftAlignDropdown(kindDD)
-    UIDropDownMenu_Initialize(kindDD, function(_, level)
-        local rule = Entry()
-        if not rule then return end
-        for _, k in ipairs(RULE_KINDS) do
-            local kind = k.kind
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = k.menu
-            info.checked = (rule.kind == kind)
-            info.func = function()
-                if rule.kind ~= kind then
-                    if not WhoDoesWhat:RequireEditPermission() then return end
-                    rule.kind = kind
-                    -- The target means something different per kind.
-                    rule.scope = (kind == "prioritize") and "everyone" or nil
-                    rule.value = nil
-                    Changed()
-                end
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    row.kindDD = kindDD
-
-    -- Target picker; hidden for "Is Ignored". Prefer lists the group's
-    -- paladins; prioritize offers Everyone / the three wow roles, then each
-    -- class opening a level-2 list of "All <class>" plus its roles.
-    local targetDD = CreateFrame("Frame", "WhoDoesWhatPallyRuleTargetDD" .. index, row, "UIDropDownMenuTemplate")
-    targetDD:SetPoint("LEFT", kindDD, "RIGHT", -30, 0)
-    UIDropDownMenu_SetWidth(targetDD, RULE_TARGET_DD_W)
-    K.LeftAlignDropdown(targetDD)
-    UIDropDownMenu_Initialize(targetDD, function(_, level)
-        local rule = Entry()
-        if not rule then return end
-
-        if rule.kind == "prefer" then
-            local paladins = MembersOfClass("Paladin")
-            if #paladins == 0 then
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = "|cff909090No paladins in group|r"
-                info.notCheckable = true
-                info.disabled = true
-                UIDropDownMenu_AddButton(info, level)
-            end
-
-            -- Capable casters (a known rank in the buff's talent) float
-            -- above a divider; everyone is annotated with where they stand.
-            -- Salv/Light have no talent, so nobody floats and nothing notes.
-            local floated, rest = {}, {}
-            for _, name in ipairs(paladins) do
-                if BuffTalents[rule.buff] and (RuleBuffRank(rule, name) or 0) > 0 then
-                    floated[#floated + 1] = name
-                else
-                    rest[#rest + 1] = name
-                end
-            end
-            local ordered = {}
-            for _, name in ipairs(floated) do ordered[#ordered + 1] = name end
-            for _, name in ipairs(rest) do ordered[#ordered + 1] = name end
-            local dividerAfter = (#floated > 0 and #rest > 0) and #floated or nil
-
-            for i, name in ipairs(ordered) do
-                local note = RulePaladinNote(rule, name)
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = PlayerTextWithRole(name, K.DROPDOWN_ICON_SIZE)
-                    .. (note and (" " .. note) or "")
-                info.checked = (rule.value == name)
-                info.func = function()
-                    if not WhoDoesWhat:RequireEditPermission() then return end
-                    rule.value = name
-                    Changed()
-                end
-                UIDropDownMenu_AddButton(info, level)
-                if i == dividerAfter then
-                    K.AddDropdownDivider(level)
-                end
-            end
-            return
-        end
-
-        if level == 2 then
-            local classInfo
-            for _, ci in ipairs(WhoDoesWhat.Classes) do
-                if ci.name == UIDROPDOWNMENU_MENU_VALUE then
-                    classInfo = ci
-                    break
-                end
-            end
-            if not classInfo then return end
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = "|cff" .. classInfo.colorHex .. "All " .. classInfo.name .. "s|r"
-            info.checked = (rule.scope == "class" and rule.value == classInfo.name)
-            info.func = function()
-                if not WhoDoesWhat:RequireEditPermission() then return end
-                rule.scope, rule.value = "class", classInfo.name
-                Changed()
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-            K.AddDropdownDivider(level)
-            for _, list in ipairs({ classInfo.roles, classInfo.customRoles or {} }) do
-                for _, role in ipairs(list) do
-                    local roleInfo = UIDropDownMenu_CreateInfo()
-                    roleInfo.text = "|T" .. role.icon .. ":14:14:0:0|t |cff"
-                        .. classInfo.colorHex .. role.name .. "|r"
-                    roleInfo.checked = (rule.scope == "role" and rule.value == role.id)
-                    roleInfo.func = function()
-                        if not WhoDoesWhat:RequireEditPermission() then return end
-                        rule.scope, rule.value = "role", role.id
-                        Changed()
-                        CloseDropDownMenus()
-                    end
-                    UIDropDownMenu_AddButton(roleInfo, level)
-                end
-            end
-            return
-        end
-
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = "Everyone"
-        info.checked = (rule.scope == "everyone" or not rule.scope)
-        info.func = function()
-            if not WhoDoesWhat:RequireEditPermission() then return end
-            rule.scope, rule.value = "everyone", nil
-            Changed()
-        end
-        UIDropDownMenu_AddButton(info, level)
-        for _, wr in ipairs({ "tank", "healer", "dps" }) do
-            local wrInfo = UIDropDownMenu_CreateInfo()
-            wrInfo.text = WOW_ROLE_LABELS[wr]
-            wrInfo.checked = (rule.scope == "wowrole" and rule.value == wr)
-            wrInfo.func = function()
-                if not WhoDoesWhat:RequireEditPermission() then return end
-                rule.scope, rule.value = "wowrole", wr
-                Changed()
-            end
-            UIDropDownMenu_AddButton(wrInfo, level)
-        end
-        K.AddDropdownDivider(level)
-        for _, ci in ipairs(WhoDoesWhat.Classes) do
-            local classItem = UIDropDownMenu_CreateInfo()
-            classItem.text = "|cff" .. ci.colorHex .. ci.name .. "|r"
-            classItem.hasArrow = true
-            classItem.value = ci.name
-            classItem.keepShownOnClick = true
-            classItem.notCheckable = true
-            classItem.func = function() end
-            UIDropDownMenu_AddButton(classItem, level)
-        end
-    end)
-    row.targetDD = targetDD
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local delBtn = K.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
@@ -378,22 +574,39 @@ local function CreateRuleRow(f, index)
         if not WhoDoesWhat:RequireEditPermission() then return end
         table.remove(GetBuffRules(), index)
         WhoDoesWhat:LogOperation("Paladin Buffs: rule removed.")
-        Changed()
+        -- Route through the main refresh (not the section-local Refresh) so
+        -- ApplyViewMode refits the window height -- removing a rule shrinks
+        -- the box, and the collapsed view must follow.
+        WhoDoesWhat:RefreshMainAssignmentsView()
+        WhoDoesWhat:RefreshBuffingGridView()
     end)
     delBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Remove this rule", 1, 1, 1)
+        GameTooltip:AddLine("Rules can't be edited in place - remove this one"
+            .. " and add it again.", 0.8, 0.8, 0.8, true)
         GameTooltip:Show()
     end)
     delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.delBtn = delBtn
 
-    -- Warning (!) between the target and [x]: a prefer rule pointing at a
-    -- paladin with a known 0 in the buff's talent (RuleWarningText).
-    -- Anchored off [x] so it holds its column while hidden.
+    -- Warning (!) between the text and [x]: an assign rule whose paladin can't
+    -- cast the blessing, or whose `only` no longer matches what they're
+    -- running (RuleWarningText). Anchored off [x] so it holds its column
+    -- while hidden.
     local warn = K.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", delBtn, "LEFT", -4, -2)
     row.warnIcon = warn
+
+    -- One string, not a blessing column plus a detail column: the rule reads
+    -- as a sentence, and a short blessing name can't leave a gap in the
+    -- middle of it.
+    local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("LEFT", row, "LEFT", 4, 0)
+    text:SetPoint("RIGHT", warn, "LEFT", -4, 0)
+    text:SetJustifyH("LEFT")
+    text:SetWordWrap(false)
+    row.text = text
 
     state.ruleRows[index] = row
     return row
@@ -509,6 +722,12 @@ local function CreatePallyRow(state, index)
     coverageIcon:SetPoint("RIGHT", coverageText, "LEFT", -4, 0)
     row.coverageIcon = coverageIcon
 
+    -- (!) for a paladin running neither WDW nor PallyPower: their column of
+    -- the plan is being computed for someone who has no way to read it.
+    local warn = K.CreateWarningIcon(row)
+    warn:SetPoint("RIGHT", coverageIcon, "LEFT", -2, -1)
+    row.warnIcon = warn
+
     local more = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     more:SetPoint("LEFT", 4 + K.NAME_LABEL_W + PALLY_MAX_BUFFS * PALLY_SLOT_W, 0)
     more:SetText("...")
@@ -571,6 +790,11 @@ function Refresh(f) -- forward declared above
         row.coverageIcon:SetTexture(awaitingTalents and WhoDoesWhat.WARNING_ICON
             or COVERAGE_OK_ICON)
         row.coverageIcon:SetShown(awaitingTalents or complete)
+        local disabled = source == "wdw" and WhoDoesWhat:IsPaladinDisabled(p.name)
+        row.warnIcon:SetShown(disabled and true or false)
+        if disabled then
+            row.warnIcon.tooltipText = DisabledPaladinTooltip({ p.name })
+        end
         if awaitingTalents then
             row.coverageText:SetText("Awaiting talents")
             row.coveragePercent:SetText("")
@@ -699,6 +923,17 @@ function Refresh(f) -- forward declared above
     state.ruleTitle:SetShown(showRules)
     state.ruleBtn:SetShown(showRules and editable)
     state.clearRulesBtn:SetShown(showRules and editable)
+
+    -- (!) beside "Add (+)": paladins nothing can reach and no rule speaks for.
+    -- It sits on the button that fixes them, and the same mark repeats inside
+    -- the menu on the branch to walk down.
+    local unhandled = showRules and editable and UnhandledDisabledPaladins() or {}
+    state.ruleWarn:ClearAllPoints()
+    state.ruleWarn:SetPoint("RIGHT", state.ruleBtn, "LEFT", -2, 0)
+    state.ruleWarn:SetShown(#unhandled > 0)
+    if #unhandled > 0 then
+        state.ruleWarn.tooltipText = DisabledPaladinTooltip(unhandled)
+    end
     state.ruleDivider:ClearAllPoints()
     state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD, -(ruleHeaderTop + 28))
     state.ruleDivider:SetPoint("TOPRIGHT", -K.BOX_PAD, -(ruleHeaderTop + 28))
@@ -720,17 +955,8 @@ function Refresh(f) -- forward declared above
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", K.BOX_PAD, -(rulesTop + (i - 1) * RULE_ROW_H))
         row:SetShown(showRules)
-        UIDropDownMenu_SetText(row.buffDD, RuleBuffText(rule))
-        UIDropDownMenu_SetText(row.kindDD, RuleKindText(rule))
-        row.targetDD:SetShown(rule.kind ~= "ignore")
-        UIDropDownMenu_SetText(row.targetDD, RuleTargetText(rule))
-        for _, dropdown in ipairs({ row.buffDD, row.kindDD, row.targetDD }) do
-            if editable then
-                UIDropDownMenu_EnableDropDown(dropdown)
-            else
-                UIDropDownMenu_DisableDropDown(dropdown)
-            end
-        end
+        row.text:SetText(RuleBuffText(rule) .. " " .. RuleDetailText(rule))
+        row.tooltipTitle, row.tooltipText = RuleTooltip(rule)
         row.delBtn:SetShown(editable)
         local warning = RuleWarningText(rule)
         row.warnIcon.tooltipText = warning
@@ -918,33 +1144,14 @@ local function Build(f, content)
     end)
     clearRulesBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local ruleBtn = K.AddHeaderTextButton(box, clearRulesBtn, "Add (+)", "Add a buff rule",
-        "Add a custom blessing rule: ignore a buff for this fight,"
-        .. " prioritize it for part of the raid, or hand it to a specific"
-        .. " paladin. One rule per blessing; rules reshape the computed"
-        .. " coverage and sync with the assignment board.", function()
+    local ruleBtn
+    ruleBtn = K.AddHeaderTextButton(box, clearRulesBtn, "Add (+)", "Add a buffing rule",
+        "Add a rule to influence paladin buff assignments.", function()
             if not WhoDoesWhat:RequireEditPermission() then return end
-            local rules = GetBuffRules()
-            -- New rules take the first blessing without one; every rule
-            -- starts as an inert "Preferred by (choose)" so nothing
-            -- changes until it's actually configured.
-            local taken = {}
-            for _, r in ipairs(rules) do taken[r.buff] = true end
-            local buff
-            for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
-                if not taken[key] then
-                    buff = key
-                    break
-                end
-            end
-            if not buff then
-                WhoDoesWhat:Print("Paladin Buffs: every blessing already has a rule.")
-                return
-            end
-            rules[#rules + 1] = { buff = buff, kind = "prefer" }
-            WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshBuffingGridView()
+            OpenAddRuleMenu(ruleBtn)
         end)
+
+    local ruleWarn = K.CreateWarningIcon(box)
 
     local hint = K.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
@@ -970,6 +1177,7 @@ local function Build(f, content)
         ruleTitle = ruleTitle,
         ruleDivider = ruleDivider,
         ruleBtn = ruleBtn,
+        ruleWarn = ruleWarn,
         clearRulesBtn = clearRulesBtn,
         rulesEmptyHint = rulesEmptyHint,
         autoRuleText = autoRuleText,

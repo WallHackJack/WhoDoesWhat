@@ -249,9 +249,10 @@ local defaults = {
         -- ComputeBuffGrid in Assignments.lua).
         raidAssignments = {},
         -- Custom paladin-buff rules (Buffing Rules > "Add (+)"): array of
-        -- { buff = key, kind = "ignore"|"prioritize"|"prefer", scope, value }.
-        -- One rule per buff, six at most. Shared as STATE.paladinStrategy and
-        -- cleared with the group-scoped board on leave. See
+        -- { buff = key, kind = "ignore"|"assign"|"guarantee", scope, value,
+        -- only }. Written whole from the Add (+) pop-out and never edited in
+        -- place. Shared as STATE.paladinStrategy and cleared with the
+        -- group-scoped board on leave. See the rule model above
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},
         -- Dynamic assignment rows in the main view, one array per section
@@ -518,6 +519,22 @@ function WhoDoesWhat:OnInitialize()
     if (self.db.profile.buffTalentScanVersion or 1) < 2 then
         self.db.profile.paladinBuffTalents = {}
         self.db.profile.buffTalentScanVersion = 2
+    end
+
+    -- One-off wipe: the buffing rules were reshaped (ignore/prioritize/prefer
+    -- became a Salvation-only ignore, guarantee, and assign) and a saved rule
+    -- of an old kind is silently inert. Rules are group-scoped and rebuilt in
+    -- a few clicks, so they're dropped rather than guessed at. Deliberately
+    -- not in the defaults table -- a fresh profile would then read as already
+    -- migrated, which is true, but this has to fire for existing ones.
+    if (self.db.profile.paladinBuffRuleVersion or 1) < 2 then
+        if #self.db.profile.paladinBuffRules > 0 then
+            self:Print("Buffing Rules have been rebuilt in this version;"
+                .. " your saved rules were cleared. Add them again from"
+                .. " Paladin Buffs > Buffing Rules > Add (+).")
+        end
+        wipe(self.db.profile.paladinBuffRules)
+        self.db.profile.paladinBuffRuleVersion = 2
     end
     self:LogUiBuilding("WhoDoesWhat database ready. expandRoles = " .. tostring(self.db.profile.expandRoles))
 

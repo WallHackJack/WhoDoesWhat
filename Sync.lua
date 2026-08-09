@@ -74,8 +74,11 @@ local COMM_PREFIX = "WhoDoesWhat"
 -- gained OBSERVE, and leader directories gained cached talent observations.
 -- 7: STATE gained the shared paladinStrategy rules table. 8: STATE gained
 -- the raid's permission-gated PallyBuffSource selection. 9: Druid coreRanks
--- gained the Improved Thorns/Brambles rank.
-local PROTOCOL = 9
+-- gained the Improved Thorns/Brambles rank. 10: paladinStrategy rules changed
+-- shape (ignore/prioritize/prefer -> Salvation ignore, guarantee, assign); the
+-- table travels the same but an older client would read the new kinds as inert
+-- and compute a different plan, so they stop syncing instead.
+local PROTOCOL = 10
 local POLL_INTERVAL = 2 -- seconds between local-change fingerprint checks
 local JOIN_SYNC_TIMEOUT = 5 -- seconds a joiner waits for the leader's snapshot
 local RANKS_DEBOUNCE = 2 -- seconds to let a talent-scan burst settle before broadcasting

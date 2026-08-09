@@ -696,30 +696,59 @@ end
 -- ---------------------------------------------------------------------------
 -- Custom paladin-buff rules (db.profile.paladinBuffRules)
 --
--- User strategy knobs for the computed blessing coverage, edited in the main
--- window's Paladin Buffs section (Buffing Rules > "Add (+)"). One rule per
--- buff, six at most:
+-- User strategy knobs for the computed blessing coverage. Rules are WRITTEN
+-- WHOLE from the main window's Buffing Rules > "Add (+)" pop-out and are
+-- immutable afterwards -- to change one, delete it and add it again -- so
+-- every rule in the table is fully specified and no half-configured rule can
+-- sit in the plan:
 --
---   { buff, kind = "ignore" }                    the buff drops out of the
+--   { buff = "salv", kind = "ignore" }           Salvation drops out of the
 --                                                plan entirely (fights where
---                                                nobody wants Salvation)
---   { buff, kind = "prioritize", scope, value }  the buff jumps to the front
---       scope "everyone"                         of matching raiders' buff
---             "wowrole" (value "tank"/"healer"/  priorities -- which also
---                        "dps")                  moves their demand votes
---             "class"   (value "Mage")
---             "role"    (value a role id)
---   { buff, kind = "prefer", value = paladin }   that paladin owns the buff
---                                                as their primary, as a hard
---                                                lock that beats talent ranks
+--                                                nobody wants it). Salvation
+--                                                only: the other five are
+--                                                always worth casting, and a
+--                                                buff nobody wants is already
+--                                                handled by role buff orders.
+--
+--   { buff, kind = "assign", value = paladin,    that paladin owns the buff as
+--     only }                                     their primary, as a hard lock
+--                                                that beats talent ranks. With
+--                                                only = true they cast THAT
+--                                                BLESSING AND NOTHING ELSE and
+--                                                sit out the per-raider
+--                                                matching -- the shape for a
+--                                                paladin running neither WDW
+--                                                nor PallyPower, who can't see
+--                                                a per-class board and just
+--                                                needs one job. Empty grid
+--                                                cells are the correct result.
+--
+--   { buff, kind = "guarantee", scope, value }   the buff is pulled into
+--       scope "everyone"                         matching raiders' top N buff
+--             "wowrole" (value "tank"/"healer"/  priorities, where N is how
+--                        "dps")                  many paladins are handing out
+--             "class"   (value "Mage")           blessings -- i.e. into the
+--             "role"    (value a role id)        range they'll actually
+--                                                receive. It does NOT jump the
+--                                                queue: a buff already inside
+--                                                the top N is left where it is,
+--                                                so guaranteeing Salvation for
+--                                                healers buys them Salvation
+--                                                without costing them Wisdom.
 --
 -- One implicit rule rides along: Salvation is ignored inside a battleground or
--- arena unless the user wrote a Salvation rule of their own -- see
+-- arena unless the user wrote the Salvation ignore rule themselves -- see
 -- PvpSalvationIgnored below.
 --
+-- "only" is baked into the rule at creation time rather than re-derived from
+-- who this client has seen running WDW/PallyPower. That detection
+-- (IsPaladinDisabled) is local knowledge and differs between clients; the plan
+-- has to come out identical on all of them, so detection drives the warnings
+-- and what the menu writes, never the math.
+--
 -- Shared as STATE.paladinStrategy so identical roster/role/talent inputs yield
--- the same plan on every client. Rules are group-scoped; the leader prunes a
--- prefer rule when its named paladin leaves, and group leave clears them all.
+-- the same plan on every client. Rules are group-scoped; the leader prunes an
+-- assign rule when its named paladin leaves, and group leave clears them all.
 -- ---------------------------------------------------------------------------
 
 local function GetBuffRules()
@@ -740,27 +769,89 @@ local function PvpSalvationIgnored()
     return true
 end
 
+-- A paladin this client has seen running neither WhoDoesWhat nor PallyPower.
+-- They can't be shown a per-class blessing board by anything, so the plan's
+-- careful per-raider split is wasted on them: what they need is one blessing
+-- and a whisper saying so, which is the `only` assign rule.
+--
+-- LOCAL KNOWLEDGE, deliberately kept out of the plan math (see the rule model
+-- above): peers announce themselves over time, so this answers "not yet" on
+-- everyone for the first seconds in a group and settles as replies land. It
+-- drives warnings and what the Add (+) menu writes, never coverage. Fake
+-- raiders are never disabled -- nobody is behind them to run anything.
+function WhoDoesWhat:IsPaladinDisabled(name)
+    if not name or name == UnitName("player") then return false end
+    local m = FindMember(name)
+    if not m or m.isFake then return false end
+    if self.syncPeers and self.syncPeers[name] then return false end
+    return not self:PaladinHasPallyPower(name)
+end
+
 -- The rules split into the shapes the plan consumes: the ignored-buff set,
--- the prioritize rules in rule order, and the preferred buff per paladin
--- (first rule wins if one paladin is somehow named twice).
+-- the guarantee rules in rule order, and the assign rule per paladin (first
+-- rule wins if one paladin is somehow named twice).
 local function CompileBuffRules()
-    local ignored, prioritized, preferred = {}, {}, {}
+    local ignored, guaranteed, assigned = {}, {}, {}
     for _, r in ipairs(GetBuffRules()) do
         if r.kind == "ignore" then
             ignored[r.buff] = true
-        elseif r.kind == "prioritize" then
-            prioritized[#prioritized + 1] = r
-        elseif r.kind == "prefer" and r.value then
-            if not preferred[r.value] then
-                preferred[r.value] = r.buff
+        elseif r.kind == "guarantee" then
+            guaranteed[#guaranteed + 1] = r
+        elseif r.kind == "assign" and r.value then
+            if not assigned[r.value] then
+                assigned[r.value] = r
             end
         end
     end
     if PvpSalvationIgnored() then ignored.salv = true end
-    return ignored, prioritized, preferred
+    return ignored, guaranteed, assigned
 end
 
--- Does a prioritize rule cover this member?
+-- Who hands out blessings, split by how. A paladin whose assign rule carries
+-- `only` is LOCKED: one blessing, nothing else, so they sit out the per-raider
+-- matching and their blessing is seeded straight into every raider who wants
+-- it. Everyone else with known talents joins the matching pool -- unknown
+-- paladins wait rather than being assigned commodity blessings on an unsafe
+-- zero-rank assumption. A locked paladin needs no talent data: the user named
+-- the blessing, so there is nothing left to infer.
+local function BuffPaladins(ignored, assigned)
+    local pool, locked = {}, {}
+    for _, name in ipairs(MembersOfClass("Paladin")) do
+        local rule = assigned[name]
+        if rule and rule.only and not ignored[rule.buff] then
+            locked[#locked + 1] = { name = name, buff = rule.buff }
+        elseif WhoDoesWhat:GetPaladinBuffTalents(name) then
+            pool[#pool + 1] = name
+        end
+    end
+    return pool, locked
+end
+
+-- How many blessings a raider stands to receive: one from each paladin in the
+-- matching pool, plus the single one each locked paladin hands out. This is
+-- the window a guarantee rule pulls its blessing into, which is why the rule
+-- rows quote it back.
+local function PaladinBuffSlots()
+    local ignored, _, assigned = CompileBuffRules()
+    local pool, locked = BuffPaladins(ignored, assigned)
+    return #pool + #locked
+end
+
+-- Paladins this client sees as disabled that no assign rule speaks for yet.
+-- They're still in the pool, collecting a per-class plan nothing can show
+-- them, so this drives the (!) beside "Add (+)" and the notes inside its menu.
+local function UnhandledDisabledPaladins()
+    local _, _, assigned = CompileBuffRules()
+    local out = {}
+    for _, name in ipairs(MembersOfClass("Paladin")) do
+        if not assigned[name] and WhoDoesWhat:IsPaladinDisabled(name) then
+            out[#out + 1] = name
+        end
+    end
+    return out
+end
+
+-- Does a guarantee rule cover this member?
 local function RuleMatchesMember(rule, m)
     if rule.scope == "everyone" or not rule.scope then return true end
     if rule.scope == "class" then
@@ -779,9 +870,20 @@ local function RuleMatchesMember(rule, m)
 end
 
 -- A member's buff priority order with the rules applied: ignored buffs drop
--- out entirely, and prioritized buffs that cover this member move to the
--- front (several matching rules keep their rule order).
-local function RuleAdjustedOrder(m, ignored, prioritized)
+-- out entirely, and guaranteed buffs that cover this member are pulled into
+-- the top `slots` -- the range a raider actually receives, `slots` being how
+-- many paladins are handing out blessings.
+--
+-- Pulled in, not moved to the front: a guarantee is a promise of coverage, not
+-- a statement that the buff outranks everything the raider already wanted.
+-- Anything already inside the window stays exactly where it is. Several
+-- guarantees land as a block at the bottom of the window in rule order, so
+-- they all fit inside it rather than pushing each other back out.
+--
+-- A guarantee still can't reach past the raider's role: a blessing the role's
+-- buff order excludes stays excluded (the divider in Role Customization is
+-- the stronger statement).
+local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)
     local base = (roleId and WhoDoesWhat:GetEffectiveBuffOrder(roleId))
         or WhoDoesWhat.CanonicalBuffOrder
@@ -791,22 +893,42 @@ local function RuleAdjustedOrder(m, ignored, prioritized)
         for _, key in ipairs(base) do allowed[key] = true end
     end
 
-    local order, inOrder = {}, {}
-    for _, rule in ipairs(prioritized) do
-        if not ignored[rule.buff] and not inOrder[rule.buff]
-            and (not allowed or allowed[rule.buff])
-            and RuleMatchesMember(rule, m) then
-            order[#order + 1] = rule.buff
-            inOrder[rule.buff] = true
-        end
-    end
+    local order, at = {}, {}
     for _, key in ipairs(base) do
-        if not ignored[key] and not inOrder[key] then
+        if not ignored[key] and not at[key] then
             order[#order + 1] = key
-            inOrder[key] = true
+            at[key] = #order
         end
     end
-    return order
+
+    -- The guaranteed buffs this member is missing out on, in rule order.
+    local promote = {}
+    if slots and slots > 0 and slots < #order then
+        local seen = {}
+        for _, rule in ipairs(guaranteed) do
+            local key = rule.buff
+            if at[key] and at[key] > slots and not seen[key]
+                and (not allowed or allowed[key])
+                and RuleMatchesMember(rule, m) then
+                promote[#promote + 1] = key
+                seen[key] = true
+            end
+        end
+    end
+    if #promote == 0 then return order end
+
+    local promoted = {}
+    for _, key in ipairs(promote) do promoted[key] = true end
+    local kept = {}
+    for _, key in ipairs(order) do
+        if not promoted[key] then kept[#kept + 1] = key end
+    end
+    -- The block ends on the last slot the raider will actually be handed.
+    local insertAt = math.max(1, math.min(slots, #kept + 1) - #promote + 1)
+    for i = #promote, 1, -1 do
+        table.insert(kept, insertAt, promote[i])
+    end
+    return kept
 end
 
 -- The same ordered demand list the paladin matcher consumes, exposed for
@@ -819,9 +941,10 @@ local function GetPaladinBuffPriorityOrder(playerName)
         end
     end
     if not member then return nil end
-    local ignored, prioritized = CompileBuffRules()
+    local ignored, guaranteed, assigned = CompileBuffRules()
     if member.isPet then return PetBuffOrder(ignored) end
-    return RuleAdjustedOrder(member, ignored, prioritized)
+    local pool, locked = BuffPaladins(ignored, assigned)
+    return RuleAdjustedOrder(member, ignored, guaranteed, #pool + #locked)
 end
 
 -- ---------------------------------------------------------------------------
@@ -846,9 +969,10 @@ end
 --      so it dwarfs everything below and prefers top-heavy coverage),
 --   2. from the best-talented casters (rank * 10 -- this is what routes the
 --      specialists to their Improved blessings),
---   3. preferring each paladin's computed PRIMARY blessing (+15,
---      ComputePrimaries below) -- the consolidation glue -- with a
---      rank-proof +100 when a prefer rule dictated the pairing.
+--   3. preferring each paladin's own blessing ladder (+15 for their computed
+--      PRIMARY, smaller bonuses down their fallbacks -- ComputePaladinBuffLadder
+--      below) -- the consolidation glue -- with a rank-proof +100 when an
+--      assign rule dictated the pairing.
 --
 -- Every allowed priority participates. The matcher still assigns at most one
 -- blessing per paladin, but if Kings or Sanctuary is uncastable it can fall
@@ -864,7 +988,8 @@ end
 -- across two casters, every paladin juggling 3-4 different blessings. The
 -- matcher's stickiness bonus consolidates coverage around one owner per
 -- buff; raiders whose priorities skip a paladin's primary still get that
--- paladin's next-best cast, same as before.
+-- paladin's next-best cast, which the fallback ladder below keeps the same
+-- from raider to raider.
 --
 -- The pick is an exact max-weight assignment of paladins to distinct buffs:
 -- each pairing scores demand (which buffs the raid wants) + talentRank*10, so
@@ -877,49 +1002,70 @@ end
 -- only be owned by a talented caster; a slot no free caster can fill is left
 -- unmatched.
 --
--- Returns primary[paladinName] = buff key, plus forced[paladinName] = buff
--- key for the pairs a prefer rule locked in (they score a bigger stickiness
--- bonus). A paladin misses out only when nothing castable remains for them.
+-- A paladin misses out only when nothing castable remains for them.
+--
+-- One primary each is not enough on its own. A raider who doesn't want a
+-- paladin's primary (a Warrior has no use for Wisdom) leaves that paladin
+-- falling back to some other blessing, and with the primaries silent about
+-- second choices two equally-talented paladins swap their leftovers from
+-- raider to raider -- the Wisdom paladin picking up scattered Salvations
+-- while the Salvation paladin picks up scattered Mights. So the same solve
+-- is repeated round after round, each round barred from the pairs the
+-- earlier rounds made, giving every paladin a full ranked fallback ladder
+-- (ladder[paladin][buff] = 1..n). It is computed once for the whole raid,
+-- so every raider falls back the same way and a paladin's leftovers land on
+-- one blessing instead of a spread. Rank 1 is the primary; assign-locked
+-- paladins get their assigned buff as rank 1 and ladder the rest.
+--
+-- `covered` holds the blessings the locked paladins already hand out
+-- (BuffPaladins): those are off the table here, so nobody's primary is a
+-- blessing every raider is already getting from someone else.
+--
+-- Returns forced[paladinName] = buff key for the pairs an assign rule locked
+-- in (they score a bigger stickiness bonus than any rung), and the ladder.
 --
 -- SYNC INVARIANT: this result must be deterministic on every client given the
 -- same roster, roles, talent ranks, and rules. Keep caster names sorted, buff
 -- order canonical, mask traversal numeric, and equal-score tie retention
 -- stable; a pairs-order tie-break here would desynchronize blessing displays.
-local function ComputePrimaries(pool, ignored, prioritized, preferred)
+local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
-    local primary, forced = {}, {}
+    local forced = {}
 
-    -- Rule-ignored buffs are out of the running entirely.
+    -- Rule-ignored buffs, and the ones a locked paladin already covers, are
+    -- out of the running entirely.
     local avail = {}
     for _, key in ipairs(canonical) do
-        if not ignored[key] then avail[#avail + 1] = key end
+        if not ignored[key] and not covered[key] then avail[#avail + 1] = key end
     end
-    local slots = math.min(#pool, #avail)
-    if slots == 0 then return primary, forced end
+    local depth = math.min(#pool, #avail)
+    if depth == 0 then return forced, {} end
 
-    -- Prefer rules place their pairs first, as hard locks: the paladin's
+    -- Assign rules place their pairs first, as hard locks: the paladin's
     -- primary is decided, they leave the pool, the buff leaves the demand
     -- race. Walked in pool order for determinism; two rules can't name one
-    -- buff (one rule per buff), and absent paladins never appear in pool.
+    -- paladin (first wins in CompileBuffRules), and absent paladins never
+    -- appear in pool.
     local used, lockedBuff = {}, {}
     for _, name in ipairs(pool) do
         local buff = preferred[name]
-        if buff and not ignored[buff] and not lockedBuff[buff] then
-            primary[name] = buff
+        if buff and not ignored[buff] and not covered[buff] and not lockedBuff[buff] then
             forced[name] = buff
             used[name] = true
             lockedBuff[buff] = true
         end
     end
 
-    -- Demand votes: each raider's top `slots` wanted buffs, rule-adjusted.
+    -- Demand votes: each raider's top `depth` wanted buffs, rule-adjusted.
     local votes = {}
     for _, key in ipairs(avail) do votes[key] = 0 end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, prioritized)
-            for i = 1, math.min(slots, #order) do
-                votes[order[i]] = votes[order[i]] + 1
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
+            for i = 1, math.min(depth, #order) do
+                if votes[order[i]] then
+                    votes[order[i]] = votes[order[i]] + 1
+                end
             end
         end
     end
@@ -927,12 +1073,14 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
     -- primaries without anyone assigning anything.
     for _ in ipairs(GetPetMembers()) do
         local order = PetBuffOrder(ignored)
-        for i = 1, math.min(slots, #order) do
-            votes[order[i]] = votes[order[i]] + 1
+        for i = 1, math.min(depth, #order) do
+            if votes[order[i]] then
+                votes[order[i]] = votes[order[i]] + 1
+            end
         end
     end
 
-    -- Free casters and still-available buffs after the prefer-rule locks.
+    -- Free casters and still-available buffs after the assign-rule locks.
     local freeCasters = {}
     for _, name in ipairs(pool) do
         if not used[name] then freeCasters[#freeCasters + 1] = name end
@@ -947,71 +1095,102 @@ local function ComputePrimaries(pool, ignored, prioritized, preferred)
         return meta ~= nil and meta.maxRank == 1
     end
 
+    -- Pairs already handed out by an earlier ladder round, so a later round
+    -- gives each paladin their NEXT choice instead of the same one again.
+    local taken = {}
+
     -- Weight of pairing a paladin with a buff, or nil if infeasible. A small
     -- base (so filling a slot always beats leaving it empty) + demand (which
     -- buffs the raid wants) + talentRank*10 (routes each specialist onto their
     -- Improved/granted blessing). Gated blessings are only feasible for a
     -- talented caster.
     local function Weight(name, key)
+        if taken[name] and taken[name][key] then return nil end
         if Gated(key) and (BuffTalentRank(name, key) or 0) == 0 then
             return nil
         end
         return 1 + votes[key] + (BuffTalentRank(name, key) or 0) * 10
     end
 
-    -- Exact max-weight assignment of the free paladins to distinct free buffs,
-    -- solved by DP over the set of buff indices already handed out (bitmask).
-    -- Maximizing total weight jointly chooses WHICH buffs become primaries and
-    -- WHO owns each: the specialist's talent weight pulls their Improved buff
-    -- into the set and onto them, so the commodity blessings consolidate onto
-    -- the non-specialists (one pally owns every Kings while another runs the
-    -- Wis/Might split). A slot no free caster can fill (a gated buff with no
+    -- Exact max-weight assignment of casters to distinct buffs, solved by DP
+    -- over the set of buff indices already handed out (bitmask). Maximizing
+    -- total weight jointly chooses WHICH buffs are taken and WHO owns each:
+    -- the specialist's talent weight pulls their Improved buff into the set
+    -- and onto them, so the commodity blessings consolidate onto the
+    -- non-specialists (one pally owns every Kings while another runs the
+    -- Wis/Might split). A slot no caster can fill (a gated buff with no
     -- talented caster) is left unmatched -- the old forfeit-to-next backfill.
     -- Masks are walked numerically for a deterministic, refresh-stable pick.
-    local nb = #freeBuffs
-    local full = bit.lshift(1, nb)
-    local dp = { [0] = { score = 0, picks = {} } }
-    for c = 1, #freeCasters do
-        local name = freeCasters[c]
-        local ndp = {}
-        for mask = 0, full - 1 do
-            local st = dp[mask]
-            if st then
-                -- This caster owns no primary.
-                local cur = ndp[mask]
-                if not cur or st.score > cur.score then ndp[mask] = st end
-                -- Or takes one still-free buff they can cast.
-                for j = 1, nb do
-                    local jbit = bit.lshift(1, j - 1)
-                    if bit.band(mask, jbit) == 0 then
-                        local w = Weight(name, freeBuffs[j])
-                        if w then
-                            local score = st.score + w
-                            local nmask = mask + jbit
-                            local prev = ndp[nmask]
-                            if not prev or score > prev.score then
-                                local picks = {}
-                                for cc, jj in pairs(st.picks) do picks[cc] = jj end
-                                picks[c] = j
-                                ndp[nmask] = { score = score, picks = picks }
+    -- Returns picks[casterIndex] = buffIndex.
+    local function SolveRound(casters, buffs)
+        local nb = #buffs
+        local full = bit.lshift(1, nb)
+        local dp = { [0] = { score = 0, picks = {} } }
+        for c = 1, #casters do
+            local name = casters[c]
+            local ndp = {}
+            for mask = 0, full - 1 do
+                local st = dp[mask]
+                if st then
+                    -- This caster takes nothing this round.
+                    local cur = ndp[mask]
+                    if not cur or st.score > cur.score then ndp[mask] = st end
+                    -- Or takes one still-free buff they can cast.
+                    for j = 1, nb do
+                        local jbit = bit.lshift(1, j - 1)
+                        if bit.band(mask, jbit) == 0 then
+                            local w = Weight(name, buffs[j])
+                            if w then
+                                local score = st.score + w
+                                local nmask = mask + jbit
+                                local prev = ndp[nmask]
+                                if not prev or score > prev.score then
+                                    local picks = {}
+                                    for cc, jj in pairs(st.picks) do picks[cc] = jj end
+                                    picks[c] = j
+                                    ndp[nmask] = { score = score, picks = picks }
+                                end
                             end
                         end
                     end
                 end
             end
+            dp = ndp
         end
-        dp = ndp
+
+        local best
+        for mask = 0, full - 1 do
+            local st = dp[mask]
+            if st and (not best or st.score > best.score) then best = st end
+        end
+        return best.picks
     end
 
-    local best
-    for mask = 0, full - 1 do
-        local st = dp[mask]
-        if st and (not best or st.score > best.score) then best = st end
+    -- Round 1 decides the primaries: only the paladins an assign rule didn't
+    -- already place, over only the buffs those locks left free.
+    local ladder = {}
+    local function Record(name, key, round)
+        ladder[name] = ladder[name] or {}
+        ladder[name][key] = ladder[name][key] or round
+        taken[name] = taken[name] or {}
+        taken[name][key] = true
     end
-    for c, j in pairs(best.picks) do
-        primary[freeCasters[c]] = freeBuffs[j]
+    for name, buff in pairs(forced) do Record(name, buff, 1) end
+
+    for c, j in pairs(SolveRound(freeCasters, freeBuffs)) do
+        Record(freeCasters[c], freeBuffs[j], 1)
     end
-    return primary, forced
+
+    -- Later rounds rank each paladin's fallbacks. Every paladin takes part
+    -- (the assign-locked ones need fallbacks too) over every available buff,
+    -- barred only from what they already hold.
+    for round = 2, #avail do
+        for c, j in pairs(SolveRound(pool, avail)) do
+            Record(pool[c], avail[j], round)
+        end
+    end
+
+    return forced, ladder
 end
 
 -- Position values for a raider's 1st..6th buff priority: (7-i)^2 * 1000.
@@ -1021,24 +1200,31 @@ end
 local GRID_POS_VALUE = {}
 for i = 1, 6 do GRID_POS_VALUE[i] = (7 - i) * (7 - i) * 1000 end
 
+-- Stickiness per ladder rung (ComputePaladinBuffLadder): the primary is worth
+-- more than one talent rank, every fallback less than one, so the ladder only
+-- ever decides ties between equally-talented paladins -- which is exactly the
+-- case that used to scatter their leftovers.
+local LADDER_BONUS = { 15, 6, 5, 4, 3, 2 }
+
 local cachedBuffPlanKey, cachedBuffPlan
 
 -- Cheap deterministic key for every input to the expensive matching below.
 -- This avoids a brittle list of invalidation calls across roster, talent,
 -- role-customization, sync, fake-raid, and local-rule mutation paths.
-local function BuffPlanKey(ignored, prioritized)
+local function BuffPlanKey(ignored, guaranteed, slots)
     local parts = {}
     local function Add(value) parts[#parts + 1] = tostring(value or "") end
 
+    Add("slots"); Add(slots)
     for _, rule in ipairs(GetBuffRules()) do
         Add("rule")
-        Add(rule.buff); Add(rule.kind); Add(rule.scope); Add(rule.value)
+        Add(rule.buff); Add(rule.kind); Add(rule.scope); Add(rule.value); Add(rule.only)
     end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         local roleId = WhoDoesWhat:GetAssignedRole(m.name)
         Add("member"); Add(m.name); Add(m.classInfo.name); Add(roleId)
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            Add(table.concat(RuleAdjustedOrder(m, ignored, prioritized), ","))
+            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots), ","))
         end
     end
     for _, name in ipairs(MembersOfClass("Paladin")) do
@@ -1093,17 +1279,27 @@ local function ComputeGreaterAssignments(plan, targetClass, petTargets)
 end
 
 local function ComputePaladinBuffPlan()
-    local ignored, prioritized, preferred = CompileBuffRules()
-    local cacheKey = BuffPlanKey(ignored, prioritized)
+    local ignored, guaranteed, assigned = CompileBuffRules()
+    local pool, locked = BuffPaladins(ignored, assigned)
+    -- How many blessings a raider stands to receive: one from each matching
+    -- paladin, plus the single one each locked paladin hands out. This is the
+    -- window a guarantee rule pulls its blessing into.
+    local slots = #pool + #locked
+
+    local cacheKey = BuffPlanKey(ignored, guaranteed, slots)
     if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
 
-    local pool = {}
-    for _, name in ipairs(MembersOfClass("Paladin")) do
-        if WhoDoesWhat:GetPaladinBuffTalents(name) then
-            pool[#pool + 1] = name
-        end
+    -- What the locked paladins already blanket the raid with, and the soft
+    -- primary locks (assign rules without `only`) for the paladins still in
+    -- the matching pool.
+    local covered, preferred = {}, {}
+    for _, lk in ipairs(locked) do covered[lk.buff] = true end
+    for _, name in ipairs(pool) do
+        local rule = assigned[name]
+        if rule then preferred[name] = rule.buff end
     end
-    local primary, forced = ComputePrimaries(pool, ignored, prioritized, preferred)
+    local forced, ladder = ComputePaladinBuffLadder(pool, ignored, covered,
+        guaranteed, preferred, slots)
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
     -- rank 0; Salvation/Light have no talent requirement.
@@ -1115,6 +1311,29 @@ local function ComputePaladinBuffPlan()
         return true
     end
 
+    -- The locked paladins' cells for one raider: each hands out their single
+    -- blessing to everyone whose priorities include it, and gives nothing at
+    -- all to anyone else. Returns the cells plus the order positions they
+    -- consume, which the matcher below starts from -- so the rest of the
+    -- paladins fill the raider's REMAINING wants instead of doubling up on a
+    -- blessing that is already covered.
+    local function SeedLocked(order, unavailable)
+        local cells, mask = {}, 0
+        for _, lk in ipairs(locked) do
+            if not (unavailable and unavailable[lk.name]) then
+                for i, key in ipairs(order) do
+                    local ibit = bit.lshift(1, i - 1)
+                    if key == lk.buff and bit.band(mask, ibit) == 0 then
+                        cells[lk.name] = key
+                        mask = mask + ibit
+                        break
+                    end
+                end
+            end
+        end
+        return cells, mask
+    end
+
     -- One raider's cells, matched exactly by DP: process the pool paladin by
     -- paladin; a state is the set of order positions already given out
     -- (bitmask, order is always the full 6 buffs) with the best score
@@ -1122,7 +1341,8 @@ local function ComputePaladinBuffPlan()
     -- unchanged) or takes one free position they can cast. Masks are walked
     -- numerically so equal-score ties resolve the same way every refresh.
     local function SolveRaider(order, unavailable)
-        local dp = { [0] = { score = 0, picks = {} } }
+        local seedCells, seedMask = SeedLocked(order, unavailable)
+        local dp = { [seedMask] = { score = 0, picks = {} } }
         for p = 1, #pool do
             local name = pool[p]
             local ndp = {}
@@ -1141,15 +1361,22 @@ local function ComputePaladinBuffPlan()
                             if bit.band(mask, ibit) == 0 and CanCast(name, key) then
                                 -- The +15 primary stickiness outweighs one talent
                                 -- rank but not two: near-ties consolidate on the
-                                -- primary owner, real rank gaps still win. A
-                                -- prefer-rule pair scores +100 instead -- past
+                                -- primary owner, real rank gaps still win. The
+                                -- smaller ladder bonuses below it do the same for
+                                -- the fallbacks, so a paladin whose primary this
+                                -- raider doesn't want still lands on the same
+                                -- second (third, ...) choice they take everywhere
+                                -- else -- all of them under one rank step, so
+                                -- talent still decides when talent differs. A
+                                -- assign-rule pair scores +100 instead -- past
                                 -- any possible rank gap (max 50), so the user's
                                 -- pick holds; position values still dominate, so
                                 -- nobody is force-fed a buff they don't want.
+                                local rung = ladder[name] and ladder[name][key]
                                 local score = st.score + GRID_POS_VALUE[i]
                                     + (BuffTalentRank(name, key) or 0) * 10
                                     + (forced[name] == key and 100
-                                        or primary[name] == key and 15 or 0)
+                                        or rung and LADDER_BONUS[rung] or 0)
                                 local nmask = mask + ibit
                                 local prev = ndp[nmask]
                                 if not prev or score > prev.score then
@@ -1174,7 +1401,7 @@ local function ComputePaladinBuffPlan()
             end
         end
 
-        local cells = {}
+        local cells = seedCells
         for p, i in pairs(best.picks) do
             cells[pool[p]] = order[i]
         end
@@ -1185,7 +1412,7 @@ local function ComputePaladinBuffPlan()
     for _, m in ipairs(GetEligibleMembers(nil)) do
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, prioritized)
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
             plan[m.name] = SolveRaider(order)
             targetClass[m.name] = m.classInfo.name
         end
@@ -1228,11 +1455,18 @@ local function ComputePaladinBuffPlan()
     -- Class Greater decisions are part of the shared plan, not view state.
     local greaterByPaladin = ComputeGreaterAssignments(plan, targetClass, petTargets)
 
+    local lockedPaladins = {}
+    for _, lk in ipairs(locked) do lockedPaladins[lk.name] = lk.buff end
+
     cachedBuffPlanKey = cacheKey
     cachedBuffPlan = {
         grid = plan,
         greaterByPaladin = greaterByPaladin,
         targetClass = targetClass,
+        -- paladin -> the single blessing an `only` assign rule gave them.
+        -- They're outside the matching, so "no talent data" is not a reason
+        -- to hold their row back the way it is for everyone else.
+        lockedPaladins = lockedPaladins,
     }
     return cachedBuffPlan
 end
@@ -1448,12 +1682,14 @@ local function ComputePaladinBuffSummary(buffPlan)
     local canonIndex = {}
     for i, key in ipairs(canonical) do canonIndex[key] = i end
 
+    local plan = buffPlan or GetActivePaladinBuffPlan()
+    local locked = plan.lockedPaladins or {}
     local counts, names = {}, {}
     for _, name in ipairs(MembersOfClass("Paladin")) do
         counts[name] = {}
         names[#names + 1] = name
     end
-    for _, cells in pairs((buffPlan or GetActivePaladinBuffPlan()).grid) do
+    for _, cells in pairs(plan.grid) do
         for paladin, key in pairs(cells) do
             local c = counts[paladin]
             if c then c[key] = (c[key] or 0) + 1 end
@@ -1475,7 +1711,8 @@ local function ComputePaladinBuffSummary(buffPlan)
             name = name,
             total = total,
             buffs = buffs,
-            awaitingTalents = WhoDoesWhat:GetPaladinBuffTalents(name) == nil,
+            awaitingTalents = not locked[name]
+                and WhoDoesWhat:GetPaladinBuffTalents(name) == nil,
         }
     end
     table.sort(out, function(a, b)
@@ -1758,7 +1995,7 @@ local function CollectCCWhispers() return CollectDynamicWhispers(SectionByKey("c
 local function CollectMisdirectWhispers() return CollectDynamicWhispers(SectionByKey("md")) end
 local function CollectCurseWhispers() return CollectStaticWhispers(Sections[2]) end
 
--- Drop assignments whose player is no longer in the group, including prefer
+-- Drop assignments whose player is no longer in the group, including assign
 -- rules tied to a departed paladin. Roster lifecycle reconciliation calls this
 -- outside the views, so opening a window is a pure read. Dynamic rows keep
 -- their marker and spell; only the departed player is cleared. Read-only
@@ -1798,7 +2035,7 @@ local function PruneDepartedAssignments()
     local rules = WhoDoesWhat.db.profile.paladinBuffRules
     for i = #rules, 1, -1 do
         local rule = rules[i]
-        if rule.kind == "prefer" and rule.value and not present[rule.value] then
+        if rule.kind == "assign" and rule.value and not present[rule.value] then
             table.remove(rules, i)
             WhoDoesWhat:LogOperation("Paladin Buffs rule removed: " .. rule.value
                 .. " is no longer in the group.")
@@ -2104,6 +2341,8 @@ WhoDoesWhat.Assign = {
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,
     GetBuffRules = GetBuffRules,
     PvpSalvationIgnored = PvpSalvationIgnored,
+    UnhandledDisabledPaladins = UnhandledDisabledPaladins,
+    PaladinBuffSlots = PaladinBuffSlots,
     ShortAssignmentName = ShortAssignmentName,
     -- storage
     EnsureAutoRows = EnsureAutoRows,
