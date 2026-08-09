@@ -116,8 +116,9 @@ end
 -- not assignable and never stored: they exist purely for the paladin-buff
 -- math, each carrying the hunter_pets pseudo-role's wants so pet coverage
 -- is derived automatically. Keyed as "<Hunter>'s Pet" (real character names
--- can't contain an apostrophe, so the keys can't collide with a raider); live
--- views may display the pet's real name, falling back to its hunter. Entries
+-- can't contain an apostrophe, so the keys can't collide with a raider). The
+-- key is never shown as-is: WhoDoesWhat:DisplayName turns it into the pet's
+-- real name with its owner behind it (Core.lua). Entries
 -- carry owner + isPet for the buff grid view and the PallyPower bridge.
 local function GetPetMembers()
     local out = {}
@@ -1485,10 +1486,10 @@ local function ComputePaladinBuffSummary(buffPlan)
     return out
 end
 
+-- Realm-tag-free display name; a hunter pet resolves to "Broll (Rexxar)" so a
+-- whispered to-do names both the pet and the hunter to find it next to.
 local function ShortAssignmentName(name)
-    local petSuffix = name:match("('s Pet)$")
-    local base = petSuffix and name:sub(1, #name - #petSuffix) or name
-    return (base:match("^([^%-]+)") or base) .. (petSuffix or "")
+    return WhoDoesWhat:DisplayName(name)
 end
 
 local function PaladinBuffWhisperText(coverage)
@@ -1919,27 +1920,6 @@ local function AutoPlaceAfflictionElements(playerName)
     return true
 end
 
--- ownerName -> { name = realPetName, unit = petUnit } for live hunter pets
--- (the same resolution the PallyPower bridge uses). Fake hunters have no real
--- pet unit and are absent here.
-local function GetPetUnitInfo()
-    local owners = {}
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do owners[#owners + 1] = { "raid" .. i, "raidpet" .. i } end
-    else
-        owners[#owners + 1] = { "player", "pet" }
-        for i = 1, GetNumSubgroupMembers() do owners[#owners + 1] = { "party" .. i, "partypet" .. i } end
-    end
-    local out = {}
-    for _, u in ipairs(owners) do
-        if UnitExists(u[2]) then
-            local owner, pname = GetUnitName(u[1], true), GetUnitName(u[2], true)
-            if owner and pname then out[owner] = { name = pname, unit = u[2] } end
-        end
-    end
-    return out
-end
-
 -- One paladin's buffing jobs, grouped per CLASS -- the model behind the
 -- Paladin Buffing Bar (Views/PaladinBuffingBarView.lua). Reads the active
 -- WDW/PallyPower plan and collapses it into class Greaters plus per-player
@@ -1993,7 +1973,7 @@ local function GetPaladinBuffJobs(paladinName, buffPlan)
     -- Lesser-blessing targets.
     local warriorCI = GetClassInfoByToken("WARRIOR")
     if warriorCI then
-        local petInfo = GetPetUnitInfo()
+        local petInfo = WhoDoesWhat:GetPetUnitInfo()
         for _, pet in ipairs(GetPetMembers()) do
             local key = plan[pet.name] and plan[pet.name][paladinName]
             if key then
@@ -2001,7 +1981,8 @@ local function GetPaladinBuffJobs(paladinName, buffPlan)
                 local info = petInfo[pet.owner]
                 c.members[#c.members + 1] = {
                     statusName = pet.name, -- BuffTracking key: "<Owner>'s Pet"
-                    display = (info and info.name) or pet.owner,
+                    -- Narrow fixed-width buttons: the bare pet name, no owner.
+                    display = WhoDoesWhat:DisplayName(pet.name, true),
                     key = key, isPet = true, owner = pet.owner, classInfo = pet.classInfo,
                     petUnit = info and info.unit,
                 }

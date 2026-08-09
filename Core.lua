@@ -145,6 +145,68 @@ function WhoDoesWhat:IsNonRaider(name)
     return self:GetAssignedRole(name) == self.NON_RAIDER_ROLE_ID
 end
 
+-- ---------------------------------------------------------------------------
+-- Hunter pet names
+-- ---------------------------------------------------------------------------
+--
+-- Hunter pets are keyed "<Owner>'s Pet" everywhere internally (Assignments.lua
+-- builds them, BuffTracking and the PallyPower bridge match on them). That key
+-- is an identity, not a label: on screen a pet gets its real name with its
+-- owner behind it -- "Broll (Rexxar)" -- for as long as the pet is visible.
+--
+-- ownerName -> { name = <pet's real name>, unit = <pet unit token> }, rebuilt
+-- at most once per frame. The buff grid asks once per row per repaint and the
+-- scan walks the whole raid, so the repeats are worth skipping -- but caching
+-- across frames would need invalidation events, and nothing guarantees ours
+-- runs before the view frame that repaints on the same event. GetTime() is
+-- frozen for the duration of a frame, which makes it exactly the right key.
+local petInfo, petInfoTime = {}, nil
+
+function WhoDoesWhat:GetPetUnitInfo()
+    if petInfoTime == GetTime() then return petInfo end
+    local units = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do units[#units + 1] = { "raid" .. i, "raidpet" .. i } end
+    else
+        units[#units + 1] = { "player", "pet" }
+        for i = 1, GetNumSubgroupMembers() do units[#units + 1] = { "party" .. i, "partypet" .. i } end
+    end
+    petInfo = {}
+    for _, u in ipairs(units) do
+        if UnitExists(u[2]) then
+            local owner, name = GetUnitName(u[1], true), GetUnitName(u[2], true)
+            if owner and name then petInfo[owner] = { name = name, unit = u[2] } end
+        end
+    end
+    petInfoTime = GetTime()
+    return petInfo
+end
+
+-- The pet's own name, or nil while it isn't resolvable (out of range, dead and
+-- not yet re-summoned, or a Developer Mode fake hunter). Realm-tagged owner
+-- keys resolve too -- the roster keys pets by the same name it stores owners.
+function WhoDoesWhat:GetPetName(ownerName)
+    local info = ownerName and self:GetPetUnitInfo()[ownerName]
+    return info and info.name or nil
+end
+
+-- Display text for any roster / plan / BuffTracking key: realm suffix dropped,
+-- and a pet key resolved to "Broll (Rexxar)". `short` asks for the pet's bare
+-- name instead, for the fixed-width spots that can't take the parenthetical.
+-- Both forms fall back to the key's own "Rexxar's Pet" while the pet has no
+-- resolvable name, so a row never goes anonymous.
+function WhoDoesWhat:DisplayName(name, short)
+    if not name then return name end
+    local owner = name:match("^(.*)'s Pet$")
+    if not owner then return name:match("^([^%-]+)") or name end
+    local petName = self:GetPetName(owner)
+    owner = owner:match("^([^%-]+)") or owner
+    if not petName then return owner .. "'s Pet" end
+    petName = petName:match("^([^%-]+)") or petName
+    if short then return petName end
+    return petName .. " (" .. owner .. ")"
+end
+
 -- Default saved settings. Stored per-profile in WhoDoesWhatDB (see the
 -- SavedVariables line in WhoDoesWhat.toc).
 local defaults = {

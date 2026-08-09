@@ -205,12 +205,9 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Names are shown the way the raid says them: no realm suffix, and a hunter
--- pet keeps the "'s Pet" that identifies whose it is.
+-- pet by its own name with its owner behind it.
 local function ShortTargetName(name)
-    local petSuffix = name:match("('s Pet)$")
-    local base = petSuffix and name:sub(1, #name - #petSuffix) or name
-    base = base:match("^([^%-]+)") or base
-    return base .. (petSuffix or "")
+    return WhoDoesWhat:DisplayName(name)
 end
 
 local function ColoredName(name, classInfo)

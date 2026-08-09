@@ -105,7 +105,7 @@ local function ComparisonMembers(diffs)
             local display = {}
             for field, value in pairs(member) do display[field] = value end
             display.planName = member.name
-            display.displayName = ShortName(member.name)
+            display.displayName = WhoDoesWhat:DisplayName(member.name)
             members[#members + 1] = display
             seen[key] = true
         end
@@ -122,7 +122,7 @@ local function ComparisonMembers(diffs)
             members[#members + 1] = {
                 name = planTarget,
                 planName = planTarget,
-                displayName = ShortName(diff.target),
+                displayName = WhoDoesWhat:DisplayName(diff.target),
                 roleIcon = diff.targetIcon,
                 roleName = diff.targetRole,
             }

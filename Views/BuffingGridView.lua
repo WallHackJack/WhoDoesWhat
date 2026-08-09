@@ -250,7 +250,8 @@ local function CreateCoreCell(row, column)
     cell:SetScript("OnEnter", function(self)
         local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(buff.name .. " - " .. self.raider, 1, 1, 1)
+        GameTooltip:SetText(buff.name .. " - "
+            .. WhoDoesWhat:DisplayName(self.raider), 1, 1, 1)
         if self.notNeeded then
             GameTooltip:AddLine("Not required for this class.", 0.6, 0.6, 0.6)
         elseif not self.connected then
@@ -308,29 +309,30 @@ local function CreatePaladinCell(row, c)
 
     cell:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
             GameTooltip:SetText(self.paladin, 1, 1, 1)
-            GameTooltip:AddLine("Blesses " .. self.raider .. " with "
+            GameTooltip:AddLine("Blesses " .. raider .. " with "
                 .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
                 .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long
                 .. (self.isGreater and "." or " (Lesser)."),
                 0.8, 0.8, 0.8, true)
             if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
                 and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
-                GameTooltip:AddLine(self.raider .. " is missing this buff.",
+                GameTooltip:AddLine(raider .. " is missing this buff.",
                     1, 0.3, 0.3, true)
             end
         else
             GameTooltip:SetText(self.paladin, 1, 1, 1)
             if self.gridSource == "wdw" then
-                GameTooltip:AddLine("Nothing for " .. self.raider .. ": every blessing"
+                GameTooltip:AddLine("Nothing for " .. raider .. ": every blessing"
                     .. " they want at this paladin count is already covered, or needs"
                     .. " a talent " .. self.paladin .. " doesn't have.",
                     0.6, 0.6, 0.6, true)
             else
                 local source = self.gridSource == "addon"
                     and "the local PallyPower addon" or "observed PallyPower traffic"
-                GameTooltip:AddLine("No assignment for " .. self.raider .. " in "
+                GameTooltip:AddLine("No assignment for " .. raider .. " in "
                     .. source .. ".", 0.6, 0.6, 0.6, true)
             end
         end
@@ -573,7 +575,7 @@ local function RefreshGrid(f)
         row.roleIcon:SetTexture(RoleIconFor(m))
         row.roleIcon:SetDesaturated(not connected)
         row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
-            .. m.name .. "|r")
+            .. WhoDoesWhat:DisplayName(m.name) .. "|r")
 
         for c, key in ipairs(coreKeys) do
             local cell = row.coreCells[c] or CreateCoreCell(row, c)
