@@ -520,8 +520,15 @@ local function RenderGrid(f, data)
     -- The overview strip keeps a gap between itself and the column headers so
     -- it reads as its own block rather than the grid's first rows.
     local summaryHeight = #paladins * SUMMARY_ROW_H + SUMMARY_GAP
+    -- The "your fixes may upset the raid" note is only true in the one case it
+    -- describes: PallyPower is the controller of record for this raid and you
+    -- hold no board rights, so pushing over it is stepping on someone else's
+    -- plan. With WDW as the source, or with edit rights, the fixes ARE the
+    -- plan and the warning was just noise.
     SetExpanded(f, frameW, summaryHeight, bodyHeight,
-        not data.isDemo and IsInRaid() and not WhoDoesWhat:IsRaidAssistant())
+        not data.isDemo
+        and (WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw") == "pallypower"
+        and not WhoDoesWhat:CanEditAssignments())
     f.header:SetSize(contentW, TITLE_H + summaryHeight + HEADER_H)
     f.content:SetWidth(contentW)
 
@@ -780,8 +787,9 @@ local function EnsureFrame()
     warning:SetJustifyH("CENTER")
     warning:SetJustifyV("TOP")
     warning:SetTextColor(1, 0.2, 0.2)
-    warning:SetText("You are not raid lead/assist. Use fixes sparingly; they rely"
-        .. " on paladins who enabled Free Assignment.")
+    warning:SetText("PallyPower is this raid's buff source and you have no edit"
+        .. " rights. Use fixes sparingly; they rely on paladins who enabled"
+        .. " Free Assignment.")
     warning:Hide()
     f.warning = warning
 
