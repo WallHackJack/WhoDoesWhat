@@ -12,7 +12,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- players; both clicks cast the planned Normal blessing for exceptions.
 --
 -- Two optional self-buff buttons lead the row, split off by a hairline: an
--- aura swapper (right-click offers the next aura, left-click casts it) and,
+-- aura swapper (hovering opens a picker of every castable aura, left-click
+-- casts whichever one it is currently offering) and,
 -- while the paladin holds a tank role, a Righteous Fury refresher. Unlike the
 -- class buttons these are about the LOCAL player, and neither carries a
 -- coverage count -- just a red glow when the buff is missing, yellow with a
@@ -41,6 +42,8 @@ local PLAYER_HEADER_H = 24
 local PLAYER_W = PLAYER_MENU_W - INSET * 2
 local PLAYER_H = 22
 local PLAYER_GAP = 0
+local AURA_MENU_LABEL_H = 12 -- row caption above each block of aura icons
+local AURA_MENU_ROW_GAP = 4
 local MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local MISSING_GLOW_COLOR = { 1, 0.05, 0.05, 1 }
 local EXPIRING_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
@@ -642,14 +645,25 @@ local function PositionPlayerMenu(btn)
     end
 end
 
-local function WirePlayerMenus()
+-- Give every hoverable button the list of popouts it must close on the way in,
+-- so moving along the row swaps menus at once instead of waiting out the
+-- previous one's auto-hide. The self-buff buttons join the class buttons here:
+-- the aura swapper owns a popout of its own, Righteous Fury owns none and only
+-- does the closing.
+local function WirePopoutMenus()
     if bar.menusWired == #bar.buttons then return end
+    local owners = {}
     for _, btn in ipairs(bar.buttons) do
-        btn:Execute("otherMenus = newtable()")
-        for _, other in ipairs(bar.buttons) do
-            if other ~= btn then
-                SecureHandlerSetFrameRef(btn, "otherMenu", other.playerMenu)
-                btn:Execute([[
+        owners[#owners + 1] = { btn = btn, menu = btn.playerMenu }
+    end
+    owners[#owners + 1] = { btn = bar.auraButton, menu = bar.auraButton.auraMenu }
+    owners[#owners + 1] = { btn = bar.rfButton }
+    for _, owner in ipairs(owners) do
+        owner.btn:Execute("otherMenus = newtable()")
+        for _, other in ipairs(owners) do
+            if other ~= owner and other.menu then
+                SecureHandlerSetFrameRef(owner.btn, "otherMenu", other.menu)
+                owner.btn:Execute([[
                     local menu = self:GetFrameRef("otherMenu")
                     otherMenus[#otherMenus + 1] = menu
                 ]])
@@ -1028,25 +1042,33 @@ local function SelectedAuraStep(auras)
     return 1
 end
 
--- Right-click rotates the offered aura; left-click casts whatever is showing.
--- Same restricted-environment trick as the class buttons, so the rotation keeps
--- working in combat off the baked-in list.
---
--- The button is registered for both click edges because the secure handler --
--- not us -- decides which one carries the cast (ActionButtonUseKeyDown). That
--- means the wrapper runs twice per click, so rotate on the up edge only or
--- every click would advance two auras.
-local AURA_SNIPPET = [==[
-    if down == true then return end
-    if button == "RightButton" then
-        local n = table.maxn(auraNames)
-        if n > 0 then
-            local step = (self:GetAttribute("astep") or 1) + 1
-            if step > n then step = 1 end
-            self:SetAttribute("astep", step)
-            self:SetAttribute("macrotext1", "/cast " .. auraNames[step])
-        end
+-- Hovering opens the aura picker, exactly as hovering a class button opens its
+-- player menu -- including closing every other popout the bar owns on the way
+-- in, so moving between buttons swaps menus with no auto-hide delay. Left-click
+-- still casts whatever aura the button is offering.
+local AURA_ENTER_SNIPPET = [==[
+    for _, menu in ipairs(otherMenus) do menu:Hide() end
+    local menu = self:GetFrameRef("auraMenu")
+    if menu:GetAttribute("Display") == 1 then
+        menu:Show()
+        menu:RegisterAutoHide(0.25)
+        menu:AddToAutoHide(self)
     end
+]==]
+
+-- Righteous Fury owns no popout, but sits right next to the swapper, so it
+-- closes the others on the way in rather than leaving one hanging.
+local CLOSE_MENUS_SNIPPET = [==[
+    for _, menu in ipairs(otherMenus) do menu:Hide() end
+]==]
+
+-- One aura icon in the picker. Everything the click needs is baked onto the
+-- option itself, so the swapper's offered aura can change mid-combat.
+local AURA_OPTION_SNIPPET = [==[
+    local swapper = self:GetFrameRef("auraButton")
+    swapper:SetAttribute("astep", self:GetAttribute("astep"))
+    swapper:SetAttribute("macrotext1", self:GetAttribute("auraMacro"))
+    self:GetParent():Hide()
 ]==]
 
 -- Every tooltip the bar owns -- the self-buff buttons and the title strip --
@@ -1101,9 +1123,31 @@ local function CreateSelfBuffButton(name, template)
     count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
     btn.count = count
 
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Hooked, not set: these carry secure enter/leave handlers from their
+    -- templates, and SetScript would throw them away.
+    btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     btn:Hide()
     return btn
+end
+
+-- Repaint the picker's icons: gold border on the offered aura, full colour on
+-- whichever one is actually running (the same "desaturated means not up"
+-- language the swapper itself uses). Safe in combat -- no secure writes.
+local function UpdateAuraMenu(btn)
+    local menu = btn.auraMenu
+    if not menu then return end
+    local step = btn:GetAttribute("astep") or 1
+    local running = btn.activeName
+    for i, option in ipairs(menu.options) do
+        if option:IsShown() then
+            option.icon:SetDesaturated(option.aura.name ~= running)
+            if i == step then
+                option.border:SetColorTexture(1, 0.82, 0.2, 1)
+            else
+                option.border:SetColorTexture(0, 0, 0, 0.9)
+            end
+        end
+    end
 end
 
 -- Repaint from the player's own buffs. Safe in combat: no secure attribute or
@@ -1116,46 +1160,218 @@ local function UpdateAuraButton(btn)
     btn.count:SetText("")
     if not selected then
         SetButtonGlow(btn, false)
-        RefreshBarTooltip(btn)
         return
     end
     btn.icon:SetTexture(selected.icon)
     local running = (btn.activeName == selected.name)
     btn.icon:SetDesaturated(not running)
     SetButtonGlow(btn, not running, MISSING_GLOW_COLOR)
-    RefreshBarTooltip(btn)
+    UpdateAuraMenu(btn)
 end
 
+-- The picker itself: a small panel of aura icons hanging off the swapper, laid
+-- out as captioned rows (the auras you actually run, then the situational
+-- resistance ones). Built like the class buttons' player menus -- a protected
+-- frame the secure snippet can show, closing itself on mouse-out.
+local function CreateAuraMenu(btn)
+    local menu = CreateFrame("Frame", btn:GetName() .. "Menu", btn,
+        "SecureHandlerShowHideTemplate, BackdropTemplate")
+    menu:SetFrameStrata("DIALOG")
+    menu:SetClampedToScreen(true)
+    menu:EnableMouse(true)
+    menu:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 16,
+        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
+    })
+    menu:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
+    menu:SetBackdropBorderColor(0.4, 0.4, 0.4)
+
+    -- Same header strip the class buttons' player menus carry, down to the
+    -- geometry and colours: it stands in for the tooltip the swapper gave up.
+    local headerBg = menu:CreateTexture(nil, "ARTWORK")
+    headerBg:SetPoint("TOPLEFT", INSET, -INSET)
+    headerBg:SetPoint("TOPRIGHT", -INSET, -INSET)
+    headerBg:SetHeight(PLAYER_HEADER_H)
+    headerBg:SetColorTexture(0.09, 0.09, 0.11, 1)
+
+    local clickHint = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    clickHint:SetPoint("TOPLEFT", headerBg, "TOPLEFT", 4, -2)
+    clickHint:SetText("Left-click = cast shown aura\nClick an icon = swap aura")
+    clickHint:SetTextColor(0.4, 0.7, 1)
+    clickHint:SetJustifyH("LEFT")
+
+    menu:Hide()
+    menu.options = {}
+    menu.labels = {}
+    menu.owner = btn
+    btn.auraMenu = menu
+    SecureHandlerSetFrameRef(btn, "auraMenu", menu)
+    return menu
+end
+
+local function CreateAuraMenuLabel(menu, index)
+    local label = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetJustifyH("LEFT")
+    label:SetTextColor(0.7, 0.7, 0.7)
+    menu.labels[index] = label
+    return label
+end
+
+local function CreateAuraOption(menu, index)
+    local option = CreateFrame("Button", menu:GetName() .. "Option" .. index, menu,
+        "SecureHandlerClickTemplate")
+    option:SetSize(BTN_SIZE, BTN_SIZE)
+    option:RegisterForClicks("AnyUp")
+
+    local border = option:CreateTexture(nil, "BACKGROUND")
+    border:SetPoint("TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetColorTexture(0, 0, 0, 0.9)
+    option.border = border
+
+    local icon = option:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    option.icon = icon
+
+    local highlight = option:CreateTexture(nil, "OVERLAY")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.2)
+    option:SetHighlightTexture(highlight)
+
+    -- The client's own spell tooltip, so each icon reads exactly as it does in
+    -- the spellbook (resistance amounts, mana drain, the lot). ConfigureAuraMenu
+    -- resolves the rank actually known; SetSpellByID is missing on some Classic
+    -- builds, where the spell hyperlink gets the same tooltip.
+    option:SetScript("OnEnter", function(self)
+        if not self.aura then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if not self.spellId then
+            GameTooltip:SetText(self.aura.name, 1, 1, 1)
+        elseif GameTooltip.SetSpellByID then
+            GameTooltip:SetSpellByID(self.spellId)
+        else
+            GameTooltip:SetHyperlink("spell:" .. self.spellId)
+        end
+        if menu.owner.activeName == self.aura.name then
+            GameTooltip:AddLine("Running.", 0.3, 1, 0.3)
+        end
+        GameTooltip:Show()
+    end)
+    option:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- The pick lands inside AURA_OPTION_SNIPPET; insecure code only persists it
+    -- and repaints, exactly as the old right-click rotation did.
+    option:SetScript("PostClick", function(self)
+        local swapper = menu.owner
+        if self.aura then
+            WhoDoesWhat.db.profile.settings.buffingBarAura = self.aura.key
+        end
+        UpdateAuraButton(swapper)
+        if WhoDoesWhat.db.profile.settings.logBuffingBarClicks then
+            WhoDoesWhat:Print("Buffing bar aura picked: "
+                .. (self.aura and self.aura.name or "nothing") .. ".")
+        end
+    end)
+    SecureHandlerSetFrameRef(option, "auraButton", menu.owner)
+    option:WrapScript(option, "OnClick", AURA_OPTION_SNIPPET)
+    menu.options[index] = option
+    return option
+end
+
+-- Lay the castable auras out in rows and bake each icon's pick into its secure
+-- attributes. Combat-locked like every other secure write on the bar, so it
+-- no-ops mid-fight and re-runs on the next out-of-combat refresh.
+local function ConfigureAuraMenu(btn)
+    local menu = btn.auraMenu
+    local rows = {
+        { label = "Auras", auras = {} },
+        { label = "Resistances", auras = {} },
+    }
+    for i, aura in ipairs(btn.auras) do
+        local row = rows[aura.resist and 2 or 1]
+        row.auras[#row.auras + 1] = { step = i, aura = aura }
+    end
+
+    -- Floor the panel at the player menus' width so the shared header hint has
+    -- the room it has over there; the icon rows are narrower than that anyway.
+    local shown, rowCount = 0, 0
+    local widest = PLAYER_MENU_W - INSET * 2
+    local y = INSET + PLAYER_HEADER_H + PLAYER_GAP
+    for _, row in ipairs(rows) do
+        if #row.auras > 0 then
+            rowCount = rowCount + 1
+            if rowCount > 1 then y = y + AURA_MENU_ROW_GAP end
+            local label = menu.labels[rowCount] or CreateAuraMenuLabel(menu, rowCount)
+            label:SetText(row.label)
+            label:ClearAllPoints()
+            label:SetPoint("TOPLEFT", menu, "TOPLEFT", INSET, -y)
+            label:Show()
+            y = y + AURA_MENU_LABEL_H
+            for column, entry in ipairs(row.auras) do
+                shown = shown + 1
+                local option = menu.options[shown] or CreateAuraOption(menu, shown)
+                option.aura = entry.aura
+                -- Rank-less name lookup lands on the highest rank the paladin
+                -- knows, which is the one a click would cast; the base-rank id
+                -- covers test mode, where nothing is in the spellbook.
+                option.spellId = select(7, GetSpellInfo(entry.aura.name))
+                    or entry.aura.spellId
+                option.icon:SetTexture(entry.aura.icon)
+                option:SetAttribute("astep", entry.step)
+                option:SetAttribute("auraMacro", "/cast " .. entry.aura.name)
+                option:ClearAllPoints()
+                option:SetPoint("TOPLEFT", menu, "TOPLEFT",
+                    INSET + (column - 1) * (BTN_SIZE + BTN_GAP), -y)
+                option:Show()
+            end
+            -- Widen for a caption that outruns its own row of icons.
+            widest = math.max(widest,
+                #row.auras * BTN_SIZE + (#row.auras - 1) * BTN_GAP,
+                math.ceil(label:GetStringWidth()))
+            y = y + BTN_SIZE
+        end
+    end
+    for i = shown + 1, #menu.options do
+        menu.options[i]:Hide()
+        menu.options[i].aura, menu.options[i].spellId = nil, nil
+    end
+    for i = rowCount + 1, #menu.labels do menu.labels[i]:Hide() end
+
+    menu:SetAttribute("Display", shown > 0 and 1 or 0)
+    menu:SetSize(INSET * 2 + widest, y + INSET)
+    menu:Hide()
+end
+
+-- Anchored at the end of the refresh, once the swapper itself has been laid
+-- out, since which way it opens is read off its on-screen position.
+local function PositionAuraMenu(btn)
+    local menu = btn.auraMenu
+    menu:ClearAllPoints()
+    if PopoutDirection(btn, menu:GetHeight()) == "UP" then
+        menu:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 0)
+    else
+        menu:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, 0)
+    end
+end
+
+-- No tooltip of its own: the picker opens on hover in its place, and says
+-- everything the tooltip did -- which aura is offered, which is running, and
+-- what the alternatives are -- as icons instead of lines.
 local function CreateAuraButton()
     local btn = CreateSelfBuffButton("WhoDoesWhatBuffingBarAuraButton",
-        "SecureHandlerStateTemplate, SecureActionButtonTemplate")
+        "SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, "
+        .. "SecureActionButtonTemplate")
     btn:RegisterForClicks("AnyUp", "AnyDown")
+    CreateAuraMenu(btn)
+    btn:Execute("otherMenus = newtable()")
+    btn:SetAttribute("_onenter", AURA_ENTER_SNIPPET)
 
-    btn.FillTooltip = function(self)
-        GameTooltip:SetText(self.selected and self.selected.name or "Paladin Aura",
-            1, 1, 1)
-        if not self.activeName then
-            GameTooltip:AddLine("No aura is running.", 1, 0.3, 0.3)
-        elseif self.selected and self.activeName == self.selected.name then
-            GameTooltip:AddLine("Running.", 0.3, 1, 0.3)
-        else
-            GameTooltip:AddLine("Running: " .. self.activeName, 1, 0.82, 0.2)
-        end
-        GameTooltip:AddLine("Left-click to cast it.", 0.4, 0.7, 1)
-        GameTooltip:AddLine("Right-click to offer the next aura.", 0.4, 0.7, 1)
-    end
-    btn:SetScript("OnEnter", ShowBarTooltip)
-    -- The rotation happens inside the secure snippet, which insecure code can
-    -- only read back afterwards; persist the landing spot and repaint here.
     btn:SetScript("PostClick", function(self, mouseButton, down)
-        if down == true then return end -- one pass per click, as in AURA_SNIPPET
-        if mouseButton == "RightButton" then
-            local step = self:GetAttribute("astep") or 1
-            local aura = self.auras and self.auras[step]
-            if aura then
-                WhoDoesWhat.db.profile.settings.buffingBarAura = aura.key
-            end
-        end
+        -- Secure action buttons obey ActionButtonUseKeyDown, so this fires on
+        -- both edges; one pass per click.
+        if down == true then return end
         UpdateAuraButton(self)
         if WhoDoesWhat.db.profile.settings.logBuffingBarClicks then
             WhoDoesWhat:Print("Buffing bar aura click: " .. tostring(mouseButton)
@@ -1166,25 +1382,20 @@ local function CreateAuraButton()
     return btn
 end
 
--- Bake the castable aura list into the button's restricted environment. Secure
--- attribute writes are combat-locked, so this no-ops in combat and re-runs on
--- the next out-of-combat refresh, exactly like the class buttons.
+-- Bake the castable aura list onto the button and its picker. Secure attribute
+-- writes are combat-locked, so this no-ops in combat and re-runs on the next
+-- out-of-combat refresh, exactly like the class buttons.
 local function ConfigureAuraButton(btn)
     if InCombatLockdown() then return end
     local auras = CastableAuras()
     btn.auras = auras
     local step = SelectedAuraStep(auras)
-    local names = {}
-    for i, aura in ipairs(auras) do names[i] = aura.name end
+    local selected = auras[step]
 
     btn:SetAttribute("type1", "macro")
     btn:SetAttribute("astep", step)
-    btn:SetAttribute("macrotext1", names[step] and ("/cast " .. names[step]) or "")
-    btn:Execute("auraNames = " .. NewTable(names))
-    if not btn.castWrapped then
-        btn:WrapScript(btn, "OnClick", AURA_SNIPPET)
-        btn.castWrapped = true
-    end
+    btn:SetAttribute("macrotext1", selected and ("/cast " .. selected.name) or "")
+    ConfigureAuraMenu(btn)
 end
 
 -- Red glow while it's down, yellow with a countdown in its last ten minutes,
@@ -1216,8 +1427,10 @@ end
 -- of combat by definition) and never need rebaking.
 local function CreateRighteousFuryButton()
     local btn = CreateSelfBuffButton("WhoDoesWhatBuffingBarRighteousFuryButton",
-        "SecureActionButtonTemplate")
+        "SecureHandlerEnterLeaveTemplate, SecureActionButtonTemplate")
     btn:RegisterForClicks("AnyUp", "AnyDown")
+    btn:Execute("otherMenus = newtable()")
+    btn:SetAttribute("_onenter", CLOSE_MENUS_SNIPPET)
     btn.icon:SetTexture(RIGHTEOUS_FURY.icon)
     btn:SetAttribute("type1", "spell")
     btn:SetAttribute("spell1", RIGHTEOUS_FURY.name)
@@ -1241,7 +1454,8 @@ local function CreateRighteousFuryButton()
         GameTooltip:AddLine("Left-click to refresh it.", 0.4, 0.7, 1)
         GameTooltip:AddLine("Shown because you hold a tank role.", 0.7, 0.7, 0.7)
     end
-    btn:SetScript("OnEnter", ShowBarTooltip)
+    -- Hooked so the template's secure _onenter dispatch survives.
+    btn:HookScript("OnEnter", ShowBarTooltip)
     return btn
 end
 
@@ -1555,8 +1769,9 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
             CONTENT_TOP + BTN_SIZE + COUNT_H + INSET + 1)
     end
     if not bar.moving then LoadPosition() end
-    WirePlayerMenus()
+    WirePopoutMenus()
     for i = 1, n do PositionPlayerMenu(bar.buttons[i]) end
+    if bar.auraButton:IsShown() then PositionAuraMenu(bar.auraButton) end
 end
 
 -- Show or hide the whole bar based on the master/test toggles, then repaint.

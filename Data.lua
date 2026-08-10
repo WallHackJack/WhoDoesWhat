@@ -252,8 +252,8 @@ for _, buff in pairs(WhoDoesWhat.PaladinBuffs) do
 end
 
 -- The paladin's two self-buffs the Buffing Bar can drive: the aura they're
--- running and, while tanking, Righteous Fury. Display order is the aura
--- swapper's rotation order.
+-- running and, while tanking, Righteous Fury. Display order is the order the
+-- aura swapper's picker lays them out in, within each row.
 --
 -- Ids are the BASE rank of each spell, on purpose. Casts go out as rank-less
 -- names so the client picks the highest rank known, and a base rank is the one
@@ -265,9 +265,11 @@ WhoDoesWhat.PaladinAuras = {
     { key = "devotion",      spellId = 465,   name_short = "Devo" },
     { key = "retribution",   spellId = 7294,  name_short = "Ret" },
     { key = "concentration", spellId = 19746, name_short = "Conc" },
-    { key = "fireResist",    spellId = 19891, name_short = "Fire" },
-    { key = "frostResist",   spellId = 19888, name_short = "Frost" },
-    { key = "shadowResist",  spellId = 19876, name_short = "Shadow" },
+    -- `resist` splits the situational school auras onto their own row in the
+    -- buffing bar's aura picker.
+    { key = "fireResist",    spellId = 19891, name_short = "Fire",   resist = true },
+    { key = "frostResist",   spellId = 19888, name_short = "Frost",  resist = true },
+    { key = "shadowResist",  spellId = 19876, name_short = "Shadow", resist = true },
     { key = "sanctity",      spellId = 20218, name_short = "Sanctity" },
 }
 if not features.isClassicEra then

@@ -1393,7 +1393,7 @@ local function EnsureSettingsFrame()
 
     f.buffingAuraCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
         "Paladin Aura Helper",
-        "Add an aura swapper at the left end of the bar. Right-click offers the next aura you know, left-click casts it; it turns grey with a red glow while that aura isn't the one you're running.",
+        "Add an aura swapper at the left end of the bar. Hovering it opens a picker of every aura you know, left-click casts the one it's offering; it turns grey with a red glow while that aura isn't the one you're running.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarAuraButton = value
             WhoDoesWhat:LogUiBuilding("Paladin Aura Helper "
