@@ -567,7 +567,7 @@ local function RenderGrid(f, data)
             header.paladin = paladin.name
             header.paladinMember = paladin
             header.icon:SetTexture(RoleIconFor(paladin))
-            header.initial:SetText(paladin.name:sub(1, 1))
+            header.initial:SetText(WhoDoesWhat:NameInitial(paladin.name))
             local color = paladin.classInfo and paladin.classInfo.colorRGB
             header.initial:SetTextColor(color and color.r or 0.96,
                 color and color.g or 0.55, color and color.b or 0.73)

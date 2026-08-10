@@ -30,6 +30,17 @@ end
 -- yet" hint (UnitMenu). Shared so the two stay visually identical.
 WhoDoesWhat.WARNING_ICON = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
+-- The single letter that stands in for a name in tight spaces (status bar
+-- rows, buff-grid column headers). Names are UTF-8, so an accented first
+-- letter like "Ándraste" is two bytes: a plain :sub(1, 1) would hand the font
+-- half a character and render nothing at all.
+function WhoDoesWhat:NameInitial(name)
+    if not name or name == "" then return "" end
+    local lead = name:byte(1)
+    local size = (lead < 0xC0 and 1) or (lead < 0xE0 and 2) or (lead < 0xF0 and 3) or 4
+    return name:sub(1, size)
+end
+
 -- True while the player is in a raid with assist rights. The raid leader
 -- counts: leaders hold every assistant privilege (and see the same extra
 -- unit-menu entries), even though UnitIsGroupAssistant alone reports false

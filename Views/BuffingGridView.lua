@@ -503,7 +503,7 @@ local function RefreshGrid(f)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.paladin = p.name
             header.icon:SetTexture(RoleIconFor(p))
-            header.initial:SetText(p.name:sub(1, 1))
+            header.initial:SetText(WhoDoesWhat:NameInitial(p.name))
             header.initial:SetTextColor(p.classInfo.colorRGB.r,
                 p.classInfo.colorRGB.g, p.classInfo.colorRGB.b)
             header:Show()

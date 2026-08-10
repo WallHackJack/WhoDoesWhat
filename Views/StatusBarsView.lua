@@ -1257,7 +1257,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             row.icon:SetTexture(entry.icon)
             row.name:SetText(entry.awaitingTalents
                 and ("Awaiting talents - " .. entry.name) or entry.name)
-            row.initial:SetText(entry.isPaladin and entry.name:sub(1, 1) or "")
+            row.initial:SetText(entry.isPaladin and WhoDoesWhat:NameInitial(entry.name) or "")
             row.isPaladin = entry.isPaladin
             row.isPaladinRow = entry.paladinRow
             row.paladinName = entry.paladinName
