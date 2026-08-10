@@ -162,7 +162,7 @@ local function StatusBarsClick(self, button)
         if key then
             WhoDoesWhat:OpenBuffTrackingOptions(key)
         else
-            WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
+            WhoDoesWhat:OpenAddonSettingsView("Status Bars")
         end
     elseif button == "LeftButton" then
         WhoDoesWhat:OpenBuffingGridView()
@@ -174,10 +174,10 @@ end
 local function AddShortcutTooltipLines()
     GameTooltip:AddDoubleLine("Shift-Left-Click:", "Buffing Grid",
         1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Shift-Right-Click:", "Buff Settings",
+    GameTooltip:AddDoubleLine("Shift-Right-Click:", "Settings",
         1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddLine("Shift-right-click a bar for that bar's own options.",
-        0.6, 0.6, 0.6, true)
+    GameTooltip:AddDoubleLine("Shift-Right-Click Row:", "Edit",
+        1, 0.82, 0, 1, 1, 1)
 end
 
 local function RoleIcon(name)
@@ -470,6 +470,13 @@ local function ShowRowTooltip(frame)
         GameTooltip:SetPoint("TOPRIGHT", frame, "TOPLEFT", -6, 0)
     end
     frame:FillTooltip()
+    -- Every row that knows which check it draws can be edited from here, so
+    -- the hint rides along after each row's own content.
+    if frame.optionsKey then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Shift-Right-Click:", "Edit",
+            1, 0.82, 0, 1, 1, 1)
+    end
     GameTooltip:Show()
 end
 

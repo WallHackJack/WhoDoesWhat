@@ -377,8 +377,10 @@ local defaults = {
             -- Which aura the swapper currently offers (a WhoDoesWhat.PaladinAuras
             -- key); nil = the first aura this paladin knows.
             buffingBarAura = nil,
-            -- Movable per-paladin live blessing coverage window.
-            overviewEnabled = false,
+            -- Movable per-paladin live blessing coverage window. On out of the
+            -- box: it is the view that says what still needs doing, and a fresh
+            -- install has no reason to hunt for it in the settings.
+            overviewEnabled = true,
             overviewAnchor = "TOPLEFT",
             overviewDefaultDisplay = "percent",
             -- Which side of a hovered status bar its tooltip opens on
