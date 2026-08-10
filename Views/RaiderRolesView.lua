@@ -134,6 +134,23 @@ end
 
 local RefreshRoster -- forward declared; row callbacks repaint through it
 
+-- A repaint rebuckets everyone, so a role landing anywhere grows one grid and
+-- shrinks another -- and both ends of that close every open dropdown. Hiding a
+-- surplus row hides the dropdown frame inside it, and UIDropDownMenuTemplate's
+-- OnHide is a global CloseDropDownMenus(); CreateRow's UIDropDownMenu_Initialize
+-- hides every menu level outright. Neither cares which row you had open.
+--
+-- Mid-raid the repaint triggers never stop -- talent detection alone fires once
+-- per player as inspect data lands (Talents.lua), which is exactly the stretch
+-- where you're here fixing the stragglers -- so menus were being yanked shut
+-- before they could be clicked. Hold repaints while a menu is up and flush once
+-- it closes.
+local pendingRepaint = false
+
+local function MenuIsOpen()
+    return DropDownList1 and DropDownList1:IsShown()
+end
+
 -- Build pooled row #index inside a role grid. The position is fixed;
 -- RefreshRoster maps a member onto it (row.member) and hides surplus rows, so
 -- the dropdown reads row.member at open time.
@@ -260,6 +277,12 @@ end
 -- count, and resize everything. The grids are anchor-chained, so height
 -- changes ripple down on their own.
 function RefreshRoster(f)
+    if MenuIsOpen() then
+        pendingRepaint = true
+        return
+    end
+    pendingRepaint = false
+
     local buckets = BucketedMembers()
     for _, section in ipairs(SECTIONS) do
         local state = f.sections[section.key]
@@ -406,6 +429,20 @@ local function EnsureRolesFrame()
             RefreshRoster(self)
         end
     end)
+
+    -- Flush whatever the open menu held back. A selection made here doesn't
+    -- come through this path: Blizzard hides the list before running the
+    -- clicked button's func, so SetAssignedRole's repaint arrives with nothing
+    -- open and paints straight away.
+    if DropDownList1 then
+        DropDownList1:HookScript("OnHide", function()
+            if not pendingRepaint then return end
+            pendingRepaint = false
+            if rolesFrame and rolesFrame:IsShown() then
+                RefreshRoster(rolesFrame)
+            end
+        end)
+    end
 
     rolesFrame = f
     return f
