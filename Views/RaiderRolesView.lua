@@ -75,7 +75,8 @@ end
 
 -- Dropdown row / collapsed text for a role: spec icon + class-colored name.
 local function RoleText(role, classInfo)
-    return "|T" .. role.icon .. ":14:14:0:0|t |cff" .. classInfo.colorHex .. role.name .. "|r"
+    return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
+        .. classInfo.colorHex .. role.name .. "|r"
 end
 
 -- The player's assigned role entry, plus the raw id. role is nil both when
@@ -305,7 +306,8 @@ function RefreshRoster(f)
             row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
             -- Role's spec icon when we have one; the class icon is the fallback
             -- for roleless / unresolved-role members.
-            row.classIcon:SetTexture((role and role.icon) or m.classInfo.classIcon)
+            WhoDoesWhat:SetRoleIconTexture(row.classIcon,
+                (role and role.icon) or m.classInfo.classIcon)
             row.classIcon:SetDesaturated(not connected)
             row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
                 .. m.name .. "|r")

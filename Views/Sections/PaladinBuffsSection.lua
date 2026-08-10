@@ -34,6 +34,11 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- point at the same thing: a paladin running neither WDW nor PallyPower, who
 -- no board can reach and who needs an assign rule to be useful.
 --
+-- The raid's shared custom-role list is board state like these rules, but it
+-- describes the roster rather than blessing strategy, so it has its own section
+-- above (Views/Sections/CustomRolesSection.lua). Its published buff orders are
+-- an input to the plan computed here.
+--
 -- The whole section grays out while the group has no paladins (Developer
 -- Mode keeps it live, same as it lifts class filters).
 
@@ -179,7 +184,7 @@ local function RuleScopeText(rule)
     elseif rule.scope == "role" then
         local _, role = WhoDoesWhat:FindRoleById(rule.value)
         if role then
-            return "|T" .. role.icon .. ":14:14:0:0|t " .. role.name
+            return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " " .. role.name
         end
         return "?"
     end
@@ -345,6 +350,12 @@ local function AddRule(rule)
         and GuaranteeExists(rule.buff, rule.scope, rule.value) then
         return
     end
+    -- A rule scoped to a role puts a role id on the board, so the same
+    -- publish-or-refuse gate as assigning one applies: an id the rest of the
+    -- raid can't resolve would make the rule match nobody but us.
+    if rule.scope == "role" and not WhoDoesWhat:EnsureRoleIsShareable(rule.value) then
+        return
+    end
     local rules = GetBuffRules()
     if #rules >= MAX_RULES then
         WhoDoesWhat:Print("Paladin Buffs: the rule list is full (" .. MAX_RULES
@@ -473,7 +484,7 @@ local function AddGuaranteeRoles(level, buffKey, className)
     for _, list in ipairs({ classInfo.roles, classInfo.customRoles or {} }) do
         for _, role in ipairs(list) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "|T" .. role.icon .. ":14:14:0:0|t |cff"
+            info.text = WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
                 .. classInfo.colorHex .. role.name .. "|r"
             info.notCheckable = true
             info.disabled = GuaranteeExists(buffKey, "role", role.id)

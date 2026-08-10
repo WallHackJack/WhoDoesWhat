@@ -258,6 +258,11 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     if playerName ~= UnitName("player") and not self:RequireEditPermission() then
         return
     end
+    -- A custom role is only half a shared assignment until its definition is on
+    -- the board, so assigning one in a group publishes it. Refused rather than
+    -- assigned when it can't be -- an id nobody else can resolve is worse than
+    -- no assignment at all. See EnsureRoleIsShareable in Data.lua.
+    if not self:EnsureRoleIsShareable(roleId) then return end
     -- Re-selecting the already-assigned role skips the print/announce, but
     -- still syncs blizzard state below: the group flag can drift (set by
     -- someone else, lost on reload), and re-picking a main tank's non-tank
@@ -321,7 +326,7 @@ end
 
 -- Radio row text: spec icon + class-colored role name.
 local function RoleRowText(role, classInfo)
-    return "|T" .. role.icon .. ":16:16:0:0|t |cff" .. classInfo.colorHex .. role.name .. "|r"
+    return WhoDoesWhat:RoleIconMarkup(role.icon, 16) .. " |cff" .. classInfo.colorHex .. role.name .. "|r"
 end
 
 -- Where our section lands: below the menu's first Blizzard section (name
@@ -391,7 +396,7 @@ local function SetRoleText(playerName)
             icon = role.icon
         end
     end
-    return "|T" .. icon .. ":16:16:0:0|t Set Role"
+    return WhoDoesWhat:RoleIconMarkup(icon, 16) .. " Set Role"
 end
 
 -- The row shown in place of the "Set Role" pop-out when we can't assign: the

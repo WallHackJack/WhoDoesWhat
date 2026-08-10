@@ -8,7 +8,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Views/Sections/ (registered on WhoDoesWhat.SectionViews as Build/Refresh
 -- pairs, built from the shared primitives in Views/SectionKit.lua):
 --
---   left column   PaladinBuffsSection  computed summary + local buff rules
+--   left column   CustomRolesSection   the raid's shared custom roles
+--                 PaladinBuffsSection  computed summary + local buff rules
 --                 WarlockCursesSection fixed row per curse
 --   right column  TankSection          one auto row per marked tank
 --                 CCSection            user-grown rows (the template for future
@@ -76,7 +77,7 @@ end
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
     local sections = {
-        SV.Tank, SV.PaladinBuffs, SV.WarlockCurses, SV.CC,
+        SV.Tank, SV.CustomRoles, SV.PaladinBuffs, SV.WarlockCurses, SV.CC,
     }
     if WhoDoesWhat.ClientFeatures.misdirectAssignments then
         sections[#sections + 1] = SV.Misdirect
@@ -275,7 +276,7 @@ local function UpdateToolbar(f)
     f.logsBtn:SetShown(showLogs)
     UpdateActionsButton(f)
     local width = TOOLBAR_PAD * 2 + f.actionsBtn:GetWidth() + f.buffGridBtn:GetWidth()
-        + f.membersBtn:GetWidth() + f.editRolesBtn:GetWidth() + BUTTON_GAP * 3
+        + f.membersBtn:GetWidth() + BUTTON_GAP * 2
     if showLogs then
         width = width + f.logsBtn:GetWidth() + BUTTON_GAP
     end
@@ -368,29 +369,21 @@ local function EnsureMainFrame()
     f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
 
-    -- Compact centered toolbar: [Logs, when enabled] [Buff Grid] [Members]
-    -- [Roles]. Its backdrop grows only wide enough to contain visible buttons.
+    -- Compact centered toolbar: [Actions] ... [Logs, when enabled] [Buff Grid]
+    -- [Members]. Its backdrop grows only wide enough to contain visible buttons.
     local toolbarBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     toolbarBox:SetPoint("TOP", f, "TOP", 0, -top)
     toolbarBox:SetSize(1, TOOLBAR_H)
     SetInsetBackdrop(toolbarBox)
 
-    local editRolesBtn = CreateFrame("Button", nil, toolbarBox, "UIPanelButtonTemplate")
-    editRolesBtn:SetSize(60, BUTTON_ROW_H)
-    editRolesBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
-    editRolesBtn:SetText("Roles")
-    editRolesBtn:SetScript("OnClick", function()
-        WhoDoesWhat:OpenAllRolesView()
-    end)
+    local membersBtn = CreateToolbarButton(toolbarBox, "Members", 80, "Raider Roles",
+        "Everyone in the group and the role each of them holds.",
+        function() WhoDoesWhat:OpenRaiderRolesView() end)
+    membersBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
 
-    local membersBtn = CreateFrame("Button", nil, toolbarBox, "UIPanelButtonTemplate")
-    membersBtn:SetSize(80, BUTTON_ROW_H)
-    membersBtn:SetPoint("RIGHT", editRolesBtn, "LEFT", -BUTTON_GAP, 0)
-    membersBtn:SetText("Members")
-    membersBtn:SetScript("OnClick", function()
-        WhoDoesWhat:OpenRaiderRolesView()
-    end)
-
+    -- Roles used to sit right of Members. It edits your own role library, which
+    -- is what the Custom Roles section's list is published from, so it moved to
+    -- that section's header gear -- beside the per-role gears it matches.
     local buffGridBtn = CreateToolbarButton(toolbarBox, "Buff Grid", 72, "Buffing Grid",
         "Open the raid-wide paladin blessing plan and live buff status.",
         function() WhoDoesWhat:OpenBuffingGridView() end)
@@ -416,7 +409,6 @@ local function EnsureMainFrame()
 
     f.toolbarBox = toolbarBox
     f.actionsBtn = actionsBtn
-    f.editRolesBtn = editRolesBtn
     f.membersBtn = membersBtn
     f.buffGridBtn = buffGridBtn
     f.logsBtn = logsBtn

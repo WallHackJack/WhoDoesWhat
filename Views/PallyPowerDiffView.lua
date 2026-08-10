@@ -68,7 +68,7 @@ local function RoleIconFor(member)
 end
 
 local function RoleText(role, classInfo)
-    return "|T" .. role.icon .. ":14:14:0:0|t |cff"
+    return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
         .. classInfo.colorHex .. role.name .. "|r"
 end
 
@@ -457,7 +457,7 @@ local function RenderSummary(f, data, gridX, columnStart, plans, sourceLabels)
         row:SetWidth(f.header:GetWidth())
 
         local icon = RoleIconFor(paladin)
-        row.roleIcon:SetTexture(icon)
+        if icon then WhoDoesWhat:SetRoleIconTexture(row.roleIcon, icon) end
         row.roleIcon:SetShown(icon ~= nil)
         local colorHex = paladin.classInfo and paladin.classInfo.colorHex or "f58cba"
         row.name:SetText("|cff" .. colorHex .. paladin.name .. "|r")
@@ -645,7 +645,7 @@ local function RenderGrid(f, data)
             if side == 1 then
                 local role, roleId = AssignedRole(data, member)
                 local roleIcon = (role and role.icon) or RoleIconFor(member)
-                row.roleIcon:SetTexture(roleIcon)
+                if roleIcon then WhoDoesWhat:SetRoleIconTexture(row.roleIcon, roleIcon) end
                 row.roleIcon:SetShown(roleIcon ~= nil)
                 local colorHex = member.classInfo and member.classInfo.colorHex or "c0c0c0"
                 row.name:SetText("|cff" .. colorHex .. member.displayName .. "|r")

@@ -8,7 +8,9 @@ local FRAME_H_CUSTOM = 434 -- custom/create: assign-role row below the buff list
 local CLASS_ICON_SIZE = 52
 local SPEC_ICON_SIZE = 26
 
-local QUESTION_MARK_ICON = 134400 -- INV_Misc_QuestionMark, the custom-role icon
+-- Create mode's placeholder until a class is picked. It is no longer any role's
+-- icon: a custom role wears its class's icon (Data.lua).
+local QUESTION_MARK_ICON = 134400 -- INV_Misc_QuestionMark
 
 local BUFF_ROW_H = 30
 local BUFF_ICON_SIZE = 22
@@ -71,6 +73,11 @@ local function UpdateCustomStatus(f)
     elseif f.dirty then
         local action = (f.currentRole and f.currentRole.isCustom) and "Save" or "Apply"
         f.customStatus:SetText("|cffff9933Unsaved changes - click " .. action .. "|r")
+    elseif f.isRaidRole then
+        -- Not "Customized": a published role has no defaults to deviate from,
+        -- and what matters about it is that the whole raid is reading it.
+        f.customStatus:SetText("|TInterface\\GROUPFRAME\\UI-Group-AssistantIcon:12:12:0:0|t"
+            .. " |cffffd100Shared with the raid|r")
     elseif f.currentRole and WhoDoesWhat:IsRoleCustomized(f.currentRole.id) then
         f.customStatus:SetText("|TInterface\\Buttons\\UI-OptionsButton:11:11:0:0|t |cffffd100Customized|r")
     else
@@ -181,10 +188,150 @@ local function ApplyWowRoleBans(f, wowRole)
 end
 
 
+-- ---------------------------------------------------------------------------
+-- Custom-role icon picker
+--
+-- A small curated grid rather than the client's whole macro-icon set: the job
+-- is telling two custom roles apart in a list, which a dozen relevant icons do
+-- and several thousand irrelevant ones actively get in the way of. The choices
+-- come from CustomRoleIconChoices -- class icon, that class's own role icons,
+-- then the generic group-role icons.
+--
+-- Nothing is saved until the window's Save button runs; the picker only moves
+-- f.selectedIcon, and an unpicked icon stays nil so the role keeps following
+-- its class.
+-- ---------------------------------------------------------------------------
+
+local ICON_CELL = 28
+local ICON_COLS = 6
+local ICON_PAD = 4
+
+local ToggleIconPicker -- forward declaration; the header button calls it
+
+-- The class whose icons the picker should offer: the create-mode pick, or the
+-- open role's own class.
+local function CurrentClassName(f)
+    if f.selectedClass then return f.selectedClass end
+    local role = f.currentRole
+    return role and role.classInfo and role.classInfo.name
+end
+
+-- Show an icon in the header slot. `icon` may be a texture or a "role:*" micro
+-- role icon, so it goes through the shared setter.
+local function ShowRoleIcon(f, icon)
+    WhoDoesWhat:SetRoleIconTexture(f.specIcon, icon)
+    f.specIcon:Show()
+end
+
+local function SetRoleIcon(f, icon)
+    f.selectedIcon = icon
+    ShowRoleIcon(f, icon)
+end
+
+local function CreateIconCell(picker, index)
+    local cell = CreateFrame("Button", nil, picker)
+    cell:SetSize(ICON_CELL, ICON_CELL)
+    cell:SetFrameLevel(picker:GetFrameLevel() + 1)
+
+    -- The "selected" mark is a gold plate behind an inset icon, so the choice
+    -- in use wears a border without a second texture on top of the art.
+    local selected = cell:CreateTexture(nil, "BACKGROUND")
+    selected:SetAllPoints()
+    selected:SetColorTexture(1, 0.82, 0)
+    cell.selected = selected
+
+    local icon = cell:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("TOPLEFT", 2, -2)
+    icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    cell.icon = icon
+
+    local highlight = cell:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    highlight:SetBlendMode("ADD")
+
+    cell:SetScript("OnEnter", function(self)
+        if not self.label then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.label, 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    picker.cells[index] = cell
+    return cell
+end
+
+local function RefreshIconPicker(f)
+    local picker = f.iconPicker
+    local choices = WhoDoesWhat:CustomRoleIconChoices(CurrentClassName(f))
+    for i, choice in ipairs(choices) do
+        local cell = picker.cells[i] or CreateIconCell(picker, i)
+        local col = (i - 1) % ICON_COLS
+        local row = math.floor((i - 1) / ICON_COLS)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", ICON_PAD + col * (ICON_CELL + ICON_PAD),
+            -(ICON_PAD + row * (ICON_CELL + ICON_PAD)))
+        WhoDoesWhat:SetRoleIconTexture(cell.icon, choice.icon)
+        cell.label = choice.label
+        -- Compared against the effective icon, not the stored one: an unpicked
+        -- role reads as "the first choice is selected", which is what it wears.
+        cell.selected:SetShown((f.selectedIcon or choices[1].icon) == choice.icon)
+        cell:SetScript("OnClick", function()
+            SetRoleIcon(f, choice.icon)
+            MarkDirty(f)
+            picker:Hide()
+        end)
+        cell:Show()
+    end
+    for i = #choices + 1, #picker.cells do
+        picker.cells[i]:Hide()
+    end
+
+    local rows = math.ceil(#choices / ICON_COLS)
+    picker:SetSize(ICON_PAD * 2 + ICON_COLS * ICON_CELL + (ICON_COLS - 1) * ICON_PAD,
+        ICON_PAD * 2 + rows * ICON_CELL + (rows - 1) * ICON_PAD)
+end
+
+function ToggleIconPicker(f) -- forward declared above
+    if not f.iconPicker then
+        local picker = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        picker:SetFrameLevel(f:GetFrameLevel() + 10)
+        picker:SetPoint("TOPLEFT", f.classIcon, "BOTTOMLEFT", 0, -4)
+        picker:SetBackdrop({
+            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        picker:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
+        picker:SetBackdropBorderColor(0.4, 0.4, 0.4)
+        picker.cells = {}
+        picker:Hide()
+        f.iconPicker = picker
+    end
+    if f.iconPicker:IsShown() then
+        f.iconPicker:Hide()
+        return
+    end
+    RefreshIconPicker(f)
+    -- Re-stacked on every open: the window's own Raise() moves its level, and a
+    -- grid that opens behind the buff rows it covers is worse than useless.
+    f.iconPicker:SetFrameLevel(f:GetFrameLevel() + 10)
+    f.iconPicker:Show()
+end
+
 -- Close the window and refresh the All Roles view (row list + gear markers).
+-- A raid role isn't in that window at all, but it is in the main window's
+-- Custom Roles list and in every blessing the plan derives from it.
 local function CloseAndRefresh(f)
     f:Hide()
-    WhoDoesWhat:RebuildAllRolesView()
+    if f.isRaidRole then
+        WhoDoesWhat:RefreshMainAssignmentsView()
+        WhoDoesWhat:RefreshBuffingGridView()
+    else
+        WhoDoesWhat:RebuildAllRolesView()
+    end
 end
 
 
@@ -205,10 +352,26 @@ local function OnApply(f)
             WhoDoesWhat:Print("Select a class for the new role before saving.")
             return
         end
-        local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass, GetRoleControls(f))
+        local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass,
+            GetRoleControls(f), f.selectedIcon)
         if not role then return end -- storage rejected it and said why
         WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
         WhoDoesWhat:LogOperation("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
+    elseif f.isRaidRole then
+        local role = f.currentRole
+        if not role then return end
+        if not WhoDoesWhat:RequireEditPermission() then return end
+        local name = strtrim(f.nameEdit:GetText() or "")
+        if name == "" then
+            WhoDoesWhat:Print("Enter a name for the role before saving.")
+            f.nameEdit:SetFocus()
+            return
+        end
+        if not WhoDoesWhat:UpdateRaidCustomRole(role.id, name, GetRoleControls(f),
+            f.selectedIcon, f.buffOrder, f.allowedCount) then
+            return -- storage rejected it and said why
+        end
+        WhoDoesWhat:LogOperation("Raid custom role '" .. name .. "' saved.")
     else
         local role = f.currentRole
         if not role then return end
@@ -220,7 +383,8 @@ local function OnApply(f)
                 f.nameEdit:SetFocus()
                 return
             end
-            if not WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f)) then
+            if not WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f),
+                f.selectedIcon) then
                 return -- storage rejected it and said why
             end
             WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
@@ -249,6 +413,9 @@ end
 
 -- The context-dependent secondary button:
 --   create mode    "Cancel"            close, discarding the unmade role
+--   raid role      "Remove"            take it off the raid's list, close
+--                                      (the library template it came from is
+--                                      left alone)
 --   custom role    "Delete"            remove the role entirely, close
 --   standard role  "Reset to Defaults" immediately clear the saved
 --                                      customizations (category: all
@@ -256,6 +423,23 @@ end
 local function OnSecondary(f)
     if f.isCreateMode then
         f:Hide()
+    elseif f.isRaidRole and f.currentRole then
+        if not WhoDoesWhat:RequireEditPermission() then return end
+        local roleId = f.currentRole.id
+        local users = WhoDoesWhat:PlayersAssignedToRole(roleId)
+        local function Remove()
+            WhoDoesWhat:RemoveRaidCustomRole(roleId)
+            CloseAndRefresh(f)
+        end
+        -- Same prompt the Custom Roles row uses (registered in
+        -- PaladinBuffsSection): removing the role clears everyone on it.
+        if #users == 0 then
+            Remove()
+        else
+            StaticPopup_Show("WHODOESWHAT_REMOVE_CUSTOM_ROLE",
+                #users .. (#users == 1 and " raider is" or " raiders are")
+                .. " assigned to " .. f.currentRole.name .. ".", nil, Remove)
+        end
     elseif f.currentRole and f.currentRole.isCustom then
         WhoDoesWhat:LogOperation("Custom role '" .. f.currentRole.name .. "' deleted.")
         WhoDoesWhat:DeleteCustomRole(f.currentRole.id)
@@ -276,18 +460,45 @@ local function EnsureCustomizeFrame()
     local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatCustomizeFrame", FRAME_W, FRAME_H, "")
     local top = f.titleBarHeight + 14
 
+    -- The icon grid is a child, so it would otherwise survive Escape and the
+    -- close button as a floating orphan. Hooked rather than set, so whatever
+    -- the shared chrome does on hide still runs.
+    f:HookScript("OnHide", function(self)
+        if self.iconPicker then self.iconPicker:Hide() end
+    end)
+
     -- Large class icon, top-left ("?" in create mode until a class is picked)
     local classIcon = f:CreateTexture(nil, "ARTWORK")
     classIcon:SetSize(CLASS_ICON_SIZE, CLASS_ICON_SIZE)
     classIcon:SetPoint("TOPLEFT", 16, -top)
     f.classIcon = classIcon
 
-    -- Smaller spec icon overlapping the class icon's bottom-right: the spec
-    -- icon for built-in roles, the "?" for custom roles.
+    -- Smaller spec icon overlapping the class icon's bottom-right. For a
+    -- built-in role it is that spec's icon and nothing more; for a custom role
+    -- it is the role's own icon and clicking it opens the picker below.
     local specIcon = f:CreateTexture(nil, "OVERLAY")
     specIcon:SetSize(SPEC_ICON_SIZE, SPEC_ICON_SIZE)
     specIcon:SetPoint("BOTTOMRIGHT", classIcon, "BOTTOMRIGHT", 5, -5)
     f.specIcon = specIcon
+
+    local iconBtn = CreateFrame("Button", nil, f)
+    iconBtn:SetAllPoints(specIcon)
+    iconBtn:SetFrameLevel(f:GetFrameLevel() + 2)
+    local iconHighlight = iconBtn:CreateTexture(nil, "HIGHLIGHT")
+    iconHighlight:SetAllPoints()
+    iconHighlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    iconHighlight:SetBlendMode("ADD")
+    iconBtn:SetScript("OnClick", function() ToggleIconPicker(f) end)
+    iconBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Role icon", 1, 1, 1)
+        GameTooltip:AddLine("Click to pick a different one. Nothing picked means"
+            .. " the class icon.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    iconBtn:Hide()
+    f.iconBtn = iconBtn
 
     -- Class name, big and class-colored, to the right of the icon
     local className = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
@@ -311,10 +522,17 @@ local function EnsureCustomizeFrame()
                 UIDropDownMenu_SetSelectedValue(classDropdown, item.value)
                 UIDropDownMenu_SetText(classDropdown, ClassText(classInfo))
                 f.selectedClass = classInfo.name
-                -- Preview: big icon becomes the class, "?" moves to the spec slot.
+                -- Preview: the big icon becomes the class, and the icon slot
+                -- follows it. A class-specific pick is dropped -- it came from
+                -- the old class's icons -- but a group-role pick survives,
+                -- since those are offered whatever the class.
                 f.classIcon:SetTexture(classInfo.classIcon)
-                f.specIcon:SetTexture(QUESTION_MARK_ICON)
-                f.specIcon:Show()
+                if f.iconPicker then f.iconPicker:Hide() end
+                if not WhoDoesWhat:RoleIconKey(f.selectedIcon) then
+                    f.selectedIcon = nil
+                    ShowRoleIcon(f, classInfo.classIcon)
+                end
+                f.iconBtn:Show()
             end
             UIDropDownMenu_AddButton(info, level)
         end
@@ -503,16 +721,28 @@ end
 -- window only until the primary button persists them and closes (a category
 -- applies to all its allSubRoles). Custom roles get an editable name, the
 -- assign-role controls, and Save/Delete buttons.
-function WhoDoesWhat:OpenCustomizer(roleId)
+-- `raidMode` edits the raid's published copy (the Custom Roles section);
+-- without it the window edits the local library, so a published role opens
+-- showing the template it was copied from rather than the raid's edits to it.
+function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
 
-    local classInfo, role = self:FindRoleById(roleId)
+    local role = not raidMode and self.LibraryRoles and self.LibraryRoles[roleId]
+    local classInfo = role and role.classInfo
+    if not role then
+        classInfo, role = self:FindRoleById(roleId)
+    end
     if not role then
         self:Print("OpenCustomizer: unknown role id '" .. tostring(roleId) .. "'")
+        return
+    end
+    if raidMode and not role.isRaid then
+        self:Print("OpenCustomizer: '" .. tostring(roleId) .. "' is not on the raid's list")
         return
     end
 
     local f = EnsureCustomizeFrame()
     f.isCreateMode = false
+    f.isRaidRole = raidMode and true or false
     f.dirty = false
     f.currentRole = role
     f.selectedClass = nil
@@ -520,6 +750,8 @@ function WhoDoesWhat:OpenCustomizer(roleId)
 
     if role.allSubRoles then
         f.titleText:SetText("Editing Category (" .. #role.allSubRoles .. " roles)")
+    elseif raidMode then
+        f.titleText:SetText("Editing Raid Custom Role")
     elseif role.isCustom then
         f.titleText:SetText("Editing Custom Role")
     else
@@ -543,26 +775,41 @@ function WhoDoesWhat:OpenCustomizer(roleId)
         f.roleName:Show()
     end
 
-    -- Spec icon overlay: the role's own icon (custom roles' is the "?");
-    -- categories have no single spec.
+    -- Spec icon overlay: the role's own icon. Categories have no single spec.
+    -- On a custom role the same slot is the icon picker's button.
+    if f.iconPicker then f.iconPicker:Hide() end
+    f.selectedIcon = nil
     if role.allSubRoles then
         f.specIcon:Hide()
+        f.iconBtn:Hide()
     else
-        f.specIcon:SetTexture(role.icon)
-        f.specIcon:Show()
+        if role.isCustom then
+            -- The STORED pick, not the effective icon: leaving it nil is what
+            -- keeps an undecorated role following its class.
+            local stored = raidMode and self:FindRaidCustomRole(role.id)
+                or self:FindLocalCustomRole(role.id)
+            f.selectedIcon = stored and stored.icon or nil
+        end
+        ShowRoleIcon(f, role.icon)
+        f.iconBtn:SetShown(role.isCustom and true or false)
     end
 
     -- Load the full effective order and its divider position (a category reads
     -- from its first sub-role). Copied so the in-window arrows don't mutate the
     -- saved/default tables; nothing is persisted until Save/Apply.
     local order
-    order, f.allowedCount = self:GetEffectiveBuffSetup(role.id)
+    order, f.allowedCount = self:GetEffectiveBuffSetup(role.id, not raidMode)
     f.buffOrder = { unpack(order) }
     RenderBuffRows(f)
 
     -- Custom roles: assign-role controls + Save/Delete.
     SetCustomControlsShown(f, role.isCustom and true or false)
-    if role.isCustom then
+    if raidMode then
+        SetRoleControls(f, role.wowRole)
+        f.applyBtn:SetText("Save")
+        f.secondaryBtn:SetText("Remove")
+        f.secondaryBtn:SetWidth(80)
+    elseif role.isCustom then
         SetRoleControls(f, role.wowRole)
         f.applyBtn:SetText("Save")
         f.secondaryBtn:SetText("Delete")
@@ -589,13 +836,21 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     local f = EnsureCustomizeFrame()
 
     f.isCreateMode = true
+    f.isRaidRole = false
     f.dirty = false
     f.currentRole = nil
     f.selectedClass = nil
 
     f.titleText:SetText("New Custom Role")
     f.classIcon:SetTexture(QUESTION_MARK_ICON)
-    f.specIcon:Hide()
+    -- The icon slot is live from the start: with no class picked the grid still
+    -- offers the group-role icons, and the class's own are added to it as soon
+    -- as one is chosen. The "?" here means "nothing picked", same as the big
+    -- icon beside it.
+    if f.iconPicker then f.iconPicker:Hide() end
+    f.selectedIcon = nil
+    ShowRoleIcon(f, QUESTION_MARK_ICON)
+    f.iconBtn:Show()
     f.className:Hide()
     f.roleName:Hide()
 

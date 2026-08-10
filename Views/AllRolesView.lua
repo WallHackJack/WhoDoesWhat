@@ -99,7 +99,9 @@ end
 -- Built-in roles omitted from every category stay visible under their own name.
 -- Classes without a categories table show their full roles in both modes.
 -- Custom roles assigned to the class are always appended at the end (they
--- never collapse into categories).
+-- never collapse into categories). This window is the local library, so it
+-- lists classInfo.libraryRoles -- your own templates -- and not the raid's
+-- published copies, which live in the main window's Custom Roles section.
 local function GetRolesForClass(classInfo)
     local base = classInfo.roles
     if not WhoDoesWhat.db.profile.expandRoles and classInfo.categories then
@@ -113,14 +115,14 @@ local function GetRolesForClass(classInfo)
             if not categorized[role.id] then base[#base + 1] = role end
         end
     end
-    if not classInfo.customRoles then
+    if not classInfo.libraryRoles then
         return base
     end
     local merged = {}
     for _, role in ipairs(base) do
         merged[#merged + 1] = role
     end
-    for _, role in ipairs(classInfo.customRoles) do
+    for _, role in ipairs(classInfo.libraryRoles) do
         merged[#merged + 1] = role
     end
     return merged
@@ -158,7 +160,8 @@ local function BuildClassBlock(column, classInfo)
         local marker = WhoDoesWhat:IsRoleCustomized(role.id) and CUSTOMIZED_MARKER or ""
         local roleRow = AceGUI:Create("InteractiveLabel")
         roleRow:SetText(
-            ROLE_INDENT .. "|T" .. role.icon .. ":16:16:0:2|t  |cff" .. classInfo.colorHex .. role.name .. "|r" .. marker
+            ROLE_INDENT .. WhoDoesWhat:RoleIconMarkup(role.icon, 16)
+                .. "  |cff" .. classInfo.colorHex .. role.name .. "|r" .. marker
         )
         roleRow:SetFontObject(GameFontHighlight)
         roleRow:SetFullWidth(true)

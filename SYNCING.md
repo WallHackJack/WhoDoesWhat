@@ -170,6 +170,17 @@ Shape:
             { buff = "kings", kind = "prefer", value = "Player-Realm" },
             { buff = "wisdom", kind = "prioritize", scope = "wowrole", value = "healer" },
         },
+        customRoles = {
+            {
+                id = "custom_a41f0c_2",
+                name = "Sunder Warrior",
+                class = "Warrior",
+                wowRole = "dps",
+                icon = 132347,   -- or "role:tank"; absent = wears its class icon
+                order = { "might", "kings", "salv", "light", "wisdom", "sanctuary" },
+                allowed = 4,
+            },
+        },
         perms = {
             mode = "assists",
             assistant = false,
@@ -202,8 +213,30 @@ coverage from roster, roles, the shared `paladinStrategy`, and the separately
 synchronized talent ranks. The strategy is the ordered
 `db.profile.paladinBuffRules` array; its `ignore`, `prioritize`, and `prefer`
 shapes are described in `Assignments.lua`. Its order is significant when
-several prioritization rules match. Role customizations and UI settings remain
-local and are absent.
+several prioritization rules match. Buff-order customizations of built-in roles
+and UI settings remain local and are absent.
+
+`customRoles` is `db.profile.raidCustomRoles`, the raid's shared custom-role
+list (the main window's Custom Roles section). The rest of the board syncs
+role *ids*, so a custom role — a definition that exists only in its author's
+profile — needs its definition transmitted beside them or every other client
+resolves the id to nothing: the raider's blessing order silently falls back to
+the canonical one, guarantee rules scoped by group role skip them, and a custom
+tank stops reading as a tank. Each entry carries the whole definition, buff
+`order` and divider `allowed` included, and is authoritative for that role on
+every client — a local `roleCustomizations` entry for the same id belongs to the
+publisher's own template and is deliberately not consulted. Adding a role here,
+assigning somebody a not-yet-published custom role, and scoping a guarantee rule
+to one all publish through the same permission-gated path.
+
+Custom-role ids carry a random block (`custom_a41f0c_2`) because the old
+per-profile counter produced a `custom_1` on every client standing for a
+different role. Saves from before 1.0.7 are re-keyed once on load.
+
+`customRoles` was added to the board without a protocol bump: it is a new
+top-level key, so older clients relay it untouched through `carriedStateKeys`
+rather than deleting it. They compute their own plan from role ids they cannot
+resolve, exactly as they did before the key existed.
 
 `peers` is outside the shared board and therefore outside its fingerprint. The
 leader includes it in an initial whispered snapshot, using only current roster
@@ -424,7 +457,9 @@ WDW clears the group board, permissions, and session-only peer/version and
 observation state.
 Talent/spec and exact utility-rank caches survive because they describe
 characters rather than decisions belonging to the departed group.
-`paladinBuffRules` are group strategy, so they are cleared too.
+`paladinBuffRules` are group strategy, so they are cleared too, as is
+`raidCustomRoles` — the local library entries those were copied from are
+untouched and can be shared with the next group.
 
 ## Talent data: totals versus exact ranks
 

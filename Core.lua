@@ -227,13 +227,21 @@ local defaults = {
         -- is { buffOrder = { six buff keys }, allowedCount = 0..6 }. Roles on
         -- their defaults have no entry here; see SetRoleCustomization in Data.lua.
         roleCustomizations = {},
-        -- User-created custom roles: array of
-        -- { id = "custom_N", name, class = "Warrior", wowRole = "dps"|"tank"|"healer"|false }
-        -- (false = no wow role assigned). Listed inside their class's role list
-        -- with the "?" icon; buff orders live in roleCustomizations like any
-        -- other role (default = canonical order).
+        -- User-created custom roles -- the local library: array of
+        -- { id = "custom_a41f0c_2", name, class = "Warrior",
+        --   wowRole = "dps"|"tank"|"healer"|false, icon } (false = no wow role
+        -- assigned; a nil icon means the role wears its class's icon, see
+        -- CustomRoleIconChoices in Data.lua). Listed inside their class's role
+        -- list; buff orders live in roleCustomizations like any other role
+        -- (default = canonical order). These are templates: a role only becomes something
+        -- the rest of the raid can resolve once it is published to
+        -- raidCustomRoles below (Data.lua, PublishCustomRole).
         customRoles = {},
-        customRoleCounter = 0, -- monotonic id source so deletes never recycle ids
+        -- Monotonic id counter, kept so deletes never recycle ids. It is only
+        -- half of an id now: NewCustomRoleId prefixes a random block, because
+        -- a published role is keyed by its id on every client in the raid and
+        -- a bare counter gave everyone the same ids for different roles.
+        customRoleCounter = 0,
         -- Per-player role assignments from the unit right-click menu, keyed by
         -- player name ("Name" or "Name-Realm") -> role id. See UnitMenuExtensions.lua.
         assignments = {},
@@ -266,6 +274,14 @@ local defaults = {
         -- group-scoped board on leave. See the rule model above
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},
+        -- The raid's shared custom roles (the Custom Roles section): array of
+        -- { id, name, class, wowRole, icon, order = { six buff keys },
+        -- allowed = 0..6 }. A published copy of somebody's local customRoles
+        -- entry, carrying its buff order outright so every client resolves the
+        -- role -- and computes the same blessing plan -- from the board rather
+        -- than from a profile only the publisher has. Shared as
+        -- STATE.customRoles and cleared with the group-scoped board on leave.
+        raidCustomRoles = {},
         -- Dynamic assignment rows in the main view, one array per section
         -- (see DynamicSections in Assignments.lua). Tank rows are one per
         -- tank, auto-managed from the marked tanks:
@@ -548,6 +564,37 @@ function WhoDoesWhat:OnInitialize()
         end
         wipe(self.db.profile.paladinBuffRules)
         self.db.profile.paladinBuffRuleVersion = 2
+    end
+
+    -- One-off id rewrite: custom-role ids came from a per-profile counter
+    -- ("custom_3"), so two raiders each owned a "custom_1" standing for
+    -- different roles. A custom role can now be published to the shared board
+    -- under that id, which makes cross-client uniqueness a requirement rather
+    -- than a nicety. Rewrite the saved ids along with everything pointing at
+    -- them. Nothing group-scoped needs fixing up: the board is cleared on
+    -- leave, and a stale saved assignment is dropped by the next housekeeping
+    -- pass exactly as an unknown role always was.
+    if (self.db.profile.customRoleIdVersion or 1) < 2 then
+        local p = self.db.profile
+        for _, cr in ipairs(p.customRoles) do
+            if type(cr.id) == "string" and cr.id:match("^custom_%d+$") then
+                local newId = self:NewCustomRoleId()
+                p.roleCustomizations[newId] = p.roleCustomizations[cr.id]
+                p.roleCustomizations[cr.id] = nil
+                for player, roleId in pairs(p.assignments) do
+                    if roleId == cr.id then p.assignments[player] = newId end
+                end
+                for _, rule in ipairs(p.paladinBuffRules) do
+                    if rule.scope == "role" and rule.value == cr.id then
+                        rule.value = newId
+                    end
+                end
+                self:LogUiBuilding("Custom role '" .. tostring(cr.name)
+                    .. "' re-keyed " .. cr.id .. " -> " .. newId .. ".")
+                cr.id = newId
+            end
+        end
+        p.customRoleIdVersion = 2
     end
     self:LogUiBuilding("WhoDoesWhat database ready. expandRoles = " .. tostring(self.db.profile.expandRoles))
 

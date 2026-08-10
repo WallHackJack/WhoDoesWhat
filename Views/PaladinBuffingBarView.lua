@@ -456,7 +456,8 @@ local function UpdatePlayerStatus(p, member, job, unit)
     else
         local roleId = WhoDoesWhat:GetAssignedRole(member.name)
         local role = roleId and select(2, WhoDoesWhat:FindRoleById(roleId))
-        p.specIcon:SetTexture((role and role.icon) or job.classInfo.classIcon)
+        WhoDoesWhat:SetRoleIconTexture(p.specIcon,
+            (role and role.icon) or job.classInfo.classIcon)
     end
     p.name:SetText(member.name:gsub("%-.*$", ""))
     p.nameColor = (member.classInfo or job.classInfo).colorRGB

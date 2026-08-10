@@ -842,6 +842,56 @@ function WhoDoesWhat:ApplyStatusCheckIcon(texture, definition)
     texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 end
 
+-- ---------------------------------------------------------------------------
+-- Role icons
+--
+-- A role's `icon` is normally a texture (FileDataID or path). A custom role may
+-- instead pick one of the client's micro role icons -- the same shield/plus/
+-- sword the group-role dropdowns wear -- which are ATLASES, not files, and so
+-- cannot be handed to SetTexture or to a |T...|t escape. Those are stored as
+-- the string "role:tank" / "role:healer" / "role:dps" and resolved through the
+-- two helpers below, which fall back to our own icon files on a client without
+-- the atlas API (the same fallback GetWowRoleIconMarkup makes).
+--
+-- Anything that draws a role icon must go through these rather than touching
+-- `icon` directly, or a role wearing a micro icon renders blank.
+-- ---------------------------------------------------------------------------
+
+local ROLE_ICON_PREFIX = "role:"
+
+-- The wow-role key behind a "role:*" icon, or nil for an ordinary texture.
+function WhoDoesWhat:RoleIconKey(icon)
+    if type(icon) ~= "string" then return nil end
+    local key = icon:match("^" .. ROLE_ICON_PREFIX .. "(%a+)$")
+    return key and self.BasicWowRoles[key] and key or nil
+end
+
+function WhoDoesWhat:MakeRoleIcon(wowRoleKey)
+    return ROLE_ICON_PREFIX .. wowRoleKey
+end
+
+-- Inline markup for a role icon, whichever kind it is.
+function WhoDoesWhat:RoleIconMarkup(icon, size)
+    if not icon then return "" end
+    size = size or 14
+    local key = self:RoleIconKey(icon)
+    if key then return self:GetWowRoleIconMarkup(key, size) end
+    return "|T" .. icon .. ":" .. size .. ":" .. size .. ":0:0|t"
+end
+
+-- Draw a role icon into a texture. Atlas art is already trimmed, so the usual
+-- inset TexCoord is reset for it -- pooled row textures switch between kinds.
+function WhoDoesWhat:SetRoleIconTexture(texture, icon)
+    local key = self:RoleIconKey(icon)
+    local meta = key and self.BasicWowRoles[key]
+    if meta and GetMicroIconForRole and texture.SetAtlas then
+        texture:SetAtlas(GetMicroIconForRole(meta.blizzRole))
+        return
+    end
+    texture:SetTexCoord(0, 1, 0, 1)
+    texture:SetTexture(meta and meta.iconIdType1 or icon)
+end
+
 -- Canonical full ordering of all six paladin buffs. Partial PaladinBuffDefaults
 -- orders are backfilled from this before default bans move below the divider,
 -- and the main assignments view lists its buff rows in this order.
@@ -1084,33 +1134,99 @@ function WhoDoesWhat:PopulateRolesAndCategories()
     nonRaider.classInfo = self.NonRaiderClass
     self.RolesAndCategories[nonRaider.id] = nonRaider
 
-    -- Register user-created custom roles (from the saved profile) inside their
-    -- assigned class's role list (classInfo.customRoles, appended after the
-    -- regular roles by the All Roles view and never collapsed into categories).
-    -- They always use the "?" icon and default to the canonical buff order.
+    -- Register custom roles inside their assigned class's role list, appended
+    -- after the regular roles and never collapsed into categories. They wear
+    -- their class's icon -- a built-in role's icon says which spec it is, and a
+    -- custom role has no spec to name, so the class is the most it can honestly
+    -- claim. It beats the "?" these used to carry, which said nothing at all in
+    -- lists that show nothing else about the role. They default to the
+    -- canonical buff order.
+    --
+    -- There are two lists, and which one a role picker sees is the whole point:
+    --
+    --   classInfo.libraryRoles  the local profile's customRoles -- your own
+    --                           templates, shown and edited only in the
+    --                           Customize Role Defaults window.
+    --   classInfo.raidRoles     db.profile.raidCustomRoles -- the shared board's
+    --                           published copies, carrying their own buff order.
+    --
+    -- classInfo.customRoles (what every role picker reads) is the published
+    -- list followed by whatever the library still holds privately. Offering the
+    -- private ones is safe because assigning one publishes it first
+    -- (EnsureRoleIsShareable), which is what keeps "a role somebody is assigned"
+    -- and "a role every client can resolve" the same set.
+    --
+    -- A published role shares its id with the library entry it came from, so
+    -- the raid version deliberately overwrites it in RolesAndCategories: the
+    -- board is authoritative for anything the plan is computed from. The
+    -- library window looks its rows up in LibraryRoles instead.
     local classByName = {}
     for _, classInfo in ipairs(self.Classes) do
         classInfo.customRoles = nil
+        classInfo.libraryRoles = nil
+        classInfo.raidRoles = nil
         classByName[classInfo.name] = classInfo
     end
-    local customRoles = self.db and self.db.profile.customRoles or {}
-    for _, cr in ipairs(customRoles) do
+    self.LibraryRoles = {}
+
+    local function RegisterCustomRole(cr, listKey, registry)
         local classInfo = classByName[cr.class]
-        if classInfo then
-            local entry = {
-                name = cr.name,
-                icon = 134400, -- INV_Misc_QuestionMark
-                id = cr.id,
-                isCustom = true,
-                wowRole = cr.wowRole or false,
-                classInfo = classInfo,
-            }
-            self.RolesAndCategories[cr.id] = entry
-            classInfo.customRoles = classInfo.customRoles or {}
-            table.insert(classInfo.customRoles, entry)
-        else
-            self:LogUiBuilding("Custom role '" .. tostring(cr.name) .. "' skipped: unknown class " .. tostring(cr.class))
+        if not classInfo then
+            self:LogUiBuilding("Custom role '" .. tostring(cr.name)
+                .. "' skipped: unknown class " .. tostring(cr.class))
+            return
         end
+        local entry = {
+            name = cr.name,
+            -- A saved icon is one the user picked out of CustomRoleIconChoices;
+            -- without one the class icon stands in, so a role nobody has bothered
+            -- to decorate still says which class it belongs to.
+            icon = cr.icon or classInfo.classIcon,
+            id = cr.id,
+            isCustom = true,
+            wowRole = cr.wowRole or false,
+            classInfo = classInfo,
+        }
+        if cr.order then
+            -- A published role carries its buff setup outright rather than
+            -- leaning on the reader's roleCustomizations, which is exactly the
+            -- divergence this list exists to close. Backfilled and clamped
+            -- once here so GetEffectiveBuffSetup can hand it straight back.
+            entry.raidOrder = self:BackfillBuffOrder(cr.order)
+            local allowed = math.floor(tonumber(cr.allowed) or #entry.raidOrder)
+            entry.raidAllowed = math.max(0, math.min(allowed, #entry.raidOrder))
+            entry.isRaid = true
+        end
+        self.RolesAndCategories[cr.id] = entry
+        if registry then registry[cr.id] = entry end
+        classInfo[listKey] = classInfo[listKey] or {}
+        table.insert(classInfo[listKey], entry)
+    end
+
+    local profile = self.db and self.db.profile
+    for _, cr in ipairs(profile and profile.customRoles or {}) do
+        RegisterCustomRole(cr, "libraryRoles", self.LibraryRoles)
+    end
+    for _, cr in ipairs(profile and profile.raidCustomRoles or {}) do
+        RegisterCustomRole(cr, "raidRoles", nil)
+    end
+
+    -- Published first, then the library entries not published yet. Deduped by
+    -- id, because publishing copies a library role rather than renaming it.
+    for _, classInfo in ipairs(self.Classes) do
+        local merged, seen = nil, {}
+        for _, role in ipairs(classInfo.raidRoles or {}) do
+            merged = merged or {}
+            merged[#merged + 1] = role
+            seen[role.id] = true
+        end
+        for _, role in ipairs(classInfo.libraryRoles or {}) do
+            if not seen[role.id] then
+                merged = merged or {}
+                merged[#merged + 1] = role
+            end
+        end
+        classInfo.customRoles = merged
     end
 
     self:LogUiBuilding("Roles and categories lookup table populated.")
@@ -1206,11 +1322,22 @@ end
 
 -- Full effective order plus divider position. Legacy saves without an
 -- allowedCount receive the current default bans; new saves own their boundary.
-function WhoDoesWhat:GetEffectiveBuffSetup(roleId)
+-- `library` asks for the profile's own setup even when the role is published:
+-- the Customize Role Defaults window edits templates, and a raid's edits to a
+-- published copy must not appear to have rewritten one.
+function WhoDoesWhat:GetEffectiveBuffSetup(roleId, library)
     local _, entry = self:FindRoleById(roleId)
     if not entry then return nil end
     if entry.allSubRoles then
-        return self:GetEffectiveBuffSetup(entry.allSubRoles[1])
+        return self:GetEffectiveBuffSetup(entry.allSubRoles[1], library)
+    end
+    -- A published custom role's order comes off the board and nowhere else. A
+    -- local roleCustomizations entry for the same id is the publisher's own
+    -- template and must not be consulted, or the two clients would compute
+    -- different blessing plans for one shared role -- the bug the raid list
+    -- exists to close.
+    if entry.raidOrder and not library then
+        return entry.raidOrder, entry.raidAllowed
     end
     local saved = self.db.profile.roleCustomizations[entry.id]
     if saved then
@@ -1310,34 +1437,101 @@ local function ValidateCustomRole(self, name, className, wowRole)
     return strtrim(name)
 end
 
+-- The icons a custom role of this class may wear, in the order the picker shows
+-- them: the class icon (the default, and always first), that class's own
+-- built-in role icons, then the three micro group-role icons the rest of the UI
+-- already uses. Deliberately a short curated list rather than the client's full
+-- macro-icon set -- the point is to tell two custom roles apart at a glance,
+-- not to browse thousands of textures. Deduped, because a class's category
+-- icons reuse its class icon.
+--
+-- className may be nil (create mode before a class is picked); the role icons
+-- are offered on their own until one is.
+function WhoDoesWhat:CustomRoleIconChoices(className)
+    local choices, seen = {}, {}
+    local function Add(icon, label)
+        if not icon or seen[icon] then return end
+        seen[icon] = true
+        choices[#choices + 1] = { icon = icon, label = label }
+    end
+    for _, classInfo in ipairs(self.Classes) do
+        if classInfo.name == className then
+            Add(classInfo.classIcon, classInfo.name)
+            for _, role in ipairs(classInfo.roles) do
+                Add(role.icon, role.name)
+            end
+            break
+        end
+    end
+    for _, key in ipairs({ "tank", "healer", "dps" }) do
+        Add(self:MakeRoleIcon(key), self.BasicWowRoles[key].name)
+    end
+    return choices
+end
+
+-- Store only a deliberate choice: an icon equal to the class default is saved
+-- as nil, so the role keeps following its class rather than freezing a copy of
+-- whatever the class icon happened to be.
+function WhoDoesWhat:NormalizeCustomRoleIcon(className, icon)
+    if not icon then return nil end
+    for _, classInfo in ipairs(self.Classes) do
+        if classInfo.name == className then
+            return icon ~= classInfo.classIcon and icon or nil
+        end
+    end
+    return icon
+end
+
+-- Mint a custom-role id. The counter alone keeps ids unique within a profile;
+-- the random block is what keeps them unique BETWEEN profiles, which matters
+-- because a published role is keyed by this id on every client in the raid.
+-- Core.lua re-keys pre-1.0.7 counter-only ids once on load.
+function WhoDoesWhat:NewCustomRoleId()
+    local profile = self.db.profile
+    profile.customRoleCounter = (profile.customRoleCounter or 0) + 1
+    return string.format("custom_%06x_%d", math.random(0, 0xFFFFFF),
+        profile.customRoleCounter)
+end
+
 -- Create a new custom role with the given display name, owning class (by
--- name), and group role; persist and register it. Returns the new
--- RolesAndCategories entry, or nil when the arguments are incomplete.
-function WhoDoesWhat:CreateCustomRole(name, className, wowRole)
+-- name), group role, and optional picked icon; persist and register it. Returns
+-- the new RolesAndCategories entry, or nil when the arguments are incomplete.
+function WhoDoesWhat:CreateCustomRole(name, className, wowRole, icon)
     name = ValidateCustomRole(self, name, className, wowRole)
     if not name then return nil end
     local profile = self.db.profile
-    profile.customRoleCounter = (profile.customRoleCounter or 0) + 1
-    local id = "custom_" .. profile.customRoleCounter
-    table.insert(profile.customRoles, { id = id, name = name, class = className, wowRole = wowRole })
+    local id = self:NewCustomRoleId()
+    table.insert(profile.customRoles, { id = id, name = name, class = className,
+        wowRole = wowRole, icon = self:NormalizeCustomRoleIcon(className, icon) })
     self:PopulateRolesAndCategories()
     return self.RolesAndCategories[id]
 end
 
--- Update an existing custom role's display name and group role. Returns false
--- when the new values are incomplete, leaving the stored role untouched.
-function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole)
+-- Update an existing custom role's display name, group role, and icon. Returns
+-- false when the new values are incomplete, leaving the stored role untouched.
+function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole, icon)
     for _, cr in ipairs(self.db.profile.customRoles) do
         if cr.id == roleId then
             local valid = ValidateCustomRole(self, name, cr.class, wowRole)
             if not valid then return false end
             cr.name = valid
             cr.wowRole = wowRole
+            cr.icon = self:NormalizeCustomRoleIcon(cr.class, icon)
             break
         end
     end
     self:PopulateRolesAndCategories()
     return true
+end
+
+-- The local profile's stored definition for a custom role id, or nil. Callers
+-- that want what a role LOOKS like should use RolesAndCategories instead; this
+-- is for the raw saved fields, where an unset icon is meaningfully nil.
+function WhoDoesWhat:FindLocalCustomRole(roleId)
+    for _, cr in ipairs(self.db.profile.customRoles) do
+        if cr.id == roleId then return cr end
+    end
+    return nil
 end
 
 -- Delete a custom role along with any saved customization for it.
@@ -1351,6 +1545,179 @@ function WhoDoesWhat:DeleteCustomRole(roleId)
     end
     profile.roleCustomizations[roleId] = nil
     self:PopulateRolesAndCategories()
+end
+
+-- ---------------------------------------------------------------------------
+-- The raid's custom roles (db.profile.raidCustomRoles)
+--
+-- A published custom role is a complete definition -- name, class, group role,
+-- buff order and divider -- copied onto the shared board, where it is group
+-- strategy exactly like paladinBuffRules: synced as STATE.customRoles, edited
+-- under the same assignment permission, cleared on leave.
+--
+-- Publishing exists because the board already syncs role IDS. Without the
+-- definition beside them, a raider assigned "custom_a41f0c_2" resolves to
+-- nothing on everybody else's client: their blessing order silently falls back
+-- to the canonical one, guarantee rules scoped by group role skip them, and
+-- IsMarkedTank stops seeing a custom tank. The list is the missing half of a
+-- reference the board was already making.
+--
+-- Edits land here and nowhere else. The library entry the role was published
+-- from is left untouched, so it stays a reusable template rather than
+-- something one raid night's edits quietly rewrite.
+-- ---------------------------------------------------------------------------
+
+-- Bounded because the whole list rides in every board snapshot. Well past any
+-- real raid's needs; it exists so a stuck loop can't inflate the payload.
+local MAX_RAID_CUSTOM_ROLES = 20
+
+function WhoDoesWhat:GetRaidCustomRoles()
+    return self.db.profile.raidCustomRoles
+end
+
+-- The published definition for a role id, plus its index, or nil.
+function WhoDoesWhat:FindRaidCustomRole(roleId)
+    for i, cr in ipairs(self:GetRaidCustomRoles()) do
+        if cr.id == roleId then return cr, i end
+    end
+    return nil
+end
+
+-- Copy a local custom role onto the board, freezing its current effective buff
+-- setup into the published definition. Idempotent: a role already on the list
+-- is left as it is, because the raid's copy outranks the publisher's template.
+-- Returns true when the role is on the list afterwards.
+function WhoDoesWhat:PublishCustomRole(roleId)
+    if self:FindRaidCustomRole(roleId) then return true end
+    local source = self:FindLocalCustomRole(roleId)
+    if not source then
+        self:LogUiBuilding("PublishCustomRole: no local custom role " .. tostring(roleId))
+        return false
+    end
+    local list = self:GetRaidCustomRoles()
+    if #list >= MAX_RAID_CUSTOM_ROLES then
+        self:Print("The raid's custom role list is full (" .. MAX_RAID_CUSTOM_ROLES
+            .. " roles). Remove one before adding another.")
+        return false
+    end
+    local order, allowed = self:GetEffectiveBuffSetup(roleId)
+    order = order or self.CanonicalBuffOrder
+    table.insert(list, {
+        id = source.id,
+        name = source.name,
+        class = source.class,
+        wowRole = source.wowRole or false,
+        icon = source.icon,
+        order = { unpack(order) },
+        allowed = allowed or #order,
+    })
+    self:PopulateRolesAndCategories()
+    self:LogOperation("Custom role '" .. source.name .. "' added to the raid.")
+    return true
+end
+
+-- Rewrite a published role in place. Only the board copy changes.
+function WhoDoesWhat:UpdateRaidCustomRole(roleId, name, wowRole, icon, buffOrder, allowedCount)
+    local def = self:FindRaidCustomRole(roleId)
+    if not def then return false end
+    local valid = ValidateCustomRole(self, name, def.class, wowRole)
+    if not valid then return false end
+    buffOrder = self:BackfillBuffOrder(buffOrder)
+    allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
+    def.name = valid
+    def.wowRole = wowRole
+    def.icon = self:NormalizeCustomRoleIcon(def.class, icon)
+    def.order = { unpack(buffOrder) }
+    def.allowed = math.max(0, math.min(allowedCount, #buffOrder))
+    self:PopulateRolesAndCategories()
+    self:RefreshMainAssignmentsView()
+    self:RefreshBuffingGridView()
+    return true
+end
+
+-- Everyone currently assigned to a role id. The row's confirm prompt counts
+-- them; removal clears them.
+function WhoDoesWhat:PlayersAssignedToRole(roleId)
+    local names = {}
+    for player, id in pairs(self.db.profile.assignments) do
+        if id == roleId then names[#names + 1] = player end
+    end
+    table.sort(names)
+    return names
+end
+
+-- The unit token for a group member's name, so a role change can sync the
+-- Blizzard group-role flag the way the unit menu does. Nil when they can't be
+-- resolved; the assignment itself still writes fine without one.
+function WhoDoesWhat:UnitForPlayer(name)
+    if not name then return nil end
+    local function Key(unit)
+        local unitName, realm = UnitName(unit)
+        if unitName and realm and realm ~= "" then
+            return unitName .. "-" .. realm
+        end
+        return unitName
+    end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            if Key("raid" .. i) == name then return "raid" .. i end
+        end
+        return nil
+    end
+    if Key("player") == name then return "player" end
+    for i = 1, GetNumSubgroupMembers() do
+        if Key("party" .. i) == name then return "party" .. i end
+    end
+    return nil
+end
+
+-- Take a role off the raid list, clearing it from anyone still assigned to it.
+-- Leaving them on it would put them back in the state this whole list exists to
+-- prevent -- holding a role id nobody else can resolve -- so they go back to no
+-- role instead. Routed through SetAssignedRole so the Blizzard group-role flag
+-- and any main-tank mark come off with it.
+function WhoDoesWhat:RemoveRaidCustomRole(roleId)
+    local def, index = self:FindRaidCustomRole(roleId)
+    if not def then return end
+    local assigned = self:PlayersAssignedToRole(roleId)
+    table.remove(self:GetRaidCustomRoles(), index)
+    self:PopulateRolesAndCategories()
+    for _, name in ipairs(assigned) do
+        self:SetAssignedRole(name, nil, self:UnitForPlayer(name))
+    end
+    self:LogOperation("Custom role '" .. tostring(def.name) .. "' removed from the raid"
+        .. (#assigned > 0 and (", clearing " .. #assigned .. " assignment"
+            .. (#assigned == 1 and "" or "s")) or "") .. ".")
+end
+
+-- Clear the whole list, one role at a time so each one's assignments are
+-- cleared too. Returns how many roles came off.
+function WhoDoesWhat:ClearRaidCustomRoles()
+    local list = self:GetRaidCustomRoles()
+    local removed = #list
+    while #list > 0 do
+        self:RemoveRaidCustomRole(list[1].id)
+    end
+    return removed
+end
+
+-- Whether assigning this role is safe for the rest of the raid to resolve, and
+-- publish it if it isn't yet. Solo, nothing needs publishing: the library is
+-- what pickers offer and nobody else is reading. Returns false only when the
+-- role can't be made shareable, having already said why.
+function WhoDoesWhat:EnsureRoleIsShareable(roleId)
+    if not roleId or not IsInGroup() then return true end
+    -- Fake Raid is solo tooling, so IsInGroup already covers it: nothing is
+    -- listening and the library entry resolves fine on the only client there is.
+    local entry = self.RolesAndCategories[roleId]
+    if not entry or not entry.isCustom or entry.isRaid then return true end
+    if not self:CanEditAssignments() then
+        self:Print("'" .. tostring(entry.name) .. "' is one of your own custom roles"
+            .. " and is not part of this raid's list yet. Somebody who can edit"
+            .. " assignments has to add it in the main window's Custom Roles section.")
+        return false
+    end
+    return self:PublishCustomRole(roleId)
 end
 
 -- Sort rank for a player's assigned role WITHIN their class, so same-role

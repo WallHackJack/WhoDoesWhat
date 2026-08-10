@@ -57,6 +57,7 @@ RaidMenuExtensions.lua
 # honest).
 Views\SectionKit.lua
 Views\RaiderTooltipView.lua
+Views\Sections\CustomRolesSection.lua
 Views\Sections\TankSection.lua
 Views\Sections\CCSection.lua
 Views\Sections\MisdirectSection.lua

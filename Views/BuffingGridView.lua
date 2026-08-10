@@ -572,7 +572,7 @@ local function RefreshGrid(f)
         local rowColor = rowColors[localRow % 2 == 1 and 1 or 2]
         row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
         row:Show()
-        row.roleIcon:SetTexture(RoleIconFor(m))
+        WhoDoesWhat:SetRoleIconTexture(row.roleIcon, RoleIconFor(m))
         row.roleIcon:SetDesaturated(not connected)
         row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
             .. WhoDoesWhat:DisplayName(m.name) .. "|r")

@@ -448,9 +448,9 @@ end
 
 local function FillPaladinTooltip(row)
     if row.paladinName then
-        GameTooltip:SetText("|T" .. (row.roleIcon or paladinClass.classIcon)
-            .. ":16:16:0:0|t " .. ColoredName(row.paladinName, paladinClass),
-            1, 1, 1)
+        GameTooltip:SetText(WhoDoesWhat:RoleIconMarkup(
+            row.roleIcon or paladinClass.classIcon, 16)
+            .. " " .. ColoredName(row.paladinName, paladinClass), 1, 1, 1)
     else
         GameTooltip:SetText(WhoDoesWhat.StatusBarChecks.paladinBuffs.name, 1, 1, 1)
     end

@@ -230,7 +230,7 @@ end
 
 local function RoleText(role, classInfo)
     if not role then return "|cff909090none|r" end
-    return "|T" .. role.icon .. ":14:14:0:0|t |cff"
+    return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
         .. (classInfo and classInfo.colorHex or "ffffff") .. role.name .. "|r"
 end
 
@@ -518,7 +518,7 @@ local function CreateRow(content, index)
         for _, role in ipairs(data.classInfo.roles) do
             AddRole(role, data.classInfo)
         end
-        for _, role in ipairs(data.classInfo.customRoles or {}) do
+        for _, role in ipairs(data.classInfo.customRoles or {}) do -- published + library
             AddRole(role, data.classInfo)
         end
     end)
@@ -597,8 +597,8 @@ local function LayoutRow(row, data, index, ownerFrame)
         .. (data.name:match("^[^-]+") or data.name) .. "|r")
     -- Their spec's icon once they have one; the class icon while they don't --
     -- same fallback the Members window uses.
-    row.classIcon:SetTexture((data.role and data.role.icon)
-        or data.classInfo.classIcon)
+    WhoDoesWhat:SetRoleIconTexture(row.classIcon,
+        (data.role and data.role.icon) or data.classInfo.classIcon)
     StripeColor(row.stripe, data.classInfo, index)
 
     local combat = InCombatLockdown()
@@ -638,7 +638,7 @@ local function LayoutRow(row, data, index, ownerFrame)
     for i, icon in ipairs(row.talentIcons) do
         local roleId = snapshot and snapshot.roleIds and snapshot.roleIds[i]
         local _, role = roleId and WhoDoesWhat:FindRoleById(roleId)
-        icon:SetTexture(role and role.icon)
+        if role then WhoDoesWhat:SetRoleIconTexture(icon, role.icon) end
         icon:SetShown(role ~= nil)
         if role then shownIcons = shownIcons + 1 end
     end

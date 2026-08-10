@@ -183,8 +183,7 @@ local function RoleIconMarkup(name, size)
     if not roleId then return "" end
     local _, role = WhoDoesWhat:FindRoleById(roleId)
     if not role or not role.icon then return "" end
-    size = size or 14
-    return "|T" .. role.icon .. ":" .. size .. ":" .. size .. ":0:0|t "
+    return WhoDoesWhat:RoleIconMarkup(role.icon, size or 14) .. " "
 end
 
 -- PlayerText with the player's role icon in front (assignment dropdowns). Falls

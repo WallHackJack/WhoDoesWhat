@@ -195,6 +195,7 @@ end
 local KNOWN_STATE_KEYS = {
     roles = true, tank = true, cc = true, md = true, static = true,
     paladinStrategy = true, pallyBuffSource = true, perms = true,
+    customRoles = true,
 }
 
 -- Board keys from the last applied remote state that this build doesn't
@@ -228,6 +229,7 @@ local function Snapshot()
         md = p.mdAssignments,
         static = static,
         paladinStrategy = p.paladinBuffRules,
+        customRoles = p.raidCustomRoles,
         pallyBuffSource = p.settings.pallyBuffSource or "wdw",
         perms = { mode = p.permissions.mode, assistant = p.permissions.assistant },
     }
@@ -268,6 +270,7 @@ local function ApplySnapshot(state)
     refill(p.ccAssignments, state.cc)
     refill(p.mdAssignments, state.md)
     refill(p.paladinBuffRules, state.paladinStrategy)
+    refill(p.raidCustomRoles, state.customRoles)
     p.settings.pallyBuffSource = state.pallyBuffSource == "pallypower"
         and "pallypower" or "wdw"
 
@@ -281,6 +284,10 @@ local function ApplySnapshot(state)
     for id, name in pairs(state.static or {}) do
         p.raidAssignments[id] = name
     end
+
+    -- The board's custom roles are role DEFINITIONS, so they have to be back
+    -- in the id lookup before anything reads the roles map that points at them.
+    WhoDoesWhat:PopulateRolesAndCategories()
 end
 
 -- True when the synced slice holds anything at all -- decides whether a
@@ -289,6 +296,7 @@ local function BoardNonEmpty()
     local p = WhoDoesWhat.db.profile
     if next(p.assignments) then return true end
     if #p.paladinBuffRules > 0 then return true end
+    if #p.raidCustomRoles > 0 then return true end
     for id in pairs(p.raidAssignments) do
         if IsSyncedStaticRow(id) then return true end
     end
@@ -984,6 +992,10 @@ function Sync:OnGroupLeft()
     wipe(p.mdAssignments)
     wipe(p.raidAssignments)
     wipe(p.paladinBuffRules)
+    -- Published custom roles were that raid's, not ours. The library entries
+    -- they were copied from are untouched and can be added to the next one.
+    wipe(p.raidCustomRoles)
+    WhoDoesWhat:PopulateRolesAndCategories()
     p.settings.pallyBuffSource = "wdw"
     wipe(peerVersions)
     -- The editing rule was that raid's leader's; don't carry it into the next.
