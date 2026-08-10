@@ -425,6 +425,17 @@ function WhoDoesWhat:CanFixAllPallyPowerAssignments()
     return true
 end
 
+-- A raider with no assigned role only gets WDW's fallback blessing order, so
+-- their row is a guess rather than a plan. Both the per-row Fix and Fix All
+-- leave those rows where PallyPower has them until someone picks a role.
+function WhoDoesWhat:PallyPowerRowNeedsRole(planName)
+    if not planName then return false end
+    for _, pet in ipairs(self.Assign.GetPetMembers()) do
+        if pet.name == planName then return false end
+    end
+    return self:GetAssignedRole(planName) == nil
+end
+
 function WhoDoesWhat:CanFixPlayerBuffsInPallyPower(playerName, diffs)
     local blocked = BlockedPallyPowerPaladin(self, playerName, diffs)
     return blocked == nil, blocked
@@ -689,8 +700,25 @@ function WhoDoesWhat:SyncToPallyPower()
         return false
     end
 
-    local assignments, normal, classCount, singleCount, skipped =
-        BuildDesired(self, paladins)
+    local assignments, normal, classCount, singleCount, skipped,
+        _, planTargetByWire = BuildDesired(self, paladins)
+
+    -- Roleless raiders keep whatever PallyPower already has for them: drop
+    -- their individual exceptions so the push never writes a guessed blessing.
+    -- They still inherit their class Greater -- PallyPower has no per-player
+    -- opt-out below that -- but nothing is aimed at them specifically.
+    local roleless = 0
+    for _, targets in pairs(normal) do
+        for _, byTarget in pairs(targets) do
+            for target in pairs(byTarget) do
+                if self:PallyPowerRowNeedsRole(planTargetByWire[target] or target) then
+                    byTarget[target] = nil
+                    singleCount = singleCount - 1
+                    roleless = roleless + 1
+                end
+            end
+        end
+    end
 
     -- Keep a co-installed PallyPower's local tables in step. The broadcast
     -- below uses WDW's computed tables directly and does not depend on them.
@@ -757,9 +785,15 @@ function WhoDoesWhat:SyncToPallyPower()
 
     local summary = "Synced " .. #paladins .. " paladin(s) to PallyPower: "
         .. classCount .. " class blessing(s), " .. singleCount .. " individual exception(s)."
-    if skipped > 0 then
-        summary = summary .. " " .. skipped
-            .. " cell(s) skipped (unresolved pet, class, or blessing)."
+    if roleless > 0 then
+        summary = summary .. " " .. roleless
+            .. " assignment(s) left alone for raiders with no role yet."
+    end
+    if skipped > 0 or roleless > 0 then
+        if skipped > 0 then
+            summary = summary .. " " .. skipped
+                .. " cell(s) skipped (unresolved pet, class, or blessing)."
+        end
         self:Print(summary)
     else
         self:LogOperation(summary)

@@ -80,6 +80,15 @@ local function AssignedRole(data, member)
     return role, roleId
 end
 
+-- Matches the bridge's rule so the greyed rows and the rows Fix All skips are
+-- always the same set. Pets and rows for players who already left the group
+-- have no role of their own to pick.
+local function NeedsRole(data, member)
+    if not member.classInfo or member.isPet then return false end
+    if data.isDemo then return member.testRoleId == nil end
+    return WhoDoesWhat:PallyPowerRowNeedsRole(member.planName)
+end
+
 local function GroupPaladins()
     local paladins = {}
     for _, member in ipairs(WhoDoesWhat:GetGroupMembers("Paladin")) do
@@ -142,7 +151,17 @@ end
 local function LiveComparisonData()
     local diffs, reason = WhoDoesWhat:CheckPallyPowerSync()
     if not diffs or #diffs == 0 then return nil, reason or "synced" end
+    -- Roleless rows still show as differences -- they are worth seeing -- but
+    -- Fix All will not touch them, so they are not part of its count.
+    local fixable = 0
+    for _, diff in ipairs(diffs) do
+        if not WhoDoesWhat:PallyPowerRowNeedsRole(
+            diff.planTarget or ShortName(diff.target)) then
+            fixable = fixable + 1
+        end
+    end
     return {
+        fixableCount = fixable,
         paladins = GroupPaladins(),
         members = ComparisonMembers(diffs),
         current = CurrentPallyPowerPlan(),
@@ -248,6 +267,10 @@ local function CreatePlanCell(row, index)
             GameTooltip:AddLine(self.sourceLabel .. ": no assignment for "
                 .. self.raider .. ".", 0.6, 0.6, 0.6, true)
         end
+        if self.needsRole then
+            GameTooltip:AddLine(self.raider .. " has no role yet, so this is a"
+                .. " default guess.", 1, 0.82, 0, true)
+        end
         if self.alertMessage then
             local color = self.alertKind == "red" and { 1, 0.3, 0.3 }
                 or { 1, 0.82, 0 }
@@ -278,6 +301,10 @@ local function CreateFixButton(content, index)
             1, 1, 1)
         if self.isDemo then
             GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+        elseif self.member and self.member.needsRole then
+            GameTooltip:AddLine("This player has no role yet.", 1, 0.82, 0, true)
+            GameTooltip:AddLine("Pick a role before pushing a blessing plan for them.",
+                0.8, 0.8, 0.8, true)
         elseif self.blockedPaladin then
             GameTooltip:AddLine(self.blockedPaladin
                 .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
@@ -541,8 +568,12 @@ local function RenderGrid(f, data)
 
     RenderSummary(f, data, gridX, columnStart, plans, sourceLabels)
 
+    -- A raider with no role yet only gets the canonical fallback order, so the
+    -- "suggested" column is a guess rather than a plan. Show it greyed out and
+    -- keep Fix off the table until someone picks a role.
     for _, member in ipairs(data.members) do
         member.topBuffs = TopBuffSet(data, member)
+        member.needsRole = NeedsRole(data, member)
     end
 
     for side = 1, 2 do
@@ -646,6 +677,7 @@ local function RenderGrid(f, data)
                 K.SetPaladinBuffCell(cell, plans[side], member.planName, paladin)
                 cell.empty:SetShown(cell.buffKey == nil)
                 cell.alertKind, cell.alertMessage = nil, nil
+                cell.needsRole = side == 2 and member.needsRole or nil
                 if side == 1 then
                     cell.alertKind, cell.alertMessage =
                         CellOutline(data, member, paladin, cell.buffKey)
@@ -656,7 +688,8 @@ local function RenderGrid(f, data)
                     cell.alert:SetBackdropBorderColor(1, 0.82, 0, 1)
                 end
                 cell.alert:SetShown(cell.alertKind ~= nil)
-                cell.icon:SetDesaturated(false)
+                cell.icon:SetDesaturated(cell.needsRole == true)
+                cell.icon:SetAlpha(cell.needsRole and 0.35 or 1)
                 cell:Show()
             end
             for column = #paladins + 1, #row.cells do row.cells[column]:Hide() end
@@ -681,7 +714,7 @@ local function RenderGrid(f, data)
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", f.content, "TOPLEFT", fixX,
             -((index - 1) * ROW_H + 2))
-        button:SetEnabled(not data.isDemo and canFix)
+        button:SetEnabled(not data.isDemo and canFix and not member.needsRole)
         button:Show()
     end
     for index = #data.members + 1, #f.content.fixButtons do
@@ -708,15 +741,16 @@ RenderDiffs = function(f)
     end
 
     RenderGrid(f, data)
-    f.diffCount = data.diffCount
-    f.sendBtn:SetText("Fix All (" .. data.diffCount .. ")")
+    f.diffCount = data.fixableCount or data.diffCount
+    f.sendBtn:SetText("Fix All (" .. f.diffCount .. ")")
     if data.isDemo then
         f.sendBtn:Disable()
         f.secondaryBtn:SetText("Close")
     else
         f.sendBtn.canFix, f.sendBtn.blockedPaladin =
             WhoDoesWhat:CanFixAllPallyPowerAssignments()
-        f.sendBtn:SetEnabled(f.sendBtn.canFix)
+        f.sendBtn.noneFixable = f.diffCount == 0
+        f.sendBtn:SetEnabled(f.sendBtn.canFix and not f.sendBtn.noneFixable)
         f.secondaryBtn:SetText("Ignore")
     end
     -- The window repaints itself on every plan change (RefreshBuffingGridView
@@ -756,6 +790,11 @@ local function EnsureFrame()
         GameTooltip:SetText("Fix all PallyPower assignments", 1, 1, 1)
         if f.demoData then
             GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+        elseif self.noneFixable then
+            GameTooltip:AddLine("Every remaining difference is for a raider with"
+                .. " no role yet.", 1, 0.82, 0, true)
+            GameTooltip:AddLine("Give them roles and their rows become fixable.",
+                0.8, 0.8, 0.8, true)
         elseif not self.canFix then
             GameTooltip:AddLine(self.blockedPaladin
                 .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
