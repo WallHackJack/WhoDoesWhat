@@ -11,8 +11,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     attention. Both middle columns ARE dropdowns: pick on the left to write
 --     their Blizzard group flag, pick on the right to set their WhoDoesWhat role
 --     (which pushes the flag to match). The last column is EVIDENCE, not a
---     control: the talent spread we've actually seen, the spec it reads as, and
---     a Rescan button to go and look again.
+--     control: the spec their talents read as and the spread we've actually
+--     seen, with a Rescan button at the row's right edge to go and look again.
 --
 -- There is deliberately no "fix" here -- neither per row nor a Fix All. Both
 -- applied a guess derived from Blizzard's flag, which is the least trustworthy
@@ -74,9 +74,14 @@ local EMPTY_BULLETS = {
 local MARGIN = 10
 local TOP_PAD = 18          -- breathing room under the title bar
 -- Section chrome copied from the Members window: a GameFontNormal title with
--- the small column headings on its right, and a hairline under both.
+-- the small column headings under it, and a hairline below both.
 local HEADER_H = 26
 local HEADER_RULE_Y = 25
+-- A section that has columns gets a second line: the title keeps the first row
+-- to itself and the column headings sit under it, so "Out-dated Roles:" reads
+-- as the section's name rather than as the first column's heading.
+local COLUMN_HEADER_H = 44
+local COLUMN_HEADINGS_Y = 24
 local SECTION_GAP = 12
 local ROW_H = 30
 local PROMOTE_ROW_H = 26
@@ -85,13 +90,13 @@ local SCROLLBAR_W = 26
 local NAME_COL_W = 134
 local GROUP_DD_W = 128
 local WDW_DD_W = 170
--- The talents column, laid out left to right inside its own width: the point
--- spread, the spec icon(s) it reads as, then Rescan.
+-- The talents column, laid out left to right inside its own width: the spec
+-- icon(s) the spread reads as, then the point spread itself. Rescan is pinned
+-- to the row's right edge instead, out of the column's flow.
 local TALENT_COL_W = 178
 local TALENT_X = NAME_COL_W + GROUP_DD_W + WDW_DD_W
-local TALENT_POINTS_W = 52
+local TALENT_PAD = 6
 local TALENT_ICON_SIZE = 16
-local TALENT_ICON_X = TALENT_POINTS_W + 8
 local RESCAN_BTN_W = 66
 local CONTENT_W = TALENT_X + TALENT_COL_W
 local CLASS_ICON_SIZE = 20
@@ -536,31 +541,29 @@ local function CreateRow(content, index)
     wdwText:SetJustifyH("LEFT")
     row.wdwText = wdwText
 
-    -- Talents: what we have actually seen, not what anyone picked. The spread
-    -- reads left to right in talent-tab order, and the icons beside it are the
-    -- spec that spread means -- two of them for a feral druid, whose tree can't
-    -- distinguish cat from bear.
-    local talentText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    talentText:SetPoint("LEFT", row, "LEFT", TALENT_X + 6, 0)
-    talentText:SetWidth(TALENT_POINTS_W)
-    talentText:SetJustifyH("LEFT")
-    row.talentText = talentText
-
+    -- Talents: what we have actually seen, not what anyone picked. The icons
+    -- lead -- the spec the spread reads as, two of them for a feral druid whose
+    -- tree can't distinguish cat from bear -- and the point spread follows,
+    -- reading left to right in talent-tab order.
     row.talentIcons = {}
     for i = 1, 2 do
         local icon = row:CreateTexture(nil, "ARTWORK")
         icon:SetSize(TALENT_ICON_SIZE, TALENT_ICON_SIZE)
         icon:SetPoint("LEFT", row, "LEFT",
-            TALENT_X + TALENT_ICON_X + (i - 1) * (TALENT_ICON_SIZE + 2), 0)
+            TALENT_X + TALENT_PAD + (i - 1) * (TALENT_ICON_SIZE + 2), 0)
         row.talentIcons[i] = icon
     end
+
+    local talentText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    talentText:SetJustifyH("LEFT")
+    row.talentText = talentText
 
     -- Go and look again. Not a fix and not gated on permissions -- an inspect
     -- writes nothing to anyone's board, it just refreshes the evidence the rest
     -- of the row is judged against.
     local rescanBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     rescanBtn:SetSize(RESCAN_BTN_W, ROW_H - 8)
-    rescanBtn:SetPoint("LEFT", row, "LEFT", TALENT_X + TALENT_COL_W - RESCAN_BTN_W - 8, 0)
+    rescanBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     rescanBtn:SetText("Rescan")
     rescanBtn:SetMotionScriptsWhileDisabled(true)
     rescanBtn:SetScript("OnClick", function()
@@ -627,26 +630,29 @@ local function LayoutRow(row, data, index, ownerFrame)
 
     -- Talents, or a grey "not scanned yet" where none have been seen: an
     -- unknown spread has to read as unknown, not as a player with no points.
-    -- The label borrows the icons' room when there are no icons to draw.
-    -- Orange when the spread contradicts the role in the dropdown beside it:
-    -- the icons already differ, but only if you know which two to compare, and
-    -- a row that's here for nothing else needs to say why on sight.
+    -- The spread starts after however many spec icons we drew, so a class the
+    -- tree can only narrow to two keeps both icons and still reads as one
+    -- left-aligned column.
     local snapshot = WhoDoesWhat:GetTalentSnapshot(data.unit)
-    if snapshot then
-        row.talentText:SetWidth(TALENT_POINTS_W)
-        local points = table.concat(snapshot.points, "/")
-        row.talentText:SetText(data.talentMismatch
-            and ("|cffff8000" .. points .. "|r") or points)
-    else
-        row.talentText:SetWidth(TALENT_COL_W - RESCAN_BTN_W - 20)
-        row.talentText:SetText("|cff909090not scanned|r")
-    end
+    local shownIcons = 0
     for i, icon in ipairs(row.talentIcons) do
         local roleId = snapshot and snapshot.roleIds and snapshot.roleIds[i]
         local _, role = roleId and WhoDoesWhat:FindRoleById(roleId)
         icon:SetTexture(role and role.icon)
         icon:SetShown(role ~= nil)
+        if role then shownIcons = shownIcons + 1 end
     end
+
+    local textX = TALENT_X + TALENT_PAD
+        + shownIcons * (TALENT_ICON_SIZE + 2)
+        + (shownIcons > 0 and 4 or 0)
+    row.talentText:ClearAllPoints()
+    row.talentText:SetPoint("LEFT", row, "LEFT", textX, 0)
+    row.talentText:SetWidth(math.max(1,
+        TALENT_X + TALENT_COL_W - RESCAN_BTN_W - 12 - textX))
+    row.talentText:SetText(snapshot
+        and table.concat(snapshot.points, "/")
+        or "|cff909090not scanned|r")
 
     -- Already queued: the button has done its job and pressing it again just
     -- re-queues the same inspect, so it goes quiet until the answer lands or
@@ -738,7 +744,7 @@ RenderRows = function(f)
     if #rows > 0 then
         f.rolesHeader:ClearAllPoints()
         f.rolesHeader:SetPoint("TOPLEFT", MARGIN, -y)
-        y = y + HEADER_H
+        y = y + COLUMN_HEADER_H
 
         f.scroll:ClearAllPoints()
         f.scroll:SetPoint("TOPLEFT", MARGIN, -y)
@@ -785,37 +791,41 @@ local function EnsureFrame()
     -- One frame per section header so the whole block -- title, column
     -- headings and hairline -- moves on a single anchor as the section above
     -- it comes and goes. Same chrome as the Members window's role grids.
-    local function SectionHeader(titleText)
+    local function SectionHeader(titleText, withColumns)
         local header = CreateFrame("Frame", nil, f)
-        header:SetSize(CONTENT_W, HEADER_H)
+        local height = withColumns and COLUMN_HEADER_H or HEADER_H
+        header:SetSize(CONTENT_W, height)
         local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:SetPoint("TOPLEFT", 4, -4)
         title:SetJustifyH("LEFT")
         title:SetText(titleText)
+        local ruleY = withColumns and (height - 1) or HEADER_RULE_Y
         local rule = header:CreateTexture(nil, "ARTWORK")
         rule:SetColorTexture(0.4, 0.4, 0.4, 0.6)
         rule:SetHeight(1)
-        rule:SetPoint("TOPLEFT", 0, -HEADER_RULE_Y)
-        rule:SetPoint("TOPRIGHT", 0, -HEADER_RULE_Y)
-        -- Headings centre over their column: each one labels a control that
-        -- fills the column's whole width, so hugging the left edge left them
-        -- reading as though they belonged to the column before.
+        rule:SetPoint("TOPLEFT", 0, -ruleY)
+        rule:SetPoint("TOPRIGHT", 0, -ruleY)
+        -- Headings sit on their own line under the title and hug the left edge,
+        -- matching the row contents below them -- every column's content is
+        -- left-aligned, so a centred heading floated away from what it labels.
         header.Heading = function(_, text, x, w)
             local fs = header:CreateFontString(nil, "OVERLAY",
                 "GameFontNormalSmall")
-            fs:SetPoint("TOPLEFT", x, -5)
+            fs:SetPoint("TOPLEFT", x, -COLUMN_HEADINGS_Y)
             fs:SetWidth(w)
-            fs:SetJustifyH("CENTER")
+            fs:SetJustifyH("LEFT")
             fs:SetText(text)
         end
         return header
     end
     f.promoteHeader = SectionHeader("Main Tanks:")
-    f.rolesHeader = SectionHeader("Out-dated Roles:")
-    -- No "Player" heading: the section title already owns that column.
-    f.rolesHeader:Heading("Group role", NAME_COL_W, GROUP_DD_W)
-    f.rolesHeader:Heading("WhoDoesWhat", NAME_COL_W + GROUP_DD_W, WDW_DD_W)
-    f.rolesHeader:Heading("Talents", TALENT_X + 4, TALENT_COL_W)
+    f.rolesHeader = SectionHeader("Out-dated Roles:", true)
+    -- Each heading lines up with its column's content: the class icon, the
+    -- dropdowns' own text inset, and the first talent icon.
+    f.rolesHeader:Heading("Player", 4, NAME_COL_W)
+    f.rolesHeader:Heading("Group role", NAME_COL_W + 8, GROUP_DD_W)
+    f.rolesHeader:Heading("WhoDoesWhat", NAME_COL_W + GROUP_DD_W + 8, WDW_DD_W)
+    f.rolesHeader:Heading("Talents", TALENT_X + TALENT_PAD, TALENT_COL_W)
 
     local scroll, content = K.CreatePaladinGridScroll(f,
         "WhoDoesWhatActionItemsScroll")
