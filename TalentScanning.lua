@@ -79,6 +79,33 @@ function WhoDoesWhat:GetTalentSnapshot(unit)
     return { points = { t1, t2, t3 }, roleIds = RolesForSpec(class, specIndex) }
 end
 
+-- The roles a talent spread can actually name. Anything outside this set --
+-- warlock_firetank, druid_dreamstate, custom roles -- is a hand-made call the
+-- points can neither confirm nor contradict, so it must never be reported as
+-- disagreeing with the scan; there is no rescan that would ever settle it.
+local DETECTABLE_ROLES = { druid_feral_tank = true }
+for _, ids in pairs(SPEC_ROLES) do
+    for _, id in ipairs(ids) do DETECTABLE_ROLES[id] = true end
+end
+
+-- Does the last scan disagree with the role on the board? Only ever true when
+-- we have actually seen their points AND their role is one talents can judge.
+-- An unscanned player disagrees with nothing, and a feral druid matches either
+-- feral role because the tree cannot tell cat from bear.
+--
+-- This is a stale board, not a bug: AutoAssignDetectedRole deliberately lets a
+-- first sighting lose to an existing assignment, so a role picked before anyone
+-- could inspect them stays put even once the talents say otherwise.
+function WhoDoesWhat:TalentsContradictRole(unit, roleId)
+    if not (roleId and DETECTABLE_ROLES[roleId]) then return false end
+    local snapshot = self:GetTalentSnapshot(unit)
+    if not (snapshot and snapshot.roleIds) then return false end
+    for _, id in ipairs(snapshot.roleIds) do
+        if id == roleId then return false end
+    end
+    return true
+end
+
 -- Players we've asked the library to re-inspect and not yet heard back on, as
 -- playerKey -> the time the request goes stale. An inspect can simply never
 -- answer (they walked out of range, we're in combat, they logged), so entries

@@ -26,8 +26,13 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Opened by hand from the main window's toolbar -- nothing here pops up on its
 -- own; the toolbar button glows instead.
 --
--- Three things put a player in the roles list:
+-- Four things put a player in the roles list:
 --   * MISMATCH: their group role and WDW role disagree.
+--   * TALENT MISMATCH: their WDW role and their last-scanned talents disagree.
+--     A first sighting deliberately loses to an existing assignment
+--     (AutoAssignDetectedRole), so a role picked before anyone could inspect
+--     them stays on the board until someone looks at this row. Only roles
+--     talents can name count -- see TalentsContradictRole.
 --   * UNSET: they have a WDW role but no group role at all. A kicked-and-
 --     reinvited player lands here, since a kick clears the flag.
 --   * PENDING: they have no WDW role yet -- not scanned, not assigned. Blizzard
@@ -59,11 +64,12 @@ local COMPACT_H = 96        -- the frame's build size; SetCompact measures the r
 local EMPTY_TITLE_H = 26
 local EMPTY_BULLET_H = 17
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
--- The three questions the window actually asks, in the order its sections do.
+-- The questions the window actually asks, in the order its sections do.
 local EMPTY_BULLETS = {
     "Main Tanks Promoted",
     "All Roles assigned",
     "All Roles Match",
+    "All Roles Match Talents",
 }
 local MARGIN = 10
 local TOP_PAD = 18          -- breathing room under the title bar
@@ -150,8 +156,12 @@ function WhoDoesWhat:GetActionItems()
             -- No WDW role at all: the scan hasn't reached them or nobody has
             -- assigned one. Not a disagreement -- a blank waiting to be filled.
             local pending = (not roleId) and true or false
+            -- The board says one spec, their talents read as another. Roles
+            -- that talents can't name are excluded (TalentsContradictRole), so
+            -- a Warlock Tank never sits here unfixably.
+            local talentMismatch = self:TalentsContradictRole(unit, roleId)
 
-            if classInfo and (mismatched or unset or pending) then
+            if classInfo and (mismatched or unset or pending or talentMismatch) then
                 roleRows[#roleRows + 1] = {
                     name = key,
                     unit = unit,
@@ -162,6 +172,7 @@ function WhoDoesWhat:GetActionItems()
                     mismatched = mismatched,
                     unset = unset,
                     pending = pending,
+                    talentMismatch = talentMismatch,
                 }
             end
 
@@ -617,10 +628,15 @@ local function LayoutRow(row, data, index, ownerFrame)
     -- Talents, or a grey "not scanned yet" where none have been seen: an
     -- unknown spread has to read as unknown, not as a player with no points.
     -- The label borrows the icons' room when there are no icons to draw.
+    -- Orange when the spread contradicts the role in the dropdown beside it:
+    -- the icons already differ, but only if you know which two to compare, and
+    -- a row that's here for nothing else needs to say why on sight.
     local snapshot = WhoDoesWhat:GetTalentSnapshot(data.unit)
     if snapshot then
         row.talentText:SetWidth(TALENT_POINTS_W)
-        row.talentText:SetText(table.concat(snapshot.points, "/"))
+        local points = table.concat(snapshot.points, "/")
+        row.talentText:SetText(data.talentMismatch
+            and ("|cffff8000" .. points .. "|r") or points)
     else
         row.talentText:SetWidth(TALENT_COL_W - RESCAN_BTN_W - 20)
         row.talentText:SetText("|cff909090not scanned|r")
@@ -649,10 +665,10 @@ end
 
 -- Nothing to do: shrink to a checklist, the way the diffs window shrinks to a
 -- label. A tall empty box with a scroll track in it reads as "broken", not as
--- "you're all set" -- and the three ticked lines say which three questions were
--- actually asked, which a bare "nothing to fix" leaves you guessing at.
+-- "you're all set" -- and the ticked lines say which questions were actually
+-- asked, which a bare "nothing to fix" leaves you guessing at.
 --
--- Ungrouped keeps the small shape but drops the checklist: none of those three
+-- Ungrouped keeps the small shape but drops the checklist: none of those
 -- were checked, they were skipped, and claiming them would be a lie.
 local function SetCompact(f, inGroup)
     f.promoteHeader:Hide()
