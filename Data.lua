@@ -448,6 +448,9 @@ WhoDoesWhat.StatusBarChecks.dead = {
     description = "Shows whether each raider is dead or a ghost.",
     icon = 132331,
     colorRGB = { r = 0.46, g = 0.48, b = 0.52 },
+    -- The one check corpses don't drop out of mid-fight; counting them is the
+    -- point of it (see IgnoredWhileDead in Assignments.lua).
+    countsDead = true,
     defaultNegative = true,
     defaultHideComplete = true,
     defaultHideColumnComplete = true,
@@ -472,8 +475,19 @@ if not features.isClassicEra then
         defaultSaturatedStyle = "check",
         colorRGB = shamanInfo.colorRGB,
         className = "Shaman",
+        -- Bloodlust lands on pets too, and a shadowfiend summoned after the
+        -- cast is exactly the kind of straggler the partial glow is for, so
+        -- this check counts every pet rather than the hunters' alone.
+        includeHunterPets = true,
+        allPets = true,
+        -- Out of combat the useful list is who is still Sated (nobody can lust
+        -- them yet); mid-fight it's who the lust missed. See FlagsTheCovered.
+        flagMissingInCombat = true,
         -- Being a shaman does not make you responsible for other people's
-        -- Sated: the debuff is the cooldown, not a job left undone.
+        -- Sated: the debuff is the cooldown, not a job left undone. What IS
+        -- worth a shaman's attention is a lust that reached almost everybody
+        -- (see partialGlow in StatusBarsView).
+        partialGlow = true,
         hiddenOptions = { responsibleGlow = true },
     }
 end
@@ -621,6 +635,13 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     -- hiddenOptions); the status view still decides whether the local player
     -- is the one on the hook.
     local responsibleGlow = saved.responsibleGlow ~= false
+    -- The other glow rule, offered only where a check opts in (`partialGlow`
+    -- in this file): fires on the last few stragglers rather than on any gap
+    -- at all. Its "only as <class>" sub-option is off by default -- everyone
+    -- benefits from seeing that a lust missed people, only a shaman can fix
+    -- it, and which of those you want is a matter of taste.
+    local partialGlow = saved.partialGlow ~= false
+    local partialGlowOnlyClass = saved.partialGlowOnlyClass == true
     return {
         bar = bar,
         grid = grid,
@@ -642,6 +663,8 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         barColor = barColor,
         combinePaladinBars = saved.combinePaladinBars == true,
         responsibleGlow = responsibleGlow,
+        partialGlow = partialGlow,
+        partialGlowOnlyClass = partialGlowOnlyClass,
         hideWhenSynced = hideWhenSynced,
         hideWhenInactive = hideWhenInactive,
         assignmentIssuesGlow = saved.assignmentIssuesGlow ~= false,

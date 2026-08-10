@@ -90,7 +90,7 @@ local function UnitToKey(unit)
 end
 
 -- The units to scan as { unit, key } pairs: every group member (self included
--- off-raid), plus each hunter's pet keyed "<Owner>'s Pet" to match the plan /
+-- off-raid), plus each summoned pet keyed "<Owner>'s Pet" to match the plan /
 -- GetPetMembers, so HasBuff("<Owner>'s Pet") resolves. Fake raiders have no
 -- real unit and are simply never tracked -- their buffs stay unknown.
 local function GroupTargets()
@@ -111,9 +111,12 @@ local function GroupTargets()
         local key = UnitToKey(o[1])
         if key then
             targets[#targets + 1] = { unit = o[1], key = key }
-            -- Only hunter pets take blessings we plan for (warlock pets aren't
-            -- covered); match GetPetMembers, which is hunters-only.
-            if UnitExists(o[2]) and select(2, UnitClass(o[1])) == "HUNTER" then
+            -- Every summoned pet, not just the hunters': blessings are only
+            -- planned for hunter pets, but a raid-wide effect lands on any pet
+            -- in range, so Sated has to be readable on a shadowfiend too. The
+            -- consumers pick which pets they care about; an entry here only
+            -- means the pet exists and has been scanned.
+            if UnitExists(o[2]) then
                 targets[#targets + 1] = { unit = o[2], key = key .. "'s Pet" }
             end
         end

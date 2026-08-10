@@ -487,13 +487,24 @@ local function RefreshBuffOptionsFrame()
     -- nobody in particular owns the buff, so the glow has nothing to key on.
     local showResponsibleGlow = hasRequirement and not options.negative
         and not hidden.responsibleGlow
-    y = y + ((showBest or showHideBarUnavailable
-        or showHideColumnUnavailable or showResponsibleGlow) and 18 or 25)
+    -- Only where the check asks for it: "most of them have it" is a sensible
+    -- thing to glow about for a raid-wide cast, and nonsense for a buff that
+    -- is applied one raider at a time.
+    local showPartialGlow = definition.partialGlow == true
+    y = y + ((showBest or showHideBarUnavailable or showHideColumnUnavailable
+        or showResponsibleGlow or showPartialGlow) and 18 or 25)
     y = PlaceOption("bestAvailable", showBest, y)
     -- A sub-option of the box above it: indented, and gone entirely while the
     -- rule it relaxes is switched off.
     y = PlaceOption("anyInCombat", showBest and options.bestAvailable, y, 14)
     y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
+    -- The class this one names is the "Requires Class" one, so it says which.
+    f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
+        and ("Only as " .. options.requiredClass)
+        or "Only as the supplying class")
+    y = PlaceOption("partialGlow", showPartialGlow, y)
+    y = PlaceOption("partialGlowOnlyClass",
+        showPartialGlow and options.partialGlow and hasRequirement, y, 14)
     y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
     y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
 
@@ -525,10 +536,14 @@ local function RefreshBuffOptionsFrame()
         showMana or showTanks or showPets, y + 1)
     y = PlaceOption("onlyManaUsers", showMana, y)
     y = PlaceOption("onlyTanks", showTanks, y)
+    -- A check that counts every class's pet says so; the rest are hunters-only.
+    f.optionLabels.hunterPets:SetText(definition.allPets
+        and "Used by pets" or "Used by hunter pets")
     y = PlaceOption("hunterPets", showPets, y)
     for _, option in ipairs({ "bestAvailable", "anyInCombat", "hideBarUnavailable",
         "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
-        "negative", "hideComplete", "responsibleGlow",
+        "negative", "hideComplete", "responsibleGlow", "partialGlow",
+        "partialGlowOnlyClass",
         "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
         if not f.optionChecks[option]:IsShown() then
             f.optionLabels[option]:Hide()
@@ -874,6 +889,14 @@ local function EnsureBuffOptionsFrame(owner, key)
                 .. " buff and somebody is still missing it. With \"Only consider"
                 .. " best available\" on, only the raid's best-talented caster"
                 .. " is asked." },
+        { "partialGlow", "Glow when some missing",
+            "Glow this WDW Status row once most of the raid is covered but a"
+                .. " few are not -- raiders who were dead when it went out, or"
+                .. " a pet summoned since. That handful is worth one more"
+                .. " cast; an empty raid-wide bar is not." },
+        { "partialGlowOnlyClass", "Only as the supplying class",
+            "Restrict that glow to the class named above, the one that can"
+                .. " actually cast it. Off, everybody sees the stragglers." },
     }
     for index, entry in ipairs(checkboxOptions) do
         local option, labelText, tooltip = entry[1], entry[2], entry[3]

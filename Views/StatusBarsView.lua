@@ -267,6 +267,29 @@ local function ResponsibleForCheck(key, definition, options, coverage)
     return mine ~= nil and mine >= coverage.bestRank
 end
 
+-- "Glow when some missing": a different question from responsibility. The
+-- check has almost landed -- a lust that reached all but a couple of raiders,
+-- because they were dead when it went out and have been brezzed since, or
+-- because a shadowfiend was summoned after it. Below the threshold nothing has
+-- happened yet and a glow would only nag; at full coverage there is nothing
+-- left to cast. In between is the one cast worth telling somebody about.
+local PARTIAL_GLOW_RATIO = 0.8
+
+local function PartialGlowForCheck(definition, options, coverage)
+    if not definition.partialGlow or not options.partialGlow then return false end
+    if coverage.total == 0 or coverage.correct >= coverage.total then
+        return false
+    end
+    if coverage.correct / coverage.total < PARTIAL_GLOW_RATIO then return false end
+    -- Off by default: anyone can see that a lust missed people, but only the
+    -- class that supplies it can answer, so the narrow reading is offered too.
+    if options.partialGlowOnlyClass then
+        return options.requiredClass ~= false
+            and options.requiredClass == LocalClassName()
+    end
+    return true
+end
+
 -- A hunter pet rides the paladin plan as a warrior; colour it as its owner's
 -- class instead, which is how the rest of the UI shows pets.
 local function TargetClassInfo(target, planClassName)
@@ -384,14 +407,20 @@ local function FillCoreTooltip(row)
     if split then
         AddSplitProgressLines(row.correct, row.anyCorrect, row.total)
     else
-        AddProgressLine(row.correct, row.total, row.negative)
+        -- Colored to agree with the list under it rather than with the bar:
+        -- for every check but mid-fight Sated these are the same thing, and
+        -- there a full count is the good end, not the saturated one.
+        AddProgressLine(row.correct, row.total, not row.flaggedAreMissing)
     end
 
     local flagged = row.flagged or {}
     if #flagged == 0 then
         -- The count above is already green; this line is just the words for it.
-        GameTooltip:AddLine(row.negative and "Nobody has it."
-            or "Everyone has it.", 0.6, 0.6, 0.6)
+        -- Which emptiness this is follows the list, not the check's polarity:
+        -- a debuff that lists the people missing it is empty when everyone has
+        -- it (see flaggedAreMissing in Assignments.lua).
+        GameTooltip:AddLine(row.flaggedAreMissing and "Everyone has it."
+            or "Nobody has it.", 0.6, 0.6, 0.6)
     else
         if split then
             -- Nothing beats nothing: the unbuffed lead the list, so a truncated
@@ -1161,7 +1190,8 @@ function WhoDoesWhat:RefreshStatusBarsView()
                         flagged = coverage.flagged,
                         unavailableClass = not coverage.available
                             and options.requiredClass or nil,
-                        glow = ResponsibleForCheck(key, buff, options, coverage),
+                        glow = ResponsibleForCheck(key, buff, options, coverage)
+                            or PartialGlowForCheck(buff, options, coverage),
                         coverage = coverage,
                         display = options.display,
                         colorPreview = colorPreview,
@@ -1273,6 +1303,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             row.optionsKey = entry.buffKey
                 or (entry.paladinRow and "paladinBuffs" or nil)
             row.flagged = entry.flagged
+            row.flaggedAreMissing = coverage.flaggedAreMissing
             row.unavailableClass = entry.unavailableClass
             row.missing = entry.missing
             row.awaitingTalents = entry.awaitingTalents

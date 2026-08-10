@@ -120,10 +120,17 @@ end
 -- key is never shown as-is: WhoDoesWhat:DisplayName turns it into the pet's
 -- real name with its owner behind it (Core.lua). Entries
 -- carry owner + isPet for the buff grid view and the PallyPower bridge.
-local function GetPetMembers()
+--
+-- `allClasses` widens it to every class's pet, for the checks that are about
+-- what an effect landed on rather than what a paladin was asked to cast: a
+-- shadowfiend or a felhunter takes Bloodlust like anyone else. Only pets that
+-- actually exist survive -- the callers drop the ones BuffTracking has never
+-- seen -- so a priest with no fiend out contributes nothing.
+local function GetPetMembers(allClasses)
     local out = {}
-    for _, m in ipairs(GetEligibleMembers("Hunter")) do
-        if m.classInfo.name == "Hunter" then
+    for _, m in ipairs(GetEligibleMembers(allClasses and nil or "Hunter")) do
+        if (allClasses or m.classInfo.name == "Hunter")
+            and not WhoDoesWhat:IsNonRaider(m.name) then
             out[#out + 1] = {
                 name = m.name .. "'s Pet",
                 owner = m.name,
@@ -1524,6 +1531,16 @@ local function DisconnectedGroupTargets()
     return disconnected
 end
 
+-- A corpse is not a missing buff. Out of combat a dead raider still counts --
+-- they're about to be resurrected and rebuffed, and that's the gap the bars
+-- exist to show -- but mid-fight nobody can close it, so they drop out of
+-- every check until they're back up. The Dead check itself is exempt:
+-- reporting corpses is its whole job (`countsDead` in Data.lua).
+local function IgnoredWhileDead(name)
+    return UnitAffectingCombat("player")
+        and WhoDoesWhat:HasBuff(name, "dead") == true
+end
+
 -- Live completion of the active plan, raid-wide and per paladin. Simulated
 -- paladin -> simulated raider cells count as covered because neither side can
 -- produce real aura data; disconnected real targets are left out entirely.
@@ -1531,7 +1548,7 @@ local function ComputePaladinBuffCoverage(buffPlan, includePets)
     local disconnected = DisconnectedGroupTargets()
     local correct, total, byPaladin = 0, 0, {}
     for raider, cells in pairs((buffPlan or GetActivePaladinBuffPlan()).grid) do
-        if not disconnected[raider]
+        if not disconnected[raider] and not IgnoredWhileDead(raider)
             and (includePets ~= false or not raider:match("'s Pet$")) then
             for paladin, key in pairs(cells) do
                 local p = byPaladin[paladin]
@@ -1554,9 +1571,25 @@ local function ComputePaladinBuffCoverage(buffPlan, includePets)
     return correct, total, byPaladin
 end
 
+-- Which side of a check its tooltip list names. Normally the answer is the
+-- unhelpful end: who lacks a buff, or who carries a debuff.
+--
+-- Sated is the exception (`flagMissingInCombat`), because the question changes
+-- when the pull starts. Standing around, the debuff is the cooldown and the
+-- list you want is who still has it -- those are the people a lust can't help
+-- yet. Once you're fighting, the lust has gone out and the list you want is
+-- the inverse: who missed it, and is owed a second one.
+local function FlagsTheCovered(buff, options)
+    if buff.flagMissingInCombat and UnitAffectingCombat("player") then
+        return false
+    end
+    return options.negative == true
+end
+
 local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
     return not m.isFake and not WhoDoesWhat:IsNonRaider(m.name)
         and not disconnected[m.name]
+        and not (not buff.countsDead and IgnoredWhileDead(m.name))
         and not (options.onlyManaUsers
             and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name])
         and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
@@ -1617,6 +1650,9 @@ local function ComputeCoreRaidBuffCoverage()
     local disconnected = DisconnectedGroupTargets()
     local members = GetEligibleMembers(nil)
     local pets = GetPetMembers()
+    -- Built only if a check asks for it (`allPets`), since it walks the whole
+    -- roster rather than the hunters.
+    local allPets
     local correct, total, rows = 0, 0, {}
     local anyContext = AnyBuffContext()
     for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
@@ -1637,6 +1673,10 @@ local function ComputeCoreRaidBuffCoverage()
                 -- a tracked debuff on a negative check. Drives the tooltip's
                 -- "who still needs this" list.
                 flagged = {},
+                -- Which end of the check `flagged` holds, since a debuff can
+                -- flip mid-pull (see flagMissingInCombat below). The tooltip
+                -- can't read it off `negative` alone.
+                flaggedAreMissing = not FlagsTheCovered(buff, options),
                 -- The improvement rank this check is currently measured
                 -- against, so a view can tell who is on the hook for it.
                 bestRank = bestRank,
@@ -1645,9 +1685,14 @@ local function ComputeCoreRaidBuffCoverage()
             }
             local targets = members
             if options.hunterPets and not buff.hunterPetsOptionDisabled then
+                local petList = pets
+                if buff.allPets then
+                    allPets = allPets or GetPetMembers(true)
+                    petList = allPets
+                end
                 targets = {}
                 for _, m in ipairs(members) do targets[#targets + 1] = m end
-                for _, pet in ipairs(pets) do
+                for _, pet in ipairs(petList) do
                     -- No unit means no pet to feed; only a scanned/summoned pet
                     -- participates, with false representing confirmed missing.
                     if WhoDoesWhat:HasBuff(pet.name, key) ~= nil then
@@ -1672,7 +1717,7 @@ local function ComputeCoreRaidBuffCoverage()
                         row.correct = row.correct + 1
                         correct = correct + 1
                     end
-                    if covered == (options.negative == true) then
+                    if covered == FlagsTheCovered(buff, options) then
                         row.flagged[#row.flagged + 1] = {
                             name = m.name,
                             classInfo = m.classInfo,
