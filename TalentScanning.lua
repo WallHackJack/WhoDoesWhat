@@ -107,7 +107,7 @@ function WhoDoesWhat:RescanPlayerTalents(unit, playerKey)
 
     local isSelf = guid == UnitGUID("player")
     if isSelf or (Inspector:GetLastCacheTime(guid) or 0) ~= 0 then
-        self:OnTalentsReady("TALENTS_READY", guid, false)
+        self:OnTalentsReady("TALENTS_READY", guid, false, not isSelf)
     end
     -- Our own talents come from the client directly; there is nothing to
     -- inspect and so nothing to wait for.
@@ -249,7 +249,7 @@ local function RescanUtilityTalents(self, wantedClasses, label)
             -- live inspect, so those refresh via the DoInspect below instead.
             -- Gated on a real cache time so an uncached provider isn't touched.
             if guid == playerGUID or (Inspector:GetLastCacheTime(guid) or 0) ~= 0 then
-                self:OnTalentsReady("TALENTS_READY", guid, false)
+                self:OnTalentsReady("TALENTS_READY", guid, false, guid ~= playerGUID)
             end
 
             -- Force a fresh inspect where the provider is reachable; the result
@@ -310,9 +310,18 @@ WhoDoesWhat.LOG_TALENT_COMMS = false
 -- rights to touch Blizzard group state -- in a raid that means assist, in a
 -- party the lead (your own flag is always yours); without it the assignment
 -- still saves, just without touching group state.
-function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId)
+function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay)
     local profile = self.db.profile
     local lastDetected = profile.talentSpecs[playerName]
+    -- A replay re-reads what the library already had; it is not new evidence.
+    -- Disagreeing with our last recorded detection means our cache is behind
+    -- someone else's firsthand report of a respec -- believing it would read as
+    -- "they respecced back", flip the board to the old role and broadcast it,
+    -- which is how a respecced raider got dragged back and stuck there.
+    -- A replay with nothing recorded yet still counts (the rejoin catch).
+    if isReplay and lastDetected ~= nil and detectedRoleId ~= lastDetected then
+        return
+    end
     profile.talentSpecs[playerName] = detectedRoleId
 
     local current = profile.assignments[playerName]
@@ -387,7 +396,12 @@ end
 -- Fired for anyone the library has cached, which includes strangers we happen
 -- to mouse over. Optionally logs the data, then feeds group members into the
 -- role auto-detection above.
-function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
+-- isReplay marks our own re-reads of the library's cache (roster sweep, rescan
+-- buttons) as opposed to the library telling us something new. The library's
+-- own callback never passes it: an inspect and a player's self-broadcast are
+-- both firsthand, only isInspect tells those two apart. See
+-- AutoAssignDetectedRole for why a replay must not claim a respec.
+function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     local _, class, _, _, _, name, realm = GetPlayerInfoByGUID(guid)
     local sync = isInspect and self:GetModule("Sync", true)
     local boardWasClean = sync and sync:IsBoardClean()
@@ -427,7 +441,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect)
     local detected = DetectedRoleFor(key, class, specIndex)
 
     if detected and (pointsSpent or 0) > 0 then
-        self:AutoAssignDetectedRole(key, detected)
+        self:AutoAssignDetectedRole(key, detected, isReplay)
         self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
     end
 
@@ -526,7 +540,8 @@ function WhoDoesWhat:SyncRosterTalents()
         if guid then
             local cachedAt = Inspector:GetLastCacheTime(guid)
             if guid == UnitGUID("player") or (cachedAt and cachedAt ~= 0) then
-                self:OnTalentsReady("TALENTS_READY", guid, false)
+                self:OnTalentsReady("TALENTS_READY", guid, false,
+                    guid ~= UnitGUID("player"))
             end
         end
     end
