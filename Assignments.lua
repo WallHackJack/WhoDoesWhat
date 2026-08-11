@@ -1346,7 +1346,7 @@ local function ComputePaladinBuffPlan()
     -- reaching it and the picks that did. Each paladin either sits out (mask
     -- unchanged) or takes one free position they can cast. Masks are walked
     -- numerically so equal-score ties resolve the same way every refresh.
-    local function SolveRaider(order, unavailable)
+    local function SolveRaiderUncached(order, unavailable)
         local seedCells, seedMask = SeedLocked(order, unavailable)
         local dp = { [seedMask] = { score = 0, picks = {} } }
         for p = 1, #pool do
@@ -1411,6 +1411,41 @@ local function ComputePaladinBuffPlan()
         for p, i in pairs(best.picks) do
             cells[pool[p]] = order[i]
         end
+        return cells
+    end
+
+    -- The DP above is a pure function of (order, unavailable) -- everything
+    -- else it reads (pool, locked, ladder, forced) is fixed for this plan. A
+    -- 40-man raid holds only a handful of DISTINCT orders (one per role/
+    -- guarantee shape), so solving per raider re-derived the same answer
+    -- dozens of times. Memoize on the inputs instead: 48 solves become ~5.
+    --
+    -- This matters because the DP is superlinear in paladin count (it copies
+    -- the picks table inside its innermost loop), so the raid where the
+    -- redundancy costs most is exactly the one with six paladins in it.
+    --
+    -- Callers store the result per raider and only ever read it back, but they
+    -- store it for DIFFERENT raiders -- so hand out a copy rather than letting
+    -- two raiders alias one table.
+    local solveMemo = {}
+    local function SolveRaider(order, unavailable)
+        local sig = table.concat(order, "\31")
+        if unavailable then
+            -- Pet rows pass a per-pet `used` set; fold it in, walked in pool
+            -- order so the signature is deterministic.
+            local marks = {}
+            for i = 1, #pool do
+                marks[i] = unavailable[pool[i]] and "1" or "0"
+            end
+            sig = sig .. "\30" .. table.concat(marks)
+        end
+        local hit = solveMemo[sig]
+        if not hit then
+            hit = SolveRaiderUncached(order, unavailable)
+            solveMemo[sig] = hit
+        end
+        local cells = {}
+        for paladin, key in pairs(hit) do cells[paladin] = key end
         return cells
     end
 
