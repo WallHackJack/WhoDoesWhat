@@ -264,14 +264,11 @@ local function NotifyChanged()
     notifyPending = true
     C_Timer.After(NOTIFY_DEBOUNCE, function()
         notifyPending = false
-        -- The whole repaint fan-out under one section: this is what the 0.1s
-        -- debounce actually costs per fire, and it reads ~0 with every window
-        -- closed (each Refresh no-ops while hidden), which is exactly the
-        -- comparison that separates repaint cost from scan cost.
-        PBegin("repaint.notify")
+        -- Not profiled as its own section: it wrapped exactly these two calls,
+        -- so it only ever restated repaint.board plus a main-window repaint
+        -- that is ~0 while that window is closed.
         WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshBoardViews()
-        PEnd("repaint.notify")
     end)
 end
 
