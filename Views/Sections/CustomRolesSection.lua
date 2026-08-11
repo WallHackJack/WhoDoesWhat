@@ -166,7 +166,7 @@ local function AddToBoard(Publish, roleId)
     CloseDropDownMenus()
     if not Publish(WhoDoesWhat, roleId) then return end
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- Level 1's custom-role list is the local library (classInfo.libraryRoles), not
@@ -336,7 +336,7 @@ local function CreateCustomRoleRow(f, index)
             -- Through the main refresh, not the section-local one: the box
             -- shrinks by a row and the collapsed view has to refit.
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshBuffingGridView()
+            WhoDoesWhat:RefreshBoardViews()
         end)
     end)
     delBtn:SetScript("OnEnter", function(self)
@@ -464,7 +464,7 @@ local function Build(f, content)
             WhoDoesWhat:LogOperation("Custom Roles: " .. removed .. " role"
                 .. (removed == 1 and "" or "s") .. " removed from the raid.")
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshBuffingGridView()
+            WhoDoesWhat:RefreshBoardViews()
         end)
     end)
     clearBtn:SetScript("OnEnter", function(self)

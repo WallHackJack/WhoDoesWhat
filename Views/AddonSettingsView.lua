@@ -130,7 +130,7 @@ local function FinishStatusBuffOrderChange(f)
     settings.statusBarOrder = { unpack(f.statusBuffOrder) }
     WhoDoesWhat:InvalidateStatusBarCheckCache()
     RefreshStatusBuffRows(f)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
@@ -185,7 +185,7 @@ end
 local function SetStatusBuffOption(f, key, option, value)
     StoreStatusBuffOption(key, option, value)
     RefreshStatusBuffRows(f)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
@@ -1022,7 +1022,7 @@ local function ResetBuffTrackingPage(f)
     WhoDoesWhat:InvalidateStatusBarCheckCache()
     RefreshStatusBuffRows(f)
     RefreshBuffOptionsFrame()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 

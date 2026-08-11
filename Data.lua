@@ -1571,7 +1571,7 @@ function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole, icon, buffOrder, al
     -- An unpublished role's order feeds nothing shared, but a published one's
     -- library copy is what the next raid gets; repaint either way.
     self:RefreshMainAssignmentsView()
-    self:RefreshBuffingGridView()
+    self:RefreshBoardViews()
     return true
 end
 
@@ -1724,7 +1724,7 @@ function WhoDoesWhat:UpdateRaidCustomRole(roleId, name, wowRole, icon, buffOrder
     def.allowed = math.max(0, math.min(allowedCount, #buffOrder))
     self:PopulateRolesAndCategories()
     self:RefreshMainAssignmentsView()
-    self:RefreshBuffingGridView()
+    self:RefreshBoardViews()
     return true
 end
 

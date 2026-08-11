@@ -867,9 +867,12 @@ end
 -- The status bars carry an Action Items row off the same count, so anything
 -- that moves this list has to move that too -- the window itself is usually
 -- shut when a role changes, and the bar is the surface that says so.
+-- Repaint the Action Items window if it is up, and nothing else. The WDW
+-- Status row that counts action items is repainted by RefreshBoardViews, which
+-- calls both -- this used to nudge WDW Status itself, so every caller that also
+-- touched the buff grid repainted it twice.
 function WhoDoesWhat:RefreshActionItemsView()
     if actionsFrame and actionsFrame:IsShown() then RenderRows(actionsFrame) end
-    self:RefreshStatusBarsView()
 end
 
 function WhoDoesWhat:OpenActionItemsView()

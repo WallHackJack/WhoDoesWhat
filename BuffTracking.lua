@@ -270,8 +270,7 @@ local function NotifyChanged()
         -- comparison that separates repaint cost from scan cost.
         PBegin("repaint.notify")
         WhoDoesWhat:RefreshMainAssignmentsView()
-        -- RefreshBuffingGridView also nudges both compact status views.
-        WhoDoesWhat:RefreshBuffingGridView()
+        WhoDoesWhat:RefreshBoardViews()
         PEnd("repaint.notify")
     end)
 end

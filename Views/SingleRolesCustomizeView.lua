@@ -327,7 +327,7 @@ local function CloseAndRefresh(f)
     f:Hide()
     if f.isRaidRole then
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBuffingGridView()
+        WhoDoesWhat:RefreshBoardViews()
     else
         WhoDoesWhat:RebuildAllRolesView()
     end

@@ -2329,7 +2329,7 @@ local function SetAssignment(rowId, playerName)
 
     WhoDoesWhat:RefreshMainAssignmentsView()
     -- The buff grid mirrors the paladin-buff picks; keep it live.
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- When a warlock is detected (or respecs) into Affliction, hand them Curse of
@@ -2583,5 +2583,5 @@ pvpRuleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 pvpRuleFrame:SetScript("OnEvent", function()
     if not WhoDoesWhat.db then return end
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end)

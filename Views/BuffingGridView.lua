@@ -767,20 +767,34 @@ local function EnsureGridFrame()
     return f
 end
 
--- Repaint the grid if the window is up. Called from outside the view when
--- buff assignments change (SetAssignment / auto-assign) or talent data
--- arrives (TalentScanning.lua, Sync.lua). This is the de-facto "buff plan
--- changed" hook, so it also nudges the compact status views -- every plan-
--- mutation site already routes through here, and their refreshes no-op while
--- hidden.
+-- Repaint the grid if the window is up, and nothing else.
+--
+-- This used to double as the "buff plan changed" hook and fan out to four
+-- other views, which made it impossible to read a call site (or a profile) and
+-- know what was actually being repainted -- and, because RefreshActionItemsView
+-- had grown a second fan-out to the same place, any site calling both repainted
+-- WDW Status twice. Callers that mean "the plan changed" now say
+-- RefreshBoardViews.
 function WhoDoesWhat:RefreshBuffingGridView()
     if gridFrame and gridFrame:IsShown() then
         RefreshGrid(gridFrame)
     end
+end
+
+-- Everything derived from the shared board and the paladin buff plan, each
+-- repainted exactly once. The individual refreshes no-op while their own
+-- window is closed, and none of them fans out any further, so this is the
+-- whole cost and it is paid once per call.
+--
+-- WDW Status goes last: it summarizes the others, so it should read state the
+-- rest of this pass has already settled.
+function WhoDoesWhat:RefreshBoardViews()
+    self:RefreshBuffingGridView()
     self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
-    self:RefreshStatusBarsView()
     self:RefreshPallyPowerDiffView()
+    self:RefreshActionItemsView()
+    self:RefreshStatusBarsView()
 end
 
 -- Toggle the grid window open/closed.

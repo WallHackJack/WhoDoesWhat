@@ -196,14 +196,17 @@ end
 -- bufftracking.* and sync.* keep running regardless, and plan.*/pallypower.*
 -- are the model.
 --
--- Inclusive timing means the nesting shows up as double counting on purpose:
--- view.grid contains view.statusbars, view.pallybar, view.tooltip and
--- view.ppdiff, because RefreshBuffingGridView calls all four.
+-- Inclusive timing means nesting shows up as double counting on purpose. Only
+-- repaint.board nests now: each view.* refreshes just its own window, so their
+-- numbers are finally their own -- view.grid used to fan out to four other
+-- views and read as their total even with the grid closed.
 function Profiling.InstrumentAll()
     local W = WhoDoesWhat
     local Wrap = Profiling.Wrap
 
-    -- Repaint layer.
+    -- Repaint layer. repaint.board is the fan-out hub; the rest are one window
+    -- each and cost ~0 while that window is closed.
+    Wrap(W, "RefreshBoardViews", "repaint.board")
     Wrap(W, "RefreshMainAssignmentsView", "view.main")
     Wrap(W, "RefreshBuffingGridView", "view.grid")
     Wrap(W, "RefreshStatusBarsView", "view.statusbars")

@@ -180,8 +180,9 @@ end
 local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
-    WhoDoesWhat:RefreshBuffingGridView()
-    WhoDoesWhat:RefreshActionItemsView()
+    -- Action Items included, so no separate call -- adding one back would
+    -- repaint WDW Status twice, which is what this pair used to do.
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- ---------------------------------------------------------------------------
@@ -592,7 +593,7 @@ local function StoreRanks(senderKey, ranks)
     WhoDoesWhat.db.profile.paladinBuffTalents[senderKey] = stored
     LogSync("buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 local function StoreHealthstoneRank(senderKey, rank)
@@ -618,7 +619,7 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     if not next(stored) then return end
     WhoDoesWhat.db.profile.coreBuffTalents[senderKey] = stored
     LogSync("core buff-talent ranks stored for", senderKey)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 local PALADIN_RANK_MAX = { might = 5, wisdom = 2, kings = 1, sanctuary = 1 }
@@ -1289,7 +1290,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             WhoDoesWhat:RefreshRaiderRolesView()
             -- Their role reshapes the blessing plan, same as a local role
             -- change: repaint the grid/bars/diff window off the plan hook.
-            WhoDoesWhat:RefreshBuffingGridView()
+            WhoDoesWhat:RefreshBoardViews()
         end
     end
 end
