@@ -927,7 +927,21 @@ end
 -- A guarantee still can't reach past the raider's role: a blessing the role's
 -- buff order excludes stays excluded (the divider in the role's buff order is
 -- the stronger statement).
-local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
+--
+-- With `memo` (a table owned by one plan computation, where ignored/guaranteed/
+-- slots are all fixed) the result is reused across members that share it. It
+-- depends only on the member's role and class -- everything it reads is either
+-- one of those two or a fixed input -- and a 40-man holds only a handful of
+-- role/class pairs, so this collapses ~120 builds into ~20. The memoized table
+-- is shared, so treat the result as read-only whenever a memo is passed.
+local function RuleAdjustedOrder(m, ignored, guaranteed, slots, memo)
+    local memoKey
+    if memo then
+        memoKey = tostring(WhoDoesWhat:GetAssignedRole(m.name)) .. "\31"
+            .. m.classInfo.name
+        local hit = memo[memoKey]
+        if hit then return hit end
+    end
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)
     local base = (roleId and WhoDoesWhat:GetEffectiveBuffOrder(roleId))
         or WhoDoesWhat.CanonicalBuffOrder
@@ -959,7 +973,10 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
             end
         end
     end
-    if #promote == 0 then return order end
+    if #promote == 0 then
+        if memo then memo[memoKey] = order end
+        return order
+    end
 
     local promoted = {}
     for _, key in ipairs(promote) do promoted[key] = true end
@@ -972,6 +989,7 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
     for i = #promote, 1, -1 do
         table.insert(kept, insertAt, promote[i])
     end
+    if memo then memo[memoKey] = kept end
     return kept
 end
 
@@ -1072,7 +1090,7 @@ end
 -- same roster, roles, talent ranks, and rules. Keep caster names sorted, buff
 -- order canonical, mask traversal numeric, and equal-score tie retention
 -- stable; a pairs-order tie-break here would desynchronize blessing displays.
-local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots)
+local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots, orderMemo)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local forced = {}
 
@@ -1105,7 +1123,7 @@ local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, pref
     for _, key in ipairs(avail) do votes[key] = 0 end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
             for i = 1, math.min(depth, #order) do
                 if votes[order[i]] then
                     votes[order[i]] = votes[order[i]] + 1
@@ -1255,7 +1273,7 @@ local cachedBuffPlanKey, cachedBuffPlan
 -- Cheap deterministic key for every input to the expensive matching below.
 -- This avoids a brittle list of invalidation calls across roster, talent,
 -- role-customization, sync, fake-raid, and local-rule mutation paths.
-local function BuffPlanKey(ignored, guaranteed, slots)
+local function BuffPlanKey(ignored, guaranteed, slots, orderMemo)
     local parts = {}
     local function Add(value) parts[#parts + 1] = tostring(value or "") end
 
@@ -1268,7 +1286,7 @@ local function BuffPlanKey(ignored, guaranteed, slots)
         local roleId = WhoDoesWhat:GetAssignedRole(m.name)
         Add("member"); Add(m.name); Add(m.classInfo.name); Add(roleId)
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots), ","))
+            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo), ","))
         end
     end
     for _, name in ipairs(MembersOfClass("Paladin")) do
@@ -1330,7 +1348,13 @@ local function ComputePaladinBuffPlan()
     -- window a guarantee rule pulls its blessing into.
     local slots = #pool + #locked
 
-    local cacheKey = BuffPlanKey(ignored, guaranteed, slots)
+    -- ignored/guaranteed/slots are settled now, so one memo serves every
+    -- RuleAdjustedOrder call below -- the key build, the demand votes, and the
+    -- per-raider solve each walked all 40 members independently. Scoped to this
+    -- computation because those three inputs are what it is implicitly keyed on.
+    local orderMemo = {}
+
+    local cacheKey = BuffPlanKey(ignored, guaranteed, slots, orderMemo)
     if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
 
     -- What the locked paladins already blanket the raid with, and the soft
@@ -1343,7 +1367,7 @@ local function ComputePaladinBuffPlan()
         if rule then preferred[name] = rule.buff end
     end
     local forced, ladder = ComputePaladinBuffLadder(pool, ignored, covered,
-        guaranteed, preferred, slots)
+        guaranteed, preferred, slots, orderMemo)
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
     -- rank 0; Salvation/Light have no talent requirement.
@@ -1491,7 +1515,7 @@ local function ComputePaladinBuffPlan()
     for _, m in ipairs(GetEligibleMembers(nil)) do
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
             plan[m.name] = SolveRaider(order)
             targetClass[m.name] = m.classInfo.name
         end
