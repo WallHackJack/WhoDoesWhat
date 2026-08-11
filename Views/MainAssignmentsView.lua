@@ -8,8 +8,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Views/Sections/ (registered on WhoDoesWhat.SectionViews as Build/Refresh
 -- pairs, built from the shared primitives in Views/SectionKit.lua):
 --
---   left column   CustomRolesSection   the raid's shared custom roles
---                 PaladinBuffsSection  computed summary + local buff rules
+--   left column   PaladinBuffsSection  computed summary + buff rules
+--                 CustomRolesSection   the raid's shared + overridden roles
 --                 WarlockCursesSection fixed row per curse
 --   right column  TankSection          one auto row per marked tank
 --                 CCSection            user-grown rows (the template for future
@@ -77,7 +77,7 @@ end
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
     local sections = {
-        SV.Tank, SV.CustomRoles, SV.PaladinBuffs, SV.WarlockCurses, SV.CC,
+        SV.Tank, SV.PaladinBuffs, SV.CustomRoles, SV.WarlockCurses, SV.CC,
     }
     if WhoDoesWhat.ClientFeatures.misdirectAssignments then
         sections[#sections + 1] = SV.Misdirect

@@ -1145,8 +1145,8 @@ function WhoDoesWhat:PopulateRolesAndCategories()
     -- There are two lists, and which one a role picker sees is the whole point:
     --
     --   classInfo.libraryRoles  the local profile's customRoles -- your own
-    --                           templates, shown and edited only in the
-    --                           Customize Role Defaults window.
+    --                           roles, whole definitions: name, class, group
+    --                           role, icon and blessing order.
     --   classInfo.raidRoles     db.profile.raidCustomRoles -- the shared board's
     --                           published copies, carrying their own buff order.
     --
@@ -1188,14 +1188,12 @@ function WhoDoesWhat:PopulateRolesAndCategories()
             classInfo = classInfo,
         }
         if cr.order then
-            -- A published role carries its buff setup outright rather than
-            -- leaning on the reader's roleCustomizations, which is exactly the
-            -- divergence this list exists to close. Backfilled and clamped
-            -- once here so GetEffectiveBuffSetup can hand it straight back.
-            entry.raidOrder = self:BackfillBuffOrder(cr.order)
-            local allowed = math.floor(tonumber(cr.allowed) or #entry.raidOrder)
-            entry.raidAllowed = math.max(0, math.min(allowed, #entry.raidOrder))
-            entry.isRaid = true
+            -- A custom role owns its blessing order outright: the role is
+            -- yours, and it needs a full definition before it ever reaches the
+            -- board. Built-in roles are the ones with nothing local to edit.
+            entry.ownOrder = self:BackfillBuffOrder(cr.order)
+            local allowed = math.floor(tonumber(cr.allowed) or #entry.ownOrder)
+            entry.ownAllowed = math.max(0, math.min(allowed, #entry.ownOrder))
         end
         self.RolesAndCategories[cr.id] = entry
         if registry then registry[cr.id] = entry end
@@ -1229,6 +1227,43 @@ function WhoDoesWhat:PopulateRolesAndCategories()
         classInfo.customRoles = merged
     end
 
+    -- Apply the board's buff orders. Every entry on raidCustomRoles carries one,
+    -- whether it is a published custom role or an override of a built-in role or
+    -- category, and it is the ONLY place an order can deviate from the defaults
+    -- -- there is no local store any more, so two clients holding the same board
+    -- cannot compute different blessing plans.
+    --
+    -- A category fans its order out to every sub-role, since the plan is only
+    -- ever computed for concrete roles. Categories are applied first and direct
+    -- role overrides second, so overriding Mage DPS and then Frost on top of it
+    -- leaves Frost with the more specific of the two.
+    local function ApplyOrder(entry, def)
+        if not entry then return end
+        entry.raidOrder = self:BackfillBuffOrder(def.order)
+        local allowed = math.floor(tonumber(def.allowed) or #entry.raidOrder)
+        entry.raidAllowed = math.max(0, math.min(allowed, #entry.raidOrder))
+        entry.isRaid = true
+    end
+
+    local board = profile and profile.raidCustomRoles or {}
+    for _, def in ipairs(board) do
+        local entry = self.RolesAndCategories[def.id]
+        if entry and entry.allSubRoles then
+            ApplyOrder(entry, def)
+            for _, subId in ipairs(entry.allSubRoles) do
+                ApplyOrder(self.RolesAndCategories[subId], def)
+            end
+        end
+    end
+    for _, def in ipairs(board) do
+        local entry = self.RolesAndCategories[def.id]
+        if entry and not entry.allSubRoles then
+            ApplyOrder(entry, def)
+        elseif not entry then
+            self:LogUiBuilding("Raid role override for unknown id " .. tostring(def.id))
+        end
+    end
+
     self:LogUiBuilding("Roles and categories lookup table populated.")
 end
 
@@ -1253,22 +1288,25 @@ function WhoDoesWhat:IsRoleASingleRoleCategory(roleId)
 end
 
 -- ---------------------------------------------------------------------------
--- Role customization storage (db.profile.roleCustomizations + customRoles)
+-- Buff orders
 --
--- The DB only ever holds deviations from the defaults: saving a buff order
--- that matches a role's defaults deletes its entry, and a role with no entry
--- is "on defaults". Custom roles live in db.profile.customRoles and default
--- to the canonical order with any Blizzard-role bans below its divider.
+-- Three sources, most specific first (GetEffectiveBuffSetup):
+--
+--   entry.raidOrder   an override on the shared board, whether of a built-in
+--                     role, a category, or a published custom role. Applied
+--                     onto the role entries by PopulateRolesAndCategories, so
+--                     by the time anything reads an order it is already there.
+--   entry.ownOrder    a custom role's own stored setup. The role is yours and
+--                     needs a full definition before it ever reaches the board.
+--   defaults          PaladinBuffDefaults, backfilled to all six blessings,
+--                     with the role's banned blessings below the divider.
+--
+-- What is deliberately absent is a per-profile override of a BUILT-IN role.
+-- That used to exist (db.profile.roleCustomizations) and meant a raid could
+-- hold as many blessing plans as it had clients; the store is gone and Core.lua
+-- drops it on load. A built-in role is changed by overriding it for the raid,
+-- or by copying it into a custom role of your own.
 -- ---------------------------------------------------------------------------
-
--- Shallow-compare two buff order arrays.
-function WhoDoesWhat:BuffOrdersEqual(a, b)
-    if #a ~= #b then return false end
-    for i = 1, #a do
-        if a[i] ~= b[i] then return false end
-    end
-    return true
-end
 
 local function PartitionBannedBuffs(order, banned)
     local allowed, blocked = {}, {}
@@ -1288,6 +1326,9 @@ local function FirstBuffs(order, count)
 end
 
 -- The combined default role-id and Blizzard-role bans for a role/category.
+-- A clone doesn't need its source's bans looked up here: cloning copies the
+-- source's resolved order AND divider into the new role's own stored setup, so
+-- the boundary comes across with it.
 function WhoDoesWhat:GetBannedPaladinBuffs(roleId)
     local entry = self.RolesAndCategories[roleId]
     if not entry then return nil end
@@ -1310,7 +1351,8 @@ function WhoDoesWhat:GetDefaultBuffSetup(roleId)
     if entry.allSubRoles then
         return self:GetDefaultBuffSetup(entry.allSubRoles[1])
     end
-    return PartitionBannedBuffs(self:BackfillBuffOrder(entry.buffOrder or self.CanonicalBuffOrder),
+    return PartitionBannedBuffs(
+        self:BackfillBuffOrder(entry.buffOrder or self.CanonicalBuffOrder),
         self:GetBannedPaladinBuffs(entry.id))
 end
 
@@ -1320,98 +1362,44 @@ function WhoDoesWhat:GetDefaultBuffOrder(roleId)
     return order and FirstBuffs(order, allowedCount) or nil
 end
 
--- Full effective order plus divider position. Legacy saves without an
--- allowedCount receive the current default bans; new saves own their boundary.
--- `library` asks for the profile's own setup even when the role is published:
--- the Customize Role Defaults window edits templates, and a raid's edits to a
--- published copy must not appear to have rewritten one.
-function WhoDoesWhat:GetEffectiveBuffSetup(roleId, library)
+-- Full effective order plus divider position, most specific first: the board's
+-- override, then a custom role's own stored order, then the defaults. A
+-- category answers from its own override if it has one, and from its first
+-- sub-role's setup if it does not.
+function WhoDoesWhat:GetEffectiveBuffSetup(roleId)
     local _, entry = self:FindRoleById(roleId)
     if not entry then return nil end
-    if entry.allSubRoles then
-        return self:GetEffectiveBuffSetup(entry.allSubRoles[1], library)
-    end
-    -- A published custom role's order comes off the board and nowhere else. A
-    -- local roleCustomizations entry for the same id is the publisher's own
-    -- template and must not be consulted, or the two clients would compute
-    -- different blessing plans for one shared role -- the bug the raid list
-    -- exists to close.
-    if entry.raidOrder and not library then
+    if entry.raidOrder then
         return entry.raidOrder, entry.raidAllowed
     end
-    local saved = self.db.profile.roleCustomizations[entry.id]
-    if saved then
-        local order = self:BackfillBuffOrder(saved.buffOrder)
-        if saved.allowedCount ~= nil then
-            local allowedCount = math.floor(tonumber(saved.allowedCount) or #order)
-            return order, math.max(0, math.min(allowedCount, #order))
-        end
-        return PartitionBannedBuffs(order, self:GetBannedPaladinBuffs(entry.id))
+    if entry.ownOrder then
+        return entry.ownOrder, entry.ownAllowed
+    end
+    if entry.allSubRoles then
+        return self:GetEffectiveBuffSetup(entry.allSubRoles[1])
     end
     return self:GetDefaultBuffSetup(entry.id)
+end
+
+-- Whether the RAID is overriding this role, directly or through its category.
+function WhoDoesWhat:IsRoleOverridden(roleId)
+    local entry = self.RolesAndCategories[roleId]
+    return (entry and entry.raidOrder) ~= nil
+end
+
+-- Whether this role carries a blessing order of its own -- i.e. it is a custom
+-- role somebody has tuned. Deliberately NOT true for a built-in role the raid
+-- happens to be overriding: the Roles window is your own library, and what one
+-- raid is doing tonight is not a property of the role.
+function WhoDoesWhat:HasOwnBuffOrder(roleId)
+    local entry = self.RolesAndCategories[roleId]
+    return (entry and entry.ownOrder) ~= nil
 end
 
 -- Effective allowed order for assignment computation.
 function WhoDoesWhat:GetEffectiveBuffOrder(roleId)
     local order, allowedCount = self:GetEffectiveBuffSetup(roleId)
     return order and FirstBuffs(order, allowedCount) or nil
-end
-
--- Whether a role has a saved customization. A category counts as customized
--- when any of its sub-roles is.
-function WhoDoesWhat:IsRoleCustomized(roleId)
-    local entry = self.RolesAndCategories[roleId]
-    if not entry then return false end
-    if entry.allSubRoles then
-        for _, subId in ipairs(entry.allSubRoles) do
-            if self.db.profile.roleCustomizations[subId] then return true end
-        end
-        return false
-    end
-    return self.db.profile.roleCustomizations[roleId] ~= nil
-end
-
--- Save a buff-order customization for one concrete role id (categories fan out
--- at the call site). If the order matches the role's own default, the saved
--- entry is removed instead. Returns true when a customization was stored,
--- false when the role is (back) on defaults.
-function WhoDoesWhat:SetRoleCustomization(roleId, buffOrder, allowedCount)
-    local entry = self.RolesAndCategories[roleId]
-    if not entry or entry.allSubRoles then
-        self:LogUiBuilding("SetRoleCustomization: invalid role id " .. tostring(roleId))
-        return false
-    end
-    buffOrder = self:BackfillBuffOrder(buffOrder)
-    allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
-    allowedCount = math.max(0, math.min(allowedCount, #buffOrder))
-    local defaultOrder, defaultAllowedCount = self:GetDefaultBuffSetup(roleId)
-    if allowedCount == defaultAllowedCount and self:BuffOrdersEqual(buffOrder, defaultOrder) then
-        self.db.profile.roleCustomizations[roleId] = nil
-        -- Buff priorities feed both assignment demand and the live Paladin plan.
-        self:RefreshMainAssignmentsView()
-        self:RefreshBuffingGridView()
-        return false
-    end
-    self.db.profile.roleCustomizations[roleId] = {
-        buffOrder = { unpack(buffOrder) },
-        allowedCount = allowedCount,
-    }
-    self:RefreshMainAssignmentsView()
-    self:RefreshBuffingGridView()
-    return true
-end
-
--- Remove any saved customization for a role (or, for a category, all of its
--- sub-roles), putting them back on their defaults.
-function WhoDoesWhat:ClearRoleCustomization(roleId)
-    local entry = self.RolesAndCategories[roleId]
-    if not entry then return end
-    for _, id in ipairs(entry.allSubRoles or { roleId }) do
-        self.db.profile.roleCustomizations[id] = nil
-    end
-    -- Buff priorities feed both assignment demand and the live Paladin plan.
-    self:RefreshMainAssignmentsView()
-    self:RefreshBuffingGridView()
 end
 
 -- A custom role is only well-formed with all three of a name, an owning class,
@@ -1496,20 +1484,46 @@ end
 -- Create a new custom role with the given display name, owning class (by
 -- name), group role, and optional picked icon; persist and register it. Returns
 -- the new RolesAndCategories entry, or nil when the arguments are incomplete.
-function WhoDoesWhat:CreateCustomRole(name, className, wowRole, icon)
+function WhoDoesWhat:CreateCustomRole(name, className, wowRole, icon, buffOrder, allowedCount)
     name = ValidateCustomRole(self, name, className, wowRole)
     if not name then return nil end
     local profile = self.db.profile
     local id = self:NewCustomRoleId()
+    buffOrder = self:BackfillBuffOrder(buffOrder)
+    allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
     table.insert(profile.customRoles, { id = id, name = name, class = className,
-        wowRole = wowRole, icon = self:NormalizeCustomRoleIcon(className, icon) })
+        wowRole = wowRole, icon = self:NormalizeCustomRoleIcon(className, icon),
+        order = { unpack(buffOrder) },
+        allowed = math.max(0, math.min(allowedCount, #buffOrder)) })
     self:PopulateRolesAndCategories()
     return self.RolesAndCategories[id]
 end
 
--- Update an existing custom role's display name, group role, and icon. Returns
--- false when the new values are incomplete, leaving the stored role untouched.
-function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole, icon)
+-- Clone a built-in role (or category) into a new custom role of the same class,
+-- carrying its name, icon, group role and its whole blessing setup -- order and
+-- divider both -- so the copy starts out behaving exactly like its source. This
+-- is how you get a second Frost Mage: built-in roles themselves can't be
+-- edited, only overridden for the raid or copied into something of your own.
+function WhoDoesWhat:CloneRoleToCustom(roleId)
+    local classInfo, role = self:FindRoleById(roleId)
+    if not role or not classInfo or role.isCustom then
+        self:Print("That role can't be copied.")
+        return nil
+    end
+    -- A category has no single icon or group role of its own; take them from the
+    -- sub-role its defaults already come from.
+    local source = role
+    if role.allSubRoles then
+        source = self.RolesAndCategories[role.allSubRoles[1]] or role
+    end
+    local order, allowed = self:GetEffectiveBuffSetup(roleId)
+    return self:CreateCustomRole(role.name .. " copy", classInfo.name,
+        source.wowRole or "dps", source.icon, order, allowed)
+end
+
+-- Update an existing custom role's whole definition. Returns false when the new
+-- values are incomplete, leaving the stored role untouched.
+function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole, icon, buffOrder, allowedCount)
     for _, cr in ipairs(self.db.profile.customRoles) do
         if cr.id == roleId then
             local valid = ValidateCustomRole(self, name, cr.class, wowRole)
@@ -1517,10 +1531,18 @@ function WhoDoesWhat:UpdateCustomRole(roleId, name, wowRole, icon)
             cr.name = valid
             cr.wowRole = wowRole
             cr.icon = self:NormalizeCustomRoleIcon(cr.class, icon)
+            buffOrder = self:BackfillBuffOrder(buffOrder)
+            allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
+            cr.order = { unpack(buffOrder) }
+            cr.allowed = math.max(0, math.min(allowedCount, #buffOrder))
             break
         end
     end
     self:PopulateRolesAndCategories()
+    -- An unpublished role's order feeds nothing shared, but a published one's
+    -- library copy is what the next raid gets; repaint either way.
+    self:RefreshMainAssignmentsView()
+    self:RefreshBuffingGridView()
     return true
 end
 
@@ -1543,7 +1565,6 @@ function WhoDoesWhat:DeleteCustomRole(roleId)
             break
         end
     end
-    profile.roleCustomizations[roleId] = nil
     self:PopulateRolesAndCategories()
 end
 
@@ -1587,6 +1608,21 @@ end
 -- setup into the published definition. Idempotent: a role already on the list
 -- is left as it is, because the raid's copy outranks the publisher's template.
 -- Returns true when the role is on the list afterwards.
+-- A board entry describes a custom role when it carries the role's identity;
+-- an entry with only an id and an order is an override of a built-in role or
+-- category, whose name, class, icon and group role come from the built-in.
+function WhoDoesWhat:IsRaidCustomRoleDef(def)
+    return def ~= nil and def.name ~= nil
+end
+
+local function RoomOnBoard(self)
+    local list = self:GetRaidCustomRoles()
+    if #list < MAX_RAID_CUSTOM_ROLES then return list end
+    self:Print("The raid's custom role list is full (" .. MAX_RAID_CUSTOM_ROLES
+        .. " roles). Remove one before adding another.")
+    return nil
+end
+
 function WhoDoesWhat:PublishCustomRole(roleId)
     if self:FindRaidCustomRole(roleId) then return true end
     local source = self:FindLocalCustomRole(roleId)
@@ -1594,12 +1630,8 @@ function WhoDoesWhat:PublishCustomRole(roleId)
         self:LogUiBuilding("PublishCustomRole: no local custom role " .. tostring(roleId))
         return false
     end
-    local list = self:GetRaidCustomRoles()
-    if #list >= MAX_RAID_CUSTOM_ROLES then
-        self:Print("The raid's custom role list is full (" .. MAX_RAID_CUSTOM_ROLES
-            .. " roles). Remove one before adding another.")
-        return false
-    end
+    local list = RoomOnBoard(self)
+    if not list then return false end
     local order, allowed = self:GetEffectiveBuffSetup(roleId)
     order = order or self.CanonicalBuffOrder
     table.insert(list, {
@@ -1616,17 +1648,49 @@ function WhoDoesWhat:PublishCustomRole(roleId)
     return true
 end
 
+-- Put a built-in role or category on the board so the raid can retune its
+-- blessing order. Seeded from that role's defaults, so adding one changes
+-- nothing until somebody edits it. Only the id and the order are stored:
+-- everything else about a built-in role is the same on every client.
+function WhoDoesWhat:PublishRoleOverride(roleId)
+    if self:FindRaidCustomRole(roleId) then return true end
+    local _, role = self:FindRoleById(roleId)
+    if not role or role.isCustom then
+        self:LogUiBuilding("PublishRoleOverride: not a built-in role " .. tostring(roleId))
+        return false
+    end
+    local list = RoomOnBoard(self)
+    if not list then return false end
+    -- FindRoleById resolves a one-role category to the role itself, so take the
+    -- id the caller asked for rather than the resolved entry's: overriding
+    -- "Warrior Tank" should read as that category on the board.
+    local order, allowed = self:GetEffectiveBuffSetup(roleId)
+    order = order or self.CanonicalBuffOrder
+    table.insert(list, {
+        id = roleId,
+        order = { unpack(order) },
+        allowed = allowed or #order,
+    })
+    self:PopulateRolesAndCategories()
+    self:LogOperation("Role '" .. role.name .. "' overridden for the raid.")
+    return true
+end
+
 -- Rewrite a published role in place. Only the board copy changes.
+-- An override entry has no identity to rewrite, so name/wowRole/icon are
+-- ignored for one and only the order is stored.
 function WhoDoesWhat:UpdateRaidCustomRole(roleId, name, wowRole, icon, buffOrder, allowedCount)
     local def = self:FindRaidCustomRole(roleId)
     if not def then return false end
-    local valid = ValidateCustomRole(self, name, def.class, wowRole)
-    if not valid then return false end
     buffOrder = self:BackfillBuffOrder(buffOrder)
     allowedCount = math.floor(tonumber(allowedCount) or #buffOrder)
-    def.name = valid
-    def.wowRole = wowRole
-    def.icon = self:NormalizeCustomRoleIcon(def.class, icon)
+    if self:IsRaidCustomRoleDef(def) then
+        local valid = ValidateCustomRole(self, name, def.class, wowRole)
+        if not valid then return false end
+        def.name = valid
+        def.wowRole = wowRole
+        def.icon = self:NormalizeCustomRoleIcon(def.class, icon)
+    end
     def.order = { unpack(buffOrder) }
     def.allowed = math.max(0, math.min(allowedCount, #buffOrder))
     self:PopulateRolesAndCategories()
@@ -1676,16 +1740,24 @@ end
 -- prevent -- holding a role id nobody else can resolve -- so they go back to no
 -- role instead. Routed through SetAssignedRole so the Blizzard group-role flag
 -- and any main-tank mark come off with it.
+-- Removing an OVERRIDE only puts that role back on its defaults -- the role
+-- itself is built in and still exists, so nobody loses an assignment. Removing
+-- a custom role deletes the only definition of it the raid has, which is why
+-- that path clears everyone who was on it.
 function WhoDoesWhat:RemoveRaidCustomRole(roleId)
     local def, index = self:FindRaidCustomRole(roleId)
     if not def then return end
-    local assigned = self:PlayersAssignedToRole(roleId)
+    local isCustom = self:IsRaidCustomRoleDef(def)
+    local assigned = isCustom and self:PlayersAssignedToRole(roleId) or {}
+    local label = isCustom and tostring(def.name)
+        or (select(2, self:FindRoleById(roleId)) or {}).name or roleId
     table.remove(self:GetRaidCustomRoles(), index)
     self:PopulateRolesAndCategories()
     for _, name in ipairs(assigned) do
         self:SetAssignedRole(name, nil, self:UnitForPlayer(name))
     end
-    self:LogOperation("Custom role '" .. tostring(def.name) .. "' removed from the raid"
+    self:LogOperation((isCustom and "Custom role '" or "Override of '")
+        .. label .. "' removed from the raid"
         .. (#assigned > 0 and (", clearing " .. #assigned .. " assignment"
             .. (#assigned == 1 and "" or "s")) or "") .. ".")
 end

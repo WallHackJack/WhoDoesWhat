@@ -887,7 +887,7 @@ end
 -- they all fit inside it rather than pushing each other back out.
 --
 -- A guarantee still can't reach past the raider's role: a blessing the role's
--- buff order excludes stays excluded (the divider in Role Customization is
+-- buff order excludes stays excluded (the divider in the role's buff order is
 -- the stronger statement).
 local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)

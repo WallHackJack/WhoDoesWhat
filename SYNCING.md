@@ -171,7 +171,7 @@ Shape:
             { buff = "wisdom", kind = "prioritize", scope = "wowrole", value = "healer" },
         },
         customRoles = {
-            {
+            {                    -- a published custom role: whole definition
                 id = "custom_a41f0c_2",
                 name = "Sunder Warrior",
                 class = "Warrior",
@@ -179,6 +179,11 @@ Shape:
                 icon = 132347,   -- or "role:tank"; absent = wears its class icon
                 order = { "might", "kings", "salv", "light", "wisdom", "sanctuary" },
                 allowed = 4,
+            },
+            {                    -- an override: a built-in role id and an order
+                id = "cat_mage_dps",
+                order = { "kings", "wisdom", "might", "salv", "light", "sanctuary" },
+                allowed = 3,
             },
         },
         perms = {
@@ -213,21 +218,36 @@ coverage from roster, roles, the shared `paladinStrategy`, and the separately
 synchronized talent ranks. The strategy is the ordered
 `db.profile.paladinBuffRules` array; its `ignore`, `prioritize`, and `prefer`
 shapes are described in `Assignments.lua`. Its order is significant when
-several prioritization rules match. Buff-order customizations of built-in roles
-and UI settings remain local and are absent.
+several prioritization rules match. Blessing orders are carried by `customRoles`
+below; UI settings remain local and are absent.
 
-`customRoles` is `db.profile.raidCustomRoles`, the raid's shared custom-role
-list (the main window's Custom Roles section). The rest of the board syncs
-role *ids*, so a custom role — a definition that exists only in its author's
-profile — needs its definition transmitted beside them or every other client
-resolves the id to nothing: the raider's blessing order silently falls back to
-the canonical one, guarantee rules scoped by group role skip them, and a custom
-tank stops reading as a tank. Each entry carries the whole definition, buff
-`order` and divider `allowed` included, and is authoritative for that role on
-every client — a local `roleCustomizations` entry for the same id belongs to the
-publisher's own template and is deliberately not consulted. Adding a role here,
-assigning somebody a not-yet-published custom role, and scoping a guarantee rule
-to one all publish through the same permission-gated path.
+`customRoles` is `db.profile.raidCustomRoles`, the raid's shared role list (the
+main window's Custom Roles section), and the only place a BUILT-IN role's
+blessing order deviates from the defaults. Built-in orders used to be editable
+per profile, which meant a raid could hold as many blessing plans as it had
+clients; that store is gone. A custom role still carries its own order locally,
+because the role is its author's invention and needs a full definition before it
+can be published at all — but the board's copy is what every client computes
+from once it is.
+
+Entries come in two shapes, told apart by whether they carry a `name`:
+
+- A **published custom role** carries its whole definition. The rest of the
+  board syncs role *ids*, so a custom role — a definition that exists only in
+  its author's profile — needs one transmitted beside them or every other client
+  resolves the id to nothing: the raider's blessing order silently falls back to
+  the canonical one, guarantee rules scoped by group role skip them, and a
+  custom tank stops reading as a tank.
+- An **override** carries only a built-in role or category id and an order.
+  Everything else about a built-in role is identical on every client, so there
+  is nothing to transmit. A category override fans out to all of its sub-roles
+  on receipt; an override of a sub-role in its own right wins over its
+  category's.
+
+Adding either, assigning somebody a not-yet-published custom role, and scoping a
+guarantee rule to one all publish through the same permission-gated path.
+Removing an override simply puts that role back on its defaults, so — unlike
+removing a custom role — nobody loses an assignment.
 
 Custom-role ids carry a random block (`custom_a41f0c_2`) because the old
 per-profile counter produced a `custom_1` on every client standing for a

@@ -1,6 +1,19 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local AceGUI = LibStub("AceGUI-3.0")
 
+-- The Roles window: every role WDW knows, by class, plus your own custom ones.
+--
+-- It used to be where blessing orders were edited. It isn't any more -- an order
+-- deviates from the defaults only on the shared board (the main window's Custom
+-- Roles section), so built-in roles here are a read-only reference: click one to
+-- see its default order, and use Create a Copy to start a custom role from it.
+-- Custom roles are still created (Create Role, in the options strip), renamed,
+-- re-iconed and deleted here.
+--
+-- A gear beside a role means it carries a blessing order of its own -- so only
+-- custom roles ever wear one. What the raid is overriding tonight belongs to
+-- the Custom Roles section, not to a role's entry in your library.
+--
 -- Persistent custom root frame (owns the chrome) and the AceGUI content group
 -- rebuilt inside it. The root frame is created once and never pooled, so the
 -- title/close/background/options box never leak the way overlays on AceGUI's
@@ -14,8 +27,9 @@ local ROW_HIGHLIGHT = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
 -- Leading indent so roles sit pushed right, nested under the class divider
 local ROLE_INDENT = "      "
 
--- Small gear appended to a role row that has saved customizations (categories
--- count as customized when any of their sub-roles is)
+-- Small gear appended to a custom role carrying a blessing order of its own.
+-- Built-in roles never wear it, not even while the raid is overriding one --
+-- this window is your library, and tonight's raid is not a property of a role.
 local CUSTOMIZED_MARKER = "  |TInterface\\Buttons\\UI-OptionsButton:12:12:0:0|t"
 
 -- Vertical spacing (in pixels), easy to tune
@@ -31,37 +45,6 @@ local MARGIN = 10
 local OPTIONS_TOP = TITLEBAR_H + MARGIN -- y (from top) where the options box sits
 local OPTIONS_H = 32
 local CONTENT_TOP = OPTIONS_TOP + OPTIONS_H + 8 -- y (from top) where the columns start
-
-
-local function CustomizedRoleCount()
-    local count = 0
-    for _ in pairs(WhoDoesWhat.db.profile.roleCustomizations) do
-        count = count + 1
-    end
-    return count
-end
-
-
-local function ResetAllRoleCustomizations()
-    local count = CustomizedRoleCount()
-    if count == 0 then return end
-    wipe(WhoDoesWhat.db.profile.roleCustomizations)
-    WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
-    WhoDoesWhat:RebuildAllRolesView()
-    WhoDoesWhat:LogOperation("Reset " .. count .. " role customizations to defaults.")
-end
-
-
-StaticPopupDialogs["WHODOESWHAT_RESET_ALL_ROLES"] = {
-    text = "Reset all %d customized roles to their defaults?",
-    button1 = "Reset All",
-    button2 = "Cancel",
-    OnAccept = ResetAllRoleCustomizations,
-    timeout = 0,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
 
 
 -- Add a precise-height vertical spacer. A SimpleGroup normally re-sizes itself
@@ -157,7 +140,7 @@ local function BuildClassBlock(column, classInfo)
         -- Flat, full-width, left-aligned clickable row: inline icon +
         -- class-colored name, lightly indented, with a hover highlight. A small
         -- gear trails the name when the role has saved customizations.
-        local marker = WhoDoesWhat:IsRoleCustomized(role.id) and CUSTOMIZED_MARKER or ""
+        local marker = WhoDoesWhat:HasOwnBuffOrder(role.id) and CUSTOMIZED_MARKER or ""
         local roleRow = AceGUI:Create("InteractiveLabel")
         roleRow:SetText(
             ROLE_INDENT .. WhoDoesWhat:RoleIconMarkup(role.icon, 16)
@@ -187,7 +170,7 @@ end
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatFrame", FRAME_W, FRAME_H, "WDW - Customize Role Defaults")
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatFrame", FRAME_W, FRAME_H, "WDW - Roles")
 
     -- Persistent lighter options box (child of our frame, never pooled)
     local optionsBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
@@ -221,17 +204,39 @@ local function EnsureMainFrame()
     end)
     f.expandCheck = check
 
-    local resetAll = CreateFrame("Button", nil, optionsBox, "UIPanelButtonTemplate")
-    resetAll:SetSize(110, 22)
-    resetAll:SetPoint("RIGHT", optionsBox, "RIGHT", -8, 0)
-    resetAll:SetScript("OnClick", function()
-        local count = CustomizedRoleCount()
-        if count == 0 then return end
-        StaticPopup_Hide("WHODOESWHAT_RESET_ALL_ROLES")
-        StaticPopup_Show("WHODOESWHAT_RESET_ALL_ROLES", count)
+    -- Create Role, right-aligned in the same strip. Its tooltip is written for
+    -- somebody who has not met the concept yet: this window is where a new user
+    -- most plausibly goes looking, and "role" is doing a lot of work in WDW.
+    -- Parented to the options box and lifted above it: as a sibling at the same
+    -- frame level its art fought with the box's backdrop.
+    local createBtn = CreateFrame("Button", nil, optionsBox, "UIPanelButtonTemplate")
+    createBtn:SetFrameLevel(optionsBox:GetFrameLevel() + 2)
+    createBtn:SetSize(110, 22)
+    createBtn:SetPoint("RIGHT", optionsBox, "RIGHT", -8, 0)
+    createBtn:SetText("Create Role")
+    createBtn:SetScript("OnClick", function()
+        WhoDoesWhat:OpenCustomizerForNewRole()
     end)
-    f.resetAllButton = resetAll
+    createBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Create a custom role", 1, 1, 1)
+        GameTooltip:AddLine("A role is the job a raider is doing -- Frost Mage,"
+            .. " Protection Warrior, Holy Priest. WhoDoesWhat uses it to work"
+            .. " out which paladin blessings they should get and whether they"
+            .. " count as a tank, healer or damage dealer.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Every class already has its specs listed here."
+            .. " Make your own when a raider's job needs its own name or its own"
+            .. " blessings -- an off-tank, a decurser, a kite duty.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    createBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.createButton = createBtn
 
+    -- "Reset all" used to live here, when this window owned per-profile buff
+    -- orders. It no longer owns any: overrides are the raid's, and removing one
+    -- is a row in the Custom Roles section.
     mainFrame = f
     return f
 end
@@ -256,9 +261,6 @@ end
 -- attach no raw frames to them, so nothing leaks across rebuilds.
 local function BuildContent()
     local f = EnsureMainFrame()
-    local customizedCount = CustomizedRoleCount()
-    f.resetAllButton:SetText("Reset all (" .. customizedCount .. ")")
-    f.resetAllButton:SetEnabled(customizedCount > 0)
 
     if contentGroup then
         AceGUI:Release(contentGroup)
@@ -299,24 +301,11 @@ local function BuildContent()
         BuildClassBlock(rightColumn, classInfo)
     end
 
-    -- Full-width row under the columns: create a new custom role (it lands
-    -- inside whichever class the user assigns it to).
-    local addRow = AceGUI:Create("InteractiveLabel")
-    addRow:SetText("|cff40ff40+ Create Custom Role|r")
-    addRow:SetFontObject(GameFontHighlight)
-    addRow:SetFullWidth(true)
-    addRow:SetJustifyH("CENTER")
-    addRow:SetHighlight(ROW_HIGHLIGHT)
-    addRow:SetCallback("OnClick", function()
-        WhoDoesWhat:OpenCustomizerForNewRole()
-    end)
-    group:AddChild(addRow)
-
-    -- Fit the window to the taller column plus the create row, keeping the
-    -- top-left corner fixed so the options checkbox stays under the cursor
-    -- when toggling expand/collapse.
+    -- Fit the window to the taller column, keeping the top-left corner fixed so
+    -- the options checkbox stays under the cursor when toggling
+    -- expand/collapse. Creating a role is the strip's button now, not a row
+    -- down here, so nothing trails the columns.
     local contentH = math.max(leftColumn.frame:GetHeight(), rightColumn.frame:GetHeight())
-        + addRow.frame:GetHeight() + 4
     SetFrameHeightKeepingTopLeft(f, CONTENT_TOP + contentH + MARGIN)
 
     WhoDoesWhat:LogUiBuilding("Class list population complete. Content height: " .. math.floor(contentH))

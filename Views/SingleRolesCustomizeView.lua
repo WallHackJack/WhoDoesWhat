@@ -3,8 +3,12 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local customizeFrame = nil
 
 local FRAME_W = 250
-local FRAME_H = 400        -- built-in roles: no assign-role row
-local FRAME_H_CUSTOM = 434 -- custom/create: assign-role row below the buff list
+local FRAME_H = 400        -- built-in roles: no group-role dropdown
+local FRAME_H_CUSTOM = 434 -- custom/create: group-role dropdown under the name
+local ROLE_ROW_H = 34      -- what that dropdown adds above the buff list
+-- Group-role icon in front of a read-only role's name. Sized against
+-- GameFontNormalLarge rather than the 14px the tooltips and rows use.
+local ROLE_NAME_ICON = 20
 local CLASS_ICON_SIZE = 52
 local SPEC_ICON_SIZE = 26
 
@@ -64,34 +68,16 @@ local function ClassText(classInfo)
 end
 
 
--- Refresh the status line above the buttons. Unsaved edits (and create mode)
--- point the user at Save/Apply; otherwise it reports the saved state from the
--- DB (a category reads "Customized" when any of its sub-roles deviates).
+-- The status line says one thing and only one: that this edit is not private.
+-- Everywhere else it stays empty -- the window's title, buttons and controls
+-- already say what mode you are in, and a line restating that is noise sitting
+-- where the one warning worth reading should be.
 local function UpdateCustomStatus(f)
-    if f.isCreateMode then
-        f.customStatus:SetText("|cffff9933New role - click Save to create|r")
-    elseif f.dirty then
-        local action = (f.currentRole and f.currentRole.isCustom) and "Save" or "Apply"
-        f.customStatus:SetText("|cffff9933Unsaved changes - click " .. action .. "|r")
-    elseif f.isRaidRole then
-        -- Not "Customized": a published role has no defaults to deviate from,
-        -- and what matters about it is that the whole raid is reading it.
-        f.customStatus:SetText("|TInterface\\GROUPFRAME\\UI-Group-AssistantIcon:12:12:0:0|t"
-            .. " |cffffd100Shared with the raid|r")
-    elseif f.currentRole and WhoDoesWhat:IsRoleCustomized(f.currentRole.id) then
-        f.customStatus:SetText("|TInterface\\Buttons\\UI-OptionsButton:11:11:0:0|t |cffffd100Customized|r")
+    if f.isRaidRole then
+        f.customStatus:SetText("|T" .. WhoDoesWhat.WARNING_ICON .. ":14:14:0:0|t"
+            .. " |cffff9933Changes affect the entire raid|r")
     else
-        f.customStatus:SetText("|cff909090Using defaults|r")
-    end
-end
-
-
--- Flag an unsaved edit and refresh the status line. In create mode the status
--- already reads "click Save to create", so nothing changes there.
-local function MarkDirty(f)
-    if not f.isCreateMode then
-        f.dirty = true
-        UpdateCustomStatus(f)
+        f.customStatus:SetText("")
     end
 end
 
@@ -118,7 +104,18 @@ end
 
 -- Repaint the full order around the END divider. Rows below it are banned:
 -- their Up arrow promotes them, while their Down arrow is disabled.
+--
+-- The arrows disappear for a built-in role, which is the one thing this window
+-- can't change: its order is WDW's default, retuned only by overriding it for
+-- the raid. They live on the row's right edge, so hiding them leaves the list
+-- itself exactly where it was.
 local function RenderBuffRows(f)
+    local editable = f.orderEditable and true or false
+    -- The divider only means something while the list can be reordered: it is
+    -- the line you drag a blessing across. Read-only, the greyed rows and their
+    -- X already say which ones are never assigned, so it hides and the rows
+    -- close up rather than leaving a gap around nothing.
+    f.buffDivider:SetShown(editable)
     f.buffDivider:ClearAllPoints()
     f.buffDivider:SetPoint("TOPLEFT", 16,
         -(f.buffListTop + f.allowedCount * BUFF_ROW_H))
@@ -126,7 +123,7 @@ local function RenderBuffRows(f)
         local key = f.buffOrder[i]
         local buff = WhoDoesWhat.PaladinBuffs[key]
         local isBanned = i > f.allowedCount
-        local visualIndex = i + (isBanned and 1 or 0)
+        local visualIndex = i + ((isBanned and editable) and 1 or 0)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 16,
             -(f.buffListTop + (visualIndex - 1) * BUFF_ROW_H))
@@ -142,8 +139,12 @@ local function RenderBuffRows(f)
             row.index:SetTextColor(1, 0.82, 0)
             row.label:SetTextColor(1, 1, 1)
         end
-        SetArrowEnabled(row.upBtn, i > 1 or i > f.allowedCount)
-        SetArrowEnabled(row.downBtn, i <= f.allowedCount)
+        row.upBtn:SetShown(editable)
+        row.downBtn:SetShown(editable)
+        if editable then
+            SetArrowEnabled(row.upBtn, i > 1 or i > f.allowedCount)
+            SetArrowEnabled(row.downBtn, i <= f.allowedCount)
+        end
         row:Show()
     end
 end
@@ -166,7 +167,6 @@ local function MoveBuff(f, index, delta)
         return
     end
     RenderBuffRows(f)
-    MarkDirty(f)
 end
 
 
@@ -279,7 +279,6 @@ local function RefreshIconPicker(f)
         cell.selected:SetShown((f.selectedIcon or choices[1].icon) == choice.icon)
         cell:SetScript("OnClick", function()
             SetRoleIcon(f, choice.icon)
-            MarkDirty(f)
             picker:Hide()
         end)
         cell:Show()
@@ -335,118 +334,93 @@ local function CloseAndRefresh(f)
 end
 
 
--- Save/Apply: persist the window state and close. Create mode makes the new
--- custom role first (name + class required); editing a custom role also saves
--- its name and assigned wow role. A category fans the order out to every
--- sub-role, and any role whose result matches its own defaults has its DB
--- entry cleared instead (the DB only stores deviations).
+-- Read the name box, complaining and focusing it when empty. nil means stop.
+local function ReadName(f)
+    local name = strtrim(f.nameEdit:GetText() or "")
+    if name == "" then
+        WhoDoesWhat:Print("Enter a name for the role before saving.")
+        f.nameEdit:SetFocus()
+        return nil
+    end
+    return name
+end
+
+-- Save: persist the window state and close. Built-in roles have no Save at all
+-- (see the mode table above OpenCustomizer); the three modes that do are create,
+-- editing a library role's identity, and editing a board entry.
 local function OnApply(f)
+    if f.isBuiltIn then
+        CloseAndRefresh(f) -- the button reads "Close"; there is nothing to save
+        return
+    end
     if f.isCreateMode then
-        local name = strtrim(f.nameEdit:GetText() or "")
-        if name == "" then
-            WhoDoesWhat:Print("Enter a name for the new role before saving.")
-            f.nameEdit:SetFocus()
-            return
-        end
+        local name = ReadName(f)
+        if not name then return end
         if not f.selectedClass then
             WhoDoesWhat:Print("Select a class for the new role before saving.")
             return
         end
         local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass,
-            GetRoleControls(f), f.selectedIcon)
+            GetRoleControls(f), f.selectedIcon, f.buffOrder, f.allowedCount)
         if not role then return end -- storage rejected it and said why
-        WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
         WhoDoesWhat:LogOperation("Custom role '" .. name .. "' created under " .. f.selectedClass .. ".")
     elseif f.isRaidRole then
         local role = f.currentRole
         if not role then return end
         if not WhoDoesWhat:RequireEditPermission() then return end
-        local name = strtrim(f.nameEdit:GetText() or "")
-        if name == "" then
-            WhoDoesWhat:Print("Enter a name for the role before saving.")
-            f.nameEdit:SetFocus()
-            return
-        end
-        if not WhoDoesWhat:UpdateRaidCustomRole(role.id, name, GetRoleControls(f),
-            f.selectedIcon, f.buffOrder, f.allowedCount) then
+        -- An override carries no identity of its own; only its order is saved.
+        local name = f.identityEditable and ReadName(f) or role.name
+        if not name then return end
+        if not WhoDoesWhat:UpdateRaidCustomRole(f.currentRoleId, name,
+            GetRoleControls(f), f.selectedIcon, f.buffOrder, f.allowedCount) then
             return -- storage rejected it and said why
         end
-        WhoDoesWhat:LogOperation("Raid custom role '" .. name .. "' saved.")
+        WhoDoesWhat:LogOperation("Raid role '" .. name .. "' saved.")
     else
         local role = f.currentRole
-        if not role then return end
-
-        if role.isCustom then
-            local name = strtrim(f.nameEdit:GetText() or "")
-            if name == "" then
-                WhoDoesWhat:Print("Enter a name for the role before saving.")
-                f.nameEdit:SetFocus()
-                return
-            end
-            if not WhoDoesWhat:UpdateCustomRole(role.id, name, GetRoleControls(f),
-                f.selectedIcon) then
-                return -- storage rejected it and said why
-            end
-            WhoDoesWhat:SetRoleCustomization(role.id, f.buffOrder, f.allowedCount)
-            WhoDoesWhat:LogOperation("Custom role '" .. name .. "' saved.")
-        else
-            local targets = role.allSubRoles or { role.id }
-            local customized = 0
-            for _, id in ipairs(targets) do
-                if WhoDoesWhat:SetRoleCustomization(id, f.buffOrder, f.allowedCount) then
-                    customized = customized + 1
-                end
-            end
-
-            if customized == 0 then
-                WhoDoesWhat:LogOperation("Settings match the defaults - saved customizations cleared.")
-            elseif #targets > 1 then
-                WhoDoesWhat:LogOperation("Customizations saved for " .. #targets .. " roles.")
-            else
-                WhoDoesWhat:LogOperation("Customizations saved for " .. role.name .. ".")
-            end
+        if not role or not role.isCustom then return end
+        local name = ReadName(f)
+        if not name then return end
+        if not WhoDoesWhat:UpdateCustomRole(f.currentRoleId, name,
+            GetRoleControls(f), f.selectedIcon, f.buffOrder, f.allowedCount) then
+            return -- storage rejected it and said why
         end
+        WhoDoesWhat:LogOperation("Custom role '" .. name .. "' saved.")
     end
     CloseAndRefresh(f)
 end
 
 
 -- The context-dependent secondary button:
---   create mode    "Cancel"            close, discarding the unmade role
---   raid role      "Remove"            take it off the raid's list, close
---                                      (the library template it came from is
---                                      left alone)
---   custom role    "Delete"            remove the role entirely, close
---   standard role  "Reset to Defaults" immediately clear the saved
---                                      customizations (category: all
---                                      sub-roles) and close
+--   create mode    "Cancel"          close, discarding the unmade role
+--   raid entry     "Remove"          take it off the raid's list, close (the
+--                                    library role it came from is left alone;
+--                                    an override just reverts to defaults)
+--   custom role    "Delete"          remove the role entirely, close
+--   built-in role  "Create a Copy"   clone it into a custom role of your own
+--                                    and open that for editing -- built-in
+--                                    roles themselves can't be changed
 local function OnSecondary(f)
     if f.isCreateMode then
         f:Hide()
+    elseif f.isBuiltIn and f.currentRole then
+        local clone = WhoDoesWhat:CloneRoleToCustom(f.currentRoleId)
+        if not clone then return end
+        WhoDoesWhat:LogOperation("Custom role '" .. clone.name .. "' copied from "
+            .. f.currentRole.name .. ".")
+        WhoDoesWhat:RebuildAllRolesView()
+        WhoDoesWhat:OpenCustomizer(clone.id)
     elseif f.isRaidRole and f.currentRole then
         if not WhoDoesWhat:RequireEditPermission() then return end
-        local roleId = f.currentRole.id
-        local users = WhoDoesWhat:PlayersAssignedToRole(roleId)
-        local function Remove()
-            WhoDoesWhat:RemoveRaidCustomRole(roleId)
+        -- Exactly what the Custom Roles row's [x] does, prompt included: same
+        -- action, so it must not warn about different things depending on which
+        -- window you happened to click it in.
+        WhoDoesWhat:ConfirmRemoveRaidRole(f.currentRoleId, function()
             CloseAndRefresh(f)
-        end
-        -- Same prompt the Custom Roles row uses (registered in
-        -- PaladinBuffsSection): removing the role clears everyone on it.
-        if #users == 0 then
-            Remove()
-        else
-            StaticPopup_Show("WHODOESWHAT_REMOVE_CUSTOM_ROLE",
-                #users .. (#users == 1 and " raider is" or " raiders are")
-                .. " assigned to " .. f.currentRole.name .. ".", nil, Remove)
-        end
+        end)
     elseif f.currentRole and f.currentRole.isCustom then
         WhoDoesWhat:LogOperation("Custom role '" .. f.currentRole.name .. "' deleted.")
-        WhoDoesWhat:DeleteCustomRole(f.currentRole.id)
-        CloseAndRefresh(f)
-    elseif f.currentRole then
-        WhoDoesWhat:ClearRoleCustomization(f.currentRole.id)
-        WhoDoesWhat:LogOperation(f.currentRole.name .. " reset to defaults.")
+        WhoDoesWhat:DeleteCustomRole(f.currentRoleId)
         CloseAndRefresh(f)
     end
 end
@@ -555,15 +529,42 @@ local function EnsureCustomizeFrame()
     nameEdit:SetMaxLetters(20)
     nameEdit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     nameEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    nameEdit:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then MarkDirty(f) end
-    end)
     nameEdit:Hide()
     f.nameEdit = nameEdit
 
-    -- Centered list heading with a bit of padding above it
+    -- Group-role dropdown, tucked under the name field it belongs with rather
+    -- than parked at the bottom of the window. No label: the three entries say
+    -- Tank/Healer/DPS in words and wear the client's role icons. The x offset
+    -- cancels UIDropDownMenu's ~15px of transparent left padding so its visible
+    -- edge lines up with the name above it -- same trick as the class picker.
+    -- Anchored off the class icon rather than the name above it: in create mode
+    -- className is hidden but keeps whatever size its last text gave it, which
+    -- would drift this row between opens. The icon never moves or resizes.
+    local roleDropdown = CreateFrame("Frame", "WhoDoesWhatRoleDropDown", f, "UIDropDownMenuTemplate")
+    roleDropdown:SetPoint("TOPLEFT", classIcon, "BOTTOMRIGHT", -2, 4)
+    UIDropDownMenu_SetWidth(roleDropdown, 80)
+    WhoDoesWhat:StyleDropdown(roleDropdown, true)
+    UIDropDownMenu_Initialize(roleDropdown, function(_, level)
+        for _, key in ipairs({ "dps", "tank", "healer" }) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = RoleText(key)
+            info.value = key
+            info.func = function(item)
+                UIDropDownMenu_SetSelectedValue(roleDropdown, item.value)
+                UIDropDownMenu_SetText(roleDropdown, RoleText(item.value))
+                ApplyWowRoleBans(f, item.value)
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.roleDropdown = roleDropdown
+
+    -- Left-aligned list heading. Its y and the list's move down together when
+    -- the group-role dropdown is showing; see SetIdentityControlsShown.
+    f.headingTop = top + CLASS_ICON_SIZE + 16
+    f.listTopBase = top + CLASS_ICON_SIZE + 36
     local buffHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    buffHeading:SetPoint("TOP", f, "TOP", 0, -(top + CLASS_ICON_SIZE + 16))
+    buffHeading:SetPoint("TOPLEFT", 16, -f.headingTop)
     buffHeading:SetText("Paladin Buff Priority")
     f.buffHeading = buffHeading
 
@@ -573,48 +574,53 @@ local function EnsureCustomizeFrame()
     f.buffOrder = { unpack(canonical) }
     f.allowedCount = #canonical
     f.buffRows = {}
-    local listTop = top + CLASS_ICON_SIZE + 36
-    f.buffListTop = listTop
+    f.buffListTop = f.listTopBase -- re-set per open by SetIdentityControlsShown
+    -- The boundary between blessings this role receives and the ones it never
+    -- does. Grey and small: it labels the rest of the list rather than warning
+    -- about it, and it only appears while the list can actually be reordered.
     local divider = CreateFrame("Frame", nil, f)
     divider:SetSize(FRAME_W - 32, BUFF_ROW_H)
-    local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalLarge")
+    local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalSmall")
     dividerLabel:SetPoint("TOP")
     dividerLabel:SetPoint("BOTTOM")
     dividerLabel:SetJustifyH("CENTER")
-    dividerLabel:SetText("END")
-    dividerLabel:SetTextColor(1, 0.2, 0.2)
+    dividerLabel:SetText("Never assigned")
+    dividerLabel:SetTextColor(0.55, 0.55, 0.55)
     local dividerLeft = divider:CreateTexture(nil, "BACKGROUND")
     dividerLeft:SetHeight(8)
     dividerLeft:SetPoint("LEFT", 3, 0)
     dividerLeft:SetPoint("RIGHT", dividerLabel, "LEFT", -5, 0)
     dividerLeft:SetTexture(137057) -- Interface\Tooltips\UI-Tooltip-Border
     dividerLeft:SetTexCoord(0.81, 0.94, 0.5, 1)
-    dividerLeft:SetVertexColor(1, 0.2, 0.2)
+    dividerLeft:SetVertexColor(0.55, 0.55, 0.55)
     local dividerRight = divider:CreateTexture(nil, "BACKGROUND")
     dividerRight:SetHeight(8)
     dividerRight:SetPoint("RIGHT", -3, 0)
     dividerRight:SetPoint("LEFT", dividerLabel, "RIGHT", 5, 0)
     dividerRight:SetTexture(137057)
     dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
-    dividerRight:SetVertexColor(1, 0.2, 0.2)
+    dividerRight:SetVertexColor(0.55, 0.55, 0.55)
     f.buffDivider = divider
     for i = 1, #canonical do
         local row = CreateFrame("Frame", nil, f)
         row:SetSize(FRAME_W - 32, BUFF_ROW_H)
 
-        -- Up/down arrows on the left, then number, icon, and name.
-        local upBtn = CreateArrowButton(row, "Up")
-        upBtn:SetPoint("LEFT", 0, 0)
-        upBtn:SetScript("OnClick", function() MoveBuff(f, i, -1) end)
-        row.upBtn = upBtn
-
+        -- Number, icon and name read from the left; the arrows sit on the right
+        -- edge, out of the way of the list itself. A built-in role hides them,
+        -- and because they were never holding left-hand space the rows still
+        -- line up with everything above.
         local downBtn = CreateArrowButton(row, "Down")
-        downBtn:SetPoint("LEFT", upBtn, "RIGHT", 2, 0)
+        downBtn:SetPoint("RIGHT", 0, 0)
         downBtn:SetScript("OnClick", function() MoveBuff(f, i, 1) end)
         row.downBtn = downBtn
 
+        local upBtn = CreateArrowButton(row, "Up")
+        upBtn:SetPoint("RIGHT", downBtn, "LEFT", -2, 0)
+        upBtn:SetScript("OnClick", function() MoveBuff(f, i, -1) end)
+        row.upBtn = upBtn
+
         local index = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        index:SetPoint("LEFT", downBtn, "RIGHT", 8, 0)
+        index:SetPoint("LEFT", 0, 0)
         index:SetWidth(22)
         index:SetJustifyH("LEFT")
         row.index = index
@@ -626,6 +632,8 @@ local function EnsureCustomizeFrame()
 
         local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
         label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+        label:SetPoint("RIGHT", upBtn, "LEFT", -6, 0)
+        label:SetJustifyH("LEFT")
         row.label = label
 
         -- Ability tooltip when hovering the buff icon only (textures can't
@@ -649,37 +657,6 @@ local function EnsureCustomizeFrame()
 
         f.buffRows[i] = row
     end
-
-    -- Group-role row (custom roles / create mode only). Every custom role has
-    -- one -- there is no "unassigned" any more, so this is a plain label +
-    -- dropdown rather than an opt-in checkbox.
-    local optionsTop = listTop + (#canonical + 1) * BUFF_ROW_H + 8
-
-    local assignLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    assignLabel:SetPoint("TOPLEFT", 18, -(optionsTop + 6))
-    assignLabel:SetText("Group role")
-    f.assignLabel = assignLabel
-
-    local roleDropdown = CreateFrame("Frame", "WhoDoesWhatRoleDropDown", f, "UIDropDownMenuTemplate")
-    -- UIDropDownMenu has ~15px of transparent left padding; pull it toward the label.
-    roleDropdown:SetPoint("LEFT", assignLabel, "RIGHT", -8, -2)
-    UIDropDownMenu_SetWidth(roleDropdown, 80)
-    WhoDoesWhat:StyleDropdown(roleDropdown, true)
-    UIDropDownMenu_Initialize(roleDropdown, function(_, level)
-        for _, key in ipairs({ "dps", "tank", "healer" }) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = RoleText(key)
-            info.value = key
-            info.func = function(item)
-                UIDropDownMenu_SetSelectedValue(roleDropdown, item.value)
-                UIDropDownMenu_SetText(roleDropdown, RoleText(item.value))
-                ApplyWowRoleBans(f, item.value)
-                MarkDirty(f)
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    f.roleDropdown = roleDropdown
 
     -- Status line ("Customized" / "Using defaults" / unsaved-edit prompts),
     -- right-aligned just above the buttons so it points at Save/Apply.
@@ -708,22 +685,36 @@ local function EnsureCustomizeFrame()
 end
 
 
--- Show/hide the custom-role widgets and size the window for the mode.
-local function SetCustomControlsShown(f, shown)
-    f.assignLabel:SetShown(shown)
-    f.roleDropdown:SetShown(shown)
-    f:SetHeight(shown and FRAME_H_CUSTOM or FRAME_H)
+-- Show or hide the group-role dropdown and lay the window out around it. When
+-- it is hidden the group role rides in front of the role's name instead (see
+-- OpenCustomizer), so nothing needs the row and everything below moves back up.
+--
+-- Must run BEFORE RenderBuffRows, which positions the rows from f.buffListTop.
+local function SetIdentityControlsShown(f, editable)
+    f.roleDropdown:SetShown(editable)
+    local extra = editable and ROLE_ROW_H or 0
+    f.buffHeading:ClearAllPoints()
+    f.buffHeading:SetPoint("TOPLEFT", 16, -(f.headingTop + extra))
+    f.buffListTop = f.listTopBase + extra
+    f:SetHeight(editable and FRAME_H_CUSTOM or FRAME_H)
 end
 
 
--- Open the single-role customizer for the given role id. Loads the role's
--- effective buff order (saved customization or default); edits are live in the
--- window only until the primary button persists them and closes (a category
--- applies to all its allSubRoles). Custom roles get an editable name, the
--- assign-role controls, and Save/Delete buttons.
--- `raidMode` edits the raid's published copy (the Custom Roles section);
--- without it the window edits the local library, so a published role opens
--- showing the template it was copied from rather than the raid's edits to it.
+-- Open the single-role customizer for the given role id. Edits are live in the
+-- window only until the primary button persists them and closes.
+--
+-- Four modes, and what separates them is WHERE the thing being edited lives:
+--
+--   raidMode      a board entry (the Custom Roles section): the raid's order
+--                 for that role. A published custom role also has its identity
+--                 editable; an override of a built-in role or category has none
+--                 of its own, so only the order. Save / Remove.
+--   library role  one of your own custom roles -- its whole definition, order
+--                 included. Save / Delete.
+--   built-in      a stock role or category. Entirely read-only, since its order
+--                 IS the default: change it by overriding it for the raid, or
+--                 copy it into a role of your own. Create a Copy only.
+--   create        see OpenCustomizerForNewRole.
 function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
 
     local role = not raidMode and self.LibraryRoles and self.LibraryRoles[roleId]
@@ -735,27 +726,44 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
         self:Print("OpenCustomizer: unknown role id '" .. tostring(roleId) .. "'")
         return
     end
-    if raidMode and not role.isRaid then
+    if raidMode and not self:FindRaidCustomRole(roleId) then
         self:Print("OpenCustomizer: '" .. tostring(roleId) .. "' is not on the raid's list")
         return
     end
 
+    -- A category is only reachable in raid mode (as an override) or read-only,
+    -- so the resolved entry is the right one to describe either way. Its own
+    -- entry is what carries allSubRoles, so look it up unresolved.
+    local raw = self.RolesAndCategories[roleId] or role
+    local isCategory = raw.allSubRoles ~= nil
+    local boardDef = raidMode and self:FindRaidCustomRole(roleId) or nil
+
     local f = EnsureCustomizeFrame()
     f.isCreateMode = false
     f.isRaidRole = raidMode and true or false
-    f.dirty = false
+    f.isBuiltIn = (not raidMode) and not role.isCustom
+    -- Everything but a built-in role owns its order: a board entry holds the
+    -- raid's, a custom role holds its own definition.
+    f.orderEditable = not f.isBuiltIn
+    f.identityEditable = f.isRaidRole and self:IsRaidCustomRoleDef(boardDef)
+        or (not f.isRaidRole and role.isCustom and true or false)
     f.currentRole = role
+    -- The id the caller asked for, NOT role.id: FindRoleById resolves a
+    -- one-role category to that role, so a board entry keyed by the category
+    -- would be unfindable on Save/Remove if we trusted the resolved entry.
+    f.currentRoleId = roleId
     f.selectedClass = nil
     f.classDropdown:Hide()
 
-    if role.allSubRoles then
-        f.titleText:SetText("Editing Category (" .. #role.allSubRoles .. " roles)")
-    elseif raidMode then
-        f.titleText:SetText("Editing Raid Custom Role")
+    if raidMode then
+        f.titleText:SetText(f.identityEditable and "Editing Shared Custom Role"
+            or ("Overriding " .. (isCategory and "Category" or "Role")))
     elseif role.isCustom then
         f.titleText:SetText("Editing Custom Role")
+    elseif isCategory then
+        f.titleText:SetText("Category Defaults (" .. #raw.allSubRoles .. " roles)")
     else
-        f.titleText:SetText("Editing Role")
+        f.titleText:SetText("Role Defaults")
     end
 
     -- Big class icon + class-colored class name
@@ -763,66 +771,81 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
     f.className:SetText("|cff" .. classInfo.colorHex .. classInfo.name .. "|r")
     f.className:Show()
 
-    -- Role name: a static label for built-in roles, an editable box for custom
-    -- ones (renamed on Save).
-    if role.isCustom then
+    -- A category has no group role of its own; take it from the sub-role its
+    -- defaults already come from, same as the Custom Roles rows do.
+    local source = isCategory
+        and (self.RolesAndCategories[raw.allSubRoles[1]] or role) or role
+
+    -- Role name: an editable box only where the identity is this window's to
+    -- change; a static label otherwise. Categories show their own name.
+    --
+    -- The static form leads with the group-role icon -- "[DPS] Fury" -- which
+    -- is where a read-only role states its group role. Nothing else has to make
+    -- room for it, unlike the dropdown the editable form needs.
+    local displayName = (isCategory and raw.name) or role.name
+    if f.identityEditable then
         f.roleName:Hide()
-        f.nameEdit:SetText(role.name)
+        f.nameEdit:SetText(displayName)
         f.nameEdit:Show()
     else
         f.nameEdit:Hide()
-        f.roleName:SetText("|cff" .. classInfo.colorHex .. role.name .. "|r")
+        local roleIcon = source.wowRole
+            and (self:GetWowRoleIconMarkup(source.wowRole, ROLE_NAME_ICON) .. " ")
+            or ""
+        f.roleName:SetText(roleIcon .. "|cff" .. classInfo.colorHex
+            .. displayName .. "|r")
         f.roleName:Show()
     end
 
     -- Spec icon overlay: the role's own icon. Categories have no single spec.
-    -- On a custom role the same slot is the icon picker's button.
+    -- The same slot is the icon picker's button where the icon is editable.
     if f.iconPicker then f.iconPicker:Hide() end
     f.selectedIcon = nil
-    if role.allSubRoles then
+    if isCategory then
         f.specIcon:Hide()
         f.iconBtn:Hide()
     else
-        if role.isCustom then
+        if f.identityEditable then
             -- The STORED pick, not the effective icon: leaving it nil is what
             -- keeps an undecorated role following its class.
-            local stored = raidMode and self:FindRaidCustomRole(role.id)
-                or self:FindLocalCustomRole(role.id)
+            local stored = boardDef or self:FindLocalCustomRole(role.id)
             f.selectedIcon = stored and stored.icon or nil
         end
         ShowRoleIcon(f, role.icon)
-        f.iconBtn:SetShown(role.isCustom and true or false)
+        f.iconBtn:SetShown(f.identityEditable)
     end
 
-    -- Load the full effective order and its divider position (a category reads
-    -- from its first sub-role). Copied so the in-window arrows don't mutate the
-    -- saved/default tables; nothing is persisted until Save/Apply.
+    -- Lay out first: this decides where the buff list starts.
+    SetIdentityControlsShown(f, f.identityEditable)
+    if f.identityEditable then SetRoleControls(f, role.wowRole) end
+
+    -- The effective order: the board's override where there is one, the
+    -- defaults otherwise. Copied so the in-window arrows don't mutate the
+    -- stored tables; nothing is persisted until Save.
     local order
-    order, f.allowedCount = self:GetEffectiveBuffSetup(role.id, not raidMode)
+    order, f.allowedCount = self:GetEffectiveBuffSetup(roleId)
     f.buffOrder = { unpack(order) }
     RenderBuffRows(f)
 
-    -- Custom roles: assign-role controls + Save/Delete.
-    SetCustomControlsShown(f, role.isCustom and true or false)
-    if raidMode then
-        SetRoleControls(f, role.wowRole)
-        f.applyBtn:SetText("Save")
-        f.secondaryBtn:SetText("Remove")
-        f.secondaryBtn:SetWidth(80)
-    elseif role.isCustom then
-        SetRoleControls(f, role.wowRole)
-        f.applyBtn:SetText("Save")
-        f.secondaryBtn:SetText("Delete")
-        f.secondaryBtn:SetWidth(70)
+    -- Nothing about a built-in role can be saved, so it has no primary button
+    -- at all -- the title bar's X closes it, same as any other window here --
+    -- and Create a Copy takes the corner on its own.
+    f.applyBtn:SetShown(not f.isBuiltIn)
+    f.secondaryBtn:ClearAllPoints()
+    if f.isBuiltIn then
+        f.secondaryBtn:SetPoint("BOTTOMRIGHT", -12, 12)
+        f.secondaryBtn:SetText("Create a Copy")
+        f.secondaryBtn:SetWidth(110)
     else
-        f.applyBtn:SetText("Apply")
-        f.secondaryBtn:SetText("Reset to Defaults")
-        f.secondaryBtn:SetWidth(120)
+        f.secondaryBtn:SetPoint("RIGHT", f.applyBtn, "LEFT", -8, 0)
+        f.applyBtn:SetText("Save")
+        f.secondaryBtn:SetText(raidMode and "Remove" or "Delete")
+        f.secondaryBtn:SetWidth(raidMode and 80 or 70)
     end
 
     UpdateCustomStatus(f)
 
-    self:LogUiBuilding("Opening customizer for " .. classInfo.name .. " / " .. role.name)
+    self:LogUiBuilding("Opening customizer for " .. classInfo.name .. " / " .. displayName)
     f:Show()
     f:Raise()
 end
@@ -837,8 +860,12 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
 
     f.isCreateMode = true
     f.isRaidRole = false
-    f.dirty = false
+    f.isBuiltIn = false
+    -- A new role is entirely yours: name, class, group role, icon and order.
+    f.identityEditable = true
+    f.orderEditable = true
     f.currentRole = nil
+    f.currentRoleId = nil
     f.selectedClass = nil
 
     f.titleText:SetText("New Custom Role")
@@ -861,13 +888,19 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     f.nameEdit:SetText("")
     f.nameEdit:Show()
 
+    -- Layout before rows, same as OpenCustomizer: the dropdown decides where
+    -- the buff list starts.
+    SetIdentityControlsShown(f, true)
+    SetRoleControls(f, "dps") -- a new role defaults to DPS
+
     f.buffOrder = { unpack(self.CanonicalBuffOrder) }
     f.allowedCount = #f.buffOrder
     RenderBuffRows(f)
 
-    SetCustomControlsShown(f, true)
-    SetRoleControls(f, "dps") -- assign defaults to on, DPS
+    f.applyBtn:Show()
     f.applyBtn:SetText("Save")
+    f.secondaryBtn:ClearAllPoints()
+    f.secondaryBtn:SetPoint("RIGHT", f.applyBtn, "LEFT", -8, 0)
     f.secondaryBtn:SetText("Cancel")
     f.secondaryBtn:SetWidth(70)
 

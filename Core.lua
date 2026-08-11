@@ -223,19 +223,16 @@ end
 local defaults = {
     profile = {
         expandRoles = false,
-        -- Per-role saved buff-order customizations, keyed by role id. Each entry
-        -- is { buffOrder = { six buff keys }, allowedCount = 0..6 }. Roles on
-        -- their defaults have no entry here; see SetRoleCustomization in Data.lua.
-        roleCustomizations = {},
         -- User-created custom roles -- the local library: array of
         -- { id = "custom_a41f0c_2", name, class = "Warrior",
-        --   wowRole = "dps"|"tank"|"healer"|false, icon } (false = no wow role
+        --   wowRole = "dps"|"tank"|"healer"|false, icon,
+        --   order = { six buff keys }, allowed = 0..6 } (false = no wow role
         -- assigned; a nil icon means the role wears its class's icon, see
-        -- CustomRoleIconChoices in Data.lua). Listed inside their class's role
-        -- list; buff orders live in roleCustomizations like any other role
-        -- (default = canonical order). These are templates: a role only becomes something
-        -- the rest of the raid can resolve once it is published to
-        -- raidCustomRoles below (Data.lua, PublishCustomRole).
+        -- CustomRoleIconChoices in Data.lua). A whole definition, because the
+        -- role is the user's invention -- unlike a built-in role, which has no
+        -- local store at all. It only becomes something the rest of the raid can
+        -- resolve once it is published to raidCustomRoles below (Data.lua,
+        -- PublishCustomRole).
         customRoles = {},
         -- Monotonic id counter, kept so deletes never recycle ids. It is only
         -- half of an id now: NewCustomRoleId prefixes a random block, because
@@ -274,12 +271,15 @@ local defaults = {
         -- group-scoped board on leave. See the rule model above
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},
-        -- The raid's shared custom roles (the Custom Roles section): array of
-        -- { id, name, class, wowRole, icon, order = { six buff keys },
-        -- allowed = 0..6 }. A published copy of somebody's local customRoles
-        -- entry, carrying its buff order outright so every client resolves the
-        -- role -- and computes the same blessing plan -- from the board rather
-        -- than from a profile only the publisher has. Shared as
+        -- The raid's shared roles (the Custom Roles section): array of
+        -- { id, order = { six buff keys }, allowed = 0..6 }, plus
+        -- { name, class, wowRole, icon } when the entry is a published custom
+        -- role rather than an override of a built-in role or category.
+        --
+        -- This is the ONLY place a blessing order deviates from the defaults.
+        -- A published custom role also carries its whole definition, so every
+        -- client resolves the role -- and computes the same plan -- from the
+        -- board rather than from a profile only the publisher has. Shared as
         -- STATE.customRoles and cleared with the group-scoped board on leave.
         raidCustomRoles = {},
         -- Dynamic assignment rows in the main view, one array per section
@@ -538,7 +538,6 @@ function WhoDoesWhat:OnInitialize()
             self.db.profile.assignments[name] = nil
         end
     end
-    self.db.profile.roleCustomizations[self.HUNTER_PET_ROLE_ID] = nil
 
     -- One-off cache wipe: the first buff-talent scanner matched icons against
     -- live GetTalentInfo returns, which don't compare equal to the library's
@@ -579,8 +578,13 @@ function WhoDoesWhat:OnInitialize()
         for _, cr in ipairs(p.customRoles) do
             if type(cr.id) == "string" and cr.id:match("^custom_%d+$") then
                 local newId = self:NewCustomRoleId()
-                p.roleCustomizations[newId] = p.roleCustomizations[cr.id]
-                p.roleCustomizations[cr.id] = nil
+                -- Carry the old buff-order entry across too. It is dropped a
+                -- few lines below, but only AFTER being folded into the role
+                -- itself, and that fold matches on the new id.
+                if p.roleCustomizations then
+                    p.roleCustomizations[newId] = p.roleCustomizations[cr.id]
+                    p.roleCustomizations[cr.id] = nil
+                end
                 for player, roleId in pairs(p.assignments) do
                     if roleId == cr.id then p.assignments[player] = newId end
                 end
@@ -595,6 +599,37 @@ function WhoDoesWhat:OnInitialize()
             end
         end
         p.customRoleIdVersion = 2
+    end
+
+    -- One-off migration: buff orders for BUILT-IN roles used to be editable per
+    -- profile (roleCustomizations), which is exactly how a raid ended up
+    -- computing as many blessing plans as it had clients. Built-in roles are no
+    -- longer editable at all -- they are overridden for the raid instead.
+    --
+    -- A custom role's entry still means something, though: custom roles own
+    -- their whole definition now, so those fold into the role itself. Only the
+    -- built-in ones are dropped, and only those are counted in the notice.
+    if self.db.profile.roleCustomizations then
+        local p = self.db.profile
+        local byId = {}
+        for _, cr in ipairs(p.customRoles) do byId[cr.id] = cr end
+        local dropped = 0
+        for roleId, saved in pairs(p.roleCustomizations) do
+            local cr = byId[roleId]
+            if cr and type(saved.buffOrder) == "table" then
+                cr.order = saved.buffOrder
+                cr.allowed = saved.allowedCount
+            else
+                dropped = dropped + 1
+            end
+        end
+        if dropped > 0 then
+            self:Print("Blessing orders for built-in roles are now shared with"
+                .. " the raid; " .. dropped .. " saved customization"
+                .. (dropped == 1 and " was" or "s were") .. " cleared."
+                .. " Re-add them from Custom Roles > Add (+).")
+        end
+        p.roleCustomizations = nil
     end
     self:LogUiBuilding("WhoDoesWhat database ready. expandRoles = " .. tostring(self.db.profile.expandRoles))
 
