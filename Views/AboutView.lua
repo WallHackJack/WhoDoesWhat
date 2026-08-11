@@ -19,6 +19,26 @@ local LINKS = {
 -- entry is presented as the latest release in the window.
 local RELEASES = {
     {
+        version = "1.0.11",
+        date = "2026-08-11",
+        notes = {
+            "Reworked Action Items and gave it a WDW Status row, with a Talents column in place of the old fix buttons.",
+            "Added \"Hide when nothing is yours to fix\" to the Action Items status row.",
+            "Roles that disagree with the last talent scan are now flagged.",
+            "Custom roles are shared with the raid, and default role overrides now apply to the raid instead of per profile.",
+            "Gave the roles grid its own row of column headings.",
+            "Paladin auras are picked from a hover grid instead of cycling.",
+            "Sated glows when a lust leaves raiders behind.",
+            "Hunter pets show their own name, with the owner behind it.",
+            "The promote prompt now reaches every assistant, including after a late promotion.",
+            "Rebuilt the buffing rules and consolidated blessing fallbacks; the best-available rule relaxes in combat.",
+            "PallyPower fixes skip roleless raiders, and the \"upsetting the raid\" warning only appears without rights.",
+            "Status bars are on by default, with clearer shortcuts.",
+            "Fixed accented names rendering half a byte as their initials.",
+            "Fixed roster repaints closing an open role dropdown, and a stale cache replay claiming a respec.",
+        },
+    },
+    {
         version = "1.0.10",
         date = "2026-08-06",
         notes = {
