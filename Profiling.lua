@@ -219,6 +219,11 @@ function Profiling.InstrumentAll()
     Wrap(A, "ComputeCoreRaidBuffCoverage", "plan.corecoverage")
     Wrap(A, "ComputePaladinBuffSummary", "plan.summary")
     Wrap(A, "GetPaladinBuffJobs", "plan.jobs")
+    -- Resolved check settings. Cached now, so a high count here with a low
+    -- total means the cache is working; a high total means something is
+    -- invalidating it far more often than a settings edit should.
+    Wrap(W, "GetStatusBarCheckOptions", "status.options")
+    Wrap(W, "GetStatusBarCheckOrder", "status.order")
 
     -- The PallyPower-sourced plan. Unlike ComputePaladinBuffPlan this has no
     -- cache of any kind -- it rebuilds from the PallyPower tables on every

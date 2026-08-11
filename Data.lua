@@ -523,8 +523,30 @@ for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
     definition.defaultGrid = not definition.gridOptionDisabled
 end
 
+-- Resolved check options per key, and the resolved order list.
+--
+-- Both are pure functions of saved settings plus the static definitions, but
+-- resolving one set of options walks ~25 defaulting branches and loops
+-- self.Classes to validate requiredClass -- and the status view asks for them
+-- around twenty times per repaint, at up to 10Hz in a 40-man.
+--
+-- Invalidated explicitly rather than per frame, because there is exactly one
+-- writer (StoreStatusBuffOption in AddonSettingsView) and a settings edit has
+-- to show up in the same frame it is made. Anything that ever writes these
+-- settings outside that funnel must call InvalidateStatusBarCheckCache.
+--
+-- Both are handed out shared, so callers must treat them as read-only. They
+-- all do: every caller reads fields or iterates, none assigns or reorders.
+local statusOptionsCache, statusOrderCache = {}, nil
+
+function WhoDoesWhat:InvalidateStatusBarCheckCache()
+    wipe(statusOptionsCache)
+    statusOrderCache = nil
+end
+
 -- Saved order is a full list so newly-added checks can be appended safely.
 function WhoDoesWhat:GetStatusBarCheckOrder()
+    if statusOrderCache then return statusOrderCache end
     local saved = self.db.profile.settings.statusBarOrder
     local order, seen = {}, {}
     for _, key in ipairs(saved or {}) do
@@ -536,10 +558,13 @@ function WhoDoesWhat:GetStatusBarCheckOrder()
     for _, key in ipairs(self.StatusBarCheckOrder) do
         if not seen[key] then order[#order + 1] = key end
     end
+    statusOrderCache = order
     return order
 end
 
 function WhoDoesWhat:GetStatusBarCheckOptions(key)
+    local cached = statusOptionsCache[key]
+    if cached then return cached end
     local definition = self.StatusBarChecks[key]
     if not definition then return nil end
     local all = self.db.profile.settings.statusBarChecks
@@ -644,7 +669,9 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     -- it, and which of those you want is a matter of taste.
     local partialGlow = saved.partialGlow ~= false
     local partialGlowOnlyClass = saved.partialGlowOnlyClass == true
-    return {
+    -- Shared, so callers must treat it as read-only (they all do -- every one
+    -- reads fields off it and none assigns).
+    local options = {
         bar = bar,
         grid = grid,
         scope = saved.scope or "always",
@@ -675,6 +702,8 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         hideWhenNotYours = hideWhenNotYours,
         actionItemsGlow = saved.actionItemsGlow ~= false,
     }
+    statusOptionsCache[key] = options
+    return options
 end
 
 -- Warlock raid curses metadata, using the highest rank available on this

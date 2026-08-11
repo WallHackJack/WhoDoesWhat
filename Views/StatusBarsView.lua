@@ -1012,7 +1012,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             or self.statusBarColorPreviewKey == "paladinBuffs")
     local paladinInScope = StatusCheckInScope(paladinOptions.scope)
     local paladinRequiredAvailable = not paladinOptions.requiredClass
-        or #self.Assign.MembersOfClass(paladinOptions.requiredClass) > 0
+        or self.Assign.HasMemberOfClass(paladinOptions.requiredClass)
     local paladinAvailable = paladinRequiredAvailable
         or not paladinOptions.hideBarUnavailable
     local showPaladinBars = paladinPreview

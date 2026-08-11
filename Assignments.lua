@@ -154,6 +154,20 @@ local function MembersOfClass(className)
     return out
 end
 
+-- Is anyone of this class here? Same rule as MembersOfClass -- exact class,
+-- non-raiders excluded -- but it walks the cached roster and stops at the
+-- first hit instead of building a list the caller only measures. The status
+-- checks ask this once per check per repaint.
+local function HasMemberOfClass(className)
+    for _, m in ipairs(GetRoster()) do
+        if m.classInfo.name == className
+            and not WhoDoesWhat:IsNonRaider(m.name) then
+            return true
+        end
+    end
+    return false
+end
+
 -- One virtual pet per hunter in the group (a non-raider hunter's pet sits
 -- out with them -- the class-filtered roster already drops both). Pets are
 -- not assignable and never stored: they exist purely for the paladin-buff
@@ -1736,13 +1750,18 @@ local function ComputeCoreBuffProviders(key, disconnected)
     return providers
 end
 
+-- Deliberately does NOT go through ComputeCoreBuffProviders. That builds a
+-- table of every provider and sorts it, and this wants one number out of it --
+-- a sort to compute a maximum, once per check, on every status repaint.
 local function BestAvailableCoreBuffRank(buff, key, disconnected)
     if not buff.improvedTalent or not buff.className then return nil end
+    disconnected = disconnected or DisconnectedGroupTargets()
     local best
-    for _, provider in ipairs(ComputeCoreBuffProviders(key, disconnected)) do
-        if provider.available and provider.rank ~= nil
-            and (best == nil or provider.rank > best) then
-            best = provider.rank
+    for _, member in ipairs(GetEligibleMembers(buff.className)) do
+        if member.classInfo.name == buff.className
+            and (member.isFake or not disconnected[member.name]) then
+            local rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key)
+            if rank ~= nil and (best == nil or rank > best) then best = rank end
         end
     end
     return best
@@ -1776,6 +1795,10 @@ local function ComputeCoreRaidBuffCoverage()
             local bestRank = options.bestAvailable
                 and not (options.anyInCombat and anyContext)
                 and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
+            -- Constant for the whole check, and it calls UnitAffectingCombat.
+            -- Evaluated per member it was a C call for every raider on every
+            -- check, on every repaint.
+            local flagsTheCovered = FlagsTheCovered(buff, options)
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
@@ -1790,12 +1813,12 @@ local function ComputeCoreRaidBuffCoverage()
                 -- Which end of the check `flagged` holds, since a debuff can
                 -- flip mid-pull (see flagMissingInCombat below). The tooltip
                 -- can't read it off `negative` alone.
-                flaggedAreMissing = not FlagsTheCovered(buff, options),
+                flaggedAreMissing = not flagsTheCovered,
                 -- The improvement rank this check is currently measured
                 -- against, so a view can tell who is on the hook for it.
                 bestRank = bestRank,
                 available = not options.requiredClass
-                    or #MembersOfClass(options.requiredClass) > 0,
+                    or HasMemberOfClass(options.requiredClass),
             }
             local targets = members
             if options.hunterPets and not buff.hunterPetsOptionDisabled then
@@ -1831,7 +1854,7 @@ local function ComputeCoreRaidBuffCoverage()
                         row.correct = row.correct + 1
                         correct = correct + 1
                     end
-                    if covered == FlagsTheCovered(buff, options) then
+                    if covered == flagsTheCovered then
                         row.flagged[#row.flagged + 1] = {
                             name = m.name,
                             classInfo = m.classInfo,
@@ -2462,6 +2485,7 @@ WhoDoesWhat.Assign = {
     GetEligibleMembers = GetEligibleMembers,
     FindMember = FindMember,
     MembersOfClass = MembersOfClass,
+    HasMemberOfClass = HasMemberOfClass,
     GetPetMembers = GetPetMembers,
     PlayerText = PlayerText,
     PlayerTextWithRole = PlayerTextWithRole,
