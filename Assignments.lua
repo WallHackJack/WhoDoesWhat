@@ -9,6 +9,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- they use. Nothing here creates frames; repaints go through the views'
 -- public Refresh methods, which no-op while their window is closed.
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 
 -- Stable player key for a unit: "Name" same-realm, "Name-Realm" foreign.
@@ -60,6 +63,7 @@ local rosterCache, rosterByName, rosterCacheTime
 
 local function GetRoster()
     if rosterCacheTime == GetTime() then return rosterCache end
+    PBegin("roster.build")
 
     local units = {}
     if IsInRaid() then
@@ -99,6 +103,7 @@ local function GetRoster()
     rosterByName = {}
     for _, m in ipairs(members) do rosterByName[m.name] = m end
     rosterCache, rosterCacheTime = members, GetTime()
+    PEnd("roster.build")
     return members
 end
 
@@ -1340,7 +1345,14 @@ local function ComputeGreaterAssignments(plan, targetClass, petTargets)
     return greaterByPaladin
 end
 
+-- Two sections, because they answer different questions: plan.lookup covers
+-- every call including the cache key build (paid on every hit, and the views
+-- ask several times per repaint), while plan.compute covers only the real
+-- matcher behind a cache miss. A high lookup count with a low compute count is
+-- the healthy shape; compute climbing with it means something is thrashing the
+-- key.
 local function ComputePaladinBuffPlan()
+    PBegin("plan.lookup")
     local ignored, guaranteed, assigned = CompileBuffRules()
     local pool, locked = BuffPaladins(ignored, assigned)
     -- How many blessings a raider stands to receive: one from each matching
@@ -1355,7 +1367,11 @@ local function ComputePaladinBuffPlan()
     local orderMemo = {}
 
     local cacheKey = BuffPlanKey(ignored, guaranteed, slots, orderMemo)
-    if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
+    if cachedBuffPlanKey == cacheKey then
+        PEnd("plan.lookup")
+        return cachedBuffPlan
+    end
+    PBegin("plan.compute")
 
     -- What the locked paladins already blanket the raid with, and the soft
     -- primary locks (assign rules without `only`) for the paladins still in
@@ -1571,6 +1587,8 @@ local function ComputePaladinBuffPlan()
         -- to hold their row back the way it is for everyone else.
         lockedPaladins = lockedPaladins,
     }
+    PEnd("plan.compute")
+    PEnd("plan.lookup")
     return cachedBuffPlan
 end
 

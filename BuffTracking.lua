@@ -27,6 +27,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local BuffTracking = {}
 WhoDoesWhat.BuffTracking = BuffTracking
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local POLL_INTERVAL = 3     -- seconds between full-group backstop scans
 local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
 
@@ -245,9 +248,15 @@ local function NotifyChanged()
     notifyPending = true
     C_Timer.After(NOTIFY_DEBOUNCE, function()
         notifyPending = false
+        -- The whole repaint fan-out under one section: this is what the 0.1s
+        -- debounce actually costs per fire, and it reads ~0 with every window
+        -- closed (each Refresh no-ops while hidden), which is exactly the
+        -- comparison that separates repaint cost from scan cost.
+        PBegin("repaint.notify")
         WhoDoesWhat:RefreshMainAssignmentsView()
         -- RefreshBuffingGridView also nudges both compact status views.
         WhoDoesWhat:RefreshBuffingGridView()
+        PEnd("repaint.notify")
     end)
 end
 
@@ -258,6 +267,7 @@ end
 -- Re-scan the whole group and drop anyone who left. The backstop poll and
 -- roster changes both land here.
 function BuffTracking:RefreshAll()
+    PBegin("bufftracking.poll")
     if not nameToKey then BuildNameMap() end
     local changed = false
     local seen = {}
@@ -271,6 +281,7 @@ function BuffTracking:RefreshAll()
             changed = true
         end
     end
+    PEnd("bufftracking.poll")
     if changed then NotifyChanged() end
 end
 
@@ -341,8 +352,16 @@ driver:RegisterEvent("GROUP_ROSTER_UPDATE")
 driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("UNIT_AURA")
 driver:RegisterEvent("UNIT_HEALTH")
+-- Instrumented per EVENT rather than per scan: in a 40-man these fire
+-- constantly (UNIT_HEALTH on every health tick of every raider), so the cost
+-- that matters is count x cheap, not any single slow call. The two are
+-- separate sections because they do very different amounts of work --
+-- UNIT_AURA walks every aura on the unit, UNIT_HEALTH just checks death.
 driver:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_AURA" or event == "UNIT_HEALTH" then
+        local section = event == "UNIT_AURA"
+            and "bufftracking.aura" or "bufftracking.health"
+        PBegin(section)
         if IsGroupUnit(unit) then
             if not nameToKey then BuildNameMap() end
             local name = UnitToKey(unit)
@@ -351,7 +370,10 @@ driver:SetScript("OnEvent", function(_, event, unit)
                 changed = event == "UNIT_HEALTH" and ScanDead(unit, name)
                     or event == "UNIT_AURA" and ScanUnit(unit, name)
             end
+            PEnd(section)
             if changed then NotifyChanged() end
+        else
+            PEnd(section)
         end
     else
         BuffTracking:RefreshAll()

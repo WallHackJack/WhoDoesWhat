@@ -415,6 +415,7 @@ function WhoDoesWhat:OnInitialize()
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
     self.LOG_OPERATIONS = self.db.profile.settings.logOperations
     self:SetSyncLoggingEnabled(false)
+    self.Profiling.LoadSetting()
 
     -- One-off migrations: buffAssignments briefly held the paladin buff picks
     -- before raidAssignments generalized it -- drop it outright. Then paladin
