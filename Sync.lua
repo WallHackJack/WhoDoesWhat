@@ -64,6 +64,9 @@ local Sync = WhoDoesWhat:NewModule("Sync", "AceComm-3.0", "AceEvent-3.0", "AceTi
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local COMM_PREFIX = "WhoDoesWhat"
 -- Bump on any wire-format change; mismatched clients warn once and ignore
 -- each other. 2: tank rows went one-per-tank with a `markers` array (was
@@ -400,20 +403,28 @@ end
 -- Wire encoding
 -- ---------------------------------------------------------------------------
 
+-- Serialize + deflate is the most expensive thing on the wire path, and it
+-- scales with board size rather than with anything the caller can see, so it
+-- gets its own section rather than hiding inside sync.poll / sync.recv.
 local function Encode(msg)
+    PBegin("sync.encode")
     local serialized = LibSerialize:Serialize(msg)
     local compressed = LibDeflate:CompressDeflate(serialized)
-    return LibDeflate:EncodeForWoWAddonChannel(compressed)
+    local out = LibDeflate:EncodeForWoWAddonChannel(compressed)
+    PEnd("sync.encode")
+    return out
 end
 
 -- nil on anything malformed -- a garbled or foreign payload is dropped, never
 -- an error in the receive path.
 local function Decode(text)
+    PBegin("sync.decode")
     local compressed = LibDeflate:DecodeForWoWAddonChannel(text)
-    if not compressed then return nil end
+    if not compressed then PEnd("sync.decode") return nil end
     local serialized = LibDeflate:DecompressDeflate(compressed)
-    if not serialized then return nil end
+    if not serialized then PEnd("sync.decode") return nil end
     local ok, msg = LibSerialize:Deserialize(serialized)
+    PEnd("sync.decode")
     if not ok or type(msg) ~= "table" then return nil end
     return msg
 end

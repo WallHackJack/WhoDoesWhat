@@ -35,27 +35,54 @@ local WARN_COOLDOWN = 3 -- seconds between warnings for the SAME section
 
 -- name -> { count, total, max, lastWarn }
 local stats = {}
--- name -> debugprofilestop() at Begin. Sections never re-enter themselves, so
--- one slot per name is enough and no stack is needed.
-local starts = {}
+-- name -> debugprofilestop() at the OUTERMOST Begin, and name -> how deep we
+-- are inside it. Depth matters because the wrapped view refreshes call each
+-- other: without it a re-entered section would restart its own clock and
+-- report only the innermost slice.
+local starts, depth = {}, {}
+-- name -> the frame its outermost Begin happened on, so a dangling Begin can
+-- be told apart from real nesting. See Begin.
+local frameOf = {}
 local since = 0
 
 local function Reset()
     wipe(stats)
     wipe(starts)
+    wipe(depth)
+    wipe(frameOf)
     since = GetTime()
 end
 
 function Profiling.Begin(name)
     if not enabled then return end
+    local now = GetTime()
+    local d = depth[name]
+    if d and frameOf[name] == now then
+        -- Genuine nesting, within one frame: keep the outermost clock running.
+        depth[name] = d + 1
+        return
+    end
+    -- Either the first entry, or a depth left over from a Begin whose End was
+    -- skipped by an early return. Nothing here legitimately spans a frame, so
+    -- a leftover from an earlier frame is discarded rather than nested into --
+    -- otherwise one missed End would wedge the section's depth above zero and
+    -- silently stop it recording for the rest of the session.
+    depth[name] = 1
+    frameOf[name] = now
     starts[name] = debugprofilestop()
 end
 
 function Profiling.End(name)
     if not enabled then return end
-    local t0 = starts[name]
+    local d = depth[name]
     -- No matching Begin: profiling was switched on mid-call. Skip rather than
     -- record a bogus duration.
+    if not d then return end
+    d = d - 1
+    depth[name] = d > 0 and d or nil
+    if d > 0 then return end
+
+    local t0 = starts[name]
     if not t0 then return end
     starts[name] = nil
 
@@ -83,6 +110,37 @@ end
 
 function Profiling.IsEnabled()
     return enabled
+end
+
+-- ---------------------------------------------------------------------------
+-- Wrapping
+-- ---------------------------------------------------------------------------
+
+-- Time an existing function in place, by name, so the hot paths that are
+-- already public entry points need no edits in their own files. Wrapping is
+-- permanent (there is no unwrap); when profiling is off the added cost is one
+-- call through to the original.
+--
+-- Return values pass through untouched, via a tail call rather than
+-- table.pack -- the client is Lua 5.1, which has no table.pack/unpack pair
+-- that round-trips embedded nils.
+local function Finish(name, ...)
+    Profiling.End(name)
+    return ...
+end
+
+function Profiling.Wrap(tbl, key, name)
+    local original = tbl and tbl[key]
+    if type(original) ~= "function" then
+        -- A renamed or not-yet-defined function should not take the addon
+        -- down over a developer tool; say so and move on.
+        WhoDoesWhat:Print("|cffff6060Profiling:|r nothing to wrap for " .. name)
+        return
+    end
+    tbl[key] = function(...)
+        Profiling.Begin(name)
+        return Finish(name, original(...))
+    end
 end
 
 function Profiling.SetEnabled(value)
@@ -128,6 +186,57 @@ function Profiling.Report()
             s.count, s.count / window, s.total / s.count, s.max))
     end
     WhoDoesWhat:Print("|cff909090/wdw perf reset|r to clear these counters.")
+end
+
+-- Instrument every public entry point worth timing. Runs once from
+-- OnInitialize, after every file has loaded and defined its functions.
+--
+-- Sections are named "<layer>.<thing>" so the report groups them by eye:
+-- view.* is the repaint layer (all of it no-ops with its window closed),
+-- bufftracking.* and sync.* keep running regardless, and plan.*/pallypower.*
+-- are the model.
+--
+-- Inclusive timing means the nesting shows up as double counting on purpose:
+-- view.grid contains view.statusbars, view.pallybar, view.tooltip and
+-- view.ppdiff, because RefreshBuffingGridView calls all four.
+function Profiling.InstrumentAll()
+    local W = WhoDoesWhat
+    local Wrap = Profiling.Wrap
+
+    -- Repaint layer.
+    Wrap(W, "RefreshMainAssignmentsView", "view.main")
+    Wrap(W, "RefreshBuffingGridView", "view.grid")
+    Wrap(W, "RefreshStatusBarsView", "view.statusbars")
+    Wrap(W, "RefreshPaladinBuffingBar", "view.pallybar")
+    Wrap(W, "RefreshActionItemsView", "view.actionitems")
+    Wrap(W, "RefreshRaiderRolesView", "view.raiderroles")
+    Wrap(W, "RefreshPallyPowerDiffView", "view.ppdiff")
+    Wrap(W, "RefreshRaiderTooltip", "view.tooltip")
+
+    -- Model work the status views drive on every repaint.
+    local A = W.Assign
+    Wrap(A, "ComputePaladinBuffCoverage", "plan.coverage")
+    Wrap(A, "ComputeCoreRaidBuffCoverage", "plan.corecoverage")
+    Wrap(A, "ComputePaladinBuffSummary", "plan.summary")
+    Wrap(A, "GetPaladinBuffJobs", "plan.jobs")
+
+    -- The PallyPower-sourced plan. Unlike ComputePaladinBuffPlan this has no
+    -- cache of any kind -- it rebuilds from the PallyPower tables on every
+    -- call -- so for anyone running pallyBuffSource="pallypower" this is on
+    -- the same hot path the WDW plan's cache protects.
+    Wrap(W, "GetPallyPowerBuffPlan", "pallypower.plan")
+
+    -- Talent scanning: the per-inspect handler and the roster-wide sweep that
+    -- GROUP_ROSTER_UPDATE schedules.
+    Wrap(W, "OnTalentsReady", "talents.ready")
+    Wrap(W, "SyncRosterTalents", "talents.sweep")
+
+    -- Sync: the 2s local-change poll and every inbound addon message.
+    local Sync = W.GetModule and W:GetModule("Sync", true)
+    if Sync then
+        Wrap(Sync, "PollLocalChanges", "sync.poll")
+        Wrap(Sync, "OnCommReceived", "sync.recv")
+    end
 end
 
 function Profiling.HandleCommand(arg)

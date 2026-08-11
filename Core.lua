@@ -416,6 +416,8 @@ function WhoDoesWhat:OnInitialize()
     self.LOG_OPERATIONS = self.db.profile.settings.logOperations
     self:SetSyncLoggingEnabled(false)
     self.Profiling.LoadSetting()
+    -- After every file has loaded, so the public entry points it times exist.
+    self.Profiling.InstrumentAll()
 
     -- One-off migrations: buffAssignments briefly held the paladin buff picks
     -- before raidAssignments generalized it -- drop it outright. Then paladin
