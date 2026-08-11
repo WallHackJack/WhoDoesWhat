@@ -38,16 +38,29 @@ local function DevMode()
     return WhoDoesWhat.db.profile.settings.developerMode
 end
 
--- Current group members as sorted { name, classInfo } entries. Raid uses raid
--- units; party includes the player; solo is just the player (handy for
--- testing). With onlyClassName set (e.g. "Paladin") only that class is
--- listed -- unless the Developer Mode setting is on, which lists everyone.
+-- The whole group, unfiltered, as sorted { name, classInfo } entries. This is
+-- the expensive half of GetEligibleMembers -- a unit walk with two API calls
+-- per member, a table each, and a sort -- and the views ask for it constantly:
+-- FindMember rebuilt it for every single name it looked up, so class-coloring
+-- a 40-row list cost 40 roster walks and 40 sorts.
 --
--- Non-raiders (the unit-menu pseudo-role) appear only in the unfiltered
--- (nil) roster view -- presence checks, name coloring, prune -- and are
--- dropped from every class-filtered query, which is what feeds the buff/
--- curse dropdowns and pools: someone sitting out isn't a buff option.
-local function GetEligibleMembers(onlyClassName)
+-- Cached for the frame only, exactly like GetPetUnitInfo (Core.lua): caching
+-- across frames would need invalidation events, and nothing guarantees ours
+-- runs before the view that repaints on the same event. GetTime() is frozen
+-- for the duration of a frame, which makes it the right key.
+--
+-- Deliberately caches only the ROSTER, not the filtered result: the class and
+-- non-raider filters below read DB state a click handler can change and then
+-- repaint within the same frame, so they stay live. Only real group membership
+-- is held, and that can't change mid-frame anyway.
+--
+-- Returned shared. Callers all copy what they want into their own tables (they
+-- must -- treat this as read-only).
+local rosterCache, rosterByName, rosterCacheTime
+
+local function GetRoster()
+    if rosterCacheTime == GetTime() then return rosterCache end
+
     local units = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
@@ -60,42 +73,67 @@ local function GetEligibleMembers(onlyClassName)
         end
     end
 
-    local devMode = DevMode()
     local members = {}
     for _, unit in ipairs(units) do
         local name = GetUnitKey(unit)
         local _, englishClass = UnitClass(unit)
         local classInfo = englishClass and GetClassInfoByToken(englishClass)
-        if name and classInfo
-            and (devMode or not onlyClassName or classInfo.name == onlyClassName)
-            and not (onlyClassName and WhoDoesWhat:IsNonRaider(name)) then
+        if name and classInfo then
             members[#members + 1] = { name = name, classInfo = classInfo }
         end
     end
 
     -- Testing aid: fold in the fake raiders (FakeRaid.lua) when the toggle is
-    -- on. Same class filter as the real members; their roles/talents live in
-    -- the DB keyed by name, so everything downstream treats them like anyone.
+    -- on. Their roles/talents live in the DB keyed by name, so everything
+    -- downstream treats them like anyone.
     if WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled() then
         for _, fm in ipairs(WhoDoesWhat.FakeRaid.ROSTER) do
             local classInfo = GetClassInfoByToken(fm.class)
-            if classInfo and (devMode or not onlyClassName or classInfo.name == onlyClassName)
-                and not (onlyClassName and WhoDoesWhat:IsNonRaider(fm.name)) then
+            if classInfo then
                 members[#members + 1] = { name = fm.name, classInfo = classInfo, isFake = true }
             end
         end
     end
 
     table.sort(members, function(a, b) return a.name < b.name end)
+    rosterByName = {}
+    for _, m in ipairs(members) do rosterByName[m.name] = m end
+    rosterCache, rosterCacheTime = members, GetTime()
     return members
 end
 
--- The group member with this name, or nil once they've left.
-local function FindMember(name)
-    for _, m in ipairs(GetEligibleMembers(nil)) do
-        if m.name == name then return m end
+-- Current group members as sorted { name, classInfo } entries. Raid uses raid
+-- units; party includes the player; solo is just the player (handy for
+-- testing). With onlyClassName set (e.g. "Paladin") only that class is
+-- listed -- unless the Developer Mode setting is on, which lists everyone.
+--
+-- Non-raiders (the unit-menu pseudo-role) appear only in the unfiltered
+-- (nil) roster view -- presence checks, name coloring, prune -- and are
+-- dropped from every class-filtered query, which is what feeds the buff/
+-- curse dropdowns and pools: someone sitting out isn't a buff option.
+local function GetEligibleMembers(onlyClassName)
+    local roster = GetRoster()
+    -- The unfiltered view is what most callers want, and it filters nothing --
+    -- hand back the cached table as-is.
+    if not onlyClassName then return roster end
+
+    local devMode = DevMode()
+    local members = {}
+    for _, m in ipairs(roster) do
+        if (devMode or m.classInfo.name == onlyClassName)
+            and not WhoDoesWhat:IsNonRaider(m.name) then
+            members[#members + 1] = m
+        end
     end
-    return nil
+    return members
+end
+
+-- The group member with this name, or nil once they've left. Answered from the
+-- roster's name index: PlayerText calls this once per name it renders, so a
+-- linear scan here made painting a 40-row list quadratic.
+local function FindMember(name)
+    GetRoster()
+    return rosterByName[name]
 end
 
 -- Member names strictly of a class: Developer Mode widens GetEligibleMembers
