@@ -781,22 +781,6 @@ function WhoDoesWhat:RefreshBuffingGridView()
     end
 end
 
--- Everything derived from the shared board and the paladin buff plan, each
--- repainted exactly once. The individual refreshes no-op while their own
--- window is closed, and none of them fans out any further, so this is the
--- whole cost and it is paid once per call.
---
--- WDW Status goes last: it summarizes the others, so it should read state the
--- rest of this pass has already settled.
-function WhoDoesWhat:RefreshBoardViews()
-    self:RefreshBuffingGridView()
-    self:RefreshRaiderTooltip()
-    self:RefreshPaladinBuffingBar()
-    self:RefreshPallyPowerDiffView()
-    self:RefreshActionItemsView()
-    self:RefreshStatusBarsView()
-end
-
 -- Toggle the grid window open/closed.
 function WhoDoesWhat:OpenBuffingGridView()
     local f = EnsureGridFrame()

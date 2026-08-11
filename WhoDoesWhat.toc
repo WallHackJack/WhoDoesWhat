@@ -57,6 +57,7 @@ RaidMenuExtensions.lua
 # before MainAssignmentsView (it looks them up on open, but keep the order
 # honest).
 Views\SectionKit.lua
+Views\ViewRefresh.lua
 Views\RaiderTooltipView.lua
 Views\Sections\CustomRolesSection.lua
 Views\Sections\TankSection.lua
