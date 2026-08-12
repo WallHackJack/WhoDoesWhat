@@ -31,7 +31,7 @@ WhoDoesWhat.BuffTracking = BuffTracking
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
 
 local POLL_INTERVAL = 3     -- seconds between full-group backstop scans
-local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
+local NOTIFY_INTERVAL = 1 -- minimum seconds between board repaints
 
 -- Modern aura API (present on the Anniversary client); nil on anything older,
 -- where ScanUnit falls back to indexed UnitBuff.
@@ -256,19 +256,46 @@ end
 -- Change notification (debounced)
 -- ---------------------------------------------------------------------------
 
--- Bursts of UNIT_AURA (a raid-wide rebuff) collapse into one repaint a tick
--- later. Consumers that need the live buff state hook in here.
-local notifyPending
+-- Rate-limit board repaints. Consumers that need the live buff state hook in
+-- here.
+--
+-- This was a 0.1s trailing debounce, sized to collapse one burst of UNIT_AURA
+-- (a raid-wide rebuff) into a single repaint. That works, but a debounce only
+-- collapses a BURST -- against a steady stream it just becomes a clock. In a
+-- 40-man battleground the changes never stop (deaths and rezzes flip a raider's
+-- state as much as buffs do), so the gap between them stays under 0.1s and it
+-- settled into repainting the whole board 10 times a second. The buffs it
+-- reports last tens of minutes, so that was about a hundred times faster than
+-- the data justifies.
+--
+-- Throttled rather than simply slowed, because a plain 1s debounce would make
+-- the FIRST change after a quiet spell wait the full second -- the case where
+-- promptness actually matters, like watching a blessing you just cast land. A
+-- change arriving after the interval has elapsed repaints immediately; one
+-- arriving inside it schedules a single catch-up repaint for the remainder, so
+-- the last change in a burst is never dropped.
+local notifyPending, lastNotify = false, 0
+
+local function Notify()
+    lastNotify = GetTime()
+    -- Not profiled as its own section: it is exactly these two calls, so it
+    -- only ever restated repaint.board plus a main-window repaint that is ~0
+    -- while that window is closed.
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBoardViews()
+end
+
 local function NotifyChanged()
     if notifyPending then return end
+    local elapsed = GetTime() - lastNotify
+    if elapsed >= NOTIFY_INTERVAL then
+        Notify()
+        return
+    end
     notifyPending = true
-    C_Timer.After(NOTIFY_DEBOUNCE, function()
+    C_Timer.After(NOTIFY_INTERVAL - elapsed, function()
         notifyPending = false
-        -- Not profiled as its own section: it wrapped exactly these two calls,
-        -- so it only ever restated repaint.board plus a main-window repaint
-        -- that is ~0 while that window is closed.
-        WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBoardViews()
+        Notify()
     end)
 end
 
