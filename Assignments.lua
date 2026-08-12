@@ -2486,6 +2486,7 @@ WhoDoesWhat.Assign = {
     FindMember = FindMember,
     MembersOfClass = MembersOfClass,
     HasMemberOfClass = HasMemberOfClass,
+    GetClassInfoByToken = GetClassInfoByToken,
     GetPetMembers = GetPetMembers,
     PlayerText = PlayerText,
     PlayerTextWithRole = PlayerTextWithRole,
