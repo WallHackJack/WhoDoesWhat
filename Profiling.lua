@@ -238,6 +238,17 @@ function Profiling.InstrumentAll()
     -- GROUP_ROSTER_UPDATE schedules.
     Wrap(W, "OnTalentsReady", "talents.ready")
     Wrap(W, "SyncRosterTalents", "talents.sweep")
+    -- Breaking talents.ready down. It is inclusive, and the two things most
+    -- likely to be inside it are a leading-edge repaint (repaint.board, which
+    -- has its own section) and the role auto-assign -- NOT the native talent
+    -- reads, which no-op entirely on a cache replay because they require
+    -- isInspect. These separate a real inspect's cost from a sweep's.
+    Wrap(W, "ScanPaladinBuffTalents", "talents.scan.paladin")
+    Wrap(W, "ScanWarlockHealthstoneTalent", "talents.scan.warlock")
+    Wrap(W, "ScanCoreBuffTalents", "talents.scan.core")
+    Wrap(W, "AutoAssignDetectedRole", "talents.autoassign")
+    Wrap(W, "PushPlayerBuffToPallyPower", "talents.pushpp")
+    Wrap(A, "EnsureAutoRows", "talents.autorows")
 
     -- Sync: the 2s local-change poll and every inbound addon message.
     local Sync = W.GetModule and W:GetModule("Sync", true)
