@@ -141,7 +141,7 @@ end
 local function RefreshViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- Re-write the fakes' roles and utility-talent ranks into the DB. No-op

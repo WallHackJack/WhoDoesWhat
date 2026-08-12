@@ -208,7 +208,7 @@ local function ImportPallyPowerBuffTalents(sender, message)
     if current and current._source ~= "pallypower" then return false end
     WhoDoesWhat.db.profile.paladinBuffTalents[playerKey] = ranks
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     return true
 end
 
@@ -779,7 +779,7 @@ function WhoDoesWhat:SyncToPallyPower()
 
         if pp and pp.UpdateLayout then pp:UpdateLayout() end
         self:RefreshMainAssignmentsView()
-        self:RefreshBuffingGridView()
+        self:RefreshBoardViews()
         self:RefreshStatusBarsView()
     end)
 
@@ -1261,7 +1261,7 @@ local function QueueMirrorRefresh()
     C_Timer.After(0.1, function()
         mirrorRefreshPending = false
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBuffingGridView()
+        WhoDoesWhat:RefreshBoardViews()
     end)
 end
 
@@ -1330,7 +1330,7 @@ function Bridge:PetRosterChanged()
         knownPetNames = live
         if changed then
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshBuffingGridView()
+            WhoDoesWhat:RefreshBoardViews()
         end
     end)
 end

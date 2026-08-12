@@ -64,6 +64,9 @@ local Sync = WhoDoesWhat:NewModule("Sync", "AceComm-3.0", "AceEvent-3.0", "AceTi
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local COMM_PREFIX = "WhoDoesWhat"
 -- Bump on any wire-format change; mismatched clients warn once and ignore
 -- each other. 2: tank rows went one-per-tank with a `markers` array (was
@@ -177,8 +180,9 @@ end
 local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshRaiderRolesView()
-    WhoDoesWhat:RefreshBuffingGridView()
-    WhoDoesWhat:RefreshActionItemsView()
+    -- Action Items included, so no separate call -- adding one back would
+    -- repaint WDW Status twice, which is what this pair used to do.
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- ---------------------------------------------------------------------------
@@ -400,20 +404,28 @@ end
 -- Wire encoding
 -- ---------------------------------------------------------------------------
 
+-- Serialize + deflate is the most expensive thing on the wire path, and it
+-- scales with board size rather than with anything the caller can see, so it
+-- gets its own section rather than hiding inside sync.poll / sync.recv.
 local function Encode(msg)
+    PBegin("sync.encode")
     local serialized = LibSerialize:Serialize(msg)
     local compressed = LibDeflate:CompressDeflate(serialized)
-    return LibDeflate:EncodeForWoWAddonChannel(compressed)
+    local out = LibDeflate:EncodeForWoWAddonChannel(compressed)
+    PEnd("sync.encode")
+    return out
 end
 
 -- nil on anything malformed -- a garbled or foreign payload is dropped, never
 -- an error in the receive path.
 local function Decode(text)
+    PBegin("sync.decode")
     local compressed = LibDeflate:DecodeForWoWAddonChannel(text)
-    if not compressed then return nil end
+    if not compressed then PEnd("sync.decode") return nil end
     local serialized = LibDeflate:DecompressDeflate(compressed)
-    if not serialized then return nil end
+    if not serialized then PEnd("sync.decode") return nil end
     local ok, msg = LibSerialize:Deserialize(serialized)
+    PEnd("sync.decode")
     if not ok or type(msg) ~= "table" then return nil end
     return msg
 end
@@ -581,7 +593,7 @@ local function StoreRanks(senderKey, ranks)
     WhoDoesWhat.db.profile.paladinBuffTalents[senderKey] = stored
     LogSync("buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 local function StoreHealthstoneRank(senderKey, rank)
@@ -607,7 +619,7 @@ local function StoreCoreBuffRanks(senderKey, ranks)
     if not next(stored) then return end
     WhoDoesWhat.db.profile.coreBuffTalents[senderKey] = stored
     LogSync("core buff-talent ranks stored for", senderKey)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 local PALADIN_RANK_MAX = { might = 5, wisdom = 2, kings = 1, sanctuary = 1 }
@@ -1278,7 +1290,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             WhoDoesWhat:RefreshRaiderRolesView()
             -- Their role reshapes the blessing plan, same as a local role
             -- change: repaint the grid/bars/diff window off the plan hook.
-            WhoDoesWhat:RefreshBuffingGridView()
+            WhoDoesWhat:RefreshBoardViews()
         end
     end
 end

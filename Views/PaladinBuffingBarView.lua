@@ -1,5 +1,8 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 -- The Paladin Buffing Bar: a movable Nova-style strip of one button per CLASS
 -- the active WDW/PallyPower source assigns to the local paladin
 -- (WhoDoesWhat.Assign.GetPaladinBuffJobs),
@@ -1611,6 +1614,10 @@ local function EnsureBar()
         self.rangeTick = self.rangeTick + elapsed
         if self.rangeTick < 0.5 then return end
         self.rangeTick = 0
+        -- Times the whole 2Hz tick, not the per-button work inside it: at this
+        -- rate the question is what one tick costs, and instrumenting the
+        -- inner loop would cost more than it measured.
+        PBegin("view.pallybar.tick")
         UpdateSelfBuffButtons()
         local nameToUnit = BuildNameToUnit()
         for _, btn in ipairs(self.buttons) do
@@ -1626,6 +1633,7 @@ local function EnsureBar()
                 end
             end
         end
+        PEnd("view.pallybar.tick")
     end)
 
     return bar

@@ -27,8 +27,11 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local BuffTracking = {}
 WhoDoesWhat.BuffTracking = BuffTracking
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local POLL_INTERVAL = 3     -- seconds between full-group backstop scans
-local NOTIFY_DEBOUNCE = 0.1 -- coalesce repaint requests from bursts of events
+local NOTIFY_INTERVAL = 1 -- minimum seconds between board repaints
 
 -- Modern aura API (present on the Anniversary client); nil on anything older,
 -- where ScanUnit falls back to indexed UnitBuff.
@@ -41,6 +44,12 @@ local GetDebuffDataByIndex = C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex
 -- entry means "not yet scanned" (unknown); an entry with an empty buffs table
 -- means scanned and confirmed to have none of the buffs we track.
 local state = {}
+
+-- Rolling backstop sweep (see the ticker at the bottom): the target list for
+-- the cycle in progress, how far through it we are, and which keys the cycle
+-- has seen so far -- the last of which is what lets a cycle prune departed
+-- raiders on its boundary the way the old all-at-once poll did every pass.
+local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 
 -- ---------------------------------------------------------------------------
 -- Aura name -> tracked buff key
@@ -110,14 +119,24 @@ local function GroupTargets()
     for _, o in ipairs(owners) do
         local key = UnitToKey(o[1])
         if key then
-            targets[#targets + 1] = { unit = o[1], key = key }
+            -- ownerUnit/ownerKey ride along so the rolling sweep can tell
+            -- whether a slot still belongs to the same player it did when the
+            -- list was built. It cannot check a pet directly: a pet's key is
+            -- its OWNER's name plus "'s Pet", which never equals the pet's own
+            -- UnitToKey, so both rows are validated against the owner.
+            targets[#targets + 1] = {
+                unit = o[1], key = key, ownerUnit = o[1], ownerKey = key,
+            }
             -- Every summoned pet, not just the hunters': blessings are only
             -- planned for hunter pets, but a raid-wide effect lands on any pet
             -- in range, so Sated has to be readable on a shadowfiend too. The
             -- consumers pick which pets they care about; an entry here only
             -- means the pet exists and has been scanned.
             if UnitExists(o[2]) then
-                targets[#targets + 1] = { unit = o[2], key = key .. "'s Pet" }
+                targets[#targets + 1] = {
+                    unit = o[2], key = key .. "'s Pet",
+                    ownerUnit = o[1], ownerKey = key,
+                }
             end
         end
     end
@@ -135,45 +154,52 @@ end
 -- Scanning
 -- ---------------------------------------------------------------------------
 
--- Walk a unit's buffs, newest API first (C_UnitAuras), indexed UnitBuff as the
--- fallback. Calls fn(auraName, sourceUnit, expirationTime) for each.
-local function ForEachBuff(unit, fn)
-    local i = 1
-    if GetBuffDataByIndex then
-        while true do
-            local aura = GetBuffDataByIndex(unit, i)
-            if not aura then break end
-            if aura.name then
-                fn(aura.name, aura.sourceUnit, aura.expirationTime)
-            end
-            i = i + 1
-        end
-    else
-        while true do
-            local auraName, _, _, _, _, expirationTime, sourceUnit = UnitBuff(unit, i)
-            if not auraName then break end
-            fn(auraName, sourceUnit, expirationTime)
-            i = i + 1
-        end
-    end
+-- Record one matched aura into the scan tables. Everything it touches is
+-- passed in rather than closed over -- see ScanAuraList.
+local function StoreAura(key, sourceUnit, expirationTime, buffs, sources,
+                         expirations, previous)
+    buffs[key] = true
+    sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
+    expirations[key] = expirationTime and expirationTime > 0
+        and expirationTime
+        or previous and previous.expirations and previous.expirations[key]
 end
 
-local function ForEachDebuff(unit, fn)
+-- Walk one of a unit's aura lists, newest API first (C_UnitAuras), indexed
+-- UnitBuff/UnitDebuff as the fallback.
+--
+-- Deliberately not the callback form this replaced. This runs for every unit
+-- on every poll and again on every UNIT_AURA, and the callback form paid for
+-- that twice over: three closures allocated per unit before a single aura was
+-- read, then two function calls for EVERY aura on the unit. Most auras in a
+-- 40-man match nothing we track, so the lookup now happens inline and only a
+-- match costs a call.
+local function ScanAuraList(unit, harmful, map, buffs, sources, expirations,
+                            previous)
+    if not map then return end
+    local GetByIndex = harmful and GetDebuffDataByIndex or GetBuffDataByIndex
     local i = 1
-    if GetDebuffDataByIndex then
+    if GetByIndex then
         while true do
-            local aura = GetDebuffDataByIndex(unit, i)
+            local aura = GetByIndex(unit, i)
             if not aura then break end
-            if aura.name then
-                fn(aura.name, aura.sourceUnit, aura.expirationTime)
+            local key = aura.name and map[aura.name]
+            if key then
+                StoreAura(key, aura.sourceUnit, aura.expirationTime,
+                    buffs, sources, expirations, previous)
             end
             i = i + 1
         end
     else
+        local Indexed = harmful and UnitDebuff or UnitBuff
         while true do
-            local auraName, _, _, _, _, expirationTime, sourceUnit = UnitDebuff(unit, i)
+            local auraName, _, _, _, _, expirationTime, sourceUnit = Indexed(unit, i)
             if not auraName then break end
-            fn(auraName, sourceUnit, expirationTime)
+            local key = map[auraName]
+            if key then
+                StoreAura(key, sourceUnit, expirationTime,
+                    buffs, sources, expirations, previous)
+            end
             i = i + 1
         end
     end
@@ -199,21 +225,14 @@ end
 local function ScanUnit(unit, name)
     local previous = state[name]
     local buffs, sources, expirations = {}, {}, {}
-    local function StoreAura(map, auraName, sourceUnit, expirationTime)
-        local key = map[auraName]
-        if not key then return end
-        buffs[key] = true
-        sources[key] = (sourceUnit and UnitToKey(sourceUnit)) or false
-        expirations[key] = expirationTime and expirationTime > 0
-            and expirationTime
-            or previous and previous.expirations and previous.expirations[key]
+    ScanAuraList(unit, false, nameToKey, buffs, sources, expirations, previous)
+    -- Skipped outright when no harmful check is configured: with an empty map
+    -- the debuff walk can only ever read every debuff on the unit and discard
+    -- all of them.
+    if next(debuffNameToKey) then
+        ScanAuraList(unit, true, debuffNameToKey, buffs, sources, expirations,
+            previous)
     end
-    ForEachBuff(unit, function(auraName, sourceUnit, expirationTime)
-        StoreAura(nameToKey, auraName, sourceUnit, expirationTime)
-    end)
-    ForEachDebuff(unit, function(auraName, sourceUnit, expirationTime)
-        StoreAura(debuffNameToKey, auraName, sourceUnit, expirationTime)
-    end)
     if UnitIsDeadOrGhost(unit) then buffs.dead = true end
     local connected = UnitIsConnected(unit) ~= false
     local changed = Differs(state[name], buffs, sources, expirations, connected)
@@ -237,17 +256,46 @@ end
 -- Change notification (debounced)
 -- ---------------------------------------------------------------------------
 
--- Bursts of UNIT_AURA (a raid-wide rebuff) collapse into one repaint a tick
--- later. Consumers that need the live buff state hook in here.
-local notifyPending
+-- Rate-limit board repaints. Consumers that need the live buff state hook in
+-- here.
+--
+-- This was a 0.1s trailing debounce, sized to collapse one burst of UNIT_AURA
+-- (a raid-wide rebuff) into a single repaint. That works, but a debounce only
+-- collapses a BURST -- against a steady stream it just becomes a clock. In a
+-- 40-man battleground the changes never stop (deaths and rezzes flip a raider's
+-- state as much as buffs do), so the gap between them stays under 0.1s and it
+-- settled into repainting the whole board 10 times a second. The buffs it
+-- reports last tens of minutes, so that was about a hundred times faster than
+-- the data justifies.
+--
+-- Throttled rather than simply slowed, because a plain 1s debounce would make
+-- the FIRST change after a quiet spell wait the full second -- the case where
+-- promptness actually matters, like watching a blessing you just cast land. A
+-- change arriving after the interval has elapsed repaints immediately; one
+-- arriving inside it schedules a single catch-up repaint for the remainder, so
+-- the last change in a burst is never dropped.
+local notifyPending, lastNotify = false, 0
+
+local function Notify()
+    lastNotify = GetTime()
+    -- Not profiled as its own section: it is exactly these two calls, so it
+    -- only ever restated repaint.board plus a main-window repaint that is ~0
+    -- while that window is closed.
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshBoardViews()
+end
+
 local function NotifyChanged()
     if notifyPending then return end
+    local elapsed = GetTime() - lastNotify
+    if elapsed >= NOTIFY_INTERVAL then
+        Notify()
+        return
+    end
     notifyPending = true
-    C_Timer.After(NOTIFY_DEBOUNCE, function()
+    C_Timer.After(NOTIFY_INTERVAL - elapsed, function()
         notifyPending = false
-        WhoDoesWhat:RefreshMainAssignmentsView()
-        -- RefreshBuffingGridView also nudges both compact status views.
-        WhoDoesWhat:RefreshBuffingGridView()
+        Notify()
     end)
 end
 
@@ -255,9 +303,11 @@ end
 -- Public state refresh + query API
 -- ---------------------------------------------------------------------------
 
--- Re-scan the whole group and drop anyone who left. The backstop poll and
--- roster changes both land here.
+-- Re-scan the whole group at once and drop anyone who left. Roster changes
+-- land here, where the immediacy is worth the cost; the backstop sweep below
+-- spreads the same work out instead.
 function BuffTracking:RefreshAll()
+    PBegin("bufftracking.poll")
     if not nameToKey then BuildNameMap() end
     local changed = false
     local seen = {}
@@ -271,6 +321,13 @@ function BuffTracking:RefreshAll()
             changed = true
         end
     end
+    -- Restart the rolling sweep: its cursor is meaningless against a list this
+    -- just replaced, and everyone was scanned a moment ago regardless.
+    -- sweepSeen MUST be cleared with it -- left set, the next tick would treat
+    -- a half-finished cycle's partial seen-set as complete and prune every
+    -- raider that cycle had not reached yet.
+    sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
+    PEnd("bufftracking.poll")
     if changed then NotifyChanged() end
 end
 
@@ -341,8 +398,16 @@ driver:RegisterEvent("GROUP_ROSTER_UPDATE")
 driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("UNIT_AURA")
 driver:RegisterEvent("UNIT_HEALTH")
+-- Instrumented per EVENT rather than per scan: in a 40-man these fire
+-- constantly (UNIT_HEALTH on every health tick of every raider), so the cost
+-- that matters is count x cheap, not any single slow call. The two are
+-- separate sections because they do very different amounts of work --
+-- UNIT_AURA walks every aura on the unit, UNIT_HEALTH just checks death.
 driver:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_AURA" or event == "UNIT_HEALTH" then
+        local section = event == "UNIT_AURA"
+            and "bufftracking.aura" or "bufftracking.health"
+        PBegin(section)
         if IsGroupUnit(unit) then
             if not nameToKey then BuildNameMap() end
             local name = UnitToKey(unit)
@@ -351,7 +416,10 @@ driver:SetScript("OnEvent", function(_, event, unit)
                 changed = event == "UNIT_HEALTH" and ScanDead(unit, name)
                     or event == "UNIT_AURA" and ScanUnit(unit, name)
             end
+            PEnd(section)
             if changed then NotifyChanged() end
+        else
+            PEnd(section)
         end
     else
         BuffTracking:RefreshAll()
@@ -360,4 +428,55 @@ end)
 
 -- Backstop: catches out-of-range expiries, death/rez, and anything UNIT_AURA
 -- didn't deliver -- UNIT_AURA fires unreliably for distant units.
-C_Timer.NewTicker(POLL_INTERVAL, function() BuffTracking:RefreshAll() end)
+--
+-- Rolled across frames rather than swept in one go. Scanning all ~48 targets
+-- in a single frame measured up to 9ms in a 40-man AV -- over half a 60fps
+-- frame, landing as a visible hitch every few seconds. A slice covers the same
+-- ground on the same POLL_INTERVAL period, so no unit waits any longer than it
+-- did before; the cost is just spread over SWEEP_SLICES frames instead of
+-- falling on one.
+local SWEEP_SLICES = 12
+local SWEEP_INTERVAL = POLL_INTERVAL / SWEEP_SLICES
+
+C_Timer.NewTicker(SWEEP_INTERVAL, function()
+    if not nameToKey then BuildNameMap() end
+    PBegin("bufftracking.sweep")
+    local changed = false
+
+    if not sweepTargets or sweepCursor >= #sweepTargets then
+        -- Cycle boundary. Everything the cycle just finished never saw has
+        -- left the group, so prune it here -- one cycle covers exactly the
+        -- ground the old all-at-once poll covered in a single pass, so this
+        -- keeps its guarantee rather than leaning on GROUP_ROSTER_UPDATE.
+        if sweepSeen then
+            for name in pairs(state) do
+                if not sweepSeen[name] then
+                    state[name] = nil
+                    changed = true
+                end
+            end
+        end
+        sweepTargets = GroupTargets()
+        sweepCursor = 0
+        sweepSeen = {}
+    end
+
+    local total = #sweepTargets
+    local slice = math.ceil(total / SWEEP_SLICES)
+    local last = math.min(sweepCursor + slice, total)
+    for i = sweepCursor + 1, last do
+        local t = sweepTargets[i]
+        sweepSeen[t.key] = true
+        -- A unit token is only a position in the raid, so someone leaving
+        -- shifts everyone after them onto different tokens. Re-check identity
+        -- before scanning, so a slot that moved mid-cycle scans nobody rather
+        -- than filing one raider's auras under another's name.
+        if UnitExists(t.unit) and UnitToKey(t.ownerUnit) == t.ownerKey then
+            if ScanUnit(t.unit, t.key) then changed = true end
+        end
+    end
+    sweepCursor = last
+
+    PEnd("bufftracking.sweep")
+    if changed then NotifyChanged() end
+end)

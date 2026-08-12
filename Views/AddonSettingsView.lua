@@ -80,6 +80,9 @@ local function StoreStatusBuffOption(key, option, value)
     settings.statusBarChecks = settings.statusBarChecks or {}
     settings.statusBarChecks[key] = settings.statusBarChecks[key] or {}
     settings.statusBarChecks[key][option] = value
+    -- The resolved options are cached (Data.lua); this is the one writer, so
+    -- the edit only reaches the views through here.
+    WhoDoesWhat:InvalidateStatusBarCheckCache()
 end
 
 local function GetStatusBuffSetup()
@@ -125,8 +128,9 @@ end
 local function FinishStatusBuffOrderChange(f)
     local settings = WhoDoesWhat.db.profile.settings
     settings.statusBarOrder = { unpack(f.statusBuffOrder) }
+    WhoDoesWhat:InvalidateStatusBarCheckCache()
     RefreshStatusBuffRows(f)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
@@ -181,7 +185,7 @@ end
 local function SetStatusBuffOption(f, key, option, value)
     StoreStatusBuffOption(key, option, value)
     RefreshStatusBuffRows(f)
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
@@ -1015,9 +1019,10 @@ local function ResetBuffTrackingPage(f)
     local settings = WhoDoesWhat.db.profile.settings
     wipe(settings.statusBarChecks)
     settings.statusBarOrder = nil
+    WhoDoesWhat:InvalidateStatusBarCheckCache()
     RefreshStatusBuffRows(f)
     RefreshBuffOptionsFrame()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
     WhoDoesWhat:RefreshStatusBarsView()
 end
 

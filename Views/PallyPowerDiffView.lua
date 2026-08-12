@@ -753,7 +753,7 @@ RenderDiffs = function(f)
         f.sendBtn:SetEnabled(f.sendBtn.canFix and not f.sendBtn.noneFixable)
         f.secondaryBtn:SetText("Ignore")
     end
-    -- The window repaints itself on every plan change (RefreshBuffingGridView
+    -- The window repaints itself on every plan change (RefreshBoardViews
     -- is the "buff plan changed" hook and reaches us), so the second button
     -- only exists to dismiss the two modes that aren't live diffs.
     f.secondaryBtn:SetShown(data.isDemo or f.warningText ~= nil)
@@ -1030,7 +1030,7 @@ function WhoDoesWhat:OpenPallyPowerDiffTestView()
     f:Raise()
 end
 
--- Repainted from RefreshBuffingGridView, the addon's "buff plan changed" hook,
+-- Repainted from RefreshBoardViews, the addon's "board changed" hook,
 -- so the open window tracks PallyPower traffic, role changes, buffing rules
 -- and talent arrivals without the user asking. Nothing left to differ means
 -- nothing left to show, so the window gets out of the way.

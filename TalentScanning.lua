@@ -142,10 +142,10 @@ function WhoDoesWhat:RescanPlayerTalents(unit, playerKey)
         rescanPending[playerKey] = GetTime() + RESCAN_TIMEOUT
         Inspector:DoInspect(unit)
         C_Timer.After(RESCAN_TIMEOUT + 0.1, function()
-            self:RefreshActionItemsView()
+            self:RefreshBoardViews()
         end)
     end
-    self:RefreshActionItemsView()
+    self:RefreshBoardViews()
 end
 
 -- The four talents that decide which paladin should carry which blessing,
@@ -299,7 +299,7 @@ end
 function WhoDoesWhat:RescanBuffingTalents()
     RescanUtilityTalents(self,
         { PALADIN = true, DRUID = true, PRIEST = true }, "buff provider")
-    self:RefreshBuffingGridView()
+    self:RefreshBoardViews()
 end
 
 -- Both flags are test scaffolding for the talent sync and are off during normal
@@ -380,12 +380,12 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay
         self.Assign.AutoPlaceAfflictionElements(playerName)
     end
     self:PushPlayerBuffToPallyPower(playerName)
-    self:RefreshMainAssignmentsView()
-    self:RefreshRaiderRolesView()
     -- Covers the sync path too: talent points arriving from another client
     -- never touch the inspect cache the Talents column reads, but they do
-    -- settle a role, which can take the row off the list entirely.
-    self:RefreshActionItemsView()
+    -- settle a role, which can take the row off the list entirely. Requested
+    -- rather than forced because the roster sweep can auto-assign many players
+    -- in one loop.
+    self:RequestFullRefresh()
 end
 
 -- The initial WDW HELLO carries only these three derived totals, not a role or
@@ -459,11 +459,12 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
 
     -- Their data arrived, so a hand-pressed Rescan on this player is answered
-    -- and the Talents column has something new to say. Repaint either way --
-    -- the spread and its spec icon change on any scan, not only ones we asked
-    -- for, and the window is usually open precisely while a raid is filling in.
+    -- and the Talents column has something new to say. The repaint for this --
+    -- and for whatever the class branches below scan -- is one pass at the end
+    -- of the function. It used to happen here AND again per class branch, so an
+    -- inspect of a paladin, druid or priest repainted WDW Status twice, which
+    -- is most of what made this function the most expensive thing profiled.
     rescanPending[key] = nil
-    self:RefreshActionItemsView()
 
     local detected = DetectedRoleFor(key, class, specIndex)
 
@@ -488,16 +489,17 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- the shared raider tooltip that spells the ranks out.
     if class == "PALADIN" then
         self:ScanPaladinBuffTalents(guid, key, isInspect)
-        self:RefreshMainAssignmentsView()
-        self:RefreshBuffingGridView()
     elseif class == "WARLOCK" then
         self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
-        self:RefreshMainAssignmentsView()
-        self:RefreshRaiderTooltip()
     elseif class == "DRUID" or class == "PRIEST" then
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
-        self:RefreshBuffingGridView()
     end
+
+    -- Requested, not forced: this runs once PER PLAYER. SyncRosterTalents calls
+    -- it for all 40 in one loop, and an inspect fires it for every stranger who
+    -- walks into range, so repainting here directly stalled zone-in and made
+    -- crowds stutter.
+    self:RequestFullRefresh()
 
     -- LibClassicInspector's true flag means this client just inspected the
     -- player in range. Share only that firsthand evidence; cache replays and

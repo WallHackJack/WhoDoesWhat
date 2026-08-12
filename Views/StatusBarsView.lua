@@ -189,6 +189,43 @@ local function RoleIcon(name)
     return paladinClass and paladinClass.classIcon
 end
 
+-- ---------------------------------------------------------------------------
+-- Repaint skips
+-- ---------------------------------------------------------------------------
+--
+-- This view repaints in full on every buff-tracking notify -- up to 10Hz in a
+-- 40-man -- but most of what it paints does not move between those repaints.
+-- Icons, names and row positions only change when a bar is added, removed or
+-- reordered; what actually changes is the bar value, its colour and the
+-- progress label.
+--
+-- Widget setters are C calls, and the positioning ones dirty the frame's
+-- layout, so re-applying an unchanged value is not free. These remember what
+-- was last applied and skip the call when it has not moved. The cached value
+-- lives on the widget, so a pooled row that is hidden and re-shown keeps it --
+-- which is correct: hiding a frame does not discard its texture or its point.
+local function SetTextCached(fontString, text)
+    if fontString.paintedText == text then return end
+    fontString.paintedText = text
+    fontString:SetText(text)
+end
+
+local function SetTextureCached(texture, path)
+    if texture.paintedTexture == path then return end
+    texture.paintedTexture = path
+    texture:SetTexture(path)
+end
+
+-- Rows are stacked from the top of the content area, so a row's position is
+-- entirely its offset. Re-pointing every row on every repaint was invalidating
+-- the whole frame's layout several times a second for no visual change.
+local function SetRowOffsetCached(row, offset)
+    if row.paintedOffset == offset then return end
+    row.paintedOffset = offset
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD, -offset)
+end
+
 local function SetRowGlow(row, shown)
     if not LCG then return end
     if shown and not row.glowing then
@@ -1012,7 +1049,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             or self.statusBarColorPreviewKey == "paladinBuffs")
     local paladinInScope = StatusCheckInScope(paladinOptions.scope)
     local paladinRequiredAvailable = not paladinOptions.requiredClass
-        or #self.Assign.MembersOfClass(paladinOptions.requiredClass) > 0
+        or self.Assign.HasMemberOfClass(paladinOptions.requiredClass)
     local paladinAvailable = paladinRequiredAvailable
         or not paladinOptions.hideBarUnavailable
     local showPaladinBars = paladinPreview
@@ -1216,11 +1253,22 @@ function WhoDoesWhat:RefreshStatusBarsView()
     local rowsH = (#displayed + (showEmptyCheck and 1 or 0)) * ROW_H
     local contentH = rowsH
     ApplyResizeBounds()
-    view:SetSize(math.max(self.db.profile.settings.overviewWidth or DEFAULT_W,
-            RESIZE_MIN_W),
-        CONTENT_TOP + contentH + PAD + INSET)
-    LayoutHeader()
-    if not view.moving and not view.resizing then LoadPosition() end
+    -- Only when the window actually changes shape. SetSize fires OnSizeChanged,
+    -- which re-widths and re-lays out every row, and LoadPosition re-anchors the
+    -- whole frame with a clamp calculation -- all of it was running on every
+    -- repaint, though the shape only moves when a bar appears or disappears (or
+    -- the width setting changes). A user drag writes overviewWidth on release,
+    -- so a resize still lands here; skipping during the drag also stops this
+    -- fighting the drag, which it previously did.
+    local wantW = math.max(self.db.profile.settings.overviewWidth or DEFAULT_W,
+        RESIZE_MIN_W)
+    local wantH = CONTENT_TOP + contentH + PAD + INSET
+    if view.paintedW ~= wantW or view.paintedH ~= wantH then
+        view.paintedW, view.paintedH = wantW, wantH
+        view:SetSize(wantW, wantH)
+        LayoutHeader()
+        if not view.moving and not view.resizing then LoadPosition() end
+    end
 
     -- The two state rows draw identically off their bucket; only who is
     -- allowed to be nagged by the glow differs. PallyPower's assignments are
@@ -1247,35 +1295,38 @@ function WhoDoesWhat:RefreshStatusBarsView()
             for i, entry in ipairs(displayed) do
                 if entry.stateRow == key then index = i break end
             end
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-                -(CONTENT_TOP + (index - 1) * ROW_H))
+            SetRowOffsetCached(row, CONTENT_TOP + (index - 1) * ROW_H)
             SetRowGlow(row, glow)
 
-            local attention = state.bucket == "attention"
-            row.stateIcon:ClearAllPoints()
-            row.stateIcon:SetSize(attention and 12 or 14, attention and 12 or 14)
-            row.statusText:ClearAllPoints()
-            if state.bucket == "inactive" then
-                row.stateIcon:SetPoint("LEFT", 3, 0)
-                row.stateIcon:Hide()
-                row.statusText:SetPoint("LEFT", 4, 0)
-                row.statusText:SetPoint("RIGHT", -3, 0)
-                row.statusText:SetTextColor(0.6, 0.6, 0.6)
-            elseif state.bucket == "ok" then
-                row.stateIcon:SetTexture(READY_ICON)
-                row.stateIcon:SetPoint("RIGHT", -3, 0)
-                row.stateIcon:Show()
-                row.statusText:SetPoint("LEFT", 3, 0)
-                row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -2, 0)
-                row.statusText:SetTextColor(0.3, 1, 0.3)
-            else
-                row.stateIcon:SetTexture(self.WARNING_ICON)
-                row.stateIcon:SetPoint("RIGHT", -3, 0)
-                row.stateIcon:Show()
-                row.statusText:SetPoint("LEFT", 3, 0)
-                row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -3, 0)
-                row.statusText:SetTextColor(1, 0.55, 0)
+            -- Every line below is decided by the bucket alone, and the bucket
+            -- changes far more rarely than this view repaints.
+            if row.paintedBucket ~= state.bucket then
+                row.paintedBucket = state.bucket
+                local attention = state.bucket == "attention"
+                row.stateIcon:ClearAllPoints()
+                row.stateIcon:SetSize(attention and 12 or 14, attention and 12 or 14)
+                row.statusText:ClearAllPoints()
+                if state.bucket == "inactive" then
+                    row.stateIcon:SetPoint("LEFT", 3, 0)
+                    row.stateIcon:Hide()
+                    row.statusText:SetPoint("LEFT", 4, 0)
+                    row.statusText:SetPoint("RIGHT", -3, 0)
+                    row.statusText:SetTextColor(0.6, 0.6, 0.6)
+                elseif state.bucket == "ok" then
+                    row.stateIcon:SetTexture(READY_ICON)
+                    row.stateIcon:SetPoint("RIGHT", -3, 0)
+                    row.stateIcon:Show()
+                    row.statusText:SetPoint("LEFT", 3, 0)
+                    row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -2, 0)
+                    row.statusText:SetTextColor(0.3, 1, 0.3)
+                else
+                    row.stateIcon:SetTexture(self.WARNING_ICON)
+                    row.stateIcon:SetPoint("RIGHT", -3, 0)
+                    row.stateIcon:Show()
+                    row.statusText:SetPoint("LEFT", 3, 0)
+                    row.statusText:SetPoint("RIGHT", row.stateIcon, "LEFT", -3, 0)
+                    row.statusText:SetTextColor(1, 0.55, 0)
+                end
             end
             LayoutStateRow(row)
             row:Show()
@@ -1291,10 +1342,11 @@ function WhoDoesWhat:RefreshStatusBarsView()
             normalIndex = normalIndex + 1
             local row = view.rows[normalIndex] or CreateRow(normalIndex)
             local coverage = entry.coverage
-            row.icon:SetTexture(entry.icon)
-            row.name:SetText(entry.awaitingTalents
+            SetTextureCached(row.icon, entry.icon)
+            SetTextCached(row.name, entry.awaitingTalents
                 and ("Awaiting talents - " .. entry.name) or entry.name)
-            row.initial:SetText(entry.isPaladin and WhoDoesWhat:NameInitial(entry.name) or "")
+            SetTextCached(row.initial,
+                entry.isPaladin and WhoDoesWhat:NameInitial(entry.name) or "")
             row.isPaladin = entry.isPaladin
             row.isPaladinRow = entry.paladinRow
             row.paladinName = entry.paladinName
@@ -1329,10 +1381,8 @@ function WhoDoesWhat:RefreshStatusBarsView()
                     entry.colorPreview and 1 or coverage.correct,
                     entry.colorPreview and 1 or coverage.total, entry.colorRGB))
             end
-            row.background:SetColorTexture(0.025, 0.025, 0.035, 1)
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", view, "TOPLEFT", INSET + PAD,
-                -(CONTENT_TOP + (displayIndex - 1) * ROW_H))
+            -- The background colour is a constant and CreateRow already set it.
+            SetRowOffsetCached(row, CONTENT_TOP + (displayIndex - 1) * ROW_H)
             row:Show()
             LayoutProgressLabel(row)
             -- Started after Show so a freshly pooled row's glow animation

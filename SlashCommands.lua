@@ -11,8 +11,15 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- /wdw log       - toggle the WhoDoesWhat sync traffic log
 -- /wdw pplog     - toggle the PallyPower traffic log window
 -- /wdw ppdifftest - open the PallyPower diff grids with view-only dummy data
+-- /wdw perf [on|off|reset] - developer timing for the addon's hot paths
+--                  (Profiling.lua). Bare "perf" prints the summary.
 function WhoDoesWhat:ToggleMainUI(input)
     input = input and input:trim():lower() or ""
+    local perfArg = input:match("^perf%s*(%a*)$")
+    if perfArg then
+        self.Profiling.HandleCommand(perfArg)
+        return
+    end
     if input == "r" then
         self:OpenBuffingGridView()
         return

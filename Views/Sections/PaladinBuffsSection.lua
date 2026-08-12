@@ -47,6 +47,7 @@ local K = WhoDoesWhat.SectionKit
 
 local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
+local HasMemberOfClass = A.HasMemberOfClass
 local PlayerTextWithRole = A.PlayerTextWithRole
 local GetActivePaladinBuffPlan = A.GetActivePaladinBuffPlan
 local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
@@ -367,7 +368,7 @@ local function AddRule(rule)
         .. " " .. tostring(rule.buff)
         .. (rule.value and (" -> " .. tostring(rule.value)) or "") .. ").")
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- Level 2 of the assign branch: the group's paladins, the ones running
@@ -589,7 +590,7 @@ local function CreateRuleRow(f, index)
         -- ApplyViewMode refits the window height -- removing a rule shrinks
         -- the box, and the collapsed view must follow.
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBuffingGridView()
+        WhoDoesWhat:RefreshBoardViews()
     end)
     delBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -990,7 +991,7 @@ function Refresh(f) -- forward declared above
     -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
     -- gray title. Developer Mode keeps everything live, same as it
     -- lifts class filters. Runs last so it wins over the states above.
-    local enabled = DevMode() or #MembersOfClass("Paladin") > 0
+    local enabled = DevMode() or HasMemberOfClass("Paladin")
     local reason = not enabled and "No paladins in the group." or nil
     if enabled then
         state.box.title:SetTextColor(0.95, 0.95, 0.95)
@@ -1050,7 +1051,7 @@ local function CreatePallyBuffSourceDropdown(parent)
                 WhoDoesWhat.db.profile.settings.pallyBuffSource = key
                 UIDropDownMenu_SetText(sourceDD, short)
                 WhoDoesWhat:RefreshMainAssignmentsView()
-                WhoDoesWhat:RefreshBuffingGridView()
+                WhoDoesWhat:RefreshBoardViews()
             end
             UIDropDownMenu_AddButton(info, level)
         end
@@ -1139,7 +1140,7 @@ local function Build(f, content)
         wipe(GetBuffRules())
         WhoDoesWhat:LogOperation("Paladin Buffs: all buffing rules removed.")
         WhoDoesWhat:RefreshMainAssignmentsView()
-        WhoDoesWhat:RefreshBuffingGridView()
+        WhoDoesWhat:RefreshBoardViews()
     end)
     clearRulesBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")

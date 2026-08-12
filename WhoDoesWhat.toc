@@ -35,6 +35,7 @@ Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 
 # --- Main ---
 Core.lua
+Profiling.lua
 ClientFeatures.lua
 SlashCommands.lua
 Data.lua
@@ -43,6 +44,7 @@ TalentScanning.lua
 BuffTracking.lua
 Assignments.lua
 AssignmentsActions.lua
+ActionItems.lua
 FakeRaid.lua
 Sync.lua
 PallyPowerBridge.lua
@@ -56,6 +58,7 @@ RaidMenuExtensions.lua
 # before MainAssignmentsView (it looks them up on open, but keep the order
 # honest).
 Views\SectionKit.lua
+Views\ViewRefresh.lua
 Views\RaiderTooltipView.lua
 Views\Sections\CustomRolesSection.lua
 Views\Sections\TankSection.lua

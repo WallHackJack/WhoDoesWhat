@@ -9,6 +9,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- they use. Nothing here creates frames; repaints go through the views'
 -- public Refresh methods, which no-op while their window is closed.
 
+-- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
+local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
+
 local CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 
 -- Stable player key for a unit: "Name" same-realm, "Name-Realm" foreign.
@@ -38,16 +41,30 @@ local function DevMode()
     return WhoDoesWhat.db.profile.settings.developerMode
 end
 
--- Current group members as sorted { name, classInfo } entries. Raid uses raid
--- units; party includes the player; solo is just the player (handy for
--- testing). With onlyClassName set (e.g. "Paladin") only that class is
--- listed -- unless the Developer Mode setting is on, which lists everyone.
+-- The whole group, unfiltered, as sorted { name, classInfo } entries. This is
+-- the expensive half of GetEligibleMembers -- a unit walk with two API calls
+-- per member, a table each, and a sort -- and the views ask for it constantly:
+-- FindMember rebuilt it for every single name it looked up, so class-coloring
+-- a 40-row list cost 40 roster walks and 40 sorts.
 --
--- Non-raiders (the unit-menu pseudo-role) appear only in the unfiltered
--- (nil) roster view -- presence checks, name coloring, prune -- and are
--- dropped from every class-filtered query, which is what feeds the buff/
--- curse dropdowns and pools: someone sitting out isn't a buff option.
-local function GetEligibleMembers(onlyClassName)
+-- Cached for the frame only, exactly like GetPetUnitInfo (Core.lua): caching
+-- across frames would need invalidation events, and nothing guarantees ours
+-- runs before the view that repaints on the same event. GetTime() is frozen
+-- for the duration of a frame, which makes it the right key.
+--
+-- Deliberately caches only the ROSTER, not the filtered result: the class and
+-- non-raider filters below read DB state a click handler can change and then
+-- repaint within the same frame, so they stay live. Only real group membership
+-- is held, and that can't change mid-frame anyway.
+--
+-- Returned shared. Callers all copy what they want into their own tables (they
+-- must -- treat this as read-only).
+local rosterCache, rosterByName, rosterCacheTime
+
+local function GetRoster()
+    if rosterCacheTime == GetTime() then return rosterCache end
+    PBegin("roster.build")
+
     local units = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
@@ -60,42 +77,68 @@ local function GetEligibleMembers(onlyClassName)
         end
     end
 
-    local devMode = DevMode()
     local members = {}
     for _, unit in ipairs(units) do
         local name = GetUnitKey(unit)
         local _, englishClass = UnitClass(unit)
         local classInfo = englishClass and GetClassInfoByToken(englishClass)
-        if name and classInfo
-            and (devMode or not onlyClassName or classInfo.name == onlyClassName)
-            and not (onlyClassName and WhoDoesWhat:IsNonRaider(name)) then
+        if name and classInfo then
             members[#members + 1] = { name = name, classInfo = classInfo }
         end
     end
 
     -- Testing aid: fold in the fake raiders (FakeRaid.lua) when the toggle is
-    -- on. Same class filter as the real members; their roles/talents live in
-    -- the DB keyed by name, so everything downstream treats them like anyone.
+    -- on. Their roles/talents live in the DB keyed by name, so everything
+    -- downstream treats them like anyone.
     if WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled() then
         for _, fm in ipairs(WhoDoesWhat.FakeRaid.ROSTER) do
             local classInfo = GetClassInfoByToken(fm.class)
-            if classInfo and (devMode or not onlyClassName or classInfo.name == onlyClassName)
-                and not (onlyClassName and WhoDoesWhat:IsNonRaider(fm.name)) then
+            if classInfo then
                 members[#members + 1] = { name = fm.name, classInfo = classInfo, isFake = true }
             end
         end
     end
 
     table.sort(members, function(a, b) return a.name < b.name end)
+    rosterByName = {}
+    for _, m in ipairs(members) do rosterByName[m.name] = m end
+    rosterCache, rosterCacheTime = members, GetTime()
+    PEnd("roster.build")
     return members
 end
 
--- The group member with this name, or nil once they've left.
-local function FindMember(name)
-    for _, m in ipairs(GetEligibleMembers(nil)) do
-        if m.name == name then return m end
+-- Current group members as sorted { name, classInfo } entries. Raid uses raid
+-- units; party includes the player; solo is just the player (handy for
+-- testing). With onlyClassName set (e.g. "Paladin") only that class is
+-- listed -- unless the Developer Mode setting is on, which lists everyone.
+--
+-- Non-raiders (the unit-menu pseudo-role) appear only in the unfiltered
+-- (nil) roster view -- presence checks, name coloring, prune -- and are
+-- dropped from every class-filtered query, which is what feeds the buff/
+-- curse dropdowns and pools: someone sitting out isn't a buff option.
+local function GetEligibleMembers(onlyClassName)
+    local roster = GetRoster()
+    -- The unfiltered view is what most callers want, and it filters nothing --
+    -- hand back the cached table as-is.
+    if not onlyClassName then return roster end
+
+    local devMode = DevMode()
+    local members = {}
+    for _, m in ipairs(roster) do
+        if (devMode or m.classInfo.name == onlyClassName)
+            and not WhoDoesWhat:IsNonRaider(m.name) then
+            members[#members + 1] = m
+        end
     end
-    return nil
+    return members
+end
+
+-- The group member with this name, or nil once they've left. Answered from the
+-- roster's name index: PlayerText calls this once per name it renders, so a
+-- linear scan here made painting a 40-row list quadratic.
+local function FindMember(name)
+    GetRoster()
+    return rosterByName[name]
 end
 
 -- Member names strictly of a class: Developer Mode widens GetEligibleMembers
@@ -109,6 +152,20 @@ local function MembersOfClass(className)
         end
     end
     return out
+end
+
+-- Is anyone of this class here? Same rule as MembersOfClass -- exact class,
+-- non-raiders excluded -- but it walks the cached roster and stops at the
+-- first hit instead of building a list the caller only measures. The status
+-- checks ask this once per check per repaint.
+local function HasMemberOfClass(className)
+    for _, m in ipairs(GetRoster()) do
+        if m.classInfo.name == className
+            and not WhoDoesWhat:IsNonRaider(m.name) then
+            return true
+        end
+    end
+    return false
 end
 
 -- One virtual pet per hunter in the group (a non-raider hunter's pet sits
@@ -889,7 +946,21 @@ end
 -- A guarantee still can't reach past the raider's role: a blessing the role's
 -- buff order excludes stays excluded (the divider in the role's buff order is
 -- the stronger statement).
-local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
+--
+-- With `memo` (a table owned by one plan computation, where ignored/guaranteed/
+-- slots are all fixed) the result is reused across members that share it. It
+-- depends only on the member's role and class -- everything it reads is either
+-- one of those two or a fixed input -- and a 40-man holds only a handful of
+-- role/class pairs, so this collapses ~120 builds into ~20. The memoized table
+-- is shared, so treat the result as read-only whenever a memo is passed.
+local function RuleAdjustedOrder(m, ignored, guaranteed, slots, memo)
+    local memoKey
+    if memo then
+        memoKey = tostring(WhoDoesWhat:GetAssignedRole(m.name)) .. "\31"
+            .. m.classInfo.name
+        local hit = memo[memoKey]
+        if hit then return hit end
+    end
     local roleId = WhoDoesWhat:GetAssignedRole(m.name)
     local base = (roleId and WhoDoesWhat:GetEffectiveBuffOrder(roleId))
         or WhoDoesWhat.CanonicalBuffOrder
@@ -921,7 +992,10 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
             end
         end
     end
-    if #promote == 0 then return order end
+    if #promote == 0 then
+        if memo then memo[memoKey] = order end
+        return order
+    end
 
     local promoted = {}
     for _, key in ipairs(promote) do promoted[key] = true end
@@ -934,6 +1008,7 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots)
     for i = #promote, 1, -1 do
         table.insert(kept, insertAt, promote[i])
     end
+    if memo then memo[memoKey] = kept end
     return kept
 end
 
@@ -1034,7 +1109,7 @@ end
 -- same roster, roles, talent ranks, and rules. Keep caster names sorted, buff
 -- order canonical, mask traversal numeric, and equal-score tie retention
 -- stable; a pairs-order tie-break here would desynchronize blessing displays.
-local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots)
+local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots, orderMemo)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local forced = {}
 
@@ -1067,7 +1142,7 @@ local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, pref
     for _, key in ipairs(avail) do votes[key] = 0 end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
             for i = 1, math.min(depth, #order) do
                 if votes[order[i]] then
                     votes[order[i]] = votes[order[i]] + 1
@@ -1217,7 +1292,7 @@ local cachedBuffPlanKey, cachedBuffPlan
 -- Cheap deterministic key for every input to the expensive matching below.
 -- This avoids a brittle list of invalidation calls across roster, talent,
 -- role-customization, sync, fake-raid, and local-rule mutation paths.
-local function BuffPlanKey(ignored, guaranteed, slots)
+local function BuffPlanKey(ignored, guaranteed, slots, orderMemo)
     local parts = {}
     local function Add(value) parts[#parts + 1] = tostring(value or "") end
 
@@ -1230,7 +1305,7 @@ local function BuffPlanKey(ignored, guaranteed, slots)
         local roleId = WhoDoesWhat:GetAssignedRole(m.name)
         Add("member"); Add(m.name); Add(m.classInfo.name); Add(roleId)
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots), ","))
+            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo), ","))
         end
     end
     for _, name in ipairs(MembersOfClass("Paladin")) do
@@ -1284,7 +1359,14 @@ local function ComputeGreaterAssignments(plan, targetClass, petTargets)
     return greaterByPaladin
 end
 
+-- Two sections, because they answer different questions: plan.lookup covers
+-- every call including the cache key build (paid on every hit, and the views
+-- ask several times per repaint), while plan.compute covers only the real
+-- matcher behind a cache miss. A high lookup count with a low compute count is
+-- the healthy shape; compute climbing with it means something is thrashing the
+-- key.
 local function ComputePaladinBuffPlan()
+    PBegin("plan.lookup")
     local ignored, guaranteed, assigned = CompileBuffRules()
     local pool, locked = BuffPaladins(ignored, assigned)
     -- How many blessings a raider stands to receive: one from each matching
@@ -1292,8 +1374,18 @@ local function ComputePaladinBuffPlan()
     -- window a guarantee rule pulls its blessing into.
     local slots = #pool + #locked
 
-    local cacheKey = BuffPlanKey(ignored, guaranteed, slots)
-    if cachedBuffPlanKey == cacheKey then return cachedBuffPlan end
+    -- ignored/guaranteed/slots are settled now, so one memo serves every
+    -- RuleAdjustedOrder call below -- the key build, the demand votes, and the
+    -- per-raider solve each walked all 40 members independently. Scoped to this
+    -- computation because those three inputs are what it is implicitly keyed on.
+    local orderMemo = {}
+
+    local cacheKey = BuffPlanKey(ignored, guaranteed, slots, orderMemo)
+    if cachedBuffPlanKey == cacheKey then
+        PEnd("plan.lookup")
+        return cachedBuffPlan
+    end
+    PBegin("plan.compute")
 
     -- What the locked paladins already blanket the raid with, and the soft
     -- primary locks (assign rules without `only`) for the paladins still in
@@ -1305,7 +1397,7 @@ local function ComputePaladinBuffPlan()
         if rule then preferred[name] = rule.buff end
     end
     local forced, ladder = ComputePaladinBuffLadder(pool, ignored, covered,
-        guaranteed, preferred, slots)
+        guaranteed, preferred, slots, orderMemo)
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
     -- rank 0; Salvation/Light have no talent requirement.
@@ -1346,7 +1438,7 @@ local function ComputePaladinBuffPlan()
     -- reaching it and the picks that did. Each paladin either sits out (mask
     -- unchanged) or takes one free position they can cast. Masks are walked
     -- numerically so equal-score ties resolve the same way every refresh.
-    local function SolveRaider(order, unavailable)
+    local function SolveRaiderUncached(order, unavailable)
         local seedCells, seedMask = SeedLocked(order, unavailable)
         local dp = { [seedMask] = { score = 0, picks = {} } }
         for p = 1, #pool do
@@ -1414,11 +1506,46 @@ local function ComputePaladinBuffPlan()
         return cells
     end
 
+    -- The DP above is a pure function of (order, unavailable) -- everything
+    -- else it reads (pool, locked, ladder, forced) is fixed for this plan. A
+    -- 40-man raid holds only a handful of DISTINCT orders (one per role/
+    -- guarantee shape), so solving per raider re-derived the same answer
+    -- dozens of times. Memoize on the inputs instead: 48 solves become ~5.
+    --
+    -- This matters because the DP is superlinear in paladin count (it copies
+    -- the picks table inside its innermost loop), so the raid where the
+    -- redundancy costs most is exactly the one with six paladins in it.
+    --
+    -- Callers store the result per raider and only ever read it back, but they
+    -- store it for DIFFERENT raiders -- so hand out a copy rather than letting
+    -- two raiders alias one table.
+    local solveMemo = {}
+    local function SolveRaider(order, unavailable)
+        local sig = table.concat(order, "\31")
+        if unavailable then
+            -- Pet rows pass a per-pet `used` set; fold it in, walked in pool
+            -- order so the signature is deterministic.
+            local marks = {}
+            for i = 1, #pool do
+                marks[i] = unavailable[pool[i]] and "1" or "0"
+            end
+            sig = sig .. "\30" .. table.concat(marks)
+        end
+        local hit = solveMemo[sig]
+        if not hit then
+            hit = SolveRaiderUncached(order, unavailable)
+            solveMemo[sig] = hit
+        end
+        local cells = {}
+        for paladin, key in pairs(hit) do cells[paladin] = key end
+        return cells
+    end
+
     local plan, targetClass, petTargets = {}, {}, {}
     for _, m in ipairs(GetEligibleMembers(nil)) do
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots)
+            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
             plan[m.name] = SolveRaider(order)
             targetClass[m.name] = m.classInfo.name
         end
@@ -1474,6 +1601,8 @@ local function ComputePaladinBuffPlan()
         -- to hold their row back the way it is for everyone else.
         lockedPaladins = lockedPaladins,
     }
+    PEnd("plan.compute")
+    PEnd("plan.lookup")
     return cachedBuffPlan
 end
 
@@ -1621,13 +1750,18 @@ local function ComputeCoreBuffProviders(key, disconnected)
     return providers
 end
 
+-- Deliberately does NOT go through ComputeCoreBuffProviders. That builds a
+-- table of every provider and sorts it, and this wants one number out of it --
+-- a sort to compute a maximum, once per check, on every status repaint.
 local function BestAvailableCoreBuffRank(buff, key, disconnected)
     if not buff.improvedTalent or not buff.className then return nil end
+    disconnected = disconnected or DisconnectedGroupTargets()
     local best
-    for _, provider in ipairs(ComputeCoreBuffProviders(key, disconnected)) do
-        if provider.available and provider.rank ~= nil
-            and (best == nil or provider.rank > best) then
-            best = provider.rank
+    for _, member in ipairs(GetEligibleMembers(buff.className)) do
+        if member.classInfo.name == buff.className
+            and (member.isFake or not disconnected[member.name]) then
+            local rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key)
+            if rank ~= nil and (best == nil or rank > best) then best = rank end
         end
     end
     return best
@@ -1661,6 +1795,10 @@ local function ComputeCoreRaidBuffCoverage()
             local bestRank = options.bestAvailable
                 and not (options.anyInCombat and anyContext)
                 and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
+            -- Constant for the whole check, and it calls UnitAffectingCombat.
+            -- Evaluated per member it was a C call for every raider on every
+            -- check, on every repaint.
+            local flagsTheCovered = FlagsTheCovered(buff, options)
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
@@ -1675,12 +1813,12 @@ local function ComputeCoreRaidBuffCoverage()
                 -- Which end of the check `flagged` holds, since a debuff can
                 -- flip mid-pull (see flagMissingInCombat below). The tooltip
                 -- can't read it off `negative` alone.
-                flaggedAreMissing = not FlagsTheCovered(buff, options),
+                flaggedAreMissing = not flagsTheCovered,
                 -- The improvement rank this check is currently measured
                 -- against, so a view can tell who is on the hook for it.
                 bestRank = bestRank,
                 available = not options.requiredClass
-                    or #MembersOfClass(options.requiredClass) > 0,
+                    or HasMemberOfClass(options.requiredClass),
             }
             local targets = members
             if options.hunterPets and not buff.hunterPetsOptionDisabled then
@@ -1716,7 +1854,7 @@ local function ComputeCoreRaidBuffCoverage()
                         row.correct = row.correct + 1
                         correct = correct + 1
                     end
-                    if covered == FlagsTheCovered(buff, options) then
+                    if covered == flagsTheCovered then
                         row.flagged[#row.flagged + 1] = {
                             name = m.name,
                             classInfo = m.classInfo,
@@ -2191,7 +2329,7 @@ local function SetAssignment(rowId, playerName)
 
     WhoDoesWhat:RefreshMainAssignmentsView()
     -- The buff grid mirrors the paladin-buff picks; keep it live.
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end
 
 -- When a warlock is detected (or respecs) into Affliction, hand them Curse of
@@ -2347,6 +2485,8 @@ WhoDoesWhat.Assign = {
     GetEligibleMembers = GetEligibleMembers,
     FindMember = FindMember,
     MembersOfClass = MembersOfClass,
+    HasMemberOfClass = HasMemberOfClass,
+    GetClassInfoByToken = GetClassInfoByToken,
     GetPetMembers = GetPetMembers,
     PlayerText = PlayerText,
     PlayerTextWithRole = PlayerTextWithRole,
@@ -2444,5 +2584,5 @@ pvpRuleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 pvpRuleFrame:SetScript("OnEvent", function()
     if not WhoDoesWhat.db then return end
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshBuffingGridView()
+    WhoDoesWhat:RefreshBoardViews()
 end)
