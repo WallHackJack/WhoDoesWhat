@@ -380,14 +380,12 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay
         self.Assign.AutoPlaceAfflictionElements(playerName)
     end
     self:PushPlayerBuffToPallyPower(playerName)
-    self:RefreshMainAssignmentsView()
-    self:RefreshRaiderRolesView()
     -- Covers the sync path too: talent points arriving from another client
     -- never touch the inspect cache the Talents column reads, but they do
-    -- settle a role, which can take the row off the list entirely. A role is a
-    -- board mutation, so the whole board repaints -- this only runs when the
-    -- role actually changed, not on every inspect.
-    self:RefreshBoardViews()
+    -- settle a role, which can take the row off the list entirely. Requested
+    -- rather than forced because the roster sweep can auto-assign many players
+    -- in one loop.
+    self:RequestFullRefresh()
 end
 
 -- The initial WDW HELLO carries only these three derived totals, not a role or
@@ -491,18 +489,17 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- the shared raider tooltip that spells the ranks out.
     if class == "PALADIN" then
         self:ScanPaladinBuffTalents(guid, key, isInspect)
-        self:RefreshMainAssignmentsView()
     elseif class == "WARLOCK" then
         self:ScanWarlockHealthstoneTalent(guid, key, isInspect)
-        self:RefreshMainAssignmentsView()
     elseif class == "DRUID" or class == "PRIEST" then
         self:ScanCoreBuffTalents(guid, key, class, isInspect)
     end
 
-    -- One pass for everything above: the talent read itself, the role
-    -- auto-assign, and whichever class scan ran. RefreshBoardViews covers the
-    -- raider tooltip and the Action Items window too, each exactly once.
-    self:RefreshBoardViews()
+    -- Requested, not forced: this runs once PER PLAYER. SyncRosterTalents calls
+    -- it for all 40 in one loop, and an inspect fires it for every stranger who
+    -- walks into range, so repainting here directly stalled zone-in and made
+    -- crowds stutter.
+    self:RequestFullRefresh()
 
     -- LibClassicInspector's true flag means this client just inspected the
     -- player in range. Share only that firsthand evidence; cache replays and

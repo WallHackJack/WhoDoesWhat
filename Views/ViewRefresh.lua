@@ -30,3 +30,45 @@ function WhoDoesWhat:RefreshBoardViews()
     self:RefreshActionItemsView()
     self:RefreshStatusBarsView()
 end
+
+-- Ask for a repaint of everything, without insisting on one right now.
+--
+-- For callers that fire PER PLAYER rather than per event. The talent pipeline
+-- is why this exists: SyncRosterTalents replays the inspect cache for every
+-- group member in one loop, and LibClassicInspector delivers TALENTS_READY a
+-- player at a time as people come into range. Repainting inside those meant a
+-- 40-man roster sweep did forty full repaints in a single frame -- a quarter of
+-- a second of stall on zone-in -- and walking into a crowd did one per
+-- stranger, including strangers already scanned once.
+--
+-- Covers the two big windows as well as the board, because a talent arrival can
+-- settle a role, which moves the roster lists too. That is what these callers
+-- were each doing individually.
+--
+-- Leading edge, like the buff-tracking notify: the first request after a quiet
+-- spell repaints immediately, so a single inspect still feels instant.
+-- Everything inside the interval collapses into one catch-up, which is what
+-- turns a roster sweep into two repaints instead of forty.
+local FULL_REFRESH_INTERVAL = 0.5
+local fullPending, lastFullRefresh = false, 0
+
+local function DoFullRefresh()
+    lastFullRefresh = GetTime()
+    WhoDoesWhat:RefreshMainAssignmentsView()
+    WhoDoesWhat:RefreshRaiderRolesView()
+    WhoDoesWhat:RefreshBoardViews()
+end
+
+function WhoDoesWhat:RequestFullRefresh()
+    if fullPending then return end
+    local elapsed = GetTime() - lastFullRefresh
+    if elapsed >= FULL_REFRESH_INTERVAL then
+        DoFullRefresh()
+        return
+    end
+    fullPending = true
+    C_Timer.After(FULL_REFRESH_INTERVAL - elapsed, function()
+        fullPending = false
+        DoFullRefresh()
+    end)
+end
