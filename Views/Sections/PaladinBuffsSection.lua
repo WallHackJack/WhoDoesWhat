@@ -47,6 +47,7 @@ local K = WhoDoesWhat.SectionKit
 
 local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
+local HasMemberOfClass = A.HasMemberOfClass
 local PlayerTextWithRole = A.PlayerTextWithRole
 local GetActivePaladinBuffPlan = A.GetActivePaladinBuffPlan
 local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
@@ -990,7 +991,7 @@ function Refresh(f) -- forward declared above
     -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
     -- gray title. Developer Mode keeps everything live, same as it
     -- lifts class filters. Runs last so it wins over the states above.
-    local enabled = DevMode() or #MembersOfClass("Paladin") > 0
+    local enabled = DevMode() or HasMemberOfClass("Paladin")
     local reason = not enabled and "No paladins in the group." or nil
     if enabled then
         state.box.title:SetTextColor(0.95, 0.95, 0.95)

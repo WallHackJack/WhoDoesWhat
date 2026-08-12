@@ -475,7 +475,7 @@ local function RefreshGrid(f)
             local options = coreOptions[key]
             header.requiredClass = options.requiredClass
             header.available = not options.requiredClass
-                or #A.MembersOfClass(options.requiredClass) > 0
+                or A.HasMemberOfClass(options.requiredClass)
             header.icon:SetTexture(WhoDoesWhat.StatusBarChecks[key].icon)
             header:Show()
         end
