@@ -219,8 +219,15 @@ local function RuleTooltip(rule)
     local buff = BuffName(rule.buff)
 
     if rule.kind == "ignore" then
+        local why = ""
+        if rule.buff == "salv" then
+            why = " Automatic in PvP."
+        elseif rule.buff == "light" then
+            why = " It only improves a paladin's own heals, so a group with no"
+                .. " Holy paladin loses nothing."
+        end
         return "Ignored", buff .. " is ignored from the plan and won't be"
-            .. " assigned. Automatic in PvP."
+            .. " assigned." .. why
     end
 
     if rule.kind == "assign" then
@@ -320,8 +327,25 @@ local function FindRule(Match)
     return nil
 end
 
-local function SalvationIgnored()
-    return FindRule(function(r) return r.kind == "ignore" end) ~= nil
+local function BuffIgnored(buffKey)
+    return FindRule(function(r)
+        return r.kind == "ignore" and r.buff == buffKey
+    end) ~= nil
+end
+
+-- Blessing of Light only improves a paladin's own Holy Light and Flash of
+-- Light, so with no Holy paladin in the group it buffs nothing at all. Read off
+-- the board's roles rather than talents: the roles are what the raid has agreed
+-- on, and they're the same answer the healer rows use. LOCAL knowledge, and it
+-- only decides whether the menu nudges -- the rule itself is what changes the
+-- plan, so clients that disagree still compute the same coverage.
+local function HasHolyPaladin()
+    for _, name in ipairs(MembersOfClass("Paladin")) do
+        if WhoDoesWhat:GetAssignedRole(name) == "paladin_holy" then
+            return true
+        end
+    end
+    return false
 end
 
 local function AssignRuleFor(paladinName)
@@ -501,14 +525,24 @@ end
 local function InitAddRuleMenu(_, level)
     level = level or 1
     if level == 1 then
-        local ignored = SalvationIgnored()
-        local info = UIDropDownMenu_CreateInfo()
-        info.text = BuffIcon("salv") .. "Ignore Salvation"
-            .. (ignored and " |cff909090(already ignored)|r" or "")
-        info.notCheckable = true
-        info.disabled = ignored
-        info.func = function() AddRule({ kind = "ignore", buff = "salv" }) end
-        UIDropDownMenu_AddButton(info, level)
+        -- The two blessings a raid genuinely turns off. `hint` is the nudge for
+        -- Light: with no Holy paladin it buffs nobody, so the menu says so
+        -- rather than waiting to be asked.
+        local function AddIgnore(buffKey, label, hint)
+            local ignored = BuffIgnored(buffKey)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = BuffIcon(buffKey) .. label
+                .. (ignored and " |cff909090(already ignored)|r"
+                    or (hint and (" |cffffd100" .. hint .. "|r") or ""))
+            info.notCheckable = true
+            info.disabled = ignored
+            info.func = function() AddRule({ kind = "ignore", buff = buffKey }) end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        AddIgnore("salv", "Ignore Salvation")
+        AddIgnore("light", "Ignore Light",
+            not HasHolyPaladin() and "(no Holy paladins)" or nil)
 
         -- The (!) here is the same one the header wears: somebody in the group
         -- can't be reached by any board, and this branch is where that gets

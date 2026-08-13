@@ -765,13 +765,18 @@ end
 -- every rule in the table is fully specified and no half-configured rule can
 -- sit in the plan:
 --
---   { buff = "salv", kind = "ignore" }           Salvation drops out of the
---                                                plan entirely (fights where
---                                                nobody wants it). Salvation
---                                                only: the other five are
---                                                always worth casting, and a
---                                                buff nobody wants is already
---                                                handled by role buff orders.
+--   { buff = "salv"/"light", kind = "ignore" }   the blessing drops out of the
+--                                                plan entirely: Salvation on
+--                                                fights where nobody wants it,
+--                                                Light in a group with no Holy
+--                                                paladin for it to improve.
+--                                                Those two only -- the other
+--                                                four are always worth casting,
+--                                                and a buff nobody wants is
+--                                                already handled by role buff
+--                                                orders. (Nothing here enforces
+--                                                the pair; the menu is what
+--                                                offers only those two.)
 --
 --   { buff, kind = "assign", value = paladin,    that paladin owns the buff as
 --     only }                                     their primary, as a hard lock
