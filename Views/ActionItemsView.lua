@@ -11,8 +11,14 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     attention. Both middle columns ARE dropdowns: pick on the left to write
 --     their Blizzard group flag, pick on the right to set their WhoDoesWhat role
 --     (which pushes the flag to match). The last column is EVIDENCE, not a
---     control: the spec their talents read as and the spread we've actually
---     seen, with a Rescan button at the row's right edge to go and look again.
+--     control: the spec their talents read as, with the point spread on hover
+--     and a Rescan button at the row's right edge to go and look again.
+--
+-- All three columns state the same fact -- what this player does -- so all three
+-- are stated the same way, as a role icon and a role name, and each ends in a
+-- gutter carrying a warning icon when it disagrees with either of the others.
+-- Reading down the (!) column is how you find the row's actual argument; the
+-- tooltip on each names who it is arguing with. See RowDisagreements.
 --
 -- There is deliberately no "fix" here -- neither per row nor a Fix All. Both
 -- applied a guess derived from Blizzard's flag, which is the least trustworthy
@@ -37,7 +43,6 @@ local K = WhoDoesWhat.SectionKit
 local actionsFrame = nil
 local RenderRows
 
-local FRAME_W = 660
 local FRAME_MAX_H = 500
 -- Floor for the populated window. Sizing exactly to the rows left the scroll
 -- viewport the same height as its content, which is a rounding error away from
@@ -75,16 +80,29 @@ local SCROLLBAR_W = 26
 local NAME_COL_W = 134
 local GROUP_DD_W = 128
 local WDW_DD_W = 170
--- The talents column, laid out left to right inside its own width: the spec
--- icon(s) the spread reads as, then the point spread itself. Rescan is pinned
--- to the row's right edge instead, out of the column's flow.
-local TALENT_COL_W = 178
-local TALENT_X = NAME_COL_W + GROUP_DD_W + WDW_DD_W
+-- Every one of the three role columns OPENS with a gutter for its warning icon.
+-- On the right the icon read as belonging to the column it was trailing rather
+-- than the one it was flagging; leading it, the (!) and the entry it doubts
+-- read as one thing.
+local WARN_W = 20
+-- The talents column: the role the spread reads as, icon and name, exactly like
+-- the other two columns state a role. The point spread itself moved into the
+-- hover tooltip -- "0/47/14" is evidence you consult, not a label you scan a
+-- list by. Rescan is pinned to the row's right edge, out of the column's flow.
+local TALENT_TEXT_W = 150
 local TALENT_PAD = 6
-local TALENT_ICON_SIZE = 16
 local RESCAN_BTN_W = 66
+local TALENT_COL_W = TALENT_PAD + TALENT_TEXT_W + 8 + RESCAN_BTN_W + 4
+
+local GROUP_WARN_X = NAME_COL_W
+local GROUP_X = GROUP_WARN_X + WARN_W
+local WDW_WARN_X = GROUP_X + GROUP_DD_W
+local WDW_X = WDW_WARN_X + WARN_W
+local TALENT_WARN_X = WDW_X + WDW_DD_W
+local TALENT_X = TALENT_WARN_X + WARN_W
 local CONTENT_W = TALENT_X + TALENT_COL_W
 local CLASS_ICON_SIZE = 20
+local FRAME_W = CONTENT_W + MARGIN * 2 + SCROLLBAR_W
 
 -- UIDropDownMenuTemplate's visible box starts inset from the frame's own left
 -- edge, so every anchor below backs off by this much to line the box up with
@@ -115,6 +133,111 @@ local function RoleText(role, classInfo)
     if not role then return "|cff909090none|r" end
     return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
         .. (classInfo and classInfo.colorHex or "ffffff") .. role.name .. "|r"
+end
+
+-- ---------------------------------------------------------------------------
+-- Agreement between the row's three answers
+--
+-- The row states the same fact three times -- Blizzard's flag, the board, and
+-- the last talent scan -- and the point of the window is the places they
+-- disagree. The three are compared pairwise, and the warning goes on the ODD
+-- ONE OUT: a resto shaman the board and his talents both call Restoration,
+-- flagged DAMAGER, has one thing wrong with him, and marking all three columns
+-- makes the reader do the elimination the row already did.
+--
+-- The rule is a plain majority. Each column counts how many of the others it
+-- agrees with; anything below the best score, and in a disagreement, gets the
+-- icon. Two answers that disagree with nothing else to break the tie flag BOTH
+-- -- there genuinely is no odd one out -- and so does a three-way split, where
+-- nobody scores an agreement at all.
+--
+-- Only answers we actually have take part. A player nobody has inspected, or a
+-- flag Blizzard never set, is unknown rather than wrong -- the column already
+-- reads "none" / "not scanned", and a warning on top of it would fire on most
+-- of the list the moment a raid forms. So does a pair that can't be compared:
+-- the group flag only ever names tank/healer/dps, so it is compared at that
+-- coarseness, and a role the points can't name (warlock_firetank, custom roles)
+-- can't be argued with by the scan in either direction.
+-- ---------------------------------------------------------------------------
+
+local function WowRoleName(wowRole)
+    local meta = wowRole and WhoDoesWhat.BasicWowRoles[wowRole]
+    return meta and meta.name or nil
+end
+
+-- The three comparisons, in the order the counts below walk them.
+local COMPARISONS = {
+    { "group", "wdw" }, { "group", "talent" }, { "wdw", "talent" },
+}
+
+local function Reason(others, agreed, best, lead)
+    if #others == 0 then return nil end
+    -- Outvoted, or nothing to be outvoted by.
+    if best > 0 and agreed >= best then return nil end
+    return lead .. table.concat(others, " and ") .. "."
+end
+
+-- Reason strings for the three columns, nil where that column is right, alone,
+-- or unknown.
+local function RowDisagreements(data, talentRoles)
+    local groupWow = data.blizzRole and BLIZZ_TO_WOW[data.blizzRole] or nil
+    local wdwWow = data.role and data.role.wowRole or nil
+    local haveTalents = #talentRoles > 0
+
+    local talentMatchesGroup, talentMatchesWdw = false, false
+    local talentNames = {}
+    for _, role in ipairs(talentRoles) do
+        if role.wowRole == groupWow then talentMatchesGroup = true end
+        if role.id == data.roleId then talentMatchesWdw = true end
+        talentNames[#talentNames + 1] = role.name
+    end
+    local talentName = table.concat(talentNames, " / ")
+
+    -- Can the scan judge the role on the board at all? Where it can't, it must
+    -- not argue with the flag either -- a Fire Tank warlock's points read as
+    -- destro DPS forever, and blaming his TANK flag for that is a warning that
+    -- can never be cleared.
+    local judgeable = WhoDoesWhat:TalentsCanJudgeRole(data.roleId)
+    local comparable = {
+        (groupWow and wdwWow) and true or false,
+        (groupWow and haveTalents and (not data.roleId or judgeable)) and true or false,
+        (haveTalents and judgeable) and true or false,
+    }
+    local agrees = {
+        groupWow == wdwWow,
+        talentMatchesGroup,
+        talentMatchesWdw,
+    }
+
+    local describes = {
+        group = "their group role (" .. (WowRoleName(groupWow) or "none") .. ")",
+        wdw = "the WhoDoesWhat role (" .. (data.role and data.role.name or "none") .. ")",
+        talent = "their talents (" .. talentName .. ")",
+    }
+    local agreed = { group = 0, wdw = 0, talent = 0 }
+    local against = { group = {}, wdw = {}, talent = {} }
+    for i = 1, #COMPARISONS do
+        if comparable[i] then
+            local a, b = COMPARISONS[i][1], COMPARISONS[i][2]
+            if agrees[i] then
+                agreed[a] = agreed[a] + 1
+                agreed[b] = agreed[b] + 1
+            else
+                against[a][#against[a] + 1] = describes[b]
+                against[b][#against[b] + 1] = describes[a]
+            end
+        end
+    end
+
+    local best = math.max(agreed.group, agreed.wdw, agreed.talent)
+    return Reason(against.group, agreed.group, best,
+            "Group role (" .. (WowRoleName(groupWow) or "none")
+                .. ") disagrees with "),
+        Reason(against.wdw, agreed.wdw, best,
+            "WhoDoesWhat role (" .. (data.role and data.role.name or "none")
+                .. ") disagrees with "),
+        Reason(against.talent, agreed.talent, best,
+            "Talents read as " .. talentName .. ", which disagrees with ")
 end
 
 -- Whether the local player may write each half of a row. Your own role is
@@ -171,6 +294,11 @@ local function SetGroupRole(data, wowRole)
     -- The auto-sync path latches the last role id it wrote for this player to
     -- break write loops. A hand-picked flag makes that latch stale evidence.
     WhoDoesWhat:ClearRoleWriteLatch(data.name)
+end
+
+local function ShowWarning(warn, reason)
+    warn.tooltipText = reason
+    warn:SetShown(reason ~= nil)
 end
 
 local function SetDropdownEnabled(dd, enabled)
@@ -339,7 +467,7 @@ local function CreateRow(content, index)
     -- Group role: writes Blizzard's flag directly.
     local groupDD = CreateFrame("Frame", "WhoDoesWhatActionItemsGroupDD" .. index,
         row, "UIDropDownMenuTemplate")
-    groupDD:SetPoint("LEFT", row, "LEFT", NAME_COL_W - DD_INSET, -2)
+    groupDD:SetPoint("LEFT", row, "LEFT", GROUP_X - DD_INSET, -2)
     UIDropDownMenu_SetWidth(groupDD, GROUP_DD_W - 30)
     K.LeftAlignDropdown(groupDD)
     UIDropDownMenu_Initialize(groupDD, function(_, level)
@@ -374,15 +502,19 @@ local function CreateRow(content, index)
     -- when this client may never write it. Sits where the dropdown's own label
     -- does so the column doesn't shift between rows.
     local groupText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    groupText:SetPoint("LEFT", row, "LEFT", NAME_COL_W + 8, 0)
+    groupText:SetPoint("LEFT", row, "LEFT", GROUP_X + 8, 0)
     groupText:SetWidth(GROUP_DD_W - 12)
     groupText:SetJustifyH("LEFT")
     row.groupText = groupText
 
+    local groupWarn = K.CreateWarningIcon(row)
+    groupWarn:SetPoint("LEFT", row, "LEFT", GROUP_WARN_X, 0)
+    row.groupWarn = groupWarn
+
     -- WhoDoesWhat role: writes the board, which pushes the flag to match.
     local wdwDD = CreateFrame("Frame", "WhoDoesWhatActionItemsWdwDD" .. index,
         row, "UIDropDownMenuTemplate")
-    wdwDD:SetPoint("LEFT", row, "LEFT", NAME_COL_W + GROUP_DD_W - DD_INSET, -2)
+    wdwDD:SetPoint("LEFT", row, "LEFT", WDW_X - DD_INSET, -2)
     UIDropDownMenu_SetWidth(wdwDD, WDW_DD_W - 30)
     K.LeftAlignDropdown(wdwDD)
     UIDropDownMenu_Initialize(wdwDD, function(_, level)
@@ -419,27 +551,60 @@ local function CreateRow(content, index)
     row.wdwDD = wdwDD
 
     local wdwText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    wdwText:SetPoint("LEFT", row, "LEFT", NAME_COL_W + GROUP_DD_W + 8, 0)
+    wdwText:SetPoint("LEFT", row, "LEFT", WDW_X + 8, 0)
     wdwText:SetWidth(WDW_DD_W - 12)
     wdwText:SetJustifyH("LEFT")
     row.wdwText = wdwText
 
-    -- Talents: what we have actually seen, not what anyone picked. The icons
-    -- lead -- the spec the spread reads as, two of them for a feral druid whose
-    -- tree can't distinguish cat from bear -- and the point spread follows,
-    -- reading left to right in talent-tab order.
-    row.talentIcons = {}
-    for i = 1, 2 do
-        local icon = row:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(TALENT_ICON_SIZE, TALENT_ICON_SIZE)
-        icon:SetPoint("LEFT", row, "LEFT",
-            TALENT_X + TALENT_PAD + (i - 1) * (TALENT_ICON_SIZE + 2), 0)
-        row.talentIcons[i] = icon
-    end
+    local wdwWarn = K.CreateWarningIcon(row)
+    wdwWarn:SetPoint("LEFT", row, "LEFT", WDW_WARN_X, 0)
+    row.wdwWarn = wdwWarn
 
+    -- Talents: what we have actually seen, not what anyone picked, stated as a
+    -- role so the column can be read against the two beside it -- two roles for
+    -- a feral druid, whose tree genuinely cannot tell cat from bear. The raw
+    -- points are one hover away.
     local talentText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    talentText:SetPoint("LEFT", row, "LEFT", TALENT_X + TALENT_PAD, 0)
+    talentText:SetWidth(TALENT_TEXT_W)
+    talentText:SetWordWrap(false)
     talentText:SetJustifyH("LEFT")
     row.talentText = talentText
+
+    -- A FontString can't take OnEnter, so the breakdown hangs off a frame laid
+    -- over the column. LayoutRow hands it the snapshot to render.
+    local talentHover = CreateFrame("Frame", nil, row)
+    talentHover:SetPoint("LEFT", row, "LEFT", TALENT_X, 0)
+    talentHover:SetSize(TALENT_PAD + TALENT_TEXT_W, ROW_H)
+    talentHover:EnableMouse(true)
+    talentHover:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Talents", 1, 1, 1)
+        local snapshot = self.snapshot
+        if not snapshot then
+            GameTooltip:AddLine("Nobody has been close enough to inspect them "
+                .. "yet -- Rescan queues one.", 0.8, 0.8, 0.8, true)
+        else
+            for i, points in ipairs(snapshot.points) do
+                GameTooltip:AddDoubleLine(
+                    (snapshot.specNames and snapshot.specNames[i])
+                        or ("Tree " .. i),
+                    tostring(points), 1, 0.82, 0, 1, 1, 1)
+            end
+            if self.readsAs then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("Reads as " .. self.readsAs .. ".",
+                    0.8, 0.8, 0.8, true)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    talentHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.talentHover = talentHover
+
+    local talentWarn = K.CreateWarningIcon(row)
+    talentWarn:SetPoint("LEFT", row, "LEFT", TALENT_WARN_X, 0)
+    row.talentWarn = talentWarn
 
     -- Go and look again. Not a fix and not gated on permissions -- an inspect
     -- writes nothing to anyone's board, it just refreshes the evidence the rest
@@ -513,29 +678,40 @@ local function LayoutRow(row, data, index, ownerFrame)
 
     -- Talents, or a grey "not scanned yet" where none have been seen: an
     -- unknown spread has to read as unknown, not as a player with no points.
-    -- The spread starts after however many spec icons we drew, so a class the
-    -- tree can only narrow to two keeps both icons and still reads as one
-    -- left-aligned column.
+    -- The role(s) the points name are resolved once here -- the column shows
+    -- them, and the warning icons below compare against them.
+    --
+    -- (FindRoleById returns two values, so the lookup can't hide behind an
+    -- `and`: that truncates to one and the role -- the icon -- comes back nil.)
     local snapshot = WhoDoesWhat:GetTalentSnapshot(data.unit)
-    local shownIcons = 0
-    for i, icon in ipairs(row.talentIcons) do
-        local roleId = snapshot and snapshot.roleIds and snapshot.roleIds[i]
-        local _, role = roleId and WhoDoesWhat:FindRoleById(roleId)
-        if role then WhoDoesWhat:SetRoleIconTexture(icon, role.icon) end
-        icon:SetShown(role ~= nil)
-        if role then shownIcons = shownIcons + 1 end
+    local talentRoles = {}
+    if snapshot and snapshot.roleIds then
+        for _, roleId in ipairs(snapshot.roleIds) do
+            local _, role = WhoDoesWhat:FindRoleById(roleId)
+            if role then talentRoles[#talentRoles + 1] = role end
+        end
     end
 
-    local textX = TALENT_X + TALENT_PAD
-        + shownIcons * (TALENT_ICON_SIZE + 2)
-        + (shownIcons > 0 and 4 or 0)
-    row.talentText:ClearAllPoints()
-    row.talentText:SetPoint("LEFT", row, "LEFT", textX, 0)
-    row.talentText:SetWidth(math.max(1,
-        TALENT_X + TALENT_COL_W - RESCAN_BTN_W - 12 - textX))
-    row.talentText:SetText(snapshot
-        and table.concat(snapshot.points, "/")
+    local talentLabels, talentNames = {}, {}
+    for _, role in ipairs(talentRoles) do
+        talentLabels[#talentLabels + 1] = RoleText(role, data.classInfo)
+        talentNames[#talentNames + 1] = role.name
+    end
+    row.talentText:SetText(
+        (#talentLabels > 0 and table.concat(talentLabels, " / "))
+        -- Points seen but no role behind them: a class/spec the table doesn't
+        -- map (there is no such class today, but a bad spec index would land
+        -- here). Fall back to the spread rather than claiming nothing is known.
+        or (snapshot and table.concat(snapshot.points, "/"))
         or "|cff909090not scanned|r")
+    row.talentHover.snapshot = snapshot
+    row.talentHover.readsAs = #talentNames > 0
+        and table.concat(talentNames, " or ") or nil
+
+    local groupReason, wdwReason, talentReason = RowDisagreements(data, talentRoles)
+    ShowWarning(row.groupWarn, groupReason)
+    ShowWarning(row.wdwWarn, wdwReason)
+    ShowWarning(row.talentWarn, talentReason)
 
     -- Already queued: the button has done its job and pressing it again just
     -- re-queues the same inspect, so it goes quiet until the answer lands or
@@ -706,9 +882,9 @@ local function EnsureFrame()
     -- Each heading lines up with its column's content: the class icon, the
     -- dropdowns' own text inset, and the first talent icon.
     f.rolesHeader:Heading("Player", 4, NAME_COL_W)
-    f.rolesHeader:Heading("Group role", NAME_COL_W + 8, GROUP_DD_W)
-    f.rolesHeader:Heading("WhoDoesWhat", NAME_COL_W + GROUP_DD_W + 8, WDW_DD_W)
-    f.rolesHeader:Heading("Talents", TALENT_X + TALENT_PAD, TALENT_COL_W)
+    f.rolesHeader:Heading("Group role", GROUP_X + 8, GROUP_DD_W)
+    f.rolesHeader:Heading("WhoDoesWhat", WDW_X + 8, WDW_DD_W)
+    f.rolesHeader:Heading("Talents", TALENT_X + TALENT_PAD, TALENT_TEXT_W)
 
     local scroll, content = K.CreatePaladinGridScroll(f,
         "WhoDoesWhatActionItemsScroll")

@@ -76,7 +76,21 @@ function WhoDoesWhat:GetTalentSnapshot(unit)
     if not (t1 and t2 and t3) or t1 + t2 + t3 <= 0 then return nil end
     local specIndex = Inspector:GetSpecialization(guid)
     local _, class = UnitClass(unit)
-    return { points = { t1, t2, t3 }, roleIds = RolesForSpec(class, specIndex) }
+    -- Tree names come along for the ride: the window shows the role the spread
+    -- reads as, and keeps the raw "Holy 5 / Protection 0 / Retribution 46" for
+    -- the tooltip, where a bare 5/0/46 would need the reader to know tab order.
+    local specNames = nil
+    if class and SPEC_ROLES[class] then
+        specNames = {}
+        for i = 1, 3 do
+            specNames[i] = Inspector:GetSpecializationName(class, i, true)
+        end
+    end
+    return {
+        points = { t1, t2, t3 },
+        specNames = specNames,
+        roleIds = RolesForSpec(class, specIndex),
+    }
 end
 
 -- The roles a talent spread can actually name. Anything outside this set --
@@ -96,6 +110,13 @@ end
 -- This is a stale board, not a bug: AutoAssignDetectedRole deliberately lets a
 -- first sighting lose to an existing assignment, so a role picked before anyone
 -- could inspect them stays put even once the talents say otherwise.
+-- Can a talent spread say anything at all about this role? The Action Items
+-- window asks before it lets the scan argue with anything: a role the points
+-- can't name must not put a warning on the row, in either direction.
+function WhoDoesWhat:TalentsCanJudgeRole(roleId)
+    return (roleId and DETECTABLE_ROLES[roleId]) and true or false
+end
+
 function WhoDoesWhat:TalentsContradictRole(unit, roleId)
     if not (roleId and DETECTABLE_ROLES[roleId]) then return false end
     local snapshot = self:GetTalentSnapshot(unit)
