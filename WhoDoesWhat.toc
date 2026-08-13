@@ -68,7 +68,7 @@ Views\Sections\PaladinBuffsSection.lua
 Views\Sections\WarlockCursesSection.lua
 Views\AboutView.lua
 Views\MainAssignmentsView.lua
-Views\RaiderRolesView.lua
+Views\MembersView.lua
 Views\ActionItemsView.lua
 Views\BuffingGridView.lua
 Views\PaladinBuffingBarView.lua

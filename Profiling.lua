@@ -212,7 +212,7 @@ function Profiling.InstrumentAll()
     Wrap(W, "RefreshStatusBarsView", "view.statusbars")
     Wrap(W, "RefreshPaladinBuffingBar", "view.pallybar")
     Wrap(W, "RefreshActionItemsView", "view.actionitems")
-    Wrap(W, "RefreshRaiderRolesView", "view.raiderroles")
+    Wrap(W, "RefreshMembersView", "view.members")
     Wrap(W, "RefreshPallyPowerDiffView", "view.ppdiff")
     Wrap(W, "RefreshRaiderTooltip", "view.tooltip")
 

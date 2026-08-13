@@ -140,7 +140,7 @@ end
 -- Repaint every window that reads the roster or the board.
 local function RefreshViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshRaiderRolesView()
+    WhoDoesWhat:RefreshMembersView()
     WhoDoesWhat:RefreshBoardViews()
 end
 

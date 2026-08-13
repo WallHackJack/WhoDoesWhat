@@ -430,7 +430,7 @@ only when the leader's cache is empty; the leader does not run the member
 
 ### UI navigation
 
-Opening Main Assignments, Raider Roles, Buffing Grid, the logs, settings, role
+Opening Main Assignments, Members, Buffing Grid, the logs, settings, role
 customizers, or PallyPower Differences sends nothing. Switching the Buffing
 Grid between its cached sources also sends nothing. Views render the current
 local/session caches and refresh as normal lifecycle traffic arrives.
@@ -462,7 +462,7 @@ WDW talent pipeline against native data.
 - A narrowly safe role-driven blessing exception may additionally cause a
   PallyPower `NASSIGN` when PallyPower is installed and already aligned.
 
-The role message usually updates Raider Roles before LibClassicInspector's
+The role message usually updates the Members page before LibClassicInspector's
 follow-up message independently confirms the talent-tree calculation.
 
 ### Assignment edit

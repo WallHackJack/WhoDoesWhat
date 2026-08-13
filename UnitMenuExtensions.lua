@@ -310,10 +310,10 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
 
     -- Role changes can affect the main view's warnings (e.g. Curse of the
     -- Elements wants its warlock marked Affliction), move players between
-    -- the raider roles buckets, and reshape the buff grid (roles drive its
+    -- the Members page buckets, and reshape the buff grid (roles drive its
     -- per-raider plan; Non-raider adds/removes rows), so repaint all three.
     self:RefreshMainAssignmentsView()
-    self:RefreshRaiderRolesView()
+    self:RefreshMembersView()
     -- Action Items included; see RefreshBoardViews.
     self:RefreshBoardViews()
 end

@@ -1154,7 +1154,7 @@ function WhoDoesWhat:PopulateRolesAndCategories()
     end
 
     -- Register the Non-raider pseudo-role for the id lookups (FindRoleById,
-    -- role icons, Raider Roles rows). Not in Classes, so nothing above -- and
+    -- role icons, Members page rows). Not in Classes, so nothing above -- and
     -- no class role list -- ever offers it; the unit menu adds it by hand.
     local nonRaider = {}
     for k, v in pairs(self.NonRaiderRole) do

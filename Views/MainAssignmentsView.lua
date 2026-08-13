@@ -376,9 +376,9 @@ local function EnsureMainFrame()
     toolbarBox:SetSize(1, TOOLBAR_H)
     SetInsetBackdrop(toolbarBox)
 
-    local membersBtn = CreateToolbarButton(toolbarBox, "Members", 80, "Raider Roles",
+    local membersBtn = CreateToolbarButton(toolbarBox, "Members", 80, "Group Members",
         "Everyone in the group and the role each of them holds.",
-        function() WhoDoesWhat:OpenRaiderRolesView() end)
+        function() WhoDoesWhat:OpenMembersView() end)
     membersBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
 
     -- Roles used to sit right of Members. It edits your own role library, which

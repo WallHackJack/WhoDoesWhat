@@ -5,7 +5,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- setting -- it lives in db.profile.permissions, rides the sync snapshot like
 -- the rest of the board, and every client enforces the same rule: the UI
 -- renders read-only for the unpermitted (MainAssignmentsView / unit menu /
--- RaiderRolesView), the Set* APIs refuse, and Sync.lua both suppresses their
+-- MembersView), the Set* APIs refuse, and Sync.lua both suppresses their
 -- broadcasts and rejects board snapshots from unpermitted senders.
 --
 -- Modes (db.profile.permissions.mode):
@@ -179,5 +179,5 @@ function WhoDoesWhat:SetPermissionMode(mode, assistant)
     self:SendGroupMessage("[WhoDoesWhat] Assignment editing is now: "
         .. self:PermissionModeLabel() .. ".")
     self:RefreshMainAssignmentsView()
-    self:RefreshRaiderRolesView()
+    self:RefreshMembersView()
 end

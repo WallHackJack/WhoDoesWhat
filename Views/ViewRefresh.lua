@@ -15,7 +15,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- of a board repaint and it is paid once per call.
 --
 -- Deliberately NOT including RefreshMainAssignmentsView or
--- RefreshRaiderRolesView: those two are the big editable windows, they are not
+-- RefreshMembersView: those two are the big editable windows, they are not
 -- driven by live buff state, and the buff-tracking notify would otherwise
 -- repaint them at up to 10Hz. The handful of callers that genuinely change what
 -- those show still call them directly, alongside this.
@@ -55,7 +55,7 @@ local fullPending, lastFullRefresh = false, 0
 local function DoFullRefresh()
     lastFullRefresh = GetTime()
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshRaiderRolesView()
+    WhoDoesWhat:RefreshMembersView()
     WhoDoesWhat:RefreshBoardViews()
 end
 

@@ -100,7 +100,7 @@ local function BestAvailableProvider(providers)
     return best
 end
 
--- Group members sorted class > role > name (same ordering the Raider Roles
+-- Group members sorted class > role > name (same ordering the Members page
 -- buckets use), so classes clump together down the left side. Non-raiders
 -- (the unit-menu pseudo-role) are sitting out and get no grid row. Hunter
 -- pets ride along as virtual rows (their own plan cells). They keep Hunter

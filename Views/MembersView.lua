@@ -1,22 +1,31 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local K = WhoDoesWhat.SectionKit
 
--- Raider Roles window ("Raider Roles" button on the main view): every group
--- member in one of four role grids, bucketed by their assigned role's
--- tank/healer/dps classification and sorted by class then name. Each row
--- carries the same role dropdown the unit right-click menu offers, WDW
--- presence, plus the (!) alert while the player has no usable role.
+-- Members window ("Members" button on the main view): every group member in
+-- one of four role grids, bucketed by their assigned role's tank/healer/dps
+-- classification and sorted by class then name. Each row carries the same
+-- role dropdown the unit right-click menu offers, WDW presence, plus the (!)
+-- alert while the player has no usable role.
 --
--- The "No Role" bucket also collects players whose role has no tank/healer/
--- dps classification (custom roles left unclassified); only players with no
--- role at all get the (!). Talent auto-detection (Talents.lua) fills most
--- rows on its own as data arrives, so this page is mainly for reviewing and
--- correcting.
+-- The "Unknown or Inactive" bucket also collects players whose role has no
+-- tank/healer/dps classification (custom roles left unclassified, and the
+-- Non-raider pseudo-role); only players with no role at all get the (!).
+-- Talent auto-detection (Talents.lua) fills most rows on its own as data
+-- arrives, so this page is mainly for reviewing and correcting. Empty
+-- buckets are hidden outright.
 
-local rolesFrame = nil
+local membersFrame = nil
 
 local FRAME_W = 460
-local FRAME_H = 560
+-- The window auto-fits its content between these two; only at the ceiling does
+-- the scrollbar appear (UpdateContentHeight).
+local MIN_FRAME_H = 210
+local MAX_FRAME_H = 560
+local OVERVIEW_H = 55 -- two-line summary strip between the title bar and grids
+-- The counts line's inline icons stand taller than the font, so it needs a bit
+-- more clearance under the title bar than the text alone would suggest.
+local OVERVIEW_TOP_PAD = 15
+local OVERVIEW_ICON_SIZE = 18
 local MARGIN = 12
 local SCROLLBAR_W = 26
 local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
@@ -24,20 +33,62 @@ local CONTENT_W = FRAME_W - MARGIN * 2 - SCROLLBAR_W
 local GRID_GAP = 10
 local GRID_HEADER_H = 26
 local ROW_H = 30
-local EMPTY_H = 20 -- rows-area height for an empty bucket's hint line
 local DROPDOWN_WIDTH = 130
-local ADDON_COL_W = 38
-local WARNING_ICON_SIZE = 18
+local ADDON_COL_W = 64 -- wide enough for the "Has WDW?" header
 local CLASS_ICON_SIZE = 20
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 
+local HEADER_ICON_SIZE = 16
+
 local SECTIONS = {
-    { key = "tank",   title = "Tanks",   empty = "No tanks assigned yet." },
-    { key = "healer", title = "Healers", empty = "No healers assigned yet." },
-    { key = "dps",    title = "DPS",     empty = "No DPS assigned yet." },
-    { key = "none",   title = "No Role", empty = "Everyone has a role." },
+    { key = "tank",   one = "Tank",   many = "Tanks" },
+    { key = "healer", one = "Healer", many = "Healers" },
+    { key = "dps",    one = "DPS",    many = "DPS" },
+    -- Non-raiders and unclassified custom roles land here too, so this bucket
+    -- isn't purely a to-do list -- hence the vaguer label.
+    { key = "none",   one = "Unknown or Inactive", many = "Unknown or Inactive" },
 }
+
+-- A bucket's icon: the three wow roles wear the client's micro role icon (same
+-- shield/plus/sword the rows and dropdowns use), the roleless bucket wears the
+-- shared warning icon.
+local function SectionIcon(section, size)
+    size = size or HEADER_ICON_SIZE
+    if section.key == "none" then
+        return "|T" .. WhoDoesWhat.WARNING_ICON .. ":" .. size .. ":" .. size .. ":0:0|t"
+    end
+    return WhoDoesWhat:GetWowRoleIconMarkup(section.key, size)
+end
+
+-- Grid header: "[icon] 2 Tanks".
+local function SectionHeaderText(section, count)
+    return SectionIcon(section) .. " " .. count .. " "
+        .. (count == 1 and section.one or section.many)
+end
+
+-- The overview strip's first line: every bucket's icon and count, zeros
+-- included. An empty grid is hidden below, so this is where "no healers at
+-- all" stays visible -- which is the reading you actually want at a glance.
+local function OverviewCounts(buckets)
+    local parts = {}
+    for _, section in ipairs(SECTIONS) do
+        parts[#parts + 1] = SectionIcon(section, OVERVIEW_ICON_SIZE)
+            .. " " .. #buckets[section.key]
+    end
+    return table.concat(parts, "      ")
+end
+
+-- Its second line: group size, WDW adoption, and offline count when there is
+-- one. Gray, small -- context rather than headline.
+local function OverviewDetail(total, withAddon, offline)
+    local text = total .. (total == 1 and " member" or " members")
+        .. "  |cff606060-|r  " .. withAddon .. " with WhoDoesWhat"
+    if offline > 0 then
+        text = text .. "  |cff606060-|r  " .. offline .. " offline"
+    end
+    return text
+end
 
 -- Stable player key for a unit: "Name" same-realm, "Name-Realm" foreign.
 -- Matches the keying used by db.profile.assignments (UnitMenuExtensions.lua).
@@ -112,10 +163,12 @@ local function BucketedMembers()
     return buckets
 end
 
--- Warning (!) icon with a hover tooltip; same pattern as the main view's.
+-- Warning (!) icon with a hover tooltip; same pattern as the main view's. It
+-- sits in the row's left icon slot, standing in for the role icon a roleless
+-- player hasn't got, so it's sized to match.
 local function CreateWarningIcon(row)
     local warn = CreateFrame("Frame", nil, row)
-    warn:SetSize(WARNING_ICON_SIZE, WARNING_ICON_SIZE)
+    warn:SetSize(CLASS_ICON_SIZE, CLASS_ICON_SIZE)
     local tex = warn:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints()
     tex:SetTexture(WhoDoesWhat.WARNING_ICON)
@@ -192,7 +245,7 @@ local function CreateRow(f, section, index)
     -- the row edge so the visible box lands flush right (same trick as the
     -- main view's rows).
     local dropdown = CreateFrame("Frame",
-        "WhoDoesWhatRaiderRoleDD_" .. section.key .. index, row, "UIDropDownMenuTemplate")
+        "WhoDoesWhatMembersRoleDD_" .. section.key .. index, row, "UIDropDownMenuTemplate")
     dropdown:SetPoint("RIGHT", row, "RIGHT", 14, -2)
     UIDropDownMenu_SetWidth(dropdown, DROPDOWN_WIDTH)
     K.LeftAlignDropdown(dropdown)
@@ -254,24 +307,43 @@ local function CreateRow(f, section, index)
     addonIcon:SetPoint("CENTER")
     row.addonIcon = addonIcon
 
+    -- The (!) occupies the left icon slot itself: a roleless player has no
+    -- role icon to show there, so the two are mutually exclusive.
     local warn = CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", addonStatus, "LEFT", -2, 2)
+    warn:SetPoint("LEFT", 4, 0)
     row.warnIcon = warn
 
-    nameFS:SetPoint("RIGHT", warn, "LEFT", -4, 0)
+    nameFS:SetPoint("RIGHT", addonStatus, "LEFT", -4, 0)
 
     state.rows[index] = row
     return row
 end
 
--- Recompute the scroll child's height from the stacked grids.
+-- Recompute the scroll child's height from the stacked grids, then fit the
+-- window to it. Empty grids are hidden (RefreshRoster), so they contribute
+-- nothing. The trailing GRID_GAP after the last grid doubles as bottom padding,
+-- exactly as the main view's SECTION_GAP does. Only once the content passes
+-- MAX_FRAME_H does the window stop growing and the scrollbar appear -- the
+-- ScrollFrame hides it on its own while the range is zero (scrollBarHideable).
 local function UpdateContentHeight(f)
     local h = 0
     for _, section in ipairs(SECTIONS) do
-        h = h + f.sections[section.key].box:GetHeight() + GRID_GAP
+        local box = f.sections[section.key].box
+        if box:IsShown() then h = h + box:GetHeight() + GRID_GAP end
     end
     f.content:SetHeight(math.max(h, 1))
     f.scroll:UpdateScrollChildRect()
+
+    local desired = f.scrollTop + h + MARGIN
+    f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
+    -- scrollBarHideable only reacts to a *change* in scroll range, which leaves
+    -- the bar up on the first paint. We already know whether it's needed. The
+    -- track can't ride the bar's OnShow/OnHide: the first repaint runs while the
+    -- window is still hidden, where hiding an already-invisible bar fires
+    -- neither -- so it's driven from the same answer.
+    local needsBar = desired > MAX_FRAME_H
+    if f.scrollBar then f.scrollBar:SetShown(needsBar) end
+    if f.scrollTrack then f.scrollTrack:SetShown(needsBar) end
 end
 
 -- Map the current group onto the pooled rows, retitle each grid with its
@@ -284,12 +356,16 @@ function RefreshRoster(f)
     end
     pendingRepaint = false
 
+    f.titleText:SetText(IsInRaid() and "Raid Members" or "Group Members")
+
     local buckets = BucketedMembers()
+    local prevBox -- last *shown* grid; the chain re-anchors past hidden ones
+    local total, withAddon, offline = 0, 0, 0
     for _, section in ipairs(SECTIONS) do
         local state = f.sections[section.key]
         local members = buckets[section.key]
 
-        state.title:SetText(section.title .. " (" .. #members .. ")")
+        state.title:SetText(SectionHeaderText(section, #members))
 
         for i, m in ipairs(members) do
             local row = state.rows[i] or CreateRow(f, section, i)
@@ -304,21 +380,26 @@ function RefreshRoster(f)
                 or WhoDoesWhat.DisconnectedGridRowColors
             local rowColor = rowColors[i % 2 == 1 and 1 or 2]
             row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
-            -- Role's spec icon when we have one; the class icon is the fallback
-            -- for roleless / unresolved-role members.
-            WhoDoesWhat:SetRoleIconTexture(row.classIcon,
-                (role and role.icon) or m.classInfo.classIcon)
-            row.classIcon:SetDesaturated(not connected)
+            -- Role's spec icon when we have one; roleless / unresolved-role
+            -- members give the slot over to the (!) instead.
+            row.classIcon:SetShown(role ~= nil)
+            if role then
+                WhoDoesWhat:SetRoleIconTexture(row.classIcon, role.icon)
+                row.classIcon:SetDesaturated(not connected)
+            end
             row.nameFS:SetText("|cff" .. (connected and m.classInfo.colorHex or "909090")
                 .. m.name .. "|r")
             row.nameHover.memberName = m.name
             row.nameHover:SetWidth(CLASS_ICON_SIZE + 8 + row.nameFS:GetStringWidth())
             local installed = m.name == UnitName("player")
                 or WhoDoesWhat.syncPeers[m.name] == true
-            row.addonIcon:SetTexture(not connected and WhoDoesWhat.WARNING_ICON
-                or (installed and READY_ICON or NOT_READY_ICON))
-            row.addonIcon:SetSize(not connected and WARNING_ICON_SIZE or 16,
-                not connected and WARNING_ICON_SIZE or (installed and 13 or 16))
+            -- Offline says nothing about whether they run WDW, and the row
+            -- already reads as offline four other ways -- leave the cell empty.
+            row.addonIcon:SetShown(connected)
+            if connected then
+                row.addonIcon:SetTexture(installed and READY_ICON or NOT_READY_ICON)
+                row.addonIcon:SetSize(16, installed and 13 or 16)
+            end
 
             if role then
                 UIDropDownMenu_SetText(row.dropdown, RoleText(role, m.classInfo))
@@ -342,31 +423,98 @@ function RefreshRoster(f)
                 or (m.name .. " has no role yet. Pick one here, or wait for"
                     .. " talent data to fill it in automatically.")
             row.warnIcon:SetShown(role == nil)
+
+            total = total + 1
+            if not connected then offline = offline + 1 end
+            if installed then withAddon = withAddon + 1 end
         end
         for i = #members + 1, #state.rows do
             state.rows[i]:Hide()
             state.rows[i].member = nil
             state.rows[i].nameHover.memberName = nil
         end
-        state.emptyHint:SetShown(#members == 0)
-
-        local rowsH = (#members > 0) and (#members * ROW_H) or EMPTY_H
-        state.box:SetHeight(GRID_HEADER_H + rowsH)
+        -- An empty bucket says nothing worth a header, so it drops out of the
+        -- page entirely; hiding alone would leave its slot in the anchor
+        -- chain, so the next shown grid re-anchors to the last shown one.
+        state.box:SetShown(#members > 0)
+        if #members > 0 then
+            state.box:SetHeight(GRID_HEADER_H + #members * ROW_H)
+            state.box:ClearAllPoints()
+            if prevBox then
+                state.box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
+            else
+                state.box:SetPoint("TOPLEFT", f.content, "TOPLEFT", 0, 0)
+            end
+            prevBox = state.box
+        end
     end
+
+    f.overviewCounts:SetText(OverviewCounts(buckets))
+    f.overviewDetail:SetText(OverviewDetail(total, withAddon, offline))
+
     UpdateContentHeight(f)
 end
 
 -- Build the window once and reuse it: shared chrome, a scroll column, and the
 -- four role grids (rows come from RefreshRoster).
-local function EnsureRolesFrame()
-    if rolesFrame then return rolesFrame end
+local function EnsureMembersFrame()
+    if membersFrame then return membersFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatRaiderRolesFrame",
-        FRAME_W, FRAME_H, "WhoDoesWhat - Raider Roles")
+    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMembersFrame",
+        FRAME_W, MIN_FRAME_H, "Group Members")
 
-    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatRaiderRolesScroll", f, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 10))
+    -- Centred title, unlike the shared left-aligned chrome: this window's title
+    -- is a two-word label rather than a sentence, and it sits over a centred
+    -- overview strip.
+    f.titleText:ClearAllPoints()
+    f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
+
+    -- Overview strip: fixed chrome above the scroll area, so it stays put while
+    -- the grids scroll under it.
+    local counts = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    counts:SetPoint("TOP", f, "TOP", 0, -(f.titleBarHeight + OVERVIEW_TOP_PAD))
+    counts:SetJustifyH("CENTER")
+    f.overviewCounts = counts
+
+    local detail = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    detail:SetPoint("TOP", counts, "BOTTOM", 0, -4)
+    detail:SetJustifyH("CENTER")
+    detail:SetTextColor(0.65, 0.65, 0.65)
+    f.overviewDetail = detail
+
+    local rule = f:CreateTexture(nil, "ARTWORK")
+    rule:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    rule:SetHeight(1)
+    rule:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + OVERVIEW_H))
+    rule:SetPoint("TOPRIGHT", -MARGIN, -(f.titleBarHeight + OVERVIEW_H))
+
+    f.scrollTop = f.titleBarHeight + OVERVIEW_H + 8 -- chrome above the scroll area
+
+    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMembersScroll", f, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
     scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
+    -- Let the template drop the bar entirely while everything fits; the gutter
+    -- stays reserved either way, so the columns don't shift when it appears.
+    scroll.scrollBarHideable = true
+
+    local scrollBar = _G[scroll:GetName() .. "ScrollBar"]
+    f.scrollBar = scrollBar
+    if scrollBar then
+        -- AceGUI's textured slider backdrop, one frame level behind the native
+        -- scrollbar so the template's arrows and thumb stay on top (same as the
+        -- main view). It follows the bar in and out of view.
+        local scrollTrack = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
+        scrollTrack:SetAllPoints(scrollBar)
+        scrollTrack:SetFrameLevel(math.max(scroll:GetFrameLevel(),
+            scrollBar:GetFrameLevel() - 1))
+        scrollTrack:SetBackdrop({
+            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        f.scrollTrack = scrollTrack
+    end
 
     local content = CreateFrame("Frame", nil, scroll)
     -- Pin the scroll child explicitly or nothing renders until the window
@@ -377,7 +525,7 @@ local function EnsureRolesFrame()
     f.content = content
     f.scroll = scroll
 
-    WhoDoesWhat:LogUiBuilding("Building raider roles content.")
+    WhoDoesWhat:LogUiBuilding("Building members content.")
 
     f.sections = {}
     local prevBox
@@ -394,19 +542,21 @@ local function EnsureRolesFrame()
 
         local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         title:SetPoint("TOPLEFT", 4, -4)
-        title:SetText(section.title)
+        title:SetText(SectionHeaderText(section, 0))
 
         local addonTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         addonTitle:SetWidth(ADDON_COL_W)
         addonTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT",
             -(DROPDOWN_WIDTH + 33), -5)
         addonTitle:SetJustifyH("CENTER")
-        addonTitle:SetText("WDW")
+        addonTitle:SetText("Has WDW?")
 
+        -- The dropdown overhangs the row edge by 14 to land its visible box
+        -- flush right, so centering over that box means matching the overhang.
         local roleTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         roleTitle:SetWidth(DROPDOWN_WIDTH)
-        roleTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -5)
-        roleTitle:SetJustifyH("LEFT")
+        roleTitle:SetPoint("TOPRIGHT", box, "TOPRIGHT", -1, -5)
+        roleTitle:SetJustifyH("CENTER")
         roleTitle:SetText("Role")
 
         local line = box:CreateTexture(nil, "ARTWORK")
@@ -415,12 +565,7 @@ local function EnsureRolesFrame()
         line:SetPoint("TOPLEFT", 0, -25)
         line:SetPoint("TOPRIGHT", 0, -25)
 
-        local hint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        hint:SetPoint("TOPLEFT", 4, -(GRID_HEADER_H + 4))
-        hint:SetTextColor(0.55, 0.55, 0.55)
-        hint:SetText(section.empty)
-
-        f.sections[section.key] = { box = box, title = title, emptyHint = hint, rows = {} }
+        f.sections[section.key] = { box = box, title = title, rows = {} }
     end
 
     -- Track joins/leaves live while the window is open.
@@ -440,35 +585,35 @@ local function EnsureRolesFrame()
         DropDownList1:HookScript("OnHide", function()
             if not pendingRepaint then return end
             pendingRepaint = false
-            if rolesFrame and rolesFrame:IsShown() then
-                RefreshRoster(rolesFrame)
+            if membersFrame and membersFrame:IsShown() then
+                RefreshRoster(membersFrame)
             end
         end)
     end
 
-    rolesFrame = f
+    membersFrame = f
     return f
 end
 
 -- Repaint if the window is up. Called from outside the view when assignments
 -- change (SetAssignedRole in UnitMenuExtensions.lua, talent auto-detection).
-function WhoDoesWhat:RefreshRaiderRolesView()
-    if rolesFrame and rolesFrame:IsShown() then
-        RefreshRoster(rolesFrame)
+function WhoDoesWhat:RefreshMembersView()
+    if membersFrame and membersFrame:IsShown() then
+        RefreshRoster(membersFrame)
     end
 end
 
--- Toggle the raider roles window open/closed.
-function WhoDoesWhat:OpenRaiderRolesView()
-    local f = EnsureRolesFrame()
+-- Toggle the members window open/closed.
+function WhoDoesWhat:OpenMembersView()
+    local f = EnsureMembersFrame()
 
     if f:IsShown() then
-        self:LogUiBuilding("Raider Roles View open, closing it.")
+        self:LogUiBuilding("Members View open, closing it.")
         f:Hide()
         return
     end
 
-    self:LogUiBuilding("Opening Raider Roles View...")
+    self:LogUiBuilding("Opening Members View...")
     RefreshRoster(f)
     f:Show()
     f:Raise()

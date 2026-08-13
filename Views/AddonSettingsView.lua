@@ -238,7 +238,7 @@ local function MinimapClick(_, mouseButton)
     if shift and mouseButton == "RightButton" then
         WhoDoesWhat:OpenAddonSettingsView()
     elseif shift then
-        WhoDoesWhat:OpenRaiderRolesView()
+        WhoDoesWhat:OpenMembersView()
     elseif mouseButton == "RightButton" then
         WhoDoesWhat:OpenBuffingGridView()
     else

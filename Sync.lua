@@ -179,7 +179,7 @@ end
 -- Every view that renders synced state; repainted after any remote apply.
 local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
-    WhoDoesWhat:RefreshRaiderRolesView()
+    WhoDoesWhat:RefreshMembersView()
     -- Action Items included, so no separate call -- adding one back would
     -- repaint WDW Status twice, which is what this pair used to do.
     WhoDoesWhat:RefreshBoardViews()
@@ -754,7 +754,7 @@ local function ApplyPeerDirectory(peers)
             end
         end
     end
-    if newlySeen then WhoDoesWhat:RefreshRaiderRolesView() end
+    if newlySeen then WhoDoesWhat:RefreshMembersView() end
 end
 
 -- Non-WDW players have no peer-directory entry of their own. The leader keeps
@@ -977,7 +977,7 @@ end
 
 -- Ask every WDW client in the group to answer. HELLO is deliberately reused:
 -- released clients already answer it with STATE, RANKS, or VERSION depending
--- on their role/class, so the Raider Roles presence column works across
+-- on their role/class, so the Members presence column works across
 -- addon versions without another wire message.
 function Sync:RequestPeerPresence(includeTalents)
     local channel = GroupChannel()
@@ -1160,7 +1160,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     -- this to stand the editing rule down when the leader can't own it.
     local newlySeen = WhoDoesWhat.syncPeers[senderKey] ~= true
     WhoDoesWhat.syncPeers[senderKey] = true
-    if newlySeen then WhoDoesWhat:RefreshRaiderRolesView() end
+    if newlySeen then WhoDoesWhat:RefreshMembersView() end
 
     if msg.p ~= PROTOCOL then
         if not warnedProtocol then
@@ -1287,7 +1287,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
             -- the role, and us writing it again from a board that may or may
             -- not have caught up is exactly the fight this removed.
             WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshRaiderRolesView()
+            WhoDoesWhat:RefreshMembersView()
             -- Their role reshapes the blessing plan, same as a local role
             -- change: repaint the grid/bars/diff window off the plan hook.
             WhoDoesWhat:RefreshBoardViews()
