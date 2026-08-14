@@ -35,6 +35,7 @@ Raid-wide buff rules provide additional control: prioritize a blessing for a rol
 - **PallyPower mode** treats live or observed PallyPower assignments as the raid's active plan.
 - **One-click sync** broadcasts the WDW plan over PallyPower's own protocol, even when the sender does not have PallyPower installed.
 - **Diff and Fix tools** show meaningful coverage differences and repair the full plan or an affected player's assignments.
+- **Two-way visibility** reports a Paladin who has no PallyPower installed to the PallyPower users in the raid, so they appear in the PallyPower window and can be assigned blessings there like anyone else.
 
 PallyPower clients normally accept assignments for other Paladins only from the raid leader or an assistant unless Free Assignment is enabled.
 

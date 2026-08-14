@@ -542,21 +542,51 @@ row/column utility scan before the inspected data disappears.
 
 Prefix: `PLPWR`. PallyPower messages are plaintext commands owned by
 PallyPower. WDW observes them to maintain a session-only mirror and originates
-only the messages required for discovery and explicit synchronization.
+only the messages required for discovery, explicit synchronization, and — for a
+paladin with no PallyPower installed — being visible to PallyPower at all.
 
 | Message | Meaning | WDW behavior |
 | --- | --- | --- |
-| `REQ` | Ask PallyPower clients to identify themselves | WDW sends on group join/reload, at most once per channel per 10 seconds |
-| `SELF <rank/talent pairs>@<row>` | Sender's blessing capabilities and own class row | Observed; fills otherwise-unknown paladin buff talents as provisional external data, marks sender as a PallyPower peer, and resets their mirrored exceptions before replay |
-| `ASELF ...@<aura>` | Sender's own aura state | Logged, not part of the blessing-grid mirror |
-| `PPLEADER <name>` | Announce PallyPower leader | Logged |
+| `REQ` | Ask PallyPower clients to identify themselves | WDW sends on group join/reload, at most once per channel per 10 seconds; a paladin without PallyPower may answer it (see below) |
+| `SELF <rank/talent pairs>@<row>` | Sender's blessing capabilities and own class row | Observed; fills otherwise-unknown paladin buff talents as provisional external data, and resets their mirrored exceptions before replay. A paladin without PallyPower installed also *sends* this (see below) |
+| `ASELF ...@<aura>` | Sender's own aura state | Logged, not part of the blessing-grid mirror; marks the sender as running the real PallyPower addon |
+| `PPLEADER <name>` | Announce PallyPower leader | Logged; marks the sender as running the real PallyPower addon |
 | `PASSIGN <paladin>@<row>` | Replace one paladin's full class blessing row | Observed; WDW sends during an explicit full push |
 | `ASSIGN <paladin> <class> <blessing>` | Change one class cell | Observed |
 | `MASSIGN <paladin> <blessing>` | Give all classes one blessing | Observed |
 | `NASSIGN <paladin> <class> <target> <blessing>[@...]` | Set or clear per-player normal-blessing exceptions | Observed; WDW sends in batches of five entries during full or safe per-player pushes |
 | `AASSIGN <paladin> <aura>` | Assign one aura | Logged |
 | `CLEAR [SKIP]` | Clear assignments; `SKIP` retains auras | Observed; WDW sends `CLEAR SKIP` at the start of an explicit full push |
-| `FREEASSIGN ...` | Free-assignment, reagent, and cooldown information | Logged |
+| `FREEASSIGN ...` | Free-assignment, reagent, and cooldown information | Logged; a paladin without PallyPower sends `YES` with their real symbol count (see below) |
+
+### A paladin without PallyPower announces itself
+
+PallyPower draws a column only for a paladin it has heard `SELF` from. A
+paladin running WDW alone therefore appears in no PallyPower window at all, and
+no PallyPower user can aim an assignment at them. When PallyPower is *not*
+installed and the player is a paladin, WDW sends that announcement itself:
+`SELF`, then `FREEASSIGN YES | SYMCOUNT <symbols> | COOLDOWNS:n:n:n:n`, then
+its own mirrored exception rows as `NASSIGN` batches — the same sequence, in
+the same order, PallyPower's own `SendSelf` uses.
+
+- The rank/talent field is encoded from WDW's native talent scan plus the
+  player's spellbook, matching PallyPower's own `ScanSpells` reading.
+- The class row is read from **WDW's wire mirror, never from its computed
+  plan**. `SELF` replaces the sender's row on every client with no authority
+  check, so announcing a computed row would revert the raid leader's last
+  assignment.
+- Free Assignment is always `YES`. WDW has no reason to refuse an assignment,
+  and refusing would leave the paladin assignable only by the raid leader.
+- `ASELF` is never sent: WDW does not manage auras, so the aura cells stay
+  blank rather than claiming an assignment it would ignore. Together with
+  `PPLEADER`, that is what separates a real PallyPower client from WDW's
+  announcement — WDW marks PallyPower peers from those two messages, not from
+  `SELF`.
+
+Announcements are broadcast rather than whispered per requester, and debounced
+into one send. A group whose paladins all run WDW stays silent: WDW answers a
+`REQ` only from a requester it cannot account for as a WDW peer, or once a real
+PallyPower client is known to be listening.
 
 ### There is no single PallyPower board
 
@@ -638,6 +668,12 @@ An explicit WDW-to-PallyPower full push sends:
 The smaller automatic role-change path sends only the affected `NASSIGN`
 entries and only when the previous PallyPower board was aligned and the change
 does not alter broader class demand.
+
+A paladin with no PallyPower installed additionally announces itself with
+`SELF` + `FREEASSIGN` + its exception rows, on discovering a PallyPower client
+or on answering a `REQ` it cannot attribute to a WDW peer. That path carries no
+`PUSH` marker: it restates rows the mirror already holds rather than changing
+anything.
 
 Both paths write `PUSH` marker lines into the PallyPower traffic log, so
 everything below a marker is PallyPower answering rather than WDW sending. The

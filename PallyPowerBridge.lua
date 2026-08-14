@@ -17,6 +17,13 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- when the sender is a raid leader/assist (or they run Free Assignment), so
 -- the button warns when we push without that authority.
 --
+-- Announce (SendPallyPowerSelf): PallyPower only draws a column for a paladin
+-- it has heard SELF from, so a paladin running WDW alone is invisible to every
+-- PallyPower client in the raid and nobody can aim an assignment at them. When
+-- PallyPower is absent WDW speaks that one message on the player's behalf --
+-- see the section below for when, and for why it stays silent in a group that
+-- is all WDW.
+--
 -- Log: while session logging is enabled, every PLPWR message in or out lands
 -- in WhoDoesWhat.PallyPowerLog.
 -- Outgoing is caught with a hooksecurefunc on ChatThrottleLib (all of
@@ -44,13 +51,19 @@ local function GroupChannel()
     end
 end
 
+-- Proof that a paladin runs the real addon, not WDW's emulation of it: WDW
+-- sends SELF but never ASELF (it has no aura assignments to report) or
+-- PPLEADER, and PallyPower's SendSelf always follows SELF with ASELF. Reading
+-- those two rather than SELF keeps a WDW-only paladin from being counted as a
+-- PallyPower user by their own announcement -- see CHAT_MSG_ADDON below.
 function WhoDoesWhat:PaladinHasPallyPower(name)
     if name == UnitName("player") then return _G.PallyPower ~= nil end
     return self.pallyPowerPeers[name] == true
 end
 
 -- Ask PallyPower clients to identify themselves. Each paladin answers REQ
--- with SELF; CHAT_MSG_ADDON below records those replies for raider tooltips.
+-- with SELF + ASELF; CHAT_MSG_ADDON below records those replies for raider
+-- tooltips.
 function WhoDoesWhat:RequestPallyPowerPeers()
     local channel = GroupChannel()
     if channel and C_ChatInfo and C_ChatInfo.SendAddonMessage then
@@ -373,6 +386,152 @@ local function SendPallyPowerMessage(message)
         C_ChatInfo.SendAddonMessage(PP_PREFIX, message, channel)
     end
     if Append then Append("out", channel or "LOCAL", message) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Announce: speaking as a PallyPower client
+-- ---------------------------------------------------------------------------
+
+-- WDW answers for the player only when it is the one thing that can: a paladin
+-- with no PallyPower installed. With PallyPower present it sends all of this
+-- itself, and two senders would race over the same rows.
+local function SpeaksForPallyPower()
+    return _G.PallyPower == nil
+        and select(2, UnitClass("player")) == "PALADIN"
+end
+
+-- Blessing keys in PallyPower's wire order, from whichever id table is live.
+local BLESSING_ORDER = {}
+for key, id in pairs(IS_WRATH and BLESSING_ID_WRATH or BLESSING_ID) do
+    BLESSING_ORDER[id] = key
+end
+
+-- Symbol of Kings. PallyPower reports how many the paladin is carrying so the
+-- raid can see who is about to run out of Greater blessings.
+local SYMBOL_OF_KINGS = 21177
+
+-- The rank PallyPower would report for one blessing, or nil when the player
+-- can't cast it. Deliberately the same read PallyPower's ScanSpells does: a
+-- name lookup only resolves for a spell that is actually in our spellbook,
+-- which is also what proves Kings and Sanctuary were talented. Rankless
+-- blessings report rank 1, as they do there.
+local function KnownBlessingRank(key)
+    local buff = WhoDoesWhat.PaladinBuffs[key]
+    local baseName = buff and buff.normalSpellId and GetSpellInfo(buff.normalSpellId)
+    if not baseName or not GetSpellInfo(baseName) then return nil end
+    local subtext = GetSpellSubtext(baseName)
+    return tonumber(subtext and subtext:match("(%d+)")) or 1
+end
+
+-- PallyPower fills the talent half only for the blessings with an improvement
+-- talent, and prints it as "rank+talent". Kings is granted by a talent rather
+-- than improved by one, so reporting a point there would render as "1+1" in
+-- their grid; Sanctuary carries one anyway because PallyPower's own scan does.
+-- Either way the decoder reads those two off the rank half.
+local TALENT_REPORTED = { wisdom = true, might = true, sanctuary = true }
+
+-- SELF's rank/talent field: one "%x%x" rank/talent pair per blessing in id
+-- order, "nn" for one we can't cast. DecodePallyPowerBuffTalents above is the
+-- read side of this format. The talent halves come from WDW's own native scan,
+-- which is the better source -- it is what the PallyPower import defers to.
+local function EncodeBuffTalents(rankOf, talents)
+    local s = ""
+    for id = 1, #BLESSING_ORDER do
+        local key = BLESSING_ORDER[id]
+        local rank = rankOf(key)
+        s = s .. (rank and string.format("%x%x", rank,
+            TALENT_REPORTED[key] and talents[key] or 0) or "nn")
+    end
+    return s
+end
+
+local function EncodeSelfSkills()
+    return EncodeBuffTalents(KnownBlessingRank,
+        WhoDoesWhat:GetPaladinBuffTalents(UnitName("player")) or {})
+end
+
+-- The nibble positions are the whole risk here, so check that what we announce
+-- reads back as what we know. Decoding is era/TBC-shaped (six blessings), so
+-- the round trip only applies where the wire string is that long.
+function WhoDoesWhat:TestPallyPowerSelfEncode()
+    local rankOf = function(key)
+        return ({ wisdom = 4, might = 6, kings = 1, salv = 2, light = 3,
+            sanctuary = 2 })[key]
+    end
+    local encoded = EncodeBuffTalents(rankOf,
+        { wisdom = 2, might = 5, kings = 1, sanctuary = 1 })
+    assert(#encoded == #BLESSING_ORDER * 2)
+    local untalented = EncodeBuffTalents(function(key)
+        return key ~= "kings" and key ~= "sanctuary" and rankOf(key) or nil
+    end, {})
+    if #encoded >= 12 then
+        local ranks = DecodePallyPowerBuffTalents(encoded)
+        assert(ranks and ranks.wisdom == 2 and ranks.might == 5)
+        assert(ranks.kings == 1 and ranks.sanctuary == 1)
+        ranks = DecodePallyPowerBuffTalents(untalented)
+        assert(ranks and ranks.wisdom == 0 and ranks.might == 0)
+        assert(ranks.kings == 0 and ranks.sanctuary == 0)
+    end
+    self:Print("PallyPower self-encode check passed.")
+end
+
+-- Our own class row, taken from the wire mirror rather than from WDW's plan.
+-- SELF overwrites PallyPower_Assignments[sender] on every client with no
+-- authority check, so announcing a computed row would revert whatever the raid
+-- leader last assigned us. The mirror holds what PallyPower currently believes,
+-- which is what a restatement is supposed to say -- in either buff-source mode.
+local function SelfClassRow()
+    local row = observedBoard.assignments[ShortName(UnitName("player"))] or {}
+    local s = ""
+    for classId = 1, PP_MAX_CLASSES do
+        local blessing = row[classId]
+        s = s .. ((not blessing or blessing == 0) and "n" or blessing)
+    end
+    return s
+end
+
+-- Announcements restate rows the mirror already holds, so they skip
+-- SendPallyPowerMessage's apply step (SELF would wipe our own exceptions there
+-- and immediately replay them) and go straight onto the wire.
+local function AnnounceRaw(message, channel)
+    C_ChatInfo.SendAddonMessage(PP_PREFIX, message, channel)
+    if Append then Append("out", channel, message) end
+end
+
+-- Report ourselves the way a PallyPower paladin does, so their clients give us
+-- a column and can assign to it. Free Assignment is always YES: WDW has no
+-- reason to refuse an assignment (it lands in the mirror, and the diff view
+-- surfaces it either way), and refusing would leave us assignable only by the
+-- raid leader -- and by nobody at all inside an instance-category group, where
+-- PallyPower's own leader table comes up empty.
+--
+-- Broadcast rather than PallyPower's whispered reply: one message answers
+-- every client at once, which is less traffic than a whisper per requester,
+-- and re-sending our current row is idempotent everywhere.
+function WhoDoesWhat:SendPallyPowerSelf()
+    local channel = GroupChannel()
+    if not (SpeaksForPallyPower() and channel and C_ChatInfo
+        and C_ChatInfo.SendAddonMessage) then return false end
+
+    local me = ShortName(UnitName("player"))
+    AnnounceRaw("SELF " .. EncodeSelfSkills() .. "@" .. SelfClassRow(), channel)
+    AnnounceRaw("FREEASSIGN YES | SYMCOUNT " .. (GetItemCount(SYMBOL_OF_KINGS) or 0)
+        .. " | COOLDOWNS:n:n:n:n", channel)
+
+    -- SELF clears the sender's exception rows on a WDW mirror, so replay ours
+    -- behind it -- the same order PallyPower's own SendSelf sends them in.
+    local entries = {}
+    for classId, targets in pairs(observedBoard.normal[me] or {}) do
+        for target, blessing in pairs(targets) do
+            entries[#entries + 1] =
+                string.format("%s %s %s %s", me, classId, target, blessing)
+        end
+    end
+    for offset = 1, #entries, 5 do
+        AnnounceRaw("NASSIGN " .. table.concat(entries, "@", offset,
+            math.min(offset + 4, #entries)), channel)
+    end
+    return true
 end
 
 -- The fake testing roster must never leak onto the wire; PallyPower is real
@@ -1255,6 +1414,38 @@ local knownPetNames = {}
 local petCheckPending = false
 local mirrorRefreshPending = false
 
+-- When to announce. PallyPower whispers a SendSelf back to every requester; we
+-- collapse a re-discovery storm into one broadcast a beat later instead.
+--
+-- The beat also buys the quiet case. A group where every paladin runs WDW
+-- needs none of this -- they read each other's assignments off the WDW board,
+-- and WDW sends REQ itself, so answering those would be a round of
+-- announcements nobody reads. So a REQ earns an answer only from a requester
+-- we can't account for as a WDW peer, or once a real PallyPower client is
+-- known to be listening. Deferring lets a joiner's WDW handshake land first,
+-- so their REQ doesn't read as a stranger's.
+--
+-- Call with no requester to announce because we just discovered PallyPower
+-- ourselves; both routes share the one send.
+local pendingRequesters = {}
+local announcePending
+
+local function ScheduleAnnounce(requester)
+    if not SpeaksForPallyPower() then return end
+    if requester then pendingRequesters[requester] = true end
+    if announcePending then return end
+    announcePending = true
+    C_Timer.After(2, function()
+        announcePending = nil
+        local announce = next(WhoDoesWhat.pallyPowerPeers) ~= nil
+        for name in pairs(pendingRequesters) do
+            if not WhoDoesWhat.syncPeers[name] then announce = true end
+            pendingRequesters[name] = nil
+        end
+        if announce then WhoDoesWhat:SendPallyPowerSelf() end
+    end)
+end
+
 local function QueueMirrorRefresh()
     if mirrorRefreshPending then return end
     mirrorRefreshPending = true
@@ -1315,6 +1506,11 @@ function Bridge:PetRosterChanged()
         if not IsInGroup() then
             lastPeerRequestAt = nil
             lastPeerRequestChannel = nil
+            -- Who was running PallyPower was a fact about that group, and it
+            -- decides both the raider tooltips and whether we announce at all.
+            -- Carrying it into the next group would answer for strangers.
+            wipe(WhoDoesWhat.pallyPowerPeers)
+            wipe(pendingRequesters)
         end
         local live = LivePetNames()
         local changed = false
@@ -1343,8 +1539,17 @@ function Bridge:CHAT_MSG_ADDON(_, prefix, message, _, sender)
     if ApplyPallyPowerMessage(observedBoard, who, message) then
         QueueMirrorRefresh()
     end
-    if message:find("^SELF ") then
+
+    -- ASELF and PPLEADER are the messages only the real addon sends (see
+    -- PaladinHasPallyPower). The first one heard is also our cue to announce:
+    -- a PallyPower client that joined an existing raid never asks for anything
+    -- it already believes it knows.
+    if message:find("^ASELF ") or message:find("^PPLEADER ") then
+        local firstPeer = next(WhoDoesWhat.pallyPowerPeers) == nil
         WhoDoesWhat.pallyPowerPeers[who] = true
+        if firstPeer then ScheduleAnnounce() end
+    elseif message == "REQ" then
+        ScheduleAnnounce(who)
     end
     Append("in", who, message)
 end
