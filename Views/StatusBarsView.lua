@@ -408,13 +408,23 @@ local function AddProviderLines(key, definition)
         end
     end
     local classInfo = classByName[definition.className]
-    local rankText = best and (" |cff909090(" .. best .. "/"
-        .. talent.maxRank .. ")|r") or ""
+    local matches = {}
     for _, provider in ipairs(providers) do
         if provider.available and provider.rank == best then
-            GameTooltip:AddLine(ColoredName(provider.name, classInfo) .. rankText,
-                1, 1, 1)
+            matches[#matches + 1] = provider.name
         end
+    end
+    -- Nobody has spent a point, so every caster of the class is the same cast.
+    -- A column of names all reading (0/5) says less than the class name does.
+    if best == 0 and #matches > 1 then
+        GameTooltip:AddLine("|cff" .. ((classInfo and classInfo.colorHex)
+            or "FFFFFF") .. "Any " .. definition.className .. "|r", 1, 1, 1)
+        return
+    end
+    local rankText = best and (" |cff909090(" .. best .. "/"
+        .. talent.maxRank .. ")|r") or ""
+    for _, name in ipairs(matches) do
+        GameTooltip:AddLine(ColoredName(name, classInfo) .. rankText, 1, 1, 1)
     end
 end
 
@@ -1122,9 +1132,13 @@ function WhoDoesWhat:RefreshStatusBarsView()
                 or { correct = 0, total = 0 }
             local complete = coverage.total > 0
                 and coverage.correct >= coverage.total
+            -- A paladin with nothing assigned has no coverage to report, and a
+            -- 0/0 bar is a row that can never move. With a lot of paladins
+            -- that's several rows of nothing, so they never get one.
             if showPaladinBars
                 and (paladinPreview
-                    or not (paladinOptions.hideComplete and complete)) then
+                    or (coverage.total > 0
+                        and not (paladinOptions.hideComplete and complete))) then
                 paladinEntries[#paladinEntries + 1] = {
                     name = paladin.name,
                     icon = RoleIcon(paladin.name),
