@@ -227,7 +227,7 @@ local function CreateComparisonRow(content, side, index)
                         member.testRoleId = role.id
                         RenderDiffs(frame)
                     else
-                        WhoDoesWhat:SetAssignedRole(member.name, role.id)
+                        WhoDoesWhat:SetAssignedRole(member.name, role.id, nil, true)
                     end
                 end
                 UIDropDownMenu_AddButton(info, level)

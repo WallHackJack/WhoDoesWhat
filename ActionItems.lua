@@ -84,9 +84,15 @@ end
 --
 -- The rule is a plain majority. Each answer counts how many of the others it
 -- agrees with; anything below the best score, and in a disagreement, earns a
--- line. Two answers that disagree with nothing else to break the tie blame BOTH
--- -- there genuinely is no odd one out -- and so does a three-way split, where
--- nobody scores an agreement at all.
+-- line naming what outvoted it.
+--
+-- When NOBODY scores an agreement -- a two-way mismatch with no third answer to
+-- break the tie, or a three-way split -- there is no odd one out to name, so it
+-- emits ONE line listing the parties instead of accusing each of them in turn.
+-- That matters twice over: the tooltip stopped saying the same thing forwards
+-- and backwards ("group disagrees with the board", "the board disagrees with
+-- group"), and since the badge counts ISSUES, one wrong role stopped being
+-- advertised as two.
 --
 -- Only answers we actually have take part. A player nobody has inspected, or a
 -- flag Blizzard never set, is unknown rather than wrong, and a warning on top of
@@ -106,17 +112,34 @@ end
 local COMPARISONS = {
     { "group", "wdw" }, { "group", "talent" }, { "wdw", "talent" },
 }
-
-local function Reason(others, agreed, best, lead)
-    if #others == 0 then return nil end
-    -- Outvoted, or nothing to be outvoted by.
-    if best > 0 and agreed >= best then return nil end
-    return lead .. table.concat(others, " and ") .. "."
+-- Natural-language list: "A", "A and B", "A, B and C".
+local function JoinList(parts)
+    if #parts <= 1 then return parts[1] or "" end
+    if #parts == 2 then return parts[1] .. " and " .. parts[2] end
+    return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
 end
 
--- Reason strings for the three answers, nil where that one is right, alone, or
--- unknown. All three land in the same tooltip now, so they read as sentences
--- rather than as a hint attached to a column.
+local function Capitalize(text)
+    return text:sub(1, 1):upper() .. text:sub(2)
+end
+
+local ORDER = { "group", "wdw", "talent" }
+
+-- One entry per DISAGREEMENT -- { text = ..., blames = "group"/"wdw"/"talent"
+-- or nil } -- not one per accused answer.
+--
+-- The earlier shape returned a reason per COLUMN, which was right while each
+-- was about to light its own warning icon: a two-way mismatch with no third
+-- answer to break the tie genuinely blames both, so both gutters lit and the
+-- reader saw one row with two marks on it. Collapsed into a single tooltip that
+-- became the same sentence twice -- "group role disagrees with the board", "the
+-- board disagrees with the group role" -- and, because the badge counts ISSUES,
+-- one wrong role was advertised as two.
+--
+-- So: a majority still names the odd one out and blames it alone. No majority
+-- states the disagreement ONCE and names everyone in it, because that is
+-- genuinely one problem and there is nothing to choose between the parties.
+-- `blames` is nil on those, since either side could be the thing you fix.
 local function RowDisagreements(data, talentRoles)
     local groupWow = data.blizzRole and BLIZZ_TO_WOW[data.blizzRole] or nil
     local wdwWow = data.role and data.role.wowRole or nil
@@ -168,34 +191,81 @@ local function RowDisagreements(data, talentRoles)
     end
 
     local best = math.max(agreed.group, agreed.wdw, agreed.talent)
-    return Reason(against.group, agreed.group, best,
-            "Group role (" .. (WowRoleName(groupWow) or "none")
-                .. ") disagrees with "),
-        Reason(against.wdw, agreed.wdw, best,
-            "WhoDoesWhat role (" .. (data.role and data.role.name or "none")
-                .. ") disagrees with "),
-        Reason(against.talent, agreed.talent, best,
-            "Talents read as " .. talentName .. ", which disagrees with ")
+    local leads = {
+        group = "Group role (" .. (WowRoleName(groupWow) or "none")
+            .. ") disagrees with ",
+        wdw = "WhoDoesWhat role (" .. (data.role and data.role.name or "none")
+            .. ") disagrees with ",
+        talent = "Talents read as " .. talentName .. ", which disagrees with ",
+    }
+    local out = {}
+
+    if best > 0 then
+        -- Someone is outvoted, so there is an odd one out worth naming.
+        for _, key in ipairs(ORDER) do
+            if #against[key] > 0 and agreed[key] < best then
+                out[#out + 1] = {
+                    blames = key,
+                    text = leads[key] .. JoinList(against[key]) .. ".",
+                }
+            end
+        end
+        return out
+    end
+
+    -- Nobody agrees with anybody. Say it once and name the parties rather than
+    -- accusing each of them in turn.
+    local parties = {}
+    for _, key in ipairs(ORDER) do
+        if #against[key] > 0 then parties[#parties + 1] = describes[key] end
+    end
+    if #parties == 0 then return out end
+    out[1] = { text = Capitalize(JoinList(parties))
+        .. (#parties > 2 and " all disagree" or " disagree")
+        .. ", and nothing else is known that would say which is right." }
+    return out
 end
 
 -- ---------------------------------------------------------------------------
 -- Permission
 -- ---------------------------------------------------------------------------
 
--- Writing another member's Blizzard flag needs BOTH: the WoW rank that lets the
--- server accept it at all (raid assist / party lead), and our single-writer
--- election on top, so ten assistants don't all set flags at once. Your own is
--- always yours.
+-- Whether the local player may pick this member's group role BY HAND.
 --
--- The rank half is stated here rather than left to the election because the two
--- can disagree loudly: board permissions read wide open when the raid leader
--- has no WhoDoesWhat, which is precisely when a plain raider looks permitted
--- and can still change nobody's flag.
-function WhoDoesWhat:CanEditGroupRoleOf(unit)
-    if not unit then return false end
-    if UnitIsUnit(unit, "player") then return true end
-    return self:PlayerCanSetGroupRoles(UnitName("player"))
-        and self:CanSetOthersBlizzardRole()
+-- This is the MANUAL gate: the WoW rank the server itself demands before it
+-- will accept UnitSetRole for someone else (raid assist / party lead), and
+-- nothing more. It deliberately does NOT require the single-writer election --
+-- that election is there to stop several clients writing the same flag on
+-- their own initiative, and a person clicking one dropdown, once, is not a
+-- race. Requiring it meant every assistant's dropdown was dead in any raid
+-- whose leader also runs WhoDoesWhat, which is the normal case.
+--
+-- The rank is checked here rather than left to the board permissions because
+-- the two disagree loudly: board permissions read wide open when the raid
+-- leader has no WhoDoesWhat, which is precisely when a plain raider looks
+-- permitted and can still change nobody's flag. Your own is always yours.
+--
+-- Takes the player key and the resolved unit token, if the roster walk found
+-- one. The token is a convenience, not a requirement: WoW accepts a group
+-- member NAME as a unit, and ApplyBlizzardRole already leans on exactly that
+-- fallback (`unit or playerName`). An earlier version of this refused outright
+-- when the token was missing, which greyed the whole Group role column and
+-- stopped SetAssignedRole pushing the flag for anyone the walk had not mapped.
+--
+-- Returns ok, reason -- the reason names the actual blocker, because "this
+-- dropdown is grey" has more than one cause and the reader has to be able to
+-- tell the standing one (rank) from the temporary one (combat).
+function WhoDoesWhat:CanEditGroupRoleOf(name, unit)
+    local token = unit or name
+    if not token then
+        return false, "They are not in the group right now."
+    end
+    if UnitIsUnit(token, "player") then return true end
+    if not self:CanSetOthersBlizzardRoleManually() then
+        return false, "Only the raid leader or an assistant can set another"
+            .. " player's group role. Your own is always yours to set."
+    end
+    return true
 end
 
 -- The key that opens Blizzard's social/raid panel, rendered the way the game's
@@ -245,10 +315,15 @@ function WhoDoesWhat:GetRosterIssues()
     local haveRoleApi = UnitGroupRolesAssigned ~= nil
 
     for _, m in ipairs(self:GetGroupMembers(nil)) do
-        local unit = units[m.name]
-        -- A fake raider has no unit, so every flag- and promotion-derived
-        -- question below is unanswerable rather than failing.
-        local real = unit ~= nil and not m.isFake
+        -- The resolved raidN/partyN token when the roster walk found one, and
+        -- the player key itself when it did not: WoW accepts a group member's
+        -- NAME as a unit, and ApplyBlizzardRole already relies on that same
+        -- fallback. Requiring the token here instead is what greyed the Group
+        -- role column and dropped the unit SetAssignedRole needs to push the
+        -- flag. A fake raider has neither, and so is the only case left with no
+        -- token at all -- which is right, since it has no Blizzard flag either.
+        local unit = units[m.name] or (not m.isFake and m.name or nil)
+        local real = unit ~= nil
 
         local roleId = self.db.profile.assignments[m.name]
         local role = nil
@@ -273,7 +348,10 @@ function WhoDoesWhat:GetRosterIssues()
         end
 
         local mayRole = self:CanEditRoleOf(m.name)
-        local mayFlag = real and self:CanEditGroupRoleOf(unit) or false
+        local mayFlag, flagBlocker = false, "Fake raiders have no Blizzard group role."
+        if real then
+            mayFlag, flagBlocker = self:CanEditGroupRoleOf(m.name, unit)
+        end
         local issues = {}
         local function Add(text, canFix)
             issues[#issues + 1] = text
@@ -289,15 +367,17 @@ function WhoDoesWhat:GetRosterIssues()
                 mayRole)
         end
 
-        local groupReason, wdwReason, talentReason =
-            RowDisagreements({ blizzRole = blizzRole, roleId = roleId,
-                role = role }, talentRoles)
-        if groupReason then Add(groupReason, mayFlag) end
-        -- A stale scan is settled by Rescan, which needs no rights at all --
-        -- but the fix that usually applies is correcting the board, so this
-        -- counts as actionable on the same rule the board does.
-        if wdwReason then Add(wdwReason, mayRole) end
-        if talentReason then Add(talentReason, mayRole) end
+        -- One entry per disagreement. A line that blames the group flag is
+        -- actionable on the flag gate; anything else -- including the "no
+        -- majority, both are suspect" line, where either side could be the
+        -- thing you fix -- follows the board gate, since correcting the board
+        -- is the usual remedy and a stale scan is settled by Rescan, which
+        -- needs no rights at all.
+        for _, entry in ipairs(RowDisagreements({ blizzRole = blizzRole,
+            roleId = roleId, role = role }, talentRoles)) do
+            Add(entry.text, entry.blames == "group" and mayFlag
+                or (mayRole or mayFlag))
+        end
 
         if real and inGroup and role and not blizzRole then
             Add(m.name .. " has no group role set at all. Pick Tank, Healer or"
@@ -328,6 +408,7 @@ function WhoDoesWhat:GetRosterIssues()
             talentRoles = talentRoles,
             mayRole = mayRole,
             mayFlag = mayFlag,
+            flagBlocker = flagBlocker,
             issues = issues,
         }
     end

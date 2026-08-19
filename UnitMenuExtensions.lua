@@ -97,19 +97,26 @@ end
 -- The player-name + exactMatch args mirror Blizzard's own Set Main Tank button.
 -- `role` may be nil (assignment cleared).
 --
--- Only ever reached from something the user just did on THIS client: a role
--- picked in a menu or the main window, or re-enabling the Settings toggle.
--- Nothing schedules, sweeps or syncs its way here any more.
-local function ApplyBlizzardRole(unit, playerName, role)
+-- `manual` marks a pick a person just made on THIS client, for ONE player: a
+-- role chosen in a menu, or a group role chosen in the Members window. Talent
+-- auto-detection leaves it unset and is held to the stricter election instead,
+-- and so does the reconcile sweep -- a person flips that Settings toggle, but
+-- what it then does is push the WHOLE roster's flags, which is exactly the
+-- storm the election exists to prevent. See the gate below.
+local function ApplyBlizzardRole(unit, playerName, role, manual)
     -- Master opt-out (Settings > General). WDW keeps its own board either way;
     -- this only stops it writing Blizzard's.
     if not WhoDoesWhat:ManagesBlizzardRoles() then return end
 
-    -- Writing another member's state takes the single-writer election (Core.lua
-    -- BlizzardRoleWriter); your OWN role is always yours. Without this the
-    -- UnitSetRole below silently no-ops on others while we act as though it
-    -- took -- or, worse, several assists set it at once.
+    -- Writing another member's state is gated three ways, in order. Your OWN
+    -- role is always yours. A MANUAL pick takes the WoW rank the server itself
+    -- demands (raid assist / party lead). Anything else -- a write WDW decided
+    -- to make on its own initiative -- takes the single-writer election
+    -- (BlizzardRoleWriter), which is what stops several clients setting the
+    -- same flag at once. Without some gate here UnitSetRole silently no-ops on
+    -- others while we act as though it took.
     local mayFlag = UnitIsUnit(unit, "player")
+        or (manual and WhoDoesWhat:CanSetOthersBlizzardRoleManually())
         or WhoDoesWhat:CanSetOthersBlizzardRole()
     local inCombat = InCombatLockdown()
 
@@ -132,7 +139,7 @@ local function ApplyBlizzardRole(unit, playerName, role)
         -- freely. Only the flag stands down; the demotion below is unrelated
         -- and still runs.
         local contested = before and before ~= "NONE" and before ~= meta.blizzRole
-        if contested and lastWritten[playerName] == role.id then
+        if contested and not manual and lastWritten[playerName] == role.id then
             WhoDoesWhat:LogRolePromotion("Blizzard role contested (stood down)",
                 "player=" .. tostring(playerName),
                 "ours=" .. tostring(meta.blizzRole),
@@ -187,8 +194,8 @@ end
 -- Skipped when they already are.
 -- `unit` is optional: a group member's name is itself a valid unit for the
 -- APIs involved, so callers without a token (talent auto-detection) omit it.
-function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit)
-    ApplyBlizzardRole(unit or playerName, playerName, role)
+function WhoDoesWhat:SyncBlizzardRoleState(playerName, role, unit, manual)
+    ApplyBlizzardRole(unit or playerName, playerName, role, manual)
     -- Only someone who could actually promote raises the arrow -- a plain
     -- raider can't promote anyone and doesn't want a useless pointer. That's
     -- every assistant, not just the flag-writer: promoting is a click a human
@@ -254,7 +261,7 @@ end
 -- Assign a role to a player (roleId = nil clears the assignment) and sync
 -- the blizzard role/main-tank state to match. Your own role is always yours;
 -- anyone else's takes board edit permission (Permissions.lua).
-function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
+function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit, manual)
     if playerName ~= UnitName("player") and not self:RequireEditPermission() then
         return
     end
@@ -283,7 +290,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     if sync then sync:PushSoon() end
     if roleId then
         local _, role = self:FindRoleById(roleId)
-        self:SyncBlizzardRoleState(playerName, role, unit)
+        self:SyncBlizzardRoleState(playerName, role, unit, manual)
         if not unchanged then
             self:LogOperation(playerName .. " set to " .. (role and role.name or roleId) .. ".")
             if role and self.db.profile.settings.announceRoleChanges then
@@ -294,7 +301,7 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     else
         -- Clearing a role is still a Blizzard-side change: a cleared main tank
         -- has to lose the mark, and nothing else would ever come back for them.
-        self:SyncBlizzardRoleState(playerName, nil, unit)
+        self:SyncBlizzardRoleState(playerName, nil, unit, manual)
         self:LogOperation(playerName .. "'s role cleared.")
     end
 
@@ -704,7 +711,7 @@ local function AddWdwSection(rootDescription, contextData)
         setRole:CreateRadio(
             RoleRowText(role, classInfo),
             function() return WhoDoesWhat:GetAssignedRole(playerName) == role.id end,
-            function() WhoDoesWhat:SetAssignedRole(playerName, role.id, unit) end
+            function() WhoDoesWhat:SetAssignedRole(playerName, role.id, unit, true) end
         )
     end
 
@@ -723,7 +730,7 @@ local function AddWdwSection(rootDescription, contextData)
         "|T" .. nr.icon .. ":16:16:0:0|t |cff" .. WhoDoesWhat.NonRaiderClass.colorHex
             .. nr.name .. "|r",
         function() return WhoDoesWhat:GetAssignedRole(playerName) == nr.id end,
-        function() WhoDoesWhat:SetAssignedRole(playerName, nr.id, unit) end
+        function() WhoDoesWhat:SetAssignedRole(playerName, nr.id, unit, true) end
     )
 
     -- "None" only appears while the player has no role yet (it reads as the

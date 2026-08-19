@@ -1788,7 +1788,7 @@ function WhoDoesWhat:RemoveRaidCustomRole(roleId)
     table.remove(self:GetRaidCustomRoles(), index)
     self:PopulateRolesAndCategories()
     for _, name in ipairs(assigned) do
-        self:SetAssignedRole(name, nil, self:UnitForPlayer(name))
+        self:SetAssignedRole(name, nil, self:UnitForPlayer(name), true)
     end
     self:LogOperation((isCustom and "Custom role '" or "Override of '")
         .. label .. "' removed from the raid"

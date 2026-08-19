@@ -133,7 +133,29 @@ function WhoDoesWhat:ManagesBlizzardRoles()
     return self.db.profile.settings.manageBlizzardRoles ~= false
 end
 
--- True when we're the elected writer, and so may touch someone else's flag.
+-- Writing someone else's flag splits in two, and the split is the whole point.
+--
+-- AUTOMATIC writes -- talent detection deciding a newcomer is Restoration, the
+-- reconcile sweep pushing the whole board -- go through the single-writer
+-- election below. Several clients reaching the same conclusion at the same
+-- moment is exactly how the flag ping-pong starts, and electing one writer is
+-- what stops it.
+--
+-- MANUAL writes -- a person picking a group role out of a dropdown, or setting
+-- a WDW role and expecting the flag to follow -- take the WoW rank instead:
+-- raid assist or party lead, the same rank the server itself demands before it
+-- will accept UnitSetRole for another player. There is no storm to prevent
+-- here. A human clicked once, deliberately, on one player; two assistants who
+-- disagree about a raider are having an argument, not a race, and the election
+-- was only ever there to break races. Gating manual picks on it meant that in
+-- any raid whose leader runs WhoDoesWhat -- the normal case -- every
+-- assistant's dropdown was dead, and no explanation fit in a tooltip.
+function WhoDoesWhat:CanSetOthersBlizzardRoleManually()
+    return self:PlayerCanSetGroupRoles(UnitName("player"))
+end
+
+-- True when we're the elected writer, and so may touch someone else's flag
+-- WITHOUT being asked to -- see the manual counterpart above.
 function WhoDoesWhat:CanSetOthersBlizzardRole()
     local writer = self:BlizzardRoleWriter()
     return writer ~= nil and writer == UnitName("player")

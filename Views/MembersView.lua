@@ -119,14 +119,25 @@ local function SectionHeaderText(section, count)
         .. (count == 1 and section.one or section.many)
 end
 
--- The overview strip's first line: every bucket's icon and count, zeros
--- included. An empty grid is hidden below, so this is where "no healers at
--- all" stays visible -- which is the reading you actually want at a glance.
+-- The overview strip's first line: each bucket's icon and count. The three
+-- role buckets show their zeros, since the grid below hides itself when empty
+-- and this is where "no healers at all" stays visible. The roleless bucket
+-- shows only when it has someone in it -- see below.
 local function OverviewCounts(buckets)
     local parts = {}
     for _, section in ipairs(SECTIONS) do
-        parts[#parts + 1] = SectionIcon(section, OVERVIEW_ICON_SIZE)
-            .. " " .. #buckets[section.key]
+        local count = #buckets[section.key]
+        -- Zero earns its place for the three real roles: the grid below hides
+        -- itself when empty, so this line is the only spot where "no healers at
+        -- all" stays readable. The roleless bucket is the opposite case. It
+        -- wears the warning icon, and a warning icon sitting over a 0 reads as
+        -- an alert about nothing -- nobody unaccounted for is the GOOD outcome,
+        -- and the good outcome should not be announced with a warning. So that
+        -- one entry drops out entirely rather than showing an empty complaint.
+        if count > 0 or section.key ~= "none" then
+            parts[#parts + 1] = SectionIcon(section, OVERVIEW_ICON_SIZE)
+                .. " " .. count
+        end
     end
     return table.concat(parts, "      ")
 end
@@ -240,10 +251,13 @@ local function SetGroupRole(name, unit, wowRole)
     local meta = WhoDoesWhat.BasicWowRoles[wowRole]
     if not (meta and UnitSetRole and unit) then return end
     if InCombatLockdown() then return end
-    -- Writing another member's flag takes the single-writer election (Core.lua);
-    -- your own is always yours. Without this UnitSetRole silently no-ops.
+    -- Picking here is a MANUAL write, so it takes the WoW rank the server
+    -- demands (raid assist / party lead) rather than the single-writer
+    -- election -- that election is for writes WDW makes on its own initiative,
+    -- and a person clicking one dropdown once is not a race. Your own is always
+    -- yours. Without some gate UnitSetRole silently no-ops.
     if not (UnitIsUnit(unit, "player")
-        or WhoDoesWhat:CanSetOthersBlizzardRole()) then
+        or WhoDoesWhat:CanSetOthersBlizzardRoleManually()) then
         return
     end
     UnitSetRole(unit, meta.blizzRole)
@@ -394,7 +408,7 @@ local function CreateRow(f, section, index)
             info.checked = (saved == role.id)
             info.func = function()
                 -- SetAssignedRole repaints this view (and the main one).
-                WhoDoesWhat:SetAssignedRole(m.name, role.id, data and data.unit)
+                WhoDoesWhat:SetAssignedRole(m.name, role.id, data and data.unit, true)
             end
             UIDropDownMenu_AddButton(info, level)
         end
@@ -413,7 +427,7 @@ local function CreateRow(f, section, index)
         nrInfo.text = RoleText(nr, WhoDoesWhat.NonRaiderClass)
         nrInfo.checked = (saved == nr.id)
         nrInfo.func = function()
-            WhoDoesWhat:SetAssignedRole(m.name, nr.id, data and data.unit)
+            WhoDoesWhat:SetAssignedRole(m.name, nr.id, data and data.unit, true)
         end
         UIDropDownMenu_AddButton(nrInfo, level)
 
@@ -546,10 +560,10 @@ local function LayoutRow(row, m, data, index, connected)
     -- answer -- so both simply disable it. A disabled dropdown still reads its
     -- value out, which is exactly what a read-only column wants to do anyway.
     UIDropDownMenu_SetText(row.groupDD, GroupRoleText(data.blizzRole))
+    -- The model already worked out WHY, and the causes want telling apart: a
+    -- rank you lack (standing) versus combat (passes on its own).
     row.groupDD.blockedReason = combatReason
-        or (not data.mayFlag and (data.unit
-            and "You can't set other players' group roles."
-            or "They aren't in the group right now.") or nil)
+        or (not data.mayFlag and data.flagBlocker or nil)
     SetDropdownEnabled(row.groupDD, data.mayFlag and not combat)
 
     if data.role then
