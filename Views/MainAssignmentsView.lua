@@ -43,9 +43,9 @@ local TOOLBAR_PAD = 6
 local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
 local BUTTON_GAP = 6
 local ABOUT_BUTTON_W = 52
--- Wide enough for "Actions (99)" so a changing count never resizes the button
+-- Wide enough for "Members (99)" so a changing count never resizes the button
 -- (which would shift the whole centered toolbar sideways).
-local ACTIONS_BUTTON_W = 86
+local MEMBERS_BUTTON_W = 96
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
@@ -235,12 +235,12 @@ end
 -- Nova-style pixel glow, same helper shape the buffing bar uses: track the
 -- state so a refresh doesn't restart the animation every two seconds.
 local LCG = LibStub("LibCustomGlow-1.0", true)
-local ACTIONS_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
+local MEMBERS_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
 
-local function SetActionsGlow(btn, on)
+local function SetMembersGlow(btn, on)
     if not LCG then return end
     if on and not btn.glowing then
-        LCG.PixelGlow_Start(btn, ACTIONS_GLOW_COLOR, 12, nil, 4, nil,
+        LCG.PixelGlow_Start(btn, MEMBERS_GLOW_COLOR, 12, nil, 4, nil,
             2, 2, false, nil, 5)
         btn.glowing = true
     elseif not on and btn.glowing then
@@ -249,34 +249,39 @@ local function SetActionsGlow(btn, on)
     end
 end
 
--- The Actions button advertises its own count and lights up when there's
--- something to do. It stays CLICKABLE at zero rather than disabled -- opening
--- it to confirm "nothing to fix" is a legitimate thing to want before a pull --
--- so "nothing here" is said with grey text instead of a dead button.
--- The gold label and the glow are a PROMPT, so they follow what this client
--- may actually fix, not the raw total. An unpermitted raider still sees an
--- honest "Actions (23)" if they go looking, in plain grey -- nothing pulses at
--- them about roles that are the leader's to set.
-local function UpdateActionsButton(f)
+-- Members advertises the outstanding issue count and lights up when there's
+-- something to do. This used to be a second "Actions (n)" button beside it,
+-- back when the roster issues had a window of their own; the two merged, so the
+-- count and the glow moved onto the one button that opens the merged page.
+--
+-- Nothing about the count makes it un-clickable -- opening it to confirm
+-- "nothing to fix" is a legitimate thing to want before a pull -- so a clean
+-- roster is said with a plain white label instead of a dead button.
+--
+-- The gold label and the glow are a PROMPT, so they follow what this client may
+-- actually fix, not the raw total. An unpermitted raider still sees an honest
+-- "Members (23)" if they go looking, in plain white -- nothing pulses at them
+-- about roles that are the leader's to set.
+local function UpdateMembersButton(f)
     local count, actionable = WhoDoesWhat:CountActionItems()
-    f.actionsBtn:SetText("Actions (" .. count .. ")")
-    local label = f.actionsBtn:GetFontString()
+    f.membersBtn:SetText(count > 0 and ("Members (" .. count .. ")") or "Members")
+    local label = f.membersBtn:GetFontString()
     if label then
         if actionable > 0 then
             label:SetTextColor(1, 0.82, 0.2)
         else
-            label:SetTextColor(0.5, 0.5, 0.5)
+            label:SetTextColor(1, 1, 1)
         end
     end
-    SetActionsGlow(f.actionsBtn, actionable > 0)
+    SetMembersGlow(f.membersBtn, actionable > 0)
 end
 
 local function UpdateToolbar(f)
     local showLogs = WhoDoesWhat.db.profile.settings.showLogsButton
     f.logsBtn:SetShown(showLogs)
-    UpdateActionsButton(f)
-    local width = TOOLBAR_PAD * 2 + f.actionsBtn:GetWidth() + f.buffGridBtn:GetWidth()
-        + f.membersBtn:GetWidth() + BUTTON_GAP * 2
+    UpdateMembersButton(f)
+    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth()
+        + f.membersBtn:GetWidth() + BUTTON_GAP
     if showLogs then
         width = width + f.logsBtn:GetWidth() + BUTTON_GAP
     end
@@ -369,15 +374,22 @@ local function EnsureMainFrame()
     f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
 
-    -- Compact centered toolbar: [Actions] ... [Logs, when enabled] [Buff Grid]
-    -- [Members]. Its backdrop grows only wide enough to contain visible buttons.
+    -- Compact centered toolbar: [Logs, when enabled] [Buff Grid] [Members],
+    -- chained inward from the right edge. Its backdrop grows only wide enough to
+    -- contain the visible buttons.
     local toolbarBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     toolbarBox:SetPoint("TOP", f, "TOP", 0, -top)
     toolbarBox:SetSize(1, TOOLBAR_H)
     SetInsetBackdrop(toolbarBox)
 
-    local membersBtn = CreateToolbarButton(toolbarBox, "Members", 80, "Group Members",
-        "Everyone in the group and the role each of them holds.",
+    -- Fixed width on purpose: the label carries a changing count, and sizing to
+    -- text would jitter every other button sideways whenever an issue appeared.
+    local membersBtn = CreateToolbarButton(toolbarBox, "Members", MEMBERS_BUTTON_W,
+        "Group Members",
+        "Everyone in the group, the role each of them holds, and anything still "
+            .. "wrong with them -- players waiting on a role, group roles "
+            .. "(Tank / Healer / Damage Dealer) that don't match, talents that "
+            .. "disagree, and tanks not yet promoted to Main Tank.",
         function() WhoDoesWhat:OpenMembersView() end)
     membersBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
 
@@ -394,21 +406,7 @@ local function EnsureMainFrame()
         function() WhoDoesWhat:OpenSyncLogView("wdw") end)
     logsBtn:SetPoint("RIGHT", buffGridBtn, "LEFT", -BUTTON_GAP, 0)
 
-    -- Actions sits alone on the LEFT edge while everything else chains inward
-    -- from the right. UpdateToolbar sizes the box to fit them all, so the two
-    -- runs meet in the middle with no gap to manage. Fixed width on purpose:
-    -- the label carries a changing count, and sizing to text would jitter every
-    -- other button sideways whenever an item appeared.
-    local actionsBtn = CreateToolbarButton(toolbarBox, "Actions (0)", ACTIONS_BUTTON_W,
-        "Action Items",
-        "Players still waiting on a WhoDoesWhat role, or whose group role "
-            .. "(Tank / Healer / Damage Dealer) doesn't match it, plus tanks "
-            .. "not yet promoted to Main Tank.",
-        function() WhoDoesWhat:OpenActionItemsView() end)
-    actionsBtn:SetPoint("LEFT", toolbarBox, "LEFT", TOOLBAR_PAD, 0)
-
     f.toolbarBox = toolbarBox
-    f.actionsBtn = actionsBtn
     f.membersBtn = membersBtn
     f.buffGridBtn = buffGridBtn
     f.logsBtn = logsBtn

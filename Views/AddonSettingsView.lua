@@ -956,7 +956,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     -- places them; the y values here are overwritten on the first open.
     f.aiHideClearCheck, _, f.aiHideClearLabel = AddCompactCheckboxRow(
         f, 7, 76, "Hide when nothing to fix",
-        "Hide this row while the Action Items list is empty.",
+        "Hide this row while there is nothing to fix on the roster.",
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenClear", value)
             RefreshBuffOptionsFrame()

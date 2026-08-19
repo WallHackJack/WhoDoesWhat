@@ -20,6 +20,12 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- repaint them at up to 10Hz. The handful of callers that genuinely change what
 -- those show still call them directly, alongside this.
 --
+-- That exclusion got sharper when Action Items merged into the Members window.
+-- RefreshActionItemsView used to ride along here, so "the board changed" quietly
+-- repainted the roster issues too; now the same job is one more reason Members
+-- is a direct call. The paths that move an issue all already make one -- Sync,
+-- Permissions, SetAssignedRole, and RequestFullRefresh below for talents.
+--
 -- WDW Status goes last: it summarizes the others, so it should read state the
 -- rest of the pass has already settled.
 function WhoDoesWhat:RefreshBoardViews()
@@ -27,7 +33,6 @@ function WhoDoesWhat:RefreshBoardViews()
     self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
     self:RefreshPallyPowerDiffView()
-    self:RefreshActionItemsView()
     self:RefreshStatusBarsView()
 end
 

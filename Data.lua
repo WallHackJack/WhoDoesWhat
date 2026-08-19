@@ -412,12 +412,17 @@ WhoDoesWhat.StatusBarChecks.pallyPower = {
     customOptions = "pallyPower",
     gridOptionDisabled = true,
 }
--- Not a buff at all: the count from the Action Items window (roles waiting to
--- be set, group roles that disagree, tanks not promoted). It rides the status
--- rows because it answers the same question they do -- "is anything left to do
+-- Not a buff at all: the roster-issue count from ActionItems.lua (roles waiting
+-- to be set, group roles that disagree, tanks not promoted), which the Members
+-- window draws one warning icon per member from. It rides the status rows
+-- because it answers the same question they do -- "is anything left to do
 -- before the pull" -- and it's the first thing you want answered, so it leads
 -- the default order. Shown ON by default: an addon that quietly collects action
 -- items nobody is told about isn't worth the pass over the roster.
+--
+-- The key stays `actionItems` after the Action Items window merged into the
+-- Members window: it is what saved options and `statusBarOrder` are stored
+-- under, and renaming it would silently reset both.
 WhoDoesWhat.StatusBarChecks.actionItems = {
     name = "Action Items",
     description = "Shows players still waiting on a role, group roles that "

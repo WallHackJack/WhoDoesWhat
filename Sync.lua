@@ -179,9 +179,10 @@ end
 -- Every view that renders synced state; repainted after any remote apply.
 local function RefreshAllViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
+    -- The roster issues ride the Members repaint above: they are drawn on its
+    -- rows and are deliberately NOT part of RefreshBoardViews, which the
+    -- buff-tracking notify drives at up to 10Hz (see ViewRefresh.lua).
     WhoDoesWhat:RefreshMembersView()
-    -- Action Items included, so no separate call -- adding one back would
-    -- repaint WDW Status twice, which is what this pair used to do.
     WhoDoesWhat:RefreshBoardViews()
 end
 

@@ -65,7 +65,7 @@ local function RolesForSpec(class, specIndex)
     return { id }
 end
 
--- What the Action Items window shows in its Talents column: the per-tab point
+-- What the Members window shows in its Talents column: the per-tab point
 -- spread the library has cached for this unit, and the role(s) that spread
 -- reads as. nil while nothing has been seen -- an out-of-range player who
 -- doesn't run the library themselves stays unknown until someone gets close.
@@ -102,29 +102,22 @@ for _, ids in pairs(SPEC_ROLES) do
     for _, id in ipairs(ids) do DETECTABLE_ROLES[id] = true end
 end
 
--- Does the last scan disagree with the role on the board? Only ever true when
--- we have actually seen their points AND their role is one talents can judge.
--- An unscanned player disagrees with nothing, and a feral druid matches either
--- feral role because the tree cannot tell cat from bear.
+-- Can a talent spread say anything at all about this role? The roster-issue
+-- pass (ActionItems.lua) asks before it lets the scan argue with anything: a
+-- role the points can't name must not put a warning on the row, either way.
 --
--- This is a stale board, not a bug: AutoAssignDetectedRole deliberately lets a
--- first sighting lose to an existing assignment, so a role picked before anyone
--- could inspect them stays put even once the talents say otherwise.
--- Can a talent spread say anything at all about this role? The Action Items
--- window asks before it lets the scan argue with anything: a role the points
--- can't name must not put a warning on the row, in either direction.
+-- There used to be a TalentsContradictRole(unit, roleId) beside this, answering
+-- "does the last scan disagree with the board" in one call. The roster pass
+-- replaced it: it compares the scan against the group flag as well, and blames
+-- whichever of the three is the odd one out, so a single yes/no against the
+-- board alone can no longer decide anything on its own.
+--
+-- Either way the disagreement is a stale board, not a bug: AutoAssignDetectedRole
+-- deliberately lets a first sighting lose to an existing assignment, so a role
+-- picked before anyone could inspect them stays put even once the talents say
+-- otherwise -- which is exactly what the warning is for.
 function WhoDoesWhat:TalentsCanJudgeRole(roleId)
     return (roleId and DETECTABLE_ROLES[roleId]) and true or false
-end
-
-function WhoDoesWhat:TalentsContradictRole(unit, roleId)
-    if not (roleId and DETECTABLE_ROLES[roleId]) then return false end
-    local snapshot = self:GetTalentSnapshot(unit)
-    if not (snapshot and snapshot.roleIds) then return false end
-    for _, id in ipairs(snapshot.roleIds) do
-        if id == roleId then return false end
-    end
-    return true
 end
 
 -- Players we've asked the library to re-inspect and not yet heard back on, as
@@ -163,9 +156,14 @@ function WhoDoesWhat:RescanPlayerTalents(unit, playerKey)
         rescanPending[playerKey] = GetTime() + RESCAN_TIMEOUT
         Inspector:DoInspect(unit)
         C_Timer.After(RESCAN_TIMEOUT + 0.1, function()
+            self:RefreshMembersView()
             self:RefreshBoardViews()
         end)
     end
+    -- Members explicitly, not through RequestFullRefresh: the Rescan button
+    -- lives on that window and has to go grey the instant it's pressed, and the
+    -- request path collapses repaints for up to half a second.
+    self:RefreshMembersView()
     self:RefreshBoardViews()
 end
 
@@ -320,6 +318,7 @@ end
 function WhoDoesWhat:RescanBuffingTalents()
     RescanUtilityTalents(self,
         { PALADIN = true, DRUID = true, PRIEST = true }, "buff provider")
+    self:RefreshMembersView()
     self:RefreshBoardViews()
 end
 
@@ -599,8 +598,8 @@ function WhoDoesWhat:SyncRosterTalents()
     -- No Blizzard-flag reconcile here any more. Replaying the cache is about
     -- WDW's own board; pushing everyone's flag on every roster event is the
     -- automation that kept overwriting players from a board that hadn't caught
-    -- up. A kick still resets the flag, and that now shows up in Action Items
-    -- rather than being repaired behind your back.
+    -- up. A kick still resets the flag, and that now shows up as an issue on
+    -- their Members row rather than being repaired behind your back.
 end
 
 -- Joins fire GROUP_ROSTER_UPDATE in bursts, so the sweep runs once, a beat
@@ -620,7 +619,7 @@ end)
 -- There used to be a PLAYER_REGEN_ENABLED sweep here re-applying flags that
 -- combat had blocked. It was another automatic board -> flag push, so it went
 -- with the rest: a write blocked by combat is now simply not made, and the
--- difference waits in Action Items.
+-- difference waits as an issue on their Members row.
 
 -- The library never fires TALENTS_READY for the local player (INSPECT_READY
 -- skips "player", and their own talent events only set an internal flag), so

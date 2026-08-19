@@ -645,8 +645,12 @@ local STATE_ROW_TYPES = {
     },
     actionItems = {
         title = "Action Items",
-        openHint = "Click to open Action Items.",
-        Open = function() WhoDoesWhat:OpenActionItemsView() end,
+        -- The window that fixes these used to be Action Items; it merged into
+        -- the Members window, which is where the same rows live now. The check
+        -- keeps its own key -- it is what the saved options and the bar order
+        -- are stored under.
+        openHint = "Click to open Group Members.",
+        Open = function() WhoDoesWhat:OpenMembersView() end,
         CreateIcon = function(row)
             local icon = row:CreateTexture(nil, "ARTWORK")
             icon:SetSize(ICON_SIZE, ICON_SIZE)
@@ -820,8 +824,10 @@ local function PallyPowerRowState(paladinCount)
 end
 
 local function ActionItemsRowState()
-    -- Ungrouped is "inactive", not "clear": Action Items is empty solo by
-    -- construction, and a green tick for a check that cannot fail says nothing.
+    -- Ungrouped is "inactive", not "clear": solo there is no group role to
+    -- disagree with and nobody to promote, so the checks this row summarizes
+    -- mostly can't fail, and a green tick for that says nothing. Short-circuits
+    -- before GetRosterIssues, which does still report a roleless solo player.
     if not IsInGroup() then
         return { bucket = "inactive", label = "Not in a group.", count = 0 }
     end

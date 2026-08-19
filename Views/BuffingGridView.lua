@@ -771,9 +771,9 @@ end
 --
 -- This used to double as the "buff plan changed" hook and fan out to four
 -- other views, which made it impossible to read a call site (or a profile) and
--- know what was actually being repainted -- and, because RefreshActionItemsView
--- had grown a second fan-out to the same place, any site calling both repainted
--- WDW Status twice. Callers that mean "the plan changed" now say
+-- know what was actually being repainted -- and, because the old Action Items
+-- refresh had grown a second fan-out to the same place, any site calling both
+-- repainted WDW Status twice. Callers that mean "the plan changed" now say
 -- RefreshBoardViews.
 function WhoDoesWhat:RefreshBuffingGridView()
     if gridFrame and gridFrame:IsShown() then

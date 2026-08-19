@@ -169,7 +169,7 @@ local function ApplyBlizzardRole(unit, playerName, role)
     -- that every time, so the mark is held for the duration.
     -- Nothing retries afterwards now that the automatic sweeps are gone: a
     -- demotion missed to combat waits for the next time you set that player's
-    -- role, or for a Fix in Action Items.
+    -- role, or for a hand-picked group role in the Members window.
     if not inCombat and mayFlag and IsInRaid()
         and not (role and role.wowRole == "tank")
         and GetPartyAssignment("MAINTANK", playerName, true) then
@@ -313,8 +313,9 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit)
     -- the Members page buckets, and reshape the buff grid (roles drive its
     -- per-raider plan; Non-raider adds/removes rows), so repaint all three.
     self:RefreshMainAssignmentsView()
+    -- This also repaints the roster issues -- they are drawn on the Members
+    -- rows, and RefreshBoardViews deliberately doesn't carry them.
     self:RefreshMembersView()
-    -- Action Items included; see RefreshBoardViews.
     self:RefreshBoardViews()
 end
 
