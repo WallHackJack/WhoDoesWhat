@@ -814,7 +814,17 @@ local function BuildDesired(self, paladins)
     for raider, cells in pairs(plan) do
         local owner = petOwner[raider]
         local cid = owner and petClassId or classIdOf[raider]
-        local target = owner and ShortName(petRealName[owner]) or ShortName(raider)
+        -- A dismissed pet has no wire name at all, and must NOT fall back to
+        -- the plan key ("<Hunter>'s Pet") -- PallyPower has never heard of it,
+        -- so it would become an active target nothing can ever satisfy and a
+        -- permanent bogus difference. No name means no target: the cells below
+        -- count as skipped until the pet is summoned again.
+        local target
+        if owner then
+            target = ShortName(petRealName[owner])
+        else
+            target = ShortName(raider)
+        end
         if owner and target and cid then
             activeTargets[target] = cid
             planTargetByWire[target] = raider
