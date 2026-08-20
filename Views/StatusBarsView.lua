@@ -154,21 +154,180 @@ local function AttachAltDrag(region)
     end)
 end
 
--- Shift-click anywhere in the window is a shortcut to the buff views. Shift on
--- both halves matches the Paladin Bar's title strip, and leaves the plain
--- clicks to the rows themselves (the PallyPower row opens the diff view).
--- A row carries the check it draws (optionsKey), so shift-right-click lands on
--- that row's own cog options instead of the bare Buff Tracking list.
-local function StatusBarsClick(self, button)
-    if not IsShiftKeyDown() then return end
-    if button == "RightButton" then
-        local key = self and self.optionsKey
-        if key then
-            WhoDoesWhat:OpenBuffTrackingOptions(key)
-        else
-            WhoDoesWhat:OpenAddonSettingsView("Status Bars")
+-- ---------------------------------------------------------------------------
+-- Announce (shift-right-click)
+-- ---------------------------------------------------------------------------
+--
+-- One chat line per bar: the count, what it is, and who is still missing it.
+-- Names truncate the same way the tooltip's do -- it is the same question
+-- asked out loud, so it answers to the same setting.
+--
+-- Debuffs never announce. "Here is everyone who is NOT poisoned" is a list
+-- nobody needs read into raid chat, and the useful direction is already the
+-- bar's own colour.
+
+-- Chat cuts a message at 255 bytes; stop short so the "and N more" tail always
+-- survives.
+local ANNOUNCE_BUDGET = 240
+-- A burst of SendChatMessage risks the server throttle, so several paladin
+-- lines go out spaced apart. Same value the assignment mass-mail uses.
+local ANNOUNCE_STAGGER = 0.25
+
+-- Chat has no class colour and no room for realm tags. A pet answers under its
+-- owner's name, which is who has to fix it.
+local function AnnounceName(name)
+    local owner = name:match("^(.+)'s Pet$")
+    if owner then return (strsplit("-", owner)) .. " (pet)" end
+    return (strsplit("-", name))
+end
+
+-- nil when there is nobody left to name. A finished bar is never announced at
+-- all (see canAnnounce), and inside a combined paladin bar a paladin who is
+-- done has no line of their own.
+local function AnnounceLine(prefix, names)
+    if #names == 0 then return nil end
+    local limit = TooltipNameLimit()
+    local budget = ANNOUNCE_BUDGET - #prefix
+    local shown, used = {}, 0
+    for _, name in ipairs(names) do
+        if #shown >= limit then break end
+        local text = AnnounceName(name)
+        if used + #text + 2 > budget then break end
+        used = used + #text + 2
+        shown[#shown + 1] = text
+    end
+    local rest = #names - #shown
+    local body = table.concat(shown, ", ")
+    if rest > 0 then
+        body = (#shown > 0 and body .. " " or "") .. "and " .. rest .. " more"
+    end
+    return prefix .. body
+end
+
+-- "[18/25] Hewmongus (Might, Wisdom): x, y, z". Which blessing each raider is
+-- missing is deliberately left out -- the paladin knows their own assignment,
+-- and naming it per raider turns one line into five.
+local function AnnouncePaladinLine(paladin, coverage)
+    local blessings = {}
+    for _, buff in ipairs(paladin.buffs or {}) do
+        local definition = WhoDoesWhat.PaladinBuffs[buff.key]
+        blessings[#blessings + 1] = definition and definition.name_short
+            or buff.key
+    end
+    local seen, names = {}, {}
+    for _, cell in ipairs(coverage.missing or {}) do
+        if not seen[cell.target] then
+            seen[cell.target] = true
+            names[#names + 1] = cell.target
         end
-    elseif button == "LeftButton" then
+    end
+    local label = AnnounceName(paladin.name)
+    if #blessings > 0 then
+        label = label .. " (" .. table.concat(blessings, ", ") .. ")"
+    end
+    return AnnounceLine(string.format("[%d/%d] %s: ",
+        coverage.correct, coverage.total, label), names)
+end
+
+-- Recomputed at click time rather than read off the painted row: a combined
+-- paladin bar carries one flattened list, and this wants it split back apart
+-- per paladin. A click can afford the model call that a repaint could not.
+local function AnnounceLines(row)
+    local lines = {}
+    if row.isPaladinRow then
+        local Assign = WhoDoesWhat.Assign
+        local plan = Assign.GetActivePaladinBuffPlan()
+        local options = WhoDoesWhat:GetStatusBarCheckOptions("paladinBuffs")
+        local _, _, byPaladin =
+            Assign.ComputePaladinBuffCoverage(plan, options.hunterPets)
+        for _, paladin in ipairs(Assign.ComputePaladinBuffSummary(plan)) do
+            local coverage = byPaladin[paladin.name]
+            -- The combined bar speaks for every paladin; one paladin's own row
+            -- speaks only for them. Either way a paladin whose blessings are
+            -- all up is skipped rather than announced as finished.
+            if coverage and coverage.correct < coverage.total
+                and (row.paladinName == nil
+                    or row.paladinName == paladin.name) then
+                local line = AnnouncePaladinLine(paladin, coverage)
+                if line then lines[#lines + 1] = line end
+            end
+        end
+    elseif row.buffKey then
+        local definition = WhoDoesWhat.StatusBarChecks[row.buffKey]
+        local names = {}
+        for _, entry in ipairs(row.flagged or {}) do
+            names[#names + 1] = entry.name
+        end
+        lines[1] = AnnounceLine(string.format("[%d/%d] %s: ",
+            row.correct or 0, row.total or 0,
+            definition and definition.name or row.buffKey), names)
+    end
+    return lines
+end
+
+local function SendAnnounce(lines)
+    if #lines == 0 then return end
+    local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or nil)
+    for i, line in ipairs(lines) do
+        if not channel then
+            -- Solo it has nowhere to go, but seeing it is how you check the
+            -- wording before a raid does.
+            WhoDoesWhat:Print(line)
+        elseif i == 1 then
+            SendChatMessage(line, channel)
+        else
+            C_Timer.After((i - 1) * ANNOUNCE_STAGGER, function()
+                SendChatMessage(line, channel)
+            end)
+        end
+    end
+end
+
+local function AnnounceRow(row)
+    -- State rows (PallyPower, Action Items) have an optionsKey but no
+    -- coverage, so they fall out here along with the debuffs.
+    if not row or not row.canAnnounce then return end
+    SendAnnounce(AnnounceLines(row))
+end
+
+-- The whole window read out, in the order it is painted. What is on screen is
+-- the list: a bar hidden by its own scope or "hide when complete" option is
+-- one you have already said you do not want to hear about.
+local function AnnounceAll()
+    local lines = {}
+    for _, row in ipairs(view and view.rows or {}) do
+        if row:IsShown() and row.canAnnounce then
+            for _, line in ipairs(AnnounceLines(row)) do
+                lines[#lines + 1] = line
+            end
+        end
+    end
+    SendAnnounce(lines)
+end
+
+-- Modified clicks anywhere in the window are shortcuts to the buff views;
+-- plain clicks stay with the rows themselves (the PallyPower row opens the
+-- diff view). A row carries the check it draws (optionsKey), so alt-right-click
+-- lands on that row's own cog options instead of the bare Buff Tracking list.
+local function StatusBarsClick(self, button)
+    if button == "RightButton" then
+        if IsAltKeyDown() then
+            local key = self and self.optionsKey
+            if key then
+                WhoDoesWhat:OpenBuffTrackingOptions(key)
+            else
+                WhoDoesWhat:OpenAddonSettingsView("Status Bars")
+            end
+        elseif IsShiftKeyDown() then
+            -- Only a row speaks for itself; the title strip and the window
+            -- behind the rows speak for all of them.
+            if self and self.optionsKey then
+                AnnounceRow(self)
+            else
+                AnnounceAll()
+            end
+        end
+    elseif button == "LeftButton" and IsShiftKeyDown() then
         WhoDoesWhat:OpenBuffingGridView()
     end
 end
@@ -176,11 +335,17 @@ end
 -- Same double-line shortcut layout the minimap button uses. Only the title
 -- strip carries these now; the bars keep their tooltips to their own status.
 local function AddShortcutTooltipLines()
+    GameTooltip:AddDoubleLine("Alt-Right-Click:", "Settings",
+        1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddLine(" ")
     GameTooltip:AddDoubleLine("Shift-Left-Click:", "Buffing Grid",
         1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Shift-Right-Click:", "Settings",
+    GameTooltip:AddDoubleLine("Shift-Right-Click:", "Announce All",
         1, 0.82, 0, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Shift-Right-Click Row:", "Edit",
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddDoubleLine("Alt-Right-Click Row:", "Edit",
+        1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Shift-Right-Click Row:", "Announce",
         1, 0.82, 0, 1, 1, 1)
 end
 
@@ -587,8 +752,12 @@ local function ShowRowTooltip(frame)
     -- the hint rides along after each row's own content.
     if frame.optionsKey then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine("Shift-Right-Click:", "Edit",
+        GameTooltip:AddDoubleLine("Alt-Right-Click:", "Edit",
             1, 0.82, 0, 1, 1, 1)
+        if frame.canAnnounce then
+            GameTooltip:AddDoubleLine("Shift-Right-Click:", "Announce",
+                1, 0.82, 0, 1, 1, 1)
+        end
     end
     GameTooltip:Show()
 end
@@ -784,11 +953,14 @@ local function CreateStateRow(key)
     local row = CreateFrame("Button", nil, view)
     row:SetSize(view:GetWidth() - INSET * 2 - PAD * 2, ROW_H)
     row.optionsKey = key
+    -- Same as the bar rows: a mouse-enabled row swallows the drag the window
+    -- behind it would have handled, so it has to carry Alt-drag itself.
+    AttachAltDrag(row)
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", function(self)
-        -- Shift-left-click belongs to the window shortcut below, so a plain
-        -- click is the only one that opens anything.
-        if IsShiftKeyDown() then return end
+        -- Shift-left-click belongs to the window shortcut below and Alt to the
+        -- drag, so a plain click is the only one that opens anything.
+        if IsShiftKeyDown() or IsAltKeyDown() then return end
         if self.bucket == "attention" then kind.Open() end
     end)
     row:SetScript("OnMouseUp", StatusBarsClick)
@@ -1418,6 +1590,11 @@ function WhoDoesWhat:RefreshStatusBarsView()
             row.awaitingTalents = entry.awaitingTalents
             row.colorPreview = entry.colorPreview
             row.negative = entry.negative
+            -- Nothing worth announcing about a debuff, nor about a bar that
+            -- has already filled -- "everyone has it" is what the green bar
+            -- and its tick are already saying.
+            row.canAnnounce = not entry.negative and coverage.total > 0
+                and coverage.correct < coverage.total
             row.saturatedStyle = entry.saturatedStyle or "check"
             row.correct = coverage.correct
             row.anyCorrect = coverage.anyCorrect
