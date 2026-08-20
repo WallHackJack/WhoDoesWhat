@@ -19,6 +19,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 --   [icon] Salvation is guaranteed for [icon] Healers           (!) [x]
 --   [icon] Sanctuary is all <paladin> casts                     (!) [x]
+--   [icon] Sanctuary is ignored except for [icon] Tanks             [x]
 --
 -- One string per row rather than a blessing column and a detail column: the
 -- rule reads as a sentence, so a short blessing name can't leave a gap in the
@@ -196,7 +197,13 @@ end
 -- be edited in place, so this is text rather than a row of dropdowns.
 local function RuleDetailText(rule)
     if rule.kind == "ignore" then
-        return "|cff909090is ignored|r"
+        if not rule.scope then
+            return "|cff909090is ignored|r"
+        end
+        if rule.except then
+            return "|cff909090is ignored except for|r " .. RuleScopeText(rule)
+        end
+        return "|cff909090is ignored for|r " .. RuleScopeText(rule)
     end
     if rule.kind == "assign" then
         local who = rule.value
@@ -219,6 +226,16 @@ local function RuleTooltip(rule)
     local buff = BuffName(rule.buff)
 
     if rule.kind == "ignore" then
+        if rule.scope then
+            local who = RuleScopeText(rule)
+            if rule.except then
+                return "Ignored", buff .. " is planned for " .. who
+                    .. " and nobody else. A raider with no role assigned is"
+                    .. " nobody else, so they lose it too."
+            end
+            return "Ignored", buff .. " is dropped from what " .. who
+                .. " are planned. Everyone else still receives it normally."
+        end
         local why = ""
         if rule.buff == "salv" then
             why = " Automatic in PvP."
@@ -311,8 +328,10 @@ end
 
 local WARN_MARKUP = "|T" .. WhoDoesWhat.WARNING_ICON .. ":14:14:0:0|t"
 
--- The guarantee branch runs four levels deep (kind > blessing > target > that
--- class's roles). Nothing here has to arrange that: UIDropDownMenu_AddButton
+-- The ignore and guarantee branches run four levels deep (kind > blessing >
+-- target > that class's roles) and share the last two levels: both say "this
+-- blessing, for these raiders", one to take it away and one to promise it.
+-- Nothing here has to arrange that depth: UIDropDownMenu_AddButton
 -- builds the list frame for a level on demand and raises
 -- UIDROPDOWNMENU_MAXLEVELS itself as it goes. Do NOT raise that global by
 -- hand -- it counts the DropDownList frames that exist, so setting it ahead of
@@ -327,9 +346,11 @@ local function FindRule(Match)
     return nil
 end
 
+-- Ignored for the whole raid -- the scopeless rule. A scoped ignore leaves the
+-- blessing in the plan for everyone it doesn't name, so it isn't this.
 local function BuffIgnored(buffKey)
     return FindRule(function(r)
-        return r.kind == "ignore" and r.buff == buffKey
+        return r.kind == "ignore" and r.buff == buffKey and not r.scope
     end) ~= nil
 end
 
@@ -361,18 +382,20 @@ local function BuffAssignedTo(buffKey)
     return rule and rule.value
 end
 
-local function GuaranteeExists(buffKey, scope, value)
+-- The same (kind, blessing, target) rule already in the list. Both scoped
+-- kinds are picked from the same target menu, so both dedupe the same way.
+local function ScopedRuleExists(kind, buffKey, scope, value, except)
     return FindRule(function(r)
-        return r.kind == "guarantee" and r.buff == buffKey
-            and r.scope == scope and r.value == value
+        return r.kind == kind and r.buff == buffKey and r.scope == scope
+            and r.value == value and (r.except or false) == (except or false)
     end) ~= nil
 end
 
 local function AddRule(rule)
     if not WhoDoesWhat:RequireEditPermission() then return end
     CloseDropDownMenus()
-    if rule.kind == "guarantee"
-        and GuaranteeExists(rule.buff, rule.scope, rule.value) then
+    if rule.scope
+        and ScopedRuleExists(rule.kind, rule.buff, rule.scope, rule.value, rule.except) then
         return
     end
     -- A rule scoped to a role puts a role id on the board, so the same
@@ -453,38 +476,68 @@ local function AddAssignBuffs(level, paladinName)
     end
 end
 
-local function AddGuaranteeBuffs(level)
+-- Level 2 of both scoped branches: which blessing. The ignore branch offers
+-- all six too -- turning a blessing off for a group is a different statement
+-- from turning it off entirely, which stays a Salvation/Light decision on the
+-- target level below.
+local function AddScopedBuffs(level, kind)
     for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+        local ignoredEverywhere = kind == "ignore" and BuffIgnored(key)
         local info = UIDropDownMenu_CreateInfo()
         info.text = BuffIcon(key) .. WhoDoesWhat.PaladinBuffs[key].name_long
+            .. (ignoredEverywhere and " |cff909090(already ignored)|r" or "")
         info.notCheckable = true
-        info.hasArrow = true
+        info.disabled = ignoredEverywhere
+        info.hasArrow = not ignoredEverywhere
         info.keepShownOnClick = true
-        info.value = { kind = "guarantee", buff = key }
+        info.value = { kind = kind, buff = key }
         UIDropDownMenu_AddButton(info, level)
     end
 end
 
--- Level 3 of the guarantee branch: who the promise covers. Each class is both
--- a pick of its own ("All Mages") and a door to its roles on level 4.
-local function AddGuaranteeTargets(level, buffKey)
-    local function Target(text, scope, value)
+-- Level 3 of both scoped branches: who the rule covers. Each class is both a
+-- pick of its own ("All Mages") and a door to its roles on level 4.
+--
+-- The ignore branch adds the inverted Tanks/Healers/DPS picks -- "everyone
+-- but the tanks" is what Sanctuary is actually for, and saying it as one rule
+-- also catches raiders with no role assigned, which two positive rules would
+-- miss. Its "Everyone" writes the scopeless raid-wide ignore, and only
+-- Salvation and Light offer it: the other four are always worth casting to
+-- somebody, so turning one off for the whole raid is not a pick we hand out.
+local function AddScopedTargets(level, kind, buffKey)
+    local function Target(text, scope, value, except)
         local info = UIDropDownMenu_CreateInfo()
         info.text = text
         info.notCheckable = true
+        info.disabled = ScopedRuleExists(kind, buffKey, scope, value, except)
         info.func = function()
-            AddRule({ kind = "guarantee", buff = buffKey, scope = scope, value = value })
+            AddRule({ kind = kind, buff = buffKey, scope = scope,
+                value = value, except = except or nil })
         end
         return info
     end
 
-    local everyone = Target("Everyone", "everyone", nil)
-    everyone.disabled = GuaranteeExists(buffKey, "everyone", nil)
-    UIDropDownMenu_AddButton(everyone, level)
-    for _, wr in ipairs({ "tank", "healer", "dps" }) do
-        local info = Target(WowRoleLabel(wr), "wowrole", wr)
-        info.disabled = GuaranteeExists(buffKey, "wowrole", wr)
+    if kind == "guarantee" then
+        UIDropDownMenu_AddButton(Target("Everyone", "everyone", nil), level)
+    elseif buffKey == "salv" or buffKey == "light" then
+        -- The raid-wide ignore is scopeless, so it can't go through Target.
+        local hint = buffKey == "light" and not HasHolyPaladin()
+            and " |cffffd100(no Holy paladins)|r" or ""
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "Everyone" .. hint
+        info.notCheckable = true
+        info.func = function() AddRule({ kind = "ignore", buff = buffKey }) end
         UIDropDownMenu_AddButton(info, level)
+    end
+    for _, wr in ipairs({ "tank", "healer", "dps" }) do
+        UIDropDownMenu_AddButton(Target(WowRoleLabel(wr), "wowrole", wr), level)
+    end
+    if kind == "ignore" then
+        for _, wr in ipairs({ "tank", "healer", "dps" }) do
+            UIDropDownMenu_AddButton(
+                Target("Everyone but " .. WowRoleLabel(wr), "wowrole", wr, true),
+                level)
+        end
     end
     K.AddDropdownDivider(level)
     for _, ci in ipairs(WhoDoesWhat.Classes) do
@@ -492,12 +545,12 @@ local function AddGuaranteeTargets(level, buffKey)
             "class", ci.name)
         info.hasArrow = true
         info.keepShownOnClick = true
-        info.value = { kind = "guarantee", buff = buffKey, class = ci.name }
+        info.value = { kind = kind, buff = buffKey, class = ci.name }
         UIDropDownMenu_AddButton(info, level)
     end
 end
 
-local function AddGuaranteeRoles(level, buffKey, className)
+local function AddScopedRoles(level, kind, buffKey, className)
     local classInfo
     for _, ci in ipairs(WhoDoesWhat.Classes) do
         if ci.name == className then
@@ -512,9 +565,9 @@ local function AddGuaranteeRoles(level, buffKey, className)
             info.text = WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
                 .. classInfo.colorHex .. role.name .. "|r"
             info.notCheckable = true
-            info.disabled = GuaranteeExists(buffKey, "role", role.id)
+            info.disabled = ScopedRuleExists(kind, buffKey, "role", role.id)
             info.func = function()
-                AddRule({ kind = "guarantee", buff = buffKey,
+                AddRule({ kind = kind, buff = buffKey,
                     scope = "role", value = role.id })
             end
             UIDropDownMenu_AddButton(info, level)
@@ -525,24 +578,13 @@ end
 local function InitAddRuleMenu(_, level)
     level = level or 1
     if level == 1 then
-        -- The two blessings a raid genuinely turns off. `hint` is the nudge for
-        -- Light: with no Holy paladin it buffs nobody, so the menu says so
-        -- rather than waiting to be asked.
-        local function AddIgnore(buffKey, label, hint)
-            local ignored = BuffIgnored(buffKey)
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = BuffIcon(buffKey) .. label
-                .. (ignored and " |cff909090(already ignored)|r"
-                    or (hint and (" |cffffd100" .. hint .. "|r") or ""))
-            info.notCheckable = true
-            info.disabled = ignored
-            info.func = function() AddRule({ kind = "ignore", buff = buffKey }) end
-            UIDropDownMenu_AddButton(info, level)
-        end
-
-        AddIgnore("salv", "Ignore Salvation")
-        AddIgnore("light", "Ignore Light",
-            not HasHolyPaladin() and "(no Holy paladins)" or nil)
+        local ignore = UIDropDownMenu_CreateInfo()
+        ignore.text = "Ignore a Blessing"
+        ignore.notCheckable = true
+        ignore.hasArrow = true
+        ignore.keepShownOnClick = true
+        ignore.value = "ignore"
+        UIDropDownMenu_AddButton(ignore, level)
 
         -- The (!) here is the same one the header wears: somebody in the group
         -- can't be reached by any board, and this branch is where that gets
@@ -570,15 +612,15 @@ local function InitAddRuleMenu(_, level)
     local value = UIDROPDOWNMENU_MENU_VALUE
     if value == "assign" then
         AddAssignPaladins(level)
-    elseif value == "guarantee" then
-        AddGuaranteeBuffs(level)
+    elseif value == "guarantee" or value == "ignore" then
+        AddScopedBuffs(level, value)
     elseif type(value) == "table" then
         if value.kind == "assign" then
             AddAssignBuffs(level, value.paladin)
         elseif value.class then
-            AddGuaranteeRoles(level, value.buff, value.class)
+            AddScopedRoles(level, value.kind, value.buff, value.class)
         else
-            AddGuaranteeTargets(level, value.buff)
+            AddScopedTargets(level, value.kind, value.buff)
         end
     end
 end

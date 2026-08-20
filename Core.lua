@@ -288,8 +288,8 @@ local defaults = {
         raidAssignments = {},
         -- Custom paladin-buff rules (Buffing Rules > "Add (+)"): array of
         -- { buff = key, kind = "ignore"|"assign"|"guarantee", scope, value,
-        -- only }. Written whole from the Add (+) pop-out and never edited in
-        -- place. Shared as STATE.paladinStrategy and cleared with the
+        -- only, except }. Written whole from the Add (+) pop-out and never
+        -- edited in place. Shared as STATE.paladinStrategy and cleared with the
         -- group-scoped board on leave. See the rule model above
         -- CompileBuffRules in Assignments.lua for the shapes and semantics.
         paladinBuffRules = {},

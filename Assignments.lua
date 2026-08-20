@@ -200,20 +200,6 @@ local function GetPetMembers(allClasses)
     return out
 end
 
--- What a pet wants and nothing more: the Data.lua pet order, minus any
--- rule-ignored buff. Deliberately NOT backfilled to all six -- a pet whose
--- top-ups are covered shows an empty grid cell rather than collecting
--- Salvation from an otherwise-idle paladin.
-local function PetBuffOrder(ignored)
-    local order = {}
-    for _, key in ipairs(WhoDoesWhat.HunterPetBuffOrder) do
-        if not ignored[key] then
-            order[#order + 1] = key
-        end
-    end
-    return order
-end
-
 -- Dropdown display text for an assignment: class-colored name while the
 -- player is in the group, gray name once they've left, gray "Unassigned"
 -- when nothing is saved.
@@ -765,18 +751,33 @@ end
 -- every rule in the table is fully specified and no half-configured rule can
 -- sit in the plan:
 --
---   { buff = "salv"/"light", kind = "ignore" }   the blessing drops out of the
---                                                plan entirely: Salvation on
---                                                fights where nobody wants it,
---                                                Light in a group with no Holy
+--   { buff = "salv"/"light", kind = "ignore" }   with no scope the blessing
+--                                                drops out of the plan
+--                                                entirely: Salvation on fights
+--                                                where nobody wants it, Light
+--                                                in a group with no Holy
 --                                                paladin for it to improve.
 --                                                Those two only -- the other
---                                                four are always worth casting,
---                                                and a buff nobody wants is
---                                                already handled by role buff
---                                                orders. (Nothing here enforces
---                                                the pair; the menu is what
---                                                offers only those two.)
+--                                                four are always worth casting
+--                                                to somebody. (Nothing here
+--                                                enforces the pair; the menu is
+--                                                what offers only those two.)
+--
+--   { buff, kind = "ignore", scope, value,       scoped instead, the blessing
+--     except }                                   drops out for the raiders the
+--       scope/value as in "guarantee" below      scope names and stays in the
+--       except = true inverts the match          plan for everyone else:
+--                                                Sanctuary for non-tanks
+--                                                (wowrole "tank" + except) is
+--                                                the shape this exists for. A
+--                                                raider with no role assigned
+--                                                is not a tank, so `except`
+--                                                covers them -- which is the
+--                                                point of inverting a match
+--                                                rather than writing one rule
+--                                                per role. Pets have neither
+--                                                role nor tank duty and follow
+--                                                the same matching.
 --
 --   { buff, kind = "assign", value = paladin,    that paladin owns the buff as
 --     only }                                     their primary, as a hard lock
@@ -855,16 +856,17 @@ function WhoDoesWhat:IsPaladinDisabled(name)
     return not self:PaladinHasPallyPower(name)
 end
 
--- The rules split into the shapes the plan consumes: the ignored-buff set,
--- the guarantee rules in rule order, and the assign rule per paladin (first
--- rule wins if one paladin is somehow named twice).
+-- The rules split into the shapes the plan consumes: the globally-ignored
+-- buff set, the per-member rules (scoped ignores and guarantees) in rule
+-- order, and the assign rule per paladin (first rule wins if one paladin is
+-- somehow named twice).
 local function CompileBuffRules()
-    local ignored, guaranteed, assigned = {}, {}, {}
+    local ignored, scoped, assigned = {}, {}, {}
     for _, r in ipairs(GetBuffRules()) do
-        if r.kind == "ignore" then
+        if r.kind == "ignore" and not r.scope then
             ignored[r.buff] = true
-        elseif r.kind == "guarantee" then
-            guaranteed[#guaranteed + 1] = r
+        elseif r.kind == "ignore" or r.kind == "guarantee" then
+            scoped[#scoped + 1] = r
         elseif r.kind == "assign" and r.value then
             if not assigned[r.value] then
                 assigned[r.value] = r
@@ -872,7 +874,7 @@ local function CompileBuffRules()
         end
     end
     if PvpSalvationIgnored() then ignored.salv = true end
-    return ignored, guaranteed, assigned
+    return ignored, scoped, assigned
 end
 
 -- Who hands out blessings, split by how. A paladin whose assign rule carries
@@ -919,8 +921,11 @@ local function UnhandledDisabledPaladins()
     return out
 end
 
--- Does a guarantee rule cover this member?
-local function RuleMatchesMember(rule, m)
+-- Does a scoped rule (a guarantee, or an ignore that names a scope) cover
+-- this member? `except` inverts the answer, which is how "everyone but the
+-- tanks" is said in a vocabulary of positive scopes -- and it deliberately
+-- covers a member with no role at all, who is not a tank either.
+local function ScopeMatchesMember(rule, m)
     if rule.scope == "everyone" or not rule.scope then return true end
     if rule.scope == "class" then
         return m.classInfo.name == rule.value
@@ -937,10 +942,46 @@ local function RuleMatchesMember(rule, m)
     return false
 end
 
--- A member's buff priority order with the rules applied: ignored buffs drop
--- out entirely, and guaranteed buffs that cover this member are pulled into
--- the top `slots` -- the range a raider actually receives, `slots` being how
--- many paladins are handing out blessings.
+local function RuleMatchesMember(rule, m)
+    local matched = ScopeMatchesMember(rule, m)
+    if rule.except then return not matched end
+    return matched
+end
+
+-- What a pet wants and nothing more: the Data.lua pet order, minus any
+-- rule-ignored buff. Deliberately NOT backfilled to all six -- a pet whose
+-- top-ups are covered shows an empty grid cell rather than collecting
+-- Salvation from an otherwise-idle paladin.
+--
+-- Scoped ignores apply here too (`scoped` + the pet, both nil-safe): pets are
+-- roleless, so "Sanctuary except for tanks" reaches them, and a pet keeping a
+-- blessing the rule just took off every non-tank would read as a leak.
+-- Guarantees in that same list are skipped -- a pet's wants are the fixed
+-- Data.lua list, not a role's buff order to be promoted within.
+local function PetBuffOrder(ignored, scoped, pet)
+    local dropped
+    if scoped and pet then
+        for _, rule in ipairs(scoped) do
+            if rule.kind == "ignore" and RuleMatchesMember(rule, pet) then
+                dropped = dropped or {}
+                dropped[rule.buff] = true
+            end
+        end
+    end
+    local order = {}
+    for _, key in ipairs(WhoDoesWhat.HunterPetBuffOrder) do
+        if not ignored[key] and not (dropped and dropped[key]) then
+            order[#order + 1] = key
+        end
+    end
+    return order
+end
+
+-- A member's buff priority order with the rules applied: globally ignored
+-- buffs drop out entirely, a scoped ignore covering this member drops its
+-- blessing for them alone, and guaranteed buffs that cover this member are
+-- pulled into the top `slots` -- the range a raider actually receives, `slots`
+-- being how many paladins are handing out blessings.
 --
 -- Pulled in, not moved to the front: a guarantee is a promise of coverage, not
 -- a statement that the buff outranks everything the raider already wanted.
@@ -952,13 +993,13 @@ end
 -- buff order excludes stays excluded (the divider in the role's buff order is
 -- the stronger statement).
 --
--- With `memo` (a table owned by one plan computation, where ignored/guaranteed/
+-- With `memo` (a table owned by one plan computation, where ignored/scoped/
 -- slots are all fixed) the result is reused across members that share it. It
 -- depends only on the member's role and class -- everything it reads is either
 -- one of those two or a fixed input -- and a 40-man holds only a handful of
 -- role/class pairs, so this collapses ~120 builds into ~20. The memoized table
 -- is shared, so treat the result as read-only whenever a memo is passed.
-local function RuleAdjustedOrder(m, ignored, guaranteed, slots, memo)
+local function RuleAdjustedOrder(m, ignored, scoped, slots, memo)
     local memoKey
     if memo then
         memoKey = tostring(WhoDoesWhat:GetAssignedRole(m.name)) .. "\31"
@@ -975,9 +1016,20 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots, memo)
         for _, key in ipairs(base) do allowed[key] = true end
     end
 
+    -- Scoped ignores first: a blessing this member is excluded from is gone
+    -- before anything can guarantee it back in.
+    local dropped
+    for _, rule in ipairs(scoped) do
+        if rule.kind == "ignore" and not (dropped and dropped[rule.buff])
+            and RuleMatchesMember(rule, m) then
+            dropped = dropped or {}
+            dropped[rule.buff] = true
+        end
+    end
+
     local order, at = {}, {}
     for _, key in ipairs(base) do
-        if not ignored[key] and not at[key] then
+        if not ignored[key] and not (dropped and dropped[key]) and not at[key] then
             order[#order + 1] = key
             at[key] = #order
         end
@@ -987,9 +1039,9 @@ local function RuleAdjustedOrder(m, ignored, guaranteed, slots, memo)
     local promote = {}
     if slots and slots > 0 and slots < #order then
         local seen = {}
-        for _, rule in ipairs(guaranteed) do
+        for _, rule in ipairs(scoped) do
             local key = rule.buff
-            if at[key] and at[key] > slots and not seen[key]
+            if rule.kind == "guarantee" and at[key] and at[key] > slots and not seen[key]
                 and (not allowed or allowed[key])
                 and RuleMatchesMember(rule, m) then
                 promote[#promote + 1] = key
@@ -1027,10 +1079,10 @@ local function GetPaladinBuffPriorityOrder(playerName)
         end
     end
     if not member then return nil end
-    local ignored, guaranteed, assigned = CompileBuffRules()
-    if member.isPet then return PetBuffOrder(ignored) end
+    local ignored, scoped, assigned = CompileBuffRules()
+    if member.isPet then return PetBuffOrder(ignored, scoped, member) end
     local pool, locked = BuffPaladins(ignored, assigned)
-    return RuleAdjustedOrder(member, ignored, guaranteed, #pool + #locked)
+    return RuleAdjustedOrder(member, ignored, scoped, #pool + #locked)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1114,7 +1166,7 @@ end
 -- same roster, roles, talent ranks, and rules. Keep caster names sorted, buff
 -- order canonical, mask traversal numeric, and equal-score tie retention
 -- stable; a pairs-order tie-break here would desynchronize blessing displays.
-local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, preferred, slots, orderMemo)
+local function ComputePaladinBuffLadder(pool, ignored, covered, scoped, preferred, slots, orderMemo)
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     local forced = {}
 
@@ -1147,7 +1199,7 @@ local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, pref
     for _, key in ipairs(avail) do votes[key] = 0 end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
+            local order = RuleAdjustedOrder(m, ignored, scoped, slots, orderMemo)
             for i = 1, math.min(depth, #order) do
                 if votes[order[i]] then
                     votes[order[i]] = votes[order[i]] + 1
@@ -1157,8 +1209,8 @@ local function ComputePaladinBuffLadder(pool, ignored, covered, guaranteed, pref
     end
     -- Every hunter's pet votes too (Might, Kings, Light): pet demand shapes the
     -- primaries without anyone assigning anything.
-    for _ in ipairs(GetPetMembers()) do
-        local order = PetBuffOrder(ignored)
+    for _, pet in ipairs(GetPetMembers()) do
+        local order = PetBuffOrder(ignored, scoped, pet)
         for i = 1, math.min(depth, #order) do
             if votes[order[i]] then
                 votes[order[i]] = votes[order[i]] + 1
@@ -1297,20 +1349,21 @@ local cachedBuffPlanKey, cachedBuffPlan
 -- Cheap deterministic key for every input to the expensive matching below.
 -- This avoids a brittle list of invalidation calls across roster, talent,
 -- role-customization, sync, fake-raid, and local-rule mutation paths.
-local function BuffPlanKey(ignored, guaranteed, slots, orderMemo)
+local function BuffPlanKey(ignored, scoped, slots, orderMemo)
     local parts = {}
     local function Add(value) parts[#parts + 1] = tostring(value or "") end
 
     Add("slots"); Add(slots)
     for _, rule in ipairs(GetBuffRules()) do
         Add("rule")
-        Add(rule.buff); Add(rule.kind); Add(rule.scope); Add(rule.value); Add(rule.only)
+        Add(rule.buff); Add(rule.kind); Add(rule.scope); Add(rule.value)
+        Add(rule.only); Add(rule.except)
     end
     for _, m in ipairs(GetEligibleMembers(nil)) do
         local roleId = WhoDoesWhat:GetAssignedRole(m.name)
         Add("member"); Add(m.name); Add(m.classInfo.name); Add(roleId)
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            Add(table.concat(RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo), ","))
+            Add(table.concat(RuleAdjustedOrder(m, ignored, scoped, slots, orderMemo), ","))
         end
     end
     for _, name in ipairs(MembersOfClass("Paladin")) do
@@ -1372,20 +1425,20 @@ end
 -- key.
 local function ComputePaladinBuffPlan()
     PBegin("plan.lookup")
-    local ignored, guaranteed, assigned = CompileBuffRules()
+    local ignored, scoped, assigned = CompileBuffRules()
     local pool, locked = BuffPaladins(ignored, assigned)
     -- How many blessings a raider stands to receive: one from each matching
     -- paladin, plus the single one each locked paladin hands out. This is the
     -- window a guarantee rule pulls its blessing into.
     local slots = #pool + #locked
 
-    -- ignored/guaranteed/slots are settled now, so one memo serves every
+    -- ignored/scoped/slots are settled now, so one memo serves every
     -- RuleAdjustedOrder call below -- the key build, the demand votes, and the
     -- per-raider solve each walked all 40 members independently. Scoped to this
     -- computation because those three inputs are what it is implicitly keyed on.
     local orderMemo = {}
 
-    local cacheKey = BuffPlanKey(ignored, guaranteed, slots, orderMemo)
+    local cacheKey = BuffPlanKey(ignored, scoped, slots, orderMemo)
     if cachedBuffPlanKey == cacheKey then
         PEnd("plan.lookup")
         return cachedBuffPlan
@@ -1402,7 +1455,7 @@ local function ComputePaladinBuffPlan()
         if rule then preferred[name] = rule.buff end
     end
     local forced, ladder = ComputePaladinBuffLadder(pool, ignored, covered,
-        guaranteed, preferred, slots, orderMemo)
+        scoped, preferred, slots, orderMemo)
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
     -- rank 0; Salvation/Light have no talent requirement.
@@ -1550,7 +1603,7 @@ local function ComputePaladinBuffPlan()
     for _, m in ipairs(GetEligibleMembers(nil)) do
         -- Non-raiders get no plan entry at all (and no grid row).
         if not WhoDoesWhat:IsNonRaider(m.name) then
-            local order = RuleAdjustedOrder(m, ignored, guaranteed, slots, orderMemo)
+            local order = RuleAdjustedOrder(m, ignored, scoped, slots, orderMemo)
             plan[m.name] = SolveRaider(order)
             targetClass[m.name] = m.classInfo.name
         end
@@ -1562,7 +1615,7 @@ local function ComputePaladinBuffPlan()
     -- the ordinary pet solve below defines a pets-only Greater bucket.
     local realGreater = ComputeGreaterAssignments(plan, targetClass, petTargets)
     for _, pet in ipairs(GetPetMembers()) do
-        local order = PetBuffOrder(ignored)
+        local order = PetBuffOrder(ignored, scoped, pet)
         local cells, used, covered = {}, {}, {}
         for _, paladin in ipairs(pool) do
             local key = realGreater[paladin]
