@@ -31,11 +31,15 @@ local HANDLE_W = 4
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local LCG = LibStub("LibCustomGlow-1.0", true)
--- Tooltip name lists: short enough to read at a glance while a pull is
--- starting. Under LIST_ALL_BELOW names the whole list fits; past that only the
--- first few are named and the rest become a count.
-local LIST_ALL_BELOW = 6
-local LIST_TRUNCATED_TO = 3
+-- Tooltip name lists: long enough to be worth reading, short enough not to
+-- cover the screen while a pull is starting. Past this many the rest collapse
+-- into a count. One global number rather than a per-check option -- it is a
+-- property of how much tooltip you want to read, not of any one buff.
+local DEFAULT_TOOLTIP_NAMES = 10
+local function TooltipNameLimit()
+    return WhoDoesWhat.db.profile.settings.statusBarTooltipNames
+        or DEFAULT_TOOLTIP_NAMES
+end
 local TOOLTIP_ANCHORS = {
     LEFT = true, RIGHT = true, ABOVE = true, BELOW = true,
 }
@@ -408,7 +412,8 @@ end
 -- turns one entry into its line, so the paladin rows can lead with the
 -- blessing icon while the raid-buff rows are just names.
 local function AddEntryLines(entries, Format)
-    local shown = #entries < LIST_ALL_BELOW and #entries or LIST_TRUNCATED_TO
+    local limit = TooltipNameLimit()
+    local shown = #entries < limit and #entries or limit
     for i = 1, shown do
         local text, right = Format(entries[i])
         if right then

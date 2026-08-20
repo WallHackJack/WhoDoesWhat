@@ -424,6 +424,11 @@ local defaults = {
             -- Which side of a hovered status bar its tooltip opens on
             -- (LEFT / RIGHT / ABOVE / BELOW).
             statusBarTooltipAnchor = "LEFT",
+            -- How many names a status-bar tooltip lists before the rest
+            -- collapse into "... and N more". One global number: it is a
+            -- property of how much tooltip you want to read, not of any
+            -- one buff, so it is not offered per-check.
+            statusBarTooltipNames = 10,
             overviewWidth = 220,
             statusBarChecks = {},
         },

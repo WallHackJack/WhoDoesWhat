@@ -32,6 +32,10 @@ local STATUS_SATURATED_LABELS = {
 local STATUS_TOOLTIP_ANCHOR_LABELS = {
     LEFT = "Left", RIGHT = "Right", ABOVE = "Above", BELOW = "Below",
 }
+-- How many names a status-bar tooltip lists before the rest become a count.
+-- 40 is a full raid, so it is the "everyone" end without needing a sentinel.
+local STATUS_TOOLTIP_NAME_COUNTS = { 3, 5, 10, 20, 40 }
+local DEFAULT_TOOLTIP_NAMES = 10
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 local STATUS_BUFF_ROW_H = 26
 local STATUS_ARROW_NUDGE = { Up = 2, Down = -4 }
@@ -1233,6 +1237,38 @@ local function EnsureSettingsFrame()
     f.overviewTooltipAnchorDD = tooltipAnchorDD
     yL = yL + 32
 
+    local tooltipNamesLabel = statusPage:CreateFontString(nil, "OVERLAY",
+        "GameFontHighlight")
+    tooltipNamesLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    tooltipNamesLabel:SetText("Tooltip names:")
+    local tooltipNamesDD = CreateFrame("Frame",
+        "WhoDoesWhatStatusBarsTooltipNamesDD", statusPage,
+        "UIDropDownMenuTemplate")
+    tooltipNamesDD:SetPoint("LEFT", tooltipNamesLabel, "RIGHT", -6, -2)
+    UIDropDownMenu_SetWidth(tooltipNamesDD, 110)
+    WhoDoesWhat:StyleDropdown(tooltipNamesDD, true)
+    UIDropDownMenu_Initialize(tooltipNamesDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipNames
+            or DEFAULT_TOOLTIP_NAMES
+        for _, count in ipairs(STATUS_TOOLTIP_NAME_COUNTS) do
+            local value = count
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = tostring(value)
+            info.checked = saved == value
+            info.func = function()
+                WhoDoesWhat.db.profile.settings.statusBarTooltipNames = value
+                UIDropDownMenu_SetText(tooltipNamesDD, tostring(value))
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    AddDropdownTooltip(tooltipNamesDD, tooltipNamesLabel, "Tooltip names",
+        "How many raiders a status bar's tooltip names before the rest"
+            .. " collapse into \"... and N more\". Applies to every bar,"
+            .. " including the paladin ones.")
+    f.overviewTooltipNamesDD = tooltipNamesDD
+    yL = yL + 32
+
     -- ---- Buff Tracking ----
     local statusBuffPage = pages[3]
     yL = y0
@@ -1697,6 +1733,8 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     UIDropDownMenu_SetText(f.overviewTooltipAnchorDD,
         STATUS_TOOLTIP_ANCHOR_LABELS[tooltipAnchor]
             or STATUS_TOOLTIP_ANCHOR_LABELS.LEFT)
+    UIDropDownMenu_SetText(f.overviewTooltipNamesDD,
+        tostring(settings.statusBarTooltipNames or DEFAULT_TOOLTIP_NAMES))
     RefreshStatusBuffRows(f)
     f.devModeCheck:SetChecked(settings.developerMode)
     f.showLogsCheck:SetChecked(settings.showLogsButton)
