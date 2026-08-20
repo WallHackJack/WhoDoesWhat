@@ -19,6 +19,18 @@ local LINKS = {
 -- entry is presented as the latest release in the window.
 local RELEASES = {
     {
+        version = "1.1.0",
+        date = "2026-08-20",
+        notes = {
+            "Shift-right-click a status bar to announce who is still missing that buff in raid chat; editing moved to alt-right-click.",
+            "Action Items folded into the Members window: roles, talents, and what needs fixing in one place.",
+            "Ignore a blessing for part of the raid -- \"Sanctuary except for Tanks\" is now one rule.",
+            "A paladin running without PallyPower announces themselves to it, so they can be given assignments.",
+            "Raid assistants can set group roles by hand again.",
+            "Large-raid performance pass; the biggest gains are in a 40-man with several paladins.",
+        },
+    },
+    {
         version = "1.0.11",
         date = "2026-08-11",
         notes = {
