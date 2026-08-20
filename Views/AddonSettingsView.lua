@@ -489,8 +489,10 @@ local function RefreshBuffOptionsFrame()
         and not hidden.hideColumnUnavailable
     -- Responsibility follows the "Requires Class" dropdown: clearing it means
     -- nobody in particular owns the buff, so the glow has nothing to key on.
-    local showResponsibleGlow = hasRequirement and not options.negative
-        and not hidden.responsibleGlow
+    -- A self-supplied check answers the question a different way -- it is
+    -- always your own job -- so it offers the option without a class set.
+    local showResponsibleGlow = (hasRequirement or definition.selfSupplied)
+        and not options.negative and not hidden.responsibleGlow
     -- Only where the check asks for it: "most of them have it" is a sensible
     -- thing to glow about for a raid-wide cast, and nonsense for a buff that
     -- is applied one raider at a time.
@@ -892,7 +894,9 @@ local function EnsureBuffOptionsFrame(owner, key)
             "Glow this WDW Status row while you are the class that supplies the"
                 .. " buff and somebody is still missing it. With \"Only consider"
                 .. " best available\" on, only the raid's best-talented caster"
-                .. " is asked." },
+                .. " is asked. On a buff nobody can cast for you, such as food,"
+                .. " it glows while you or your pet are the ones going"
+                .. " without." },
         { "partialGlow", "Glow when some missing",
             "Glow this WDW Status row once most of the raid is covered but a"
                 .. " few are not -- raiders who were dead when it went out, or"

@@ -347,9 +347,13 @@ WhoDoesWhat.CoreRaidBuffs = {
         gridName = "Well Fed",
         description = "Provides a Well Fed stat bonus from food.",
         icon = 136000, -- Spell_Misc_Food
-        auraNames = { "Well Fed" },
+        auraNames = { "Well Fed", "Enlightened" }, -- Enlightened: TBC Skullfish Soup
         colorRGB = { r = 1, g = 0.82, b = 0 },
         includeHunterPets = not features.isClassicEra,
+        -- Nobody casts this one for you, so "Glow when responsible" has no
+        -- class to key on. It watches the local player's own row instead --
+        -- and their pet's, since the owner is who feeds it.
+        selfSupplied = true,
     },
     shadowProtection = {
         name = "Shadow",
@@ -663,9 +667,9 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     -- can't act on a list of other people's, so by default they aren't shown
     -- one. Off restores the honest-count-without-a-glow behaviour.
     local hideWhenNotYours = saved.hideWhenNotYours ~= false
-    -- Only offered on class-based checks (see responsibleGlow in
-    -- hiddenOptions); the status view still decides whether the local player
-    -- is the one on the hook.
+    -- Only offered on class-based and self-supplied checks (see
+    -- responsibleGlow in hiddenOptions and selfSupplied above); the status
+    -- view still decides whether the local player is the one on the hook.
     local responsibleGlow = saved.responsibleGlow ~= false
     -- The other glow rule, offered only where a check opts in (`partialGlow`
     -- in this file): fires on the last few stragglers rather than on any gap

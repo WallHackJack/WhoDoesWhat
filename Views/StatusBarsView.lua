@@ -280,6 +280,12 @@ local function LocalClassName()
     return localClassName
 end
 
+-- Flagged lists mix raiders with hunter pets, which ride in as "Owner's Pet".
+-- A pet counts as its owner's own row, since the owner is who feeds it.
+local function IsLocalPlayerEntry(entry)
+    return IsLocalPlayerName(entry.name:match("^(.+)'s Pet$") or entry.name)
+end
+
 -- "Glow when responsible": the local player's class is the one that supplies
 -- this buff and somebody in the group is still without it. Where the check
 -- only counts the best available rank, the raid's top-rank provider is the one
@@ -288,6 +294,15 @@ end
 local function ResponsibleForCheck(key, definition, options, coverage)
     if not options.responsibleGlow or options.negative then return false end
     if definition.hiddenOptions and definition.hiddenOptions.responsibleGlow then
+        return false
+    end
+    -- Food and its like: nobody else can cast it for you, so there is no class
+    -- to be. Responsibility is simply still being on the list yourself -- or
+    -- your pet being, which is the same errand.
+    if definition.selfSupplied then
+        for _, entry in ipairs(coverage.flagged or {}) do
+            if IsLocalPlayerEntry(entry) then return true end
+        end
         return false
     end
     -- The check's "Requires Class" is the whole definition of whose job this
@@ -371,6 +386,22 @@ local function AddSplitProgressLines(correct, anyCorrect, total)
         GameTooltip:AddLine("|cffff4d4d" .. (total - anyCorrect)
             .. " missing buff|r", 1, 1, 1)
     end
+end
+
+-- Your own row leads the list. A truncated list of two dozen names is a poor
+-- way to answer "do I still need to eat", and on a self-supplied check that is
+-- the only question the row asks. Everyone else keeps roster order.
+local function SelfFirst(entries)
+    local mine, rest = {}, {}
+    for _, entry in ipairs(entries) do
+        local bucket = IsLocalPlayerEntry(entry) and mine or rest
+        bucket[#bucket + 1] = entry
+    end
+    if #mine == 0 then return entries end
+    -- Owner above pet, whichever order the roster walk found them in.
+    table.sort(mine, function(a, b) return not a.isPet and b.isPet == true end)
+    for _, entry in ipairs(rest) do mine[#mine + 1] = entry end
+    return mine
 end
 
 -- The actionable end of every tooltip: who still needs attention. `Format`
@@ -479,6 +510,7 @@ local function FillCoreTooltip(row)
                 return a.name < b.name
             end)
         end
+        flagged = SelfFirst(flagged)
         local maxRank = definition.improvedTalent
             and definition.improvedTalent.maxRank
         AddEntryLines(flagged, function(entry)
