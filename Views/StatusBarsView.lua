@@ -685,7 +685,11 @@ local function FillCoreTooltip(row)
             and definition.improvedTalent.maxRank
         AddEntryLines(flagged, function(entry)
             local right
-            if entry.unoptimal then
+            if entry.outside then
+                -- The distinction that matters: this one is not weak, it is
+                -- temporary. It goes away by itself when the boss is pulled.
+                right = "outside raid"
+            elseif entry.unoptimal then
                 right = entry.rank and maxRank
                     and ("weaker (" .. entry.rank .. "/" .. maxRank .. ")")
                     or "weaker buff"

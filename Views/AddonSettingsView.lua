@@ -501,12 +501,18 @@ local function RefreshBuffOptionsFrame()
     -- thing to glow about for a raid-wide cast, and nonsense for a buff that
     -- is applied one raider at a time.
     local showPartialGlow = definition.partialGlow == true
+    -- Applies to any positive check, talent ranks or not: what matters is who
+    -- cast it, not how well.
+    local showFlagOutside = not options.negative
+        and not hidden.flagOutsideRaid
     y = y + ((showBest or showHideBarUnavailable or showHideColumnUnavailable
-        or showResponsibleGlow or showPartialGlow) and 18 or 25)
+        or showResponsibleGlow or showPartialGlow or showFlagOutside)
+        and 18 or 25)
     y = PlaceOption("bestAvailable", showBest, y)
     -- A sub-option of the box above it: indented, and gone entirely while the
     -- rule it relaxes is switched off.
     y = PlaceOption("anyInCombat", showBest and options.bestAvailable, y, 14)
+    y = PlaceOption("flagOutsideRaid", showFlagOutside, y)
     y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
     -- The class this one names is the "Requires Class" one, so it says which.
     f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
@@ -550,7 +556,8 @@ local function RefreshBuffOptionsFrame()
     f.optionLabels.hunterPets:SetText(definition.allPets
         and "Used by pets" or "Used by hunter pets")
     y = PlaceOption("hunterPets", showPets, y)
-    for _, option in ipairs({ "bestAvailable", "anyInCombat", "hideBarUnavailable",
+    for _, option in ipairs({ "bestAvailable", "anyInCombat", "flagOutsideRaid",
+        "hideBarUnavailable",
         "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
         "negative", "hideComplete", "responsibleGlow", "partialGlow",
         "partialGlowOnlyClass",
@@ -874,6 +881,11 @@ local function EnsureBuffOptionsFrame(owner, key)
             "Hide the WDW Status row when the check is complete, or when a debuff is absent from everyone." },
         { "hideColumnComplete", "Hide grid column when complete",
             "Hide the Buffing Grid column when the check is complete, or when a debuff is absent from everyone." },
+        { "flagOutsideRaid", "Flag buffs from outside the raid",
+            "Count a buff as missing when whoever cast it is not in the raid."
+                .. " Pulling a boss strips those buffs, so a raider carrying"
+                .. " one is unbuffed the moment it matters. Only applies in a"
+                .. " raid -- party and dungeon groups are never stripped." },
         { "bestAvailable", "Only consider best available",
             "Untalented buffs will not be counted toward the total buffing progress while a better buff is available." },
         { "anyInCombat", "Consider all in combat and BGs",

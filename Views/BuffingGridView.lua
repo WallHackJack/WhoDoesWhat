@@ -279,6 +279,16 @@ local function CreateCoreCell(row, column)
                 GameTooltip:AddLine(source and ("Active from " .. source .. ".")
                     or "Active.", 0.3, 1, 0.3, true)
             end
+            -- Otherwise this cell reads "Active." in green for a buff the
+            -- status bar is counting as missing.
+            local check = WhoDoesWhat.StatusBarChecks[self.buffKey]
+            if check and WhoDoesWhat:GetStatusBarCheckOptions(
+                    self.buffKey).flagOutsideRaid
+                and WhoDoesWhat:IsBuffFromOutsideRaid(
+                    self.raider, self.buffKey) then
+                GameTooltip:AddLine("Cast from outside the raid; pulling a boss"
+                    .. " strips it.", 1, 0.45, 0.2, true)
+            end
             if self.betterProvider then
                 GameTooltip:AddLine("Better available from "
                     .. self.betterProvider.name .. " ("

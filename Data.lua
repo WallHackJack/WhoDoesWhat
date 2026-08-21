@@ -608,6 +608,10 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     -- a weaker buff is the answer, so the check stops asking for the best one.
     local anyInCombat = saved.anyInCombat
     if anyInCombat == nil then anyInCombat = true end
+    -- A buff cast by somebody outside the raid is stripped the moment a boss
+    -- is pulled, so by default it counts as missing however good it looked.
+    -- Nonsense on a debuff, and inert in a party or a dungeon.
+    local flagOutsideRaid = saved.flagOutsideRaid ~= false
     local requiredClass = saved.requiredClass
     if requiredClass == nil then requiredClass = definition.className or false end
     if requiredClass then
@@ -688,6 +692,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         hideComplete = hideComplete,
         hideColumnComplete = hideColumnComplete,
         bestAvailable = bestAvailable,
+        flagOutsideRaid = flagOutsideRaid,
         anyInCombat = anyInCombat,
         onlyManaUsers = onlyManaUsers,
         onlyTanks = onlyTanks,

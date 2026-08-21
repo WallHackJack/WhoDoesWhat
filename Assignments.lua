@@ -1857,6 +1857,10 @@ local function ComputeCoreRaidBuffCoverage()
             -- Evaluated per member it was a C call for every raider on every
             -- check, on every repaint.
             local flagsTheCovered = FlagsTheCovered(buff, options)
+            -- Constant for the check, like flagsTheCovered above: no point
+            -- asking per member whether this check cares about outside casters.
+            local flagOutside = options.flagOutsideRaid
+                and not options.negative
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
@@ -1907,6 +1911,12 @@ local function ComputeCoreRaidBuffCoverage()
                         rank = r
                         covered = r ~= nil and r >= bestRank
                     end
+                    -- Cast by somebody the raid will lose on the pull. It
+                    -- counts as missing whatever its rank was, which is what
+                    -- the raider will actually have thirty seconds from now.
+                    local outside = hasBuff and flagOutside
+                        and WhoDoesWhat:IsBuffFromOutsideRaid(m.name, key)
+                    if outside then covered = false end
                     if hasBuff then row.anyCorrect = row.anyCorrect + 1 end
                     if covered then
                         row.correct = row.correct + 1
@@ -1920,6 +1930,7 @@ local function ComputeCoreRaidBuffCoverage()
                             -- Buffed, just not by the best caster available:
                             -- a different problem from having nothing at all.
                             unoptimal = not covered and hasBuff or nil,
+                            outside = outside or nil,
                             rank = rank,
                         }
                     end

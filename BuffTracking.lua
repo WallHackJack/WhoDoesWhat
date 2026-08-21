@@ -355,6 +355,25 @@ function WhoDoesWhat:GetBuffSource(name, key)
     return source or nil
 end
 
+-- Whether a tracked buff on this raider came from outside the raid. Pulling a
+-- boss strips buffs the raid did not cast, so a Gift of the Wild picked up
+-- from a passing druid in the city is one that vanishes at the exact moment it
+-- was wanted. Party and dungeon groups are not stripped, so nothing is flagged
+-- unless we are in a raid.
+--
+-- A caster the client could not name (`false`) counts as outside: it only
+-- names a caster it currently holds a unit for, and in a raid it holds one for
+-- every member. Ordered so the common answer -- cast by a raider -- costs one
+-- UnitInRaid and returns before the group check.
+function WhoDoesWhat:IsBuffFromOutsideRaid(name, key)
+    local s = state[name]
+    local source = s and s.sources and s.sources[key]
+    -- nil is "no aura recorded", which is not the same as "no caster".
+    if source == nil then return false end
+    if source ~= false and UnitInRaid(source) ~= nil then return false end
+    return IsInRaid() and true or false
+end
+
 -- Seconds left on the last observed timed aura, or nil for permanent,
 -- expired, missing, unknown, or never-observed duration data.
 function WhoDoesWhat:GetBuffTimeRemaining(name, key)
