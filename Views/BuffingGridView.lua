@@ -65,9 +65,13 @@ local function VisibleCoreBuffKeys(coverageByKey)
     local keys = {}
     for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
         local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
-        local unavailable = options.requiredClass
-            and #A.MembersOfClass(options.requiredClass) == 0
         local coverage = coverageByKey[key]
+        -- The coverage pass answers this where it ran, and on a gated check
+        -- (Divine Spirit) it has the fuller answer: the class can be standing
+        -- right here without the talent that grants the buff.
+        local unavailable = coverage and not coverage.available
+            or (not coverage and options.requiredClass
+                and #A.MembersOfClass(options.requiredClass) == 0)
         local complete = coverage and coverage.total > 0
             and (options.negative and coverage.correct == 0
                 or not options.negative and coverage.correct >= coverage.total)
@@ -92,7 +96,10 @@ local ImprovedProviders = A.ComputeCoreBuffProviders
 local function BestAvailableProvider(providers)
     local best
     for _, provider in ipairs(providers) do
-        if provider.available and provider.rank ~= nil
+        -- Offspec providers are skipped: this drives "Better available from
+        -- X" on a cell, and a caster who would have to respec first is not
+        -- somebody to go ask for a rebuff.
+        if provider.available and provider.rank ~= nil and not provider.offspec
             and (not best or provider.rank > best.rank) then
             best = provider
         end
@@ -183,7 +190,10 @@ local function CreateCoreHeader(f, index)
             GameTooltip:AddLine(buff.improvedTalent.name .. " providers:", 1, 0.82, 0)
             for _, provider in ipairs(self.providers or {}) do
                 local rank = provider.rank == nil and "?" or provider.rank
-                local suffix = provider.available and "" or " (offline)"
+                -- "offspec": the rank is real but their current spec can't
+                -- cast the buff at all (see requiredTalent in Data.lua).
+                local suffix = (provider.offspec and " (offspec)" or "")
+                    .. (provider.available and "" or " (offline)")
                 GameTooltip:AddLine(provider.name .. ": " .. rank .. "/"
                     .. buff.improvedTalent.maxRank .. suffix,
                     RankColor(provider.rank, buff.improvedTalent.maxRank))
@@ -483,9 +493,18 @@ local function RefreshGrid(f)
             header.buffKey = key
             header.providers = providerPools[key]
             local options = coreOptions[key]
-            header.requiredClass = options.requiredClass
-            header.available = not options.requiredClass
-                or A.HasMemberOfClass(options.requiredClass)
+            local rowCoverage = coverageByKey[key]
+            if rowCoverage then
+                -- Same fuller answer VisibleCoreBuffKeys uses, and the name it
+                -- carries is the talent rather than the class where the class
+                -- is present without it.
+                header.available = rowCoverage.available
+                header.requiredClass = rowCoverage.unavailableName
+            else
+                header.available = not options.requiredClass
+                    or A.HasMemberOfClass(options.requiredClass)
+                header.requiredClass = options.requiredClass
+            end
             header.icon:SetTexture(WhoDoesWhat.StatusBarChecks[key].icon)
             header:Show()
         end

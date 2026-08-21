@@ -1793,19 +1793,70 @@ local function ComputeCoreBuffProviders(key, disconnected)
     disconnected = disconnected or DisconnectedGroupTargets()
     for _, member in ipairs(GetEligibleMembers(buff.className)) do
         if member.classInfo.name == buff.className then
-            providers[#providers + 1] = {
-                name = member.name,
-                rank = WhoDoesWhat:GetCoreBuffTalent(member.name, key),
-                available = member.isFake or not disconnected[member.name],
-            }
+            local main, other =
+                WhoDoesWhat:GetCoreBuffTalentSpecs(member.name, key)
+            local rank, offspec
+            if main ~= false then
+                -- Their active spec supplies it, at `main` -- or nothing has
+                -- been scanned yet (nil), which sorts last as an unknown.
+                rank = main
+            elseif type(other) == "number" then
+                -- A gated buff their current spec can't cast, but their other
+                -- one can. Still a real answer to "who can buff this", just
+                -- one that costs a respec, so it sorts below every caster who
+                -- can do it as they stand.
+                rank, offspec = other, true
+            else
+                -- Neither spec has the talent: not a provider at all.
+                rank = false
+            end
+            if rank ~= false then
+                providers[#providers + 1] = {
+                    name = member.name,
+                    rank = rank,
+                    offspec = offspec,
+                    available = member.isFake or not disconnected[member.name],
+                }
+            end
         end
     end
     table.sort(providers, function(a, b)
+        if (a.offspec == true) ~= (b.offspec == true) then
+            return b.offspec == true
+        end
         if (a.rank == nil) ~= (b.rank == nil) then return b.rank == nil end
         if a.rank ~= b.rank then return a.rank > b.rank end
         return a.name < b.name
     end)
     return providers
+end
+
+-- Who here can cast a gated buff: whether anybody can at all, and whether
+-- anybody can in the spec they are standing in. The pair answers two different
+-- questions -- the first decides whether the check is available to this raid
+-- (nobody, in either spec, means it may as well be a missing class), the
+-- second whether an offspec caster is the one being asked (they are not, while
+-- somebody can simply cast it).
+--
+-- Deliberately not ComputeCoreBuffProviders: this runs per check on every
+-- status repaint and never sorts. An unscanned caster counts as a main-spec
+-- one -- a priest nobody has inspected yet may well have the talent, and
+-- guessing the other way would nag somebody into a respec over a blank.
+local function CoreBuffProviderReach(buff, key, disconnected)
+    local any, main = false, false
+    for _, member in ipairs(GetEligibleMembers(buff.className)) do
+        if member.classInfo.name == buff.className
+            and (member.isFake or not disconnected[member.name]) then
+            local mine, other =
+                WhoDoesWhat:GetCoreBuffTalentSpecs(member.name, key)
+            if mine ~= false then
+                any, main = true, true
+            elseif other ~= false then
+                any = true
+            end
+        end
+    end
+    return any, main
 end
 
 -- Deliberately does NOT go through ComputeCoreBuffProviders. That builds a
@@ -1861,6 +1912,26 @@ local function ComputeCoreRaidBuffCoverage()
             -- asking per member whether this check cares about outside casters.
             local flagOutside = options.flagOutsideRaid
                 and not options.negative
+            -- Normally "is anyone of the supplying class here". A gated check
+            -- (Divine Spirit) asks the harder version: a raid of shadow
+            -- priests who never took the talent has no more access to it than
+            -- a raid with no priest at all, and an unfillable 0/25 would sit
+            -- red forever and drag the raid total down with it. Only while the
+            -- class requirement is still the buff's own -- point "Requires
+            -- Class" somewhere else and the talent has nothing to say.
+            local available = not options.requiredClass
+                or HasMemberOfClass(options.requiredClass)
+            local unavailableName = options.requiredClass
+            local mainProvider = nil
+            if buff.requiredTalent
+                and options.requiredClass == buff.className then
+                local anyProvider
+                anyProvider, mainProvider =
+                    CoreBuffProviderReach(buff, key, disconnected)
+                if available and not anyProvider then
+                    available, unavailableName = false, buff.requiredTalent.name
+                end
+            end
             local row = {
                 key = key, name = buff.name, icon = buff.icon,
                 correct = 0, total = 0,
@@ -1879,8 +1950,14 @@ local function ComputeCoreRaidBuffCoverage()
                 -- The improvement rank this check is currently measured
                 -- against, so a view can tell who is on the hook for it.
                 bestRank = bestRank,
-                available = not options.requiredClass
-                    or HasMemberOfClass(options.requiredClass),
+                available = available,
+                -- What the row and its tooltip name as missing: the class
+                -- normally, the talent when the class is here without it.
+                unavailableName = unavailableName,
+                -- Gated checks only: is anybody able to cast this out of the
+                -- spec they are in? While somebody is, an offspec caster is
+                -- not the one being asked to fix it (see ResponsibleForCheck).
+                mainProvider = mainProvider,
             }
             local targets = members
             if options.hunterPets and not buff.hunterPetsOptionDisabled then

@@ -514,6 +514,12 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("anyInCombat", showBest and options.bestAvailable, y, 14)
     y = PlaceOption("flagOutsideRaid", showFlagOutside, y)
     y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
+    -- Sub-option of the box above it, and only on a check whose class does not
+    -- all get the spell (Divine Spirit): everywhere else there is no offspec
+    -- question to answer.
+    y = PlaceOption("offspecResponsible",
+        showResponsibleGlow and options.responsibleGlow
+            and definition.requiredTalent ~= nil, y, 14)
     -- The class this one names is the "Requires Class" one, so it says which.
     f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
         and ("Only as " .. options.requiredClass)
@@ -559,8 +565,8 @@ local function RefreshBuffOptionsFrame()
     for _, option in ipairs({ "bestAvailable", "anyInCombat", "flagOutsideRaid",
         "hideBarUnavailable",
         "hideColumnUnavailable", "combinePaladinBars", "includeInTotal",
-        "negative", "hideComplete", "responsibleGlow", "partialGlow",
-        "partialGlowOnlyClass",
+        "negative", "hideComplete", "responsibleGlow", "offspecResponsible",
+        "partialGlow", "partialGlowOnlyClass",
         "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
         if not f.optionChecks[option]:IsShown() then
             f.optionLabels[option]:Hide()
@@ -913,6 +919,12 @@ local function EnsureBuffOptionsFrame(owner, key)
                 .. " is asked. On a buff nobody can cast for you, such as food,"
                 .. " it glows while you or your pet are the ones going"
                 .. " without." },
+        { "offspecResponsible", "Allow offspec responsibility",
+            "Keep glowing this row when the talent that grants the buff sits"
+                .. " in your other talent group rather than the spec you are"
+                .. " in. A respec is a real answer in a raid where nobody has"
+                .. " it in the spec they are standing in; off, only your"
+                .. " current spec puts you on the hook." },
         { "partialGlow", "Glow when some missing",
             "Glow this WDW Status row once most of the raid is covered but a"
                 .. " few are not -- raiders who were dead when it went out, or"

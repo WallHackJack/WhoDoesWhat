@@ -242,27 +242,78 @@ function WhoDoesWhat:GetWarlockHealthstoneTalent(playerName)
     return self.db and self.db.profile.warlockHealthstoneTalents[playerName] or nil
 end
 
+-- Every improvement rank this class supplies, read out of one talent group.
+-- nil when the class supplies none.
+--
+-- A gated buff -- one with a `requiredTalent`, meaning Divine Spirit -- stores
+-- `false` for a spec that never spent the point granting the spell. That is a
+-- different answer from an unimproved 0: a shadow priest with no Divine Spirit
+-- cannot cast it at all, where a 0/2 priest casts it plain.
+--
+-- gatedOnly restricts the read to those buffs, which is all the offspec pass
+-- wants: a druid's inactive Improved Mark rank tells you nothing, because they
+-- will buff you out of the spec they are standing in. A nil group is the
+-- offspec pass on a player who has no second talent group -- every gated buff
+-- reads `false` there, which is the true answer and the same one a second spec
+-- without the talent would give.
+local function CoreBuffRanksForGroup(self, class, isInspect, group, gatedOnly)
+    local ranks
+    for key, buff in pairs(self.StatusBarChecks) do
+        local talent = buff.improvedTalent
+        if talent and string.upper(buff.className) == class
+            and (buff.requiredTalent or not gatedOnly) then
+            ranks = ranks or {}
+            if buff.requiredTalent and (group == nil
+                or NativeRankAt(buff.requiredTalent, isInspect, group) == 0) then
+                ranks[key] = false
+            else
+                ranks[key] = NativeRankAt(talent, isInspect, group)
+            end
+        end
+    end
+    return ranks
+end
+
 -- Save the improvement rank for any raid-wide buff supplied by this class.
 -- As with paladin ranks, only the local player or a fresh inspect has native
 -- talent data in the right order; WDW sync carries each provider's own rank
 -- to the rest of the group.
+--
+-- Both talent groups are read where the client has two, but only for the
+-- gated buffs, and the second one lands under `offspec` so the active spec
+-- stays the plain number every existing reader expects. The question it
+-- answers is "could this priest supply Divine Spirit at all", which a raid
+-- with one disc-offspec shadow priest cannot answer from the active spec.
 function WhoDoesWhat:ScanCoreBuffTalents(guid, playerKey, class, isInspect)
     if not (isInspect or guid == UnitGUID("player")) then return end
 
-    local group = GetActiveTalentGroup(isInspect) or 1
-    local ranks = {}
-    for key, buff in pairs(self.StatusBarChecks) do
-        local talent = buff.improvedTalent
-        if talent and string.upper(buff.className) == class then
-            ranks[key] = NativeRankAt(talent, isInspect, group)
-        end
-    end
+    local active = GetActiveTalentGroup(isInspect) or 1
+    local ranks = CoreBuffRanksForGroup(self, class, isInspect, active) or {}
+    local groups = GetNumTalentGroups
+        and (GetNumTalentGroups(isInspect) or 1) or 1
+    ranks.offspec = CoreBuffRanksForGroup(self, class, isInspect,
+        groups > 1 and (active == 1 and 2 or 1) or nil, true)
     self.db.profile.coreBuffTalents[playerKey] = ranks
 end
 
+-- The improvement rank this player's *active* spec supplies, or nil when they
+-- haven't been scanned -- and also nil when the scan says that spec cannot
+-- cast the buff, which every caller of this one wants to read as "no rank".
+-- Callers that must tell those two apart use GetCoreBuffTalentSpecs.
 function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
     local ranks = self.db and self.db.profile.coreBuffTalents[playerName]
     return ranks and ranks[buffKey] or nil
+end
+
+-- What the scan says about one player and one talent-improved buff, in their
+-- active spec and in their other talent group. Each value is
+--   nil    -- not scanned (or, for the offspec, not a gated buff)
+--   false  -- scanned, and that spec cannot cast the buff at all
+--   number -- the improvement rank that spec supplies
+function WhoDoesWhat:GetCoreBuffTalentSpecs(playerName, buffKey)
+    local ranks = self.db and self.db.profile.coreBuffTalents[playerName]
+    if not ranks then return nil, nil end
+    return ranks[buffKey], ranks.offspec and ranks.offspec[buffKey]
 end
 
 -- Manual "/wdw rescan". Talent data only becomes current when

@@ -377,11 +377,50 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
 }
 
+-- Divine Spirit, TBC only: Classic Era has the buff but no talent to improve
+-- it, and nothing to say about it that the aura doesn't.
+--
+-- The one check whose class cannot universally cast it. Divine Spirit is
+-- itself a talent -- a shadow priest who never spent that point has no such
+-- spell -- so `requiredTalent` names the point that grants it, alongside the
+-- `improvedTalent` that only makes it better. Everything downstream that
+-- treats "is a Priest" as "can cast it" has to ask about the talent instead,
+-- which is why the scan reads both talent groups (see ScanCoreBuffTalents):
+-- a priest whose offspec has Divine Spirit is a real answer to "who can buff
+-- this", just a slower one than a priest already carrying it.
+if not features.isClassicEra then
+    WhoDoesWhat.CoreRaidBuffs.spirit = {
+        name = "Divine Spirit",
+        gridName = "Divine Spirit / Prayer of Spirit",
+        description = "Increases Spirit, and spell power where the caster has"
+            .. " Improved Divine Spirit.",
+        icon = "Interface\\Icons\\Spell_Holy_PrayerofSpirit",
+        auraNames = { "Divine Spirit", "Prayer of Spirit" },
+        className = "Priest",
+        colorRGB = { r = 152 / 255, g = 214 / 255, b = 1 }, -- #98D6FF
+        -- Spirit and the spell power off it are worth nothing to a warrior or
+        -- a rogue, so the default targets match Arcane Intellect's.
+        defaultOnlyManaUsers = true,
+        improvedTalent = {
+            name = "Improved Divine Spirit",
+            tab = 1, tier = 5, column = 4, maxRank = 2,
+        },
+        requiredTalent = {
+            name = "Divine Spirit",
+            tab = 1, tier = 5, column = 3,
+        },
+    }
+    table.insert(WhoDoesWhat.CoreRaidBuffOrder, 3, "spirit")
+end
+
 -- Every ordered tracking group available to WDW Status and the Buffing Grid.
 WhoDoesWhat.StatusBarCheckOrder = {
     "actionItems", "pallyPower", "paladinBuffs", "gift",
     "fortitude", "intellect", "shadowProtection",
 }
+if WhoDoesWhat.CoreRaidBuffs.spirit then
+    table.insert(WhoDoesWhat.StatusBarCheckOrder, 6, "spirit")
+end
 WhoDoesWhat.StatusBarChecks = {}
 for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
     local buff = WhoDoesWhat.CoreRaidBuffs[key]
@@ -553,7 +592,13 @@ function WhoDoesWhat:InvalidateStatusBarCheckCache()
     statusOrderCache = nil
 end
 
--- Saved order is a full list so newly-added checks can be appended safely.
+-- Saved order is a full list, so a check this version added isn't in it. Such
+-- a key lands directly after whichever check precedes it in the default order
+-- above, rather than at the end: a new bar the default order puts under
+-- Fortitude belongs under Fortitude for someone who reordered their rows too,
+-- and appending it to the bottom of their list hid it below the row they were
+-- most likely to compare it against. Falls back to the end when the neighbour
+-- it follows isn't in the saved list either.
 function WhoDoesWhat:GetStatusBarCheckOrder()
     if statusOrderCache then return statusOrderCache end
     local saved = self.db.profile.settings.statusBarOrder
@@ -564,8 +609,18 @@ function WhoDoesWhat:GetStatusBarCheckOrder()
             seen[key] = true
         end
     end
-    for _, key in ipairs(self.StatusBarCheckOrder) do
-        if not seen[key] then order[#order + 1] = key end
+    for index, key in ipairs(self.StatusBarCheckOrder) do
+        if not seen[key] then
+            local after, at = self.StatusBarCheckOrder[index - 1], nil
+            for position, existing in ipairs(order) do
+                if existing == after then
+                    at = position
+                    break
+                end
+            end
+            table.insert(order, (at or #order) + 1, key)
+            seen[key] = true
+        end
     end
     statusOrderCache = order
     return order
@@ -675,6 +730,12 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     -- responsibleGlow in hiddenOptions and selfSupplied above); the status
     -- view still decides whether the local player is the one on the hook.
     local responsibleGlow = saved.responsibleGlow ~= false
+    -- Sub-option of the one above, and only on a check whose class cannot all
+    -- cast it (`requiredTalent` -- Divine Spirit). On, a priest carrying the
+    -- talent in their inactive spec alone is still the one being asked: a
+    -- respec is a real answer where nobody else in the raid has it at all.
+    -- Off, only the spec they are actually in counts.
+    local offspecResponsible = saved.offspecResponsible ~= false
     -- The other glow rule, offered only where a check opts in (`partialGlow`
     -- in this file): fires on the last few stragglers rather than on any gap
     -- at all. Its "only as <class>" sub-option is off by default -- everyone
@@ -706,6 +767,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
         barColor = barColor,
         combinePaladinBars = saved.combinePaladinBars == true,
         responsibleGlow = responsibleGlow,
+        offspecResponsible = offspecResponsible,
         partialGlow = partialGlow,
         partialGlowOnlyClass = partialGlowOnlyClass,
         hideWhenSynced = hideWhenSynced,

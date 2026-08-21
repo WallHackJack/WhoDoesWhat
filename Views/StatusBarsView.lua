@@ -483,9 +483,33 @@ local function ResponsibleForCheck(key, definition, options, coverage)
     if coverage.total == 0 or coverage.correct >= coverage.total then
         return false
     end
+    -- On a gated check being the class is not enough -- the talent that grants
+    -- the spell is what puts you on the hook, and a shadow priest who never
+    -- took Divine Spirit cannot cast it however many people are missing it.
+    -- "Allow offspec responsibility" decides whether the talent sitting in
+    -- your other spec still counts: on by default, because a respec is a real
+    -- answer in a raid where nobody has it in the spec they are standing in.
+    local mine
+    if definition.requiredTalent then
+        local offspec
+        mine, offspec =
+            WhoDoesWhat:GetCoreBuffTalentSpecs(LocalPlayerKey(), key)
+        if mine == false then
+            -- Not while somebody can simply cast it: they are already the one
+            -- glowing, and asking a second priest to respec on top of that is
+            -- noise. Only when the raid's whole answer is a respec.
+            if not options.offspecResponsible or coverage.mainProvider
+                or type(offspec) ~= "number" then
+                return false
+            end
+            mine = offspec
+        end
+    end
     if coverage.bestRank == nil then return true end
-    local mine = WhoDoesWhat:GetCoreBuffTalent(LocalPlayerKey(), key)
-    return mine ~= nil and mine >= coverage.bestRank
+    if mine == nil then
+        mine = WhoDoesWhat:GetCoreBuffTalent(LocalPlayerKey(), key)
+    end
+    return type(mine) == "number" and mine >= coverage.bestRank
 end
 
 -- "Glow when some missing": a different question from responsibility. The
@@ -597,33 +621,42 @@ end
 -- group, or everyone of the class while no ranks have been scanned. The rank
 -- rides along so a raid-wide 0/2 is obvious; the full breakdown of who has
 -- what stays in the Buffing Grid's column headers.
+--
+-- Providers arrive main-spec first and rank-descending within that, so the
+-- first available one with a known rank is the caster to ask -- and whether
+-- that caster is a main-spec or an offspec entry decides which of the two
+-- pools the rest of the list is drawn from. A priest who would have to respec
+-- for Divine Spirit is never listed alongside one who has it now, however good
+-- their inactive spec looks.
 local function AddProviderLines(key, definition)
     local talent = definition.improvedTalent
     if not talent then return end
     local providers = WhoDoesWhat.Assign.ComputeCoreBuffProviders(key)
-    local best
+    local best, bestOffspec
     for _, provider in ipairs(providers) do
-        if provider.available and provider.rank ~= nil
-            and (best == nil or provider.rank > best) then
-            best = provider.rank
+        if provider.available and provider.rank ~= nil then
+            best, bestOffspec = provider.rank, provider.offspec == true
+            break
         end
     end
     local classInfo = classByName[definition.className]
     local matches = {}
     for _, provider in ipairs(providers) do
-        if provider.available and provider.rank == best then
+        if provider.available and provider.rank == best
+            and (provider.offspec == true) == bestOffspec then
             matches[#matches + 1] = provider.name
         end
     end
     -- Nobody has spent a point, so every caster of the class is the same cast.
     -- A column of names all reading (0/5) says less than the class name does.
-    if best == 0 and #matches > 1 then
+    -- Never on the offspec pool: there "any Priest" is exactly what it is not.
+    if best == 0 and not bestOffspec and #matches > 1 then
         GameTooltip:AddLine("|cff" .. ((classInfo and classInfo.colorHex)
             or "FFFFFF") .. "Any " .. definition.className .. "|r", 1, 1, 1)
         return
     end
     local rankText = best and (" |cff909090(" .. best .. "/"
-        .. talent.maxRank .. ")|r") or ""
+        .. talent.maxRank .. (bestOffspec and ", offspec" or "") .. ")|r") or ""
     for _, name in ipairs(matches) do
         GameTooltip:AddLine(ColoredName(name, classInfo) .. rankText, 1, 1, 1)
     end
@@ -1458,8 +1491,10 @@ function WhoDoesWhat:RefreshStatusBarsView()
                         icon = coverage.icon,
                         buffKey = key,
                         flagged = coverage.flagged,
+                        -- The class normally, the talent that grants the buff
+                        -- where the class is present without it.
                         unavailableClass = not coverage.available
-                            and options.requiredClass or nil,
+                            and coverage.unavailableName or nil,
                         glow = ResponsibleForCheck(key, buff, options, coverage)
                             or PartialGlowForCheck(buff, options, coverage),
                         coverage = coverage,

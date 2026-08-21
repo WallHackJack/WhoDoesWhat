@@ -279,7 +279,12 @@ local defaults = {
         -- A missing player has not had their talent confirmed yet.
         warlockHealthstoneTalents = {},
         -- Druid/Priest improvement ranks for tracked raid buffs: player name
-        -- -> { gift = 0-5, thorns = 0-3 } or { fortitude = 0-2 }.
+        -- -> { gift = 0-5, thorns = 0-3 } or { fortitude = 0-2, spirit = ... }.
+        -- A rank of `false` means that spec cannot cast the buff at all -- only
+        -- on a buff its class does not universally get (Divine Spirit; see
+        -- requiredTalent in Data.lua), where 0 and "no such spell" are
+        -- different answers. Those buffs also carry the player's other talent
+        -- group under an `offspec` sub-table of the same shape.
         coreBuffTalents = {},
         -- Raid assignments from the main assignments view, keyed by row id
         -- ("curse_reck", "curse_elements") -> player name. Paladin blessings

@@ -39,10 +39,15 @@ FakeRaid.CORE = {
     { name = "Ironhide",     class = "WARRIOR", role = "warrior_prot" },
     { name = "Bearback",     class = "DRUID",   role = "druid_feral_tank",
       coreBuffTalents = { gift = 0, thorns = 0 } },
+    -- The two priests cover both sides of the Divine Spirit gate: `false` is
+    -- a spec without the talent that grants it at all, and Lightwell keeps it
+    -- in the other talent group, which is the offspec provider case.
     { name = "Lightwell",    class = "PRIEST",  role = "priest_holy",
-      coreBuffTalents = { fortitude = 0 } },
+      coreBuffTalents = { fortitude = 0, spirit = false,
+        offspec = { spirit = 2 } } },
     { name = "Painsuppress", class = "PRIEST",  role = "priest_disc",
-      coreBuffTalents = { fortitude = 2 } },
+      coreBuffTalents = { fortitude = 2, spirit = 1,
+        offspec = { spirit = false } } },
     { name = "Tidecaller",   class = "SHAMAN",  role = "shaman_resto" },
     { name = "Lifebloom",    class = "DRUID",   role = "druid_resto",
       coreBuffTalents = { gift = 5, thorns = 0 } },

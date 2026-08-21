@@ -607,17 +607,42 @@ local function StoreHealthstoneRank(senderKey, rank)
     WhoDoesWhat:RefreshRaiderTooltip()
 end
 
+-- One transmitted core-buff rank, normalized. `false` -- the sender saying
+-- that spec cannot cast the buff at all -- survives as itself, but only on a
+-- gated buff where it means anything. Anything else is clamped into the
+-- talent's range, and dropped outright when it isn't a number.
+local function NormalizedCoreRank(value, buff)
+    if value == false then
+        if buff.requiredTalent then return false end
+        return nil
+    end
+    local rank = tonumber(value)
+    if rank == nil then return nil end
+    return math.floor(math.max(0, math.min(buff.improvedTalent.maxRank, rank)))
+end
+
 local function StoreCoreBuffRanks(senderKey, ranks)
     if type(ranks) ~= "table" then return end
-    local stored = {}
+    -- The sender's other talent group, carried only for gated buffs (see
+    -- ScanCoreBuffTalents) and validated the same way as the active spec.
+    local sentOffspec = type(ranks.offspec) == "table" and ranks.offspec or nil
+    local stored, offspec = {}, nil
     for key, buff in pairs(WhoDoesWhat.StatusBarChecks) do
-        if buff.improvedTalent and ranks[key] ~= nil then
-            local rank = tonumber(ranks[key]) or 0
-            stored[key] = math.floor(math.max(0,
-                math.min(buff.improvedTalent.maxRank, rank)))
+        if buff.improvedTalent then
+            if ranks[key] ~= nil then
+                stored[key] = NormalizedCoreRank(ranks[key], buff)
+            end
+            if sentOffspec and sentOffspec[key] ~= nil then
+                local value = NormalizedCoreRank(sentOffspec[key], buff)
+                if value ~= nil then
+                    offspec = offspec or {}
+                    offspec[key] = value
+                end
+            end
         end
     end
     if not next(stored) then return end
+    stored.offspec = offspec
     WhoDoesWhat.db.profile.coreBuffTalents[senderKey] = stored
     LogSync("core buff-talent ranks stored for", senderKey)
     WhoDoesWhat:RefreshBoardViews()
@@ -655,14 +680,28 @@ local function NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks
         fact.healthstone = ClampedInteger(healthstone,
             WhoDoesWhat.WarlockHealthstone.maxRank)
     elseif (class == "DRUID" or class == "PRIEST") and type(coreRanks) == "table" then
+        local sentOffspec = type(coreRanks.offspec) == "table"
+            and coreRanks.offspec or nil
+        local offspec = nil
         fact.coreRanks = {}
         for key, buff in pairs(WhoDoesWhat.StatusBarChecks) do
             if buff.improvedTalent and string.upper(buff.className) == class then
-                local rank = ClampedInteger(coreRanks[key], buff.improvedTalent.maxRank)
+                local rank = NormalizedCoreRank(coreRanks[key], buff)
                 if rank ~= nil then fact.coreRanks[key] = rank end
+                if sentOffspec then
+                    local other = NormalizedCoreRank(sentOffspec[key], buff)
+                    if other ~= nil then
+                        offspec = offspec or {}
+                        offspec[key] = other
+                    end
+                end
             end
         end
-        if not next(fact.coreRanks) then fact.coreRanks = nil end
+        if not next(fact.coreRanks) then
+            fact.coreRanks = nil
+        else
+            fact.coreRanks.offspec = offspec
+        end
     end
     return fact
 end
