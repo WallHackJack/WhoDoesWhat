@@ -37,10 +37,45 @@ local bar = nil
 local INSET = 3        -- backdrop edge inset
 local PAD = 3          -- inner padding around the button row
 local TITLE_H = 12     -- title strip height
+-- Icon size is a setting, and the bar measures a couple of dozen things off
+-- it. Rather than ask for it at each of those, the layout pass reads it once
+-- into these two upvalues (ReadIconSize) and everything downstream keeps
+-- using them -- so one repaint can never draw half the bar at the old size.
 local BTN_SIZE = 28
+local COUNT_H = 10     -- room under a button for its count text (row layout)
 local BTN_GAP = 3
 local MIN_BUTTONS_WIDE = 3
-local COUNT_H = 10     -- room under a button for its count text (row layout)
+-- Kept in proportion to the icon so the count sits the same distance under a
+-- 48px button as it does under a 28px one, and stays readable there.
+local COUNT_H_RATIO = 10 / 28
+local COUNT_FONT_RATIO = 13 / 28
+local BADGE_RATIO = 0.44
+WhoDoesWhat.BUFFING_BAR_ICON_SIZE = { min = 16, max = 64, default = 28 }
+
+function WhoDoesWhat:GetBuffingBarIconSize()
+    local range = self.BUFFING_BAR_ICON_SIZE
+    local size = tonumber(self.db.profile.settings.buffingBarIconSize)
+        or range.default
+    return math.floor(math.max(range.min, math.min(range.max, size)) + 0.5)
+end
+
+local function ReadIconSize()
+    BTN_SIZE = WhoDoesWhat:GetBuffingBarIconSize()
+    COUNT_H = math.floor(BTN_SIZE * COUNT_H_RATIO + 0.5)
+end
+
+-- Bring a pooled button up to the current icon size. A no-op on every repaint
+-- but the first one after the setting moves. Only ever reached from a layout
+-- pass, which waits for combat to end -- a secure button cannot be resized
+-- mid-fight any more than it can be moved.
+local function SizeButton(btn)
+    if btn.sizedAt == BTN_SIZE then return end
+    btn.sizedAt = BTN_SIZE
+    btn:SetSize(BTN_SIZE, BTN_SIZE)
+    if btn.petBadge then
+        btn.petBadge:SetSize(BTN_SIZE * BADGE_RATIO, BTN_SIZE * BADGE_RATIO)
+    end
+end
 local PLAYER_MENU_W = 180
 local PLAYER_HEADER_H = 24
 local PLAYER_W = PLAYER_MENU_W - INSET * 2
@@ -53,10 +88,30 @@ local AURA_MENU_ROW_GAP = 4
 local AURA_HEADER_H = 15
 local AURA_PAD = 5 -- breathing room between the panel's edge and its contents
 local MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
-local MISSING_GLOW_COLOR = { 1, 0.05, 0.05, 1 }
-local EXPIRING_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
+-- The bar's two glow colours are settings; these are only reached if one has
+-- gone missing from the profile. "Missing" is work outstanding -- a class with
+-- somebody still unbuffed, a self-buff that is down -- and "expiring" is a
+-- self-buff inside its warning window.
+local MISSING_GLOW_COLOR = { r = 1, g = 0.05, b = 0.05 }
+local EXPIRING_GLOW_COLOR = { r = 1, g = 0.82, b = 0.2 }
 local PP_GEAR_ICON = "Interface\\Icons\\Trade_Engineering"
-local PP_GLOW_COLOR = { 0.55, 0.55, 0.55, 1 }
+-- The gear is a complaint about configuration rather than about a blessing, so
+-- it stays its own grey and out of the two colours above.
+local PP_GLOW_COLOR = { r = 0.55, g = 0.55, b = 0.55 }
+
+function WhoDoesWhat:GetBuffingBarGlowColor(which)
+    local settings = self.db.profile.settings
+    if which == "expiring" then
+        return settings.buffingBarGlowExpiringColor or EXPIRING_GLOW_COLOR
+    elseif which == "pallyPower" then
+        return PP_GLOW_COLOR
+    end
+    return settings.buffingBarGlowMissingColor or MISSING_GLOW_COLOR
+end
+
+function WhoDoesWhat:GetBuffingBarGlowStyle()
+    return self.db.profile.settings.buffingBarGlowStyle
+end
 local DIVIDER_GAP = 9  -- gap holding the self-buff/class-button divider
 local DIVIDER_W = 1
 local RIGHTEOUS_FURY_WARN = 600 -- seconds left before the timer turns yellow
@@ -363,10 +418,8 @@ function WhoDoesWhat:SetBuffingBarOrientation(mode)
 end
 
 -- ---------------------------------------------------------------------------
--- Range + "ready" glow (LibCustomGlow, same as NovaConsumesHelper)
+-- Range + "ready" glow (the status bars' shared highlight styles)
 -- ---------------------------------------------------------------------------
-
-local LCG = LibStub("LibCustomGlow-1.0", true)
 
 -- raider name -> group unit token, rebuilt each refresh (matches the plan's
 -- Name / Name-Realm keys via GetUnitName's showServerName).
@@ -426,11 +479,14 @@ local function JobIsReady(job, nameToUnit)
     return false
 end
 
--- Wide rows pulse their existing 1px outline; square class buttons keep the
--- Nova-style pixel glow. Track state so refreshes don't restart animations --
--- including the colour, since the self-buff buttons switch between the red
--- "missing" and yellow "expiring soon" glows in place.
-local function SetButtonGlow(btn, on, color, inset)
+-- Wide player rows pulse their existing 1px outline -- the highlight styles
+-- are drawn around a square icon and have nothing to say on a row that is
+-- mostly name. Every square button takes the status bars' shared styles
+-- instead, in whichever of the bar's colours the state calls for: `which` is
+-- "missing", "expiring", "pallyPower", or nil for off. ApplyStatusBarHighlight
+-- tracks what is running, so a self-buff switching between two colours in
+-- place restarts the effect rather than keeping the one it started in.
+local function SetButtonGlow(btn, on, which)
     if btn.outlinePulse then
         if on and not btn.glowing then
             btn.outlinePulse:Play()
@@ -442,21 +498,9 @@ local function SetButtonGlow(btn, on, color, inset)
         end
         return
     end
-    if not LCG then return end
-    if on then
-        -- Colours are module constants, so identity is the whole comparison.
-        if not btn.glowing or btn.glowColor ~= color then
-            if btn.glowing then LCG.PixelGlow_Stop(btn) end
-            local offset, border = nil, true
-            if inset then offset, border = -inset, false end
-            LCG.PixelGlow_Start(btn, color, 16, nil, 3, nil,
-                offset, offset, border, nil, 4)
-            btn.glowing, btn.glowColor = true, color
-        end
-    elseif btn.glowing then
-        LCG.PixelGlow_Stop(btn)
-        btn.glowing, btn.glowColor = false, nil
-    end
+    WhoDoesWhat:ApplyStatusBarHighlight(btn, on and true or false,
+        WhoDoesWhat:GetBuffingBarGlowStyle(),
+        on and WhoDoesWhat:GetBuffingBarGlowColor(which) or nil)
 end
 
 -- ---------------------------------------------------------------------------
@@ -543,7 +587,7 @@ local function UpdateButtonStatus(btn, job, nameToUnit)
     btn.count:SetTextColor(CountColor(job.covered, job.total))
     local ready = JobIsReady(job, nameToUnit)
     btn.icon:SetDesaturated(not ready)
-    SetButtonGlow(btn, ready)
+    SetButtonGlow(btn, ready, "missing")
 end
 
 local function FindBlessing(unit, greaterName, normalName)
@@ -582,7 +626,8 @@ local function UpdatePlayerAura(p)
     local remaining = found and expirationTime and expirationTime > 0
         and math.max(expirationTime - GetTime(), 0) or nil
     p.missing:SetShown(missing)
-    SetButtonGlow(p, missing and inRange and p:GetParent():IsShown(), MISSING_GLOW_COLOR, 1)
+    SetButtonGlow(p, missing and inRange and p:GetParent():IsShown(),
+        "missing")
     if not inRange then
         p.bg:SetColorTexture(0.14, 0.09, 0.09, 0.96)
         p.outline:SetColorTexture(0.055, 0.035, 0.035, 1)
@@ -1092,7 +1137,7 @@ end
 local function UpdatePallyPowerButton(btn, paladin, buffPlan)
     btn.unassignedCount = CountUnassignedClassBuffs(paladin, buffPlan)
     btn.count:SetText(btn.unassignedCount)
-    SetButtonGlow(btn, true, PP_GLOW_COLOR)
+    SetButtonGlow(btn, true, "pallyPower")
 end
 
 -- ---------------------------------------------------------------------------
@@ -1457,7 +1502,7 @@ local function UpdateAuraButton(btn)
     btn.icon:SetTexture(selected.icon)
     local running = (btn.activeName == selected.name)
     btn.icon:SetDesaturated(not running)
-    SetButtonGlow(btn, not running, MISSING_GLOW_COLOR)
+    SetButtonGlow(btn, not running, "missing")
     UpdateAuraMenu(btn)
 end
 
@@ -1633,6 +1678,7 @@ local function ConfigureAuraMenu(btn)
             for column, entry in ipairs(row.auras) do
                 shown = shown + 1
                 local option = menu.options[shown] or CreateAuraOption(menu, shown)
+                SizeButton(option)
                 option.aura = entry.aura
                 -- Rank-less name lookup lands on the highest rank the paladin
                 -- knows, which is the one a click would cast; the base-rank id
@@ -1735,10 +1781,10 @@ local function UpdateRighteousFuryButton(btn)
     btn.active = name and true or false
     btn.icon:SetDesaturated(not name)
     if not name then
-        SetButtonGlow(btn, true, MISSING_GLOW_COLOR)
+        SetButtonGlow(btn, true, "missing")
         btn.count:SetText("")
     elseif remaining and remaining < RIGHTEOUS_FURY_WARN then
-        SetButtonGlow(btn, true, EXPIRING_GLOW_COLOR)
+        SetButtonGlow(btn, true, "expiring")
         local minutes = math.floor(remaining / 60)
         btn.count:SetFormattedText("%d:%02d", minutes,
             math.floor(remaining - minutes * 60))
@@ -1993,7 +2039,7 @@ local function EnsureBar()
             if job and btn:IsShown() then
                 local ready = JobIsReady(job, nameToUnit)
                 btn.icon:SetDesaturated(not ready)
-                SetButtonGlow(btn, ready)
+                SetButtonGlow(btn, ready, "missing")
                 -- The countdown is the one thing here that changes without an
                 -- event to hang it on, so it rides this tick.
                 UpdateJobTimer(btn)
@@ -2035,7 +2081,11 @@ end
 -- hover away in the player menu's header -- while a countdown, which is the one
 -- thing here worth reading at a glance, moves ON to its icon, outlined, the way
 -- the shout bar's does. Only the self-buff buttons pass keepInColumn.
+--
+-- Every button the layout places passes through here, so this is also where
+-- each one is brought up to the current icon size.
 local function AnchorCount(btn, keepInColumn)
+    SizeButton(btn)
     local count = btn.count
     count:ClearAllPoints()
     if not Vertical() then
@@ -2043,10 +2093,13 @@ local function AnchorCount(btn, keepInColumn)
         count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
         count:Show()
     elseif keepInColumn then
-        -- Small enough for a "9:59" to sit inside a 28px icon, outlined so it
-        -- reads over one; the face follows whatever the client is using.
+        -- Small enough for a "9:59" to sit inside the icon, outlined so it
+        -- reads over one; the face follows whatever the client is using, and
+        -- the size follows the icon it has to fit inside.
         local font = GameFontNormal:GetFont()
-        count:SetFont(font or "Fonts\\FRIZQT__.TTF", 13, "OUTLINE")
+        count:SetFont(font or "Fonts\\FRIZQT__.TTF",
+            math.max(8, math.floor(BTN_SIZE * COUNT_FONT_RATIO + 0.5)),
+            "OUTLINE")
         count:SetPoint("CENTER", btn, "CENTER", 0, 0)
         count:Show()
     else
@@ -2107,6 +2160,9 @@ end
 -- widgets; visibility is handled by UpdatePaladinBuffingBarVisibility.
 function WhoDoesWhat:RefreshPaladinBuffingBar()
     if not bar or not bar:IsShown() then return end
+    -- Before anything is measured, and before the combat branch: the sizes the
+    -- rest of this pass works in are read once, here.
+    ReadIconSize()
     local paladin = ResolveBarPaladin()
     local buffPlan = self.Assign.GetActivePaladinBuffPlan()
     local allJobs = paladin and self.Assign.GetPaladinBuffJobs(paladin, buffPlan) or {}
