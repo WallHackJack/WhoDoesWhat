@@ -84,8 +84,12 @@ function WhoDoesWhat:GetShoutBarGlowColor(which)
     return settings.shoutBarGlowMissingColor or MISSING_GLOW_COLOR
 end
 
+-- Named rather than left nil: an unset style would otherwise fall through to
+-- whatever the status bars are set to, and this bar's style is its own.
+local DEFAULT_GLOW_STYLE = "spin"
+
 function WhoDoesWhat:GetShoutBarGlowStyle()
-    return self.db.profile.settings.shoutBarGlowStyle
+    return self.db.profile.settings.shoutBarGlowStyle or DEFAULT_GLOW_STYLE
 end
 
 -- Names a tooltip lists before the rest collapse into a count.
@@ -575,17 +579,21 @@ end
 -- secure button mid-fight is forbidden.
 local COUNT_FONT_RATIO = 10 / 28
 local TIMER_FONT_RATIO = 18 / 28
+local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 
 local function SizeShoutButton(btn, size)
     if btn.sizedAt == size then return end
     btn.sizedAt = size
     btn:SetSize(size, size)
+    -- A font string built off a font object can hand back nothing for its face
+    -- until it has drawn, so the fallback is the client's own default rather
+    -- than a nil straight into SetFont.
     local face, _, flags = btn.count:GetFont()
-    btn.count:SetFont(face, math.max(7, math.floor(size * COUNT_FONT_RATIO
-        + 0.5)), flags)
+    btn.count:SetFont(face or FALLBACK_FONT,
+        math.max(7, math.floor(size * COUNT_FONT_RATIO + 0.5)), flags)
     local timerFace, _, timerFlags = btn.timer:GetFont()
-    btn.timer:SetFont(timerFace, math.max(10, math.floor(size
-        * TIMER_FONT_RATIO + 0.5)), timerFlags)
+    btn.timer:SetFont(timerFace or FALLBACK_FONT,
+        math.max(10, math.floor(size * TIMER_FONT_RATIO + 0.5)), timerFlags)
 end
 
 local function CreateShoutButton(index)

@@ -109,8 +109,12 @@ function WhoDoesWhat:GetBuffingBarGlowColor(which)
     return settings.buffingBarGlowMissingColor or MISSING_GLOW_COLOR
 end
 
+-- Named rather than left nil: an unset style would otherwise fall through to
+-- whatever the status bars are set to, and this bar's style is its own.
+local DEFAULT_GLOW_STYLE = "spin"
+
 function WhoDoesWhat:GetBuffingBarGlowStyle()
-    return self.db.profile.settings.buffingBarGlowStyle
+    return self.db.profile.settings.buffingBarGlowStyle or DEFAULT_GLOW_STYLE
 end
 local DIVIDER_GAP = 9  -- gap holding the self-buff/class-button divider
 local DIVIDER_W = 1
@@ -2089,7 +2093,13 @@ local function AnchorCount(btn, keepInColumn)
     local count = btn.count
     count:ClearAllPoints()
     if not Vertical() then
+        -- The font object first for its face and colour, then the size off the
+        -- icon: a row's count sits in height the bar is already paying for
+        -- (COUNT_H), which grows with the button above it.
         count:SetFontObject(GameFontNormalSmall)
+        local face, _, flags = count:GetFont()
+        count:SetFont(face or "Fonts\\FRIZQT__.TTF",
+            math.max(7, math.floor(BTN_SIZE * COUNT_H_RATIO + 0.5)), flags)
         count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
         count:Show()
     elseif keepInColumn then
