@@ -44,18 +44,50 @@ local Assign = WhoDoesWhat.Assign
 -- on it to move it; shift-right-click any button for its settings.
 
 local bar = nil
-local LCG = LibStub("LibCustomGlow-1.0", true)
 
 local INSET = 3    -- backdrop edge inset
 local PAD = 3      -- inner padding around the button row
-local BTN_SIZE = 28
 local BTN_GAP = 3
-local COUNT_H = 10 -- room under a button for its covered/total count
+-- Icon size is a setting rather than a constant, so anything measured off it
+-- is asked for per repaint. The bounds are what the bar still reads as at
+-- either end: below 16 the count under the icon is unreadable, and past 64 a
+-- two-icon strip is a banner.
+WhoDoesWhat.SHOUT_BAR_ICON_SIZE = { min = 16, max = 64, default = 28 }
+
+function WhoDoesWhat:GetShoutBarIconSize()
+    local range = self.SHOUT_BAR_ICON_SIZE
+    local size = tonumber(self.db.profile.settings.shoutBarIconSize)
+        or range.default
+    return math.floor(math.max(range.min, math.min(range.max, size)) + 0.5)
+end
+
+-- Room under a button for its covered/total count, at the icon size the bar
+-- was drawn at. Kept in proportion so the number sits the same distance under
+-- a 48px icon as it does under a 28px one.
+local COUNT_H_RATIO = 10 / 28
+local function CountHeight(size)
+    return math.floor(size * COUNT_H_RATIO + 0.5)
+end
+
 -- Red when the shout is on nobody, yellow once it is on some of the party but
 -- not all -- the same "started but unfinished" yellow the count under the icon
--- uses, so the outline and the number always agree.
-local MISSING_GLOW_COLOR = { 1, 0.05, 0.05, 1 }
-local PARTIAL_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
+-- uses, so the glow and the number always agree. Both are settings now; these
+-- are only reached if one has somehow gone missing from the profile.
+local MISSING_GLOW_COLOR = { r = 1, g = 0.05, b = 0.05 }
+local PARTIAL_GLOW_COLOR = { r = 1, g = 0.82, b = 0.2 }
+
+function WhoDoesWhat:GetShoutBarGlowColor(which)
+    local settings = self.db.profile.settings
+    if which == "partial" then
+        return settings.shoutBarGlowPartialColor or PARTIAL_GLOW_COLOR
+    end
+    return settings.shoutBarGlowMissingColor or MISSING_GLOW_COLOR
+end
+
+function WhoDoesWhat:GetShoutBarGlowStyle()
+    return self.db.profile.settings.shoutBarGlowStyle
+end
+
 -- Names a tooltip lists before the rest collapse into a count.
 local TOOLTIP_NAMES = 6
 -- How close to lapsing the soonest shout gets before its countdown appears.
@@ -489,24 +521,16 @@ end
 -- Buttons
 -- ---------------------------------------------------------------------------
 
--- `color` nil turns the glow off. The running colour is tracked as well as the
--- on/off state, because this button switches between the two live colours in
--- place: without that a partial fill would keep whatever colour it started
--- with, since the glow was already running. Colours are module constants, so
--- identity is the whole comparison (same trick as the paladin bar).
-local function SetButtonGlow(btn, color)
-    if not LCG then return end
-    if color then
-        if not btn.glowing or btn.glowColor ~= color then
-            if btn.glowing then LCG.PixelGlow_Stop(btn) end
-            LCG.PixelGlow_Start(btn, color, 16, nil, 3, nil,
-                nil, nil, true, nil, 4)
-            btn.glowing, btn.glowColor = true, color
-        end
-    elseif btn.glowing then
-        LCG.PixelGlow_Stop(btn)
-        btn.glowing, btn.glowColor = false, nil
-    end
+-- `which` is "missing", "partial", or nil to turn the glow off. The look comes
+-- from the status bars' shared set of highlight styles, in whichever of the
+-- bar's two colours the state calls for; ApplyStatusBarHighlight tracks what
+-- is running, so a button switching between the two colours in place -- which
+-- is exactly what a shout going from nobody to part of the party does --
+-- restarts the effect rather than leaving it in the old colour.
+local function SetButtonGlow(btn, which)
+    WhoDoesWhat:ApplyStatusBarHighlight(btn, which ~= nil,
+        WhoDoesWhat:GetShoutBarGlowStyle(),
+        which and WhoDoesWhat:GetShoutBarGlowColor(which) or nil)
 end
 
 local function ShowShoutTooltip(btn)
@@ -544,9 +568,30 @@ local function ShowShoutTooltip(btn)
     GameTooltip:Show()
 end
 
+-- Everything on a button that is measured in pixels, re-read from the icon
+-- size. Both fonts scale with it: the count is unreadable under a big icon at
+-- its old size, and the countdown is meant to be the thing you see. Called
+-- from the layout pass, which only ever runs out of combat -- resizing a
+-- secure button mid-fight is forbidden.
+local COUNT_FONT_RATIO = 10 / 28
+local TIMER_FONT_RATIO = 18 / 28
+
+local function SizeShoutButton(btn, size)
+    if btn.sizedAt == size then return end
+    btn.sizedAt = size
+    btn:SetSize(size, size)
+    local face, _, flags = btn.count:GetFont()
+    btn.count:SetFont(face, math.max(7, math.floor(size * COUNT_FONT_RATIO
+        + 0.5)), flags)
+    local timerFace, _, timerFlags = btn.timer:GetFont()
+    btn.timer:SetFont(timerFace, math.max(10, math.floor(size
+        * TIMER_FONT_RATIO + 0.5)), timerFlags)
+end
+
 local function CreateShoutButton(index)
     local btn = CreateFrame("Button", nil, bar, "SecureActionButtonTemplate")
-    btn:SetSize(BTN_SIZE, BTN_SIZE)
+    btn:SetSize(WhoDoesWhat:GetShoutBarIconSize(),
+        WhoDoesWhat:GetShoutBarIconSize())
     -- Secure action buttons obey ActionButtonUseKeyDown, so the edge they act
     -- on is the client's choice, not ours. Register both -- exactly what the
     -- paladin bar and PallyPower do. Registering only "AnyUp" looks tidier and
@@ -711,8 +756,7 @@ local function UpdateShoutButton(btn)
     if #missing == 0 then
         SetButtonGlow(btn, nil)
     else
-        SetButtonGlow(btn, covered > 0 and PARTIAL_GLOW_COLOR
-            or MISSING_GLOW_COLOR)
+        SetButtonGlow(btn, covered > 0 and "partial" or "missing")
     end
     btn.count:SetFormattedText("%d/%d", covered, total)
     btn.count:SetTextColor(CountColor(covered, total))
@@ -812,16 +856,18 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
     -- One icon shows whichever shout the warrior picked; two show both in
     -- their own order.
     local soloIcon = shown == 1 and #self.WarriorShouts > 1
+    local size = self:GetShoutBarIconSize()
     for i = 1, shown do
         local btn = bar.buttons[i] or CreateShoutButton(i)
         btn.isSoloIcon = soloIcon
+        SizeShoutButton(btn, size)
         ConfigureShoutButton(btn,
             shown == 1 and self:GetSoloShout() or self.WarriorShouts[i])
         UpdateShoutButton(btn)
         btn.count:SetShown(not hideNumbers)
         btn:ClearAllPoints()
         btn:SetPoint("TOPLEFT", bar, "TOPLEFT",
-            INSET + PAD + (i - 1) * (BTN_SIZE + BTN_GAP), -CONTENT_TOP)
+            INSET + PAD + (i - 1) * (size + BTN_GAP), -CONTENT_TOP)
         btn:Show()
     end
     for i = shown + 1, #bar.buttons do
@@ -831,9 +877,10 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
 
     -- The bar is exactly as wide as its icons, with no caption left to pad it
     -- out past them.
-    local rowW = shown * BTN_SIZE + (shown - 1) * BTN_GAP
+    local rowW = shown * size + (shown - 1) * BTN_GAP
     bar:SetSize(INSET * 2 + PAD * 2 + rowW,
-        CONTENT_TOP + BTN_SIZE + (hideNumbers and 0 or COUNT_H) + INSET + 1)
+        CONTENT_TOP + size + (hideNumbers and 0 or CountHeight(size))
+            + INSET + 1)
     if not bar.moving then LoadPosition() end
     ApplyIdleFade()
 end
