@@ -498,6 +498,17 @@ local defaults = {
             -- Which aura the swapper currently offers (a WhoDoesWhat.PaladinAuras
             -- key); nil = the first aura this paladin knows.
             buffingBarAura = nil,
+            -- How big a buffing bar button is, in pixels. Everything else on
+            -- the bar is measured off this, so the whole bar grows with it.
+            buffingBarIconSize = 28,
+            -- The buffing bar's glow: one of the status bars' highlight styles
+            -- (HIGHLIGHT_STYLES in StatusBarsView) drawn in the two colours
+            -- below. "Missing" covers a class button with work still on it and
+            -- a self-buff that is down; "expiring" is a self-buff inside its
+            -- warning window. Both are what the bar was already drawing.
+            buffingBarGlowStyle = "spin",
+            buffingBarGlowMissingColor = { r = 1, g = 0.05, b = 0.05 },
+            buffingBarGlowExpiringColor = { r = 1, g = 0.82, b = 0.2 },
             -- When the Warrior Shout Bar is on screen: "warriorOnly" (only
             -- while you are a warrior), "withWarrior" (whenever the group has
             -- one), "always", or "never". See Views/WarriorShoutBarView.lua.
@@ -526,6 +537,16 @@ local defaults = {
             -- Fade the bar out while every shout is on everybody, bringing it
             -- back the moment one goes missing or a countdown starts.
             shoutBarHideWhenBuffed = false,
+            -- How big a shout icon is, in pixels. The bar is exactly as wide
+            -- as its icons, so this sizes the whole strip.
+            shoutBarIconSize = 28,
+            -- The shout bar's glow: one of the status bars' highlight styles
+            -- (HIGHLIGHT_STYLES in StatusBarsView) drawn in the two colours
+            -- below -- red while the shout is on nobody, yellow once it is on
+            -- part of the party. Both are what the bar was already drawing.
+            shoutBarGlowStyle = "spin",
+            shoutBarGlowMissingColor = { r = 1, g = 0.05, b = 0.05 },
+            shoutBarGlowPartialColor = { r = 1, g = 0.82, b = 0.2 },
             -- Movable per-paladin live blessing coverage window. On out of the
             -- box: it is the view that says what still needs doing, and a fresh
             -- install has no reason to hunt for it in the settings.

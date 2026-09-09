@@ -603,11 +603,20 @@ function WhoDoesWhat:GetStatusBarHighlightColor()
     return c.r, c.g, c.b
 end
 
+-- Every style is drawn in a colour the caller names, so the one set of looks
+-- serves the status bars, the shout bar and the buffing bar without any of
+-- them owning the palette. `color` is an {r,g,b} table -- the shape the profile
+-- saves -- or nil for the status bars' own setting.
+local function ResolveColor(color)
+    if color then return color.r, color.g, color.b end
+    return WhoDoesWhat:GetStatusBarHighlightColor()
+end
+
 -- LibCustomGlow wants {r,g,b,a}, and it keeps the table it is handed on the
 -- running effect and reads it again later -- so this hands out a fresh one
 -- rather than a shared table that would recolour effects already up.
-local function HighlightColor()
-    local r, g, b = WhoDoesWhat:GetStatusBarHighlightColor()
+local function HighlightColor(color)
+    local r, g, b = ResolveColor(color)
     return { r, g, b, 1 }
 end
 
@@ -671,10 +680,10 @@ local function EnsurePlate(frame)
     return plate
 end
 
-local function StartPlate(frame, pulsing)
+local function StartPlate(frame, pulsing, color)
     local plate = EnsurePlate(frame)
     plate:SetFrameLevel(math.max(0, frame:GetFrameLevel() - 1))
-    plate.fill:SetColorTexture(WhoDoesWhat:GetStatusBarHighlightColor())
+    plate.fill:SetColorTexture(ResolveColor(color))
     plate.pulse:Stop()
     plate:SetAlpha(1)
     plate:Show()
@@ -736,12 +745,12 @@ local function EnsureWings(frame)
 end
 
 -- `only` names the single side to show, or is nil for the pair.
-local function StartWings(frame, motion, only)
+local function StartWings(frame, motion, only, color)
     local overlay = EnsureWings(frame)
     -- Wings are square and track the row's height, which changes with the
     -- window's scale, so size them at start rather than once at creation.
     local height = math.max(8, math.floor(frame:GetHeight() + 0.5))
-    local r, g, b = WhoDoesWhat:GetStatusBarHighlightColor()
+    local r, g, b = ResolveColor(color)
     for side, wing in pairs(overlay.wings) do
         wing:SetShown(only == nil or only == side)
         wing:SetSize(ARROW_W, height)
@@ -777,14 +786,14 @@ local SPIN_SPEED = 38
 -- than putting eighty more of them on each highlighted row.
 local SPIN_MIN_N, SPIN_MAX_N = 16, 80
 
-local function StartSpin(frame)
+local function StartSpin(frame, color)
     local width, height = frame:GetSize()
     local perimeter = 2 * (width + height)
     local n = math.floor(perimeter / SPIN_SPACING + 0.5)
     n = math.max(SPIN_MIN_N, math.min(SPIN_MAX_N, n))
     local length = math.max(3,
         math.floor(perimeter / n * SPIN_LENGTH_RATIO + 0.5))
-    LCG.PixelGlow_Start(frame, HighlightColor(), n, SPIN_SPEED / perimeter,
+    LCG.PixelGlow_Start(frame, HighlightColor(color), n, SPIN_SPEED / perimeter,
         length, 1, nil, nil, nil, nil, 4)
 end
 
@@ -796,8 +805,8 @@ end
 -- a still glow switched to a pulsing one with nothing moving. Frame level 0
 -- puts the whole thing at the row's own level, under every child frame the row
 -- draws its icon and its text on.
-local function StartButtonGlow(frame, animated)
-    LCG.ButtonGlow_Start(frame, HighlightColor(), 0.35, 0)
+local function StartButtonGlow(frame, animated, color)
+    LCG.ButtonGlow_Start(frame, HighlightColor(color), 0.35, 0)
     local glow = frame._ButtonGlow
     if not glow then return end
     glow.ants:SetShown(animated)
@@ -829,22 +838,22 @@ local HIGHLIGHT_STYLES = {
     },
     glow = {
         label = "Glow",
-        Start = function(r) StartButtonGlow(r, false) end,
+        Start = function(r, c) StartButtonGlow(r, false, c) end,
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
     flash = {
         label = "Pulsing glow",
-        Start = function(r) StartButtonGlow(r, true) end,
+        Start = function(r, c) StartButtonGlow(r, true, c) end,
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
     outline = {
         label = "Solid outline",
-        Start = function(r) StartPlate(r, false) end,
+        Start = function(r, c) StartPlate(r, false, c) end,
         Stop = StopPlate,
     },
     outlinePulse = {
         label = "Pulsing outline",
-        Start = function(r) StartPlate(r, true) end,
+        Start = function(r, c) StartPlate(r, true, c) end,
         Stop = StopPlate,
     },
     none = {
@@ -876,7 +885,9 @@ for _, kind in ipairs(WING_MOTIONS) do
         local key = kind.key .. (side.key or "")
         HIGHLIGHT_STYLES[key] = {
             label = kind.label .. (side.label or ""),
-            Start = function(r) StartWings(r, kind.motion, side.side) end,
+            Start = function(r, c)
+                StartWings(r, kind.motion, side.side, c)
+            end,
             Stop = StopWings,
         }
         table.insert(HIGHLIGHT_STYLE_ORDER, key)
@@ -890,24 +901,35 @@ function WhoDoesWhat:GetStatusBarHighlightStyles()
     return HIGHLIGHT_STYLES, HIGHLIGHT_STYLE_ORDER, DEFAULT_HIGHLIGHT_STYLE
 end
 
--- `styleKey` is for the settings preview, which shows one specific style
--- rather than the saved one.
-function WhoDoesWhat:ApplyStatusBarHighlight(frame, shown, styleKey)
+-- Style and colour are both read at start and baked into the running effect,
+-- so a change to either has to tear the old one down -- hence the pair of
+-- stamps on the frame rather than just the style name.
+local function ColorStamp(color)
+    if not color then return "" end
+    return color.r .. "," .. color.g .. "," .. color.b
+end
+
+-- `styleKey` names one specific style rather than the saved one: the settings
+-- preview uses it, and so does any bar that keeps its own style setting.
+-- `color` is an {r,g,b} table, or nil for the status bars' own colour.
+function WhoDoesWhat:ApplyStatusBarHighlight(frame, shown, styleKey, color)
     if not LCG then return end
     if not styleKey then
         styleKey = WhoDoesWhat.db.profile.settings.statusBarHighlightStyle
-        if not HIGHLIGHT_STYLES[styleKey] then
-            styleKey = DEFAULT_HIGHLIGHT_STYLE
-        end
     end
+    if not HIGHLIGHT_STYLES[styleKey] then
+        styleKey = DEFAULT_HIGHLIGHT_STYLE
+    end
+    local stamp = ColorStamp(color)
     local running = frame.glowStyle
-    if running and (not shown or running ~= styleKey) then
+    if running and (not shown or running ~= styleKey
+        or frame.glowColorStamp ~= stamp) then
         HIGHLIGHT_STYLES[running].Stop(frame)
-        frame.glowStyle = nil
+        frame.glowStyle, frame.glowColorStamp = nil, nil
     end
     if shown and not frame.glowStyle then
-        HIGHLIGHT_STYLES[styleKey].Start(frame)
-        frame.glowStyle = styleKey
+        HIGHLIGHT_STYLES[styleKey].Start(frame, color)
+        frame.glowStyle, frame.glowColorStamp = styleKey, stamp
     end
 end
 
