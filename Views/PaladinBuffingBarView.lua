@@ -2366,7 +2366,9 @@ end
 local RESET_SETTINGS = {
     "buffingBarEnabled", "buffingBarAuraButton", "buffingBarRighteousFury",
     "buffingBarHideCompleted", "buffingBarOrientation", "buffingBarGrow",
-    "buffingMenuGrow", "buffingMenuWarnMinutes",
+    "buffingMenuGrow", "buffingMenuWarnMinutes", "buffingBarIconSize",
+    "buffingBarGlowStyle", "buffingBarGlowMissingColor",
+    "buffingBarGlowExpiringColor",
 }
 
 function WhoDoesWhat:ResetPaladinBarSettings()

@@ -656,6 +656,282 @@ local function EnsureColorPickerHook()
     ColorPickerFrame.wdwStatusPreviewHooked = true
 end
 
+-- ---------------------------------------------------------------------------
+-- Option widgets three pages share
+-- ---------------------------------------------------------------------------
+
+-- The WoW picker, opened over one profile setting. `Get` hands back the saved
+-- {r,g,b} (or nil, meaning the profile default), `Set` writes one back or nil
+-- to hand it to the default again, and `OnChange` runs after either -- the
+-- picker calls it on every drag, so whatever it repaints has to be cheap.
+local function OpenSettingColorPicker(parent, Get, Set, OnChange)
+    CancelActiveColorPicker()
+    local saved = Get()
+    local original = saved and { r = saved.r, g = saved.g, b = saved.b } or nil
+    local current = saved or { r = 1, g = 1, b = 1 }
+    local function Changed()
+        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+        Set({ r = nr, g = ng, b = nb })
+        OnChange()
+    end
+    local function Cancel()
+        if activeColorPickerCancel == Cancel then
+            activeColorPickerCancel = nil
+        end
+        Set(original)
+        OnChange()
+    end
+    EnsureColorPickerHook()
+    ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+    ColorPickerFrame:SetFrameLevel(parent:GetFrameLevel() + 30)
+    ColorPickerFrame:SetClampedToScreen(true)
+    if ColorPickerFrame.SetupColorPickerAndShow then
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = current.r, g = current.g, b = current.b,
+            hasOpacity = false,
+            swatchFunc = Changed,
+            cancelFunc = Cancel,
+        })
+    else
+        ColorPickerFrame.func = Changed
+        ColorPickerFrame.hasOpacity = false
+        ColorPickerFrame.opacityFunc = nil
+        ColorPickerFrame.cancelFunc = Cancel
+        ColorPickerFrame:SetColorRGB(current.r, current.g, current.b)
+        ColorPickerFrame:Show()
+    end
+    activeColorPickerCancel = Cancel
+end
+
+-- The highlight-style dropdown, the box beside it showing that style running,
+-- and one colour swatch per state the caller has. Three pages want exactly
+-- these controls over three different sets of settings, so the settings are
+-- what varies:
+--   spec.name       a unique frame name for the dropdown
+--   spec.styleLabel the dropdown's caption
+--   spec.tooltip    what this bar's highlight is for, in one sentence
+--   spec.GetStyle / spec.SetStyle
+--   spec.colors     { { label, tooltip, Get, Set }, ... }, first one leading:
+--                   it is the colour the preview box is drawn in
+--   spec.OnChange   repaint whatever wears these
+-- Returns the page refresher and the y the next widget starts at.
+local function AddHighlightControls(parent, x, y, spec)
+    -- A colour setting reads back through the profile defaults, so a reset
+    -- hands the default straight back rather than leaving a hole. This is only
+    -- reached if a profile has somehow lost the default too, and it keeps a
+    -- missing colour from taking the settings window down with it.
+    local function EntryColor(entry)
+        return entry.Get() or { r = 1, g = 1, b = 1 }
+    end
+
+    local styleLabel = parent:CreateFontString(nil, "OVERLAY",
+        "GameFontHighlight")
+    styleLabel:SetPoint("TOPLEFT", x + 4, -(y + 4))
+    styleLabel:SetText(spec.styleLabel or "Highlight style:")
+
+    local dd = CreateFrame("Frame", spec.name, parent,
+        "UIDropDownMenuTemplate")
+    dd:SetPoint("LEFT", styleLabel, "RIGHT", -6, -2)
+    -- Wide enough for the longest of the wing styles ("Pulsing wings (right)").
+    UIDropDownMenu_SetWidth(dd, 135)
+    WhoDoesWhat:StyleDropdown(dd, true)
+
+    -- Built like a status row rather than as one flat frame: the sample's own
+    -- art lives on a child frame, and the box sits a few levels above the page,
+    -- so the styles that draw behind a row land behind this too. The clearance
+    -- to its left is for the ones that draw outside the box -- the wings flank
+    -- it the way they flank a real row.
+    local preview = CreateFrame("Frame", nil, parent)
+    preview:SetSize(56, 18)
+    preview:SetPoint("LEFT", dd, "RIGHT", 28, 2)
+    preview:SetFrameLevel(parent:GetFrameLevel() + 3)
+    local previewBody = CreateFrame("Frame", nil, preview)
+    previewBody:SetAllPoints()
+    local previewBg = previewBody:CreateTexture(nil, "BACKGROUND")
+    previewBg:SetAllPoints()
+    previewBg:SetColorTexture(0.16, 0.16, 0.18, 1)
+    local previewFill = previewBody:CreateTexture(nil, "ARTWORK")
+    previewFill:SetPoint("TOPLEFT", 1, -1)
+    previewFill:SetPoint("BOTTOMLEFT", 1, 1)
+    previewFill:SetWidth(34)
+    previewFill:SetColorTexture(0.96, 0.55, 0.73, 0.8)
+
+    local function SavedStyle()
+        local styles, _, default = WhoDoesWhat:GetStatusBarHighlightStyles()
+        local saved = spec.GetStyle()
+        if not styles[saved] then saved = default end
+        return saved, styles
+    end
+
+    local function ApplyPreview(styleKey)
+        -- Off and on again: the colour and the size are read at start, so a
+        -- style that is already running has to be rebuilt to pick either up.
+        local color = EntryColor(spec.colors[1])
+        WhoDoesWhat:ApplyStatusBarHighlight(preview, false, styleKey, color)
+        WhoDoesWhat:ApplyStatusBarHighlight(preview, true, styleKey, color)
+    end
+
+    UIDropDownMenu_Initialize(dd, function(_, level)
+        local styles, order = WhoDoesWhat:GetStatusBarHighlightStyles()
+        local saved = SavedStyle()
+        for _, key in ipairs(order) do
+            local styleKey = key
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = styles[styleKey].label
+            info.checked = saved == styleKey
+            info.func = function()
+                spec.SetStyle(styleKey)
+                UIDropDownMenu_SetText(dd, styles[styleKey].label)
+                ApplyPreview(styleKey)
+                spec.OnChange()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
+
+    -- The swatches go under the dropdown so the sample box beside it shows a
+    -- colour change as it is dragged.
+    local swatches = {}
+    local rowY = y + 32
+    for _, entry in ipairs(spec.colors) do
+        local label = parent:CreateFontString(nil, "OVERLAY",
+            "GameFontHighlight")
+        label:SetPoint("TOPLEFT", x + 4, -(rowY + 4))
+        label:SetText(entry.label)
+        local swatch = CreateFrame("Button", nil, parent)
+        swatch:SetSize(22, 11)
+        swatch:SetPoint("LEFT", label, "RIGHT", 6, 0)
+        swatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        swatch.color = swatch:CreateTexture(nil, "ARTWORK")
+        swatch.color:SetAllPoints()
+        swatch.entry = entry
+        swatches[#swatches + 1] = swatch
+        AddTooltip(label, entry.label, entry.tooltip)
+        AddTooltip(swatch, entry.label,
+            "Left-click for the WoW color picker; right-click to reset.")
+        rowY = rowY + 24
+    end
+
+    local function PaintSwatches()
+        for _, swatch in ipairs(swatches) do
+            local c = EntryColor(swatch.entry)
+            swatch.color:SetColorTexture(c.r, c.g, c.b)
+        end
+        ApplyPreview(SavedStyle())
+    end
+
+    -- The picker's live preview: paint the swatch and the sample, then let
+    -- whatever wears these colours pick the change up on the way past.
+    local function RefreshColors()
+        PaintSwatches()
+        spec.OnChange()
+    end
+
+    for _, swatch in ipairs(swatches) do
+        swatch:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                -- nil is not "no colour": the profile default takes over
+                -- again, which is what a reset means here.
+                self.entry.Set(nil)
+                RefreshColors()
+            else
+                OpenSettingColorPicker(parent, self.entry.Get,
+                    self.entry.Set, RefreshColors)
+            end
+        end)
+    end
+
+    -- Every control here, read back out of the settings: the window opening,
+    -- a page's Defaults button, or a different profile loading.
+    local function Refresh()
+        local styles = WhoDoesWhat:GetStatusBarHighlightStyles()
+        UIDropDownMenu_SetText(dd, styles[SavedStyle()].label)
+        PaintSwatches()
+    end
+
+    return Refresh, rowY + 4
+end
+
+-- A whole number with two ways in: a slider to drag, and a box beside it to
+-- type an exact value into. `spec` is { name, label, tooltip, min, max },
+-- `Get` reads the saved number, `Set` writes one back, `OnChange` repaints.
+--
+-- The box is deliberately left alone while it is being typed in. Rewriting
+-- what somebody is halfway through entering -- clamping a "5" that was going
+-- to be "50", or refusing the keystroke outright -- fights them for their own
+-- cursor, so nothing is read out of it until Enter or the focus leaving, and
+-- anything that isn't a number in range at that point simply puts the saved
+-- value back.
+local function AddSliderWithInput(parent, x, y, spec, Get, Set, OnChange)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", x + 4, -y)
+    label:SetText(spec.label)
+
+    local slider = CreateFrame("Slider", spec.name, parent,
+        "OptionsSliderTemplate")
+    slider:SetPoint("TOPLEFT", x + 8, -(y + 22))
+    slider:SetWidth(spec.width or 150)
+    slider:SetMinMaxValues(spec.min, spec.max)
+    slider:SetValueStep(1)
+    if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    local name = slider:GetName()
+    if name then
+        if _G[name .. "Low"] then _G[name .. "Low"]:SetText(spec.min) end
+        if _G[name .. "High"] then _G[name .. "High"]:SetText(spec.max) end
+        if _G[name .. "Text"] then _G[name .. "Text"]:SetText("") end
+    end
+
+    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    edit:SetSize(40, 20)
+    edit:SetPoint("LEFT", slider, "RIGHT", 18, 0)
+    edit:SetAutoFocus(false)
+    edit:SetMaxLetters(4)
+    edit:SetJustifyH("CENTER")
+
+    -- Both widgets show the same number, and writing it into either one fires
+    -- that one's own change script -- so the write is fenced off rather than
+    -- allowed to come back round as a fresh edit.
+    local painting = false
+    local function Paint(value)
+        painting = true
+        slider:SetValue(value)
+        edit:SetText(tostring(value))
+        edit:SetCursorPosition(0)
+        painting = false
+    end
+
+    local function Commit(value)
+        value = math.floor(math.max(spec.min,
+            math.min(spec.max, value)) + 0.5)
+        Set(value)
+        Paint(value)
+        OnChange()
+    end
+
+    slider:SetScript("OnValueChanged", function(_, value)
+        if painting then return end
+        Commit(value)
+    end)
+
+    local function ReadBox()
+        local typed = tonumber(edit:GetText())
+        if typed then Commit(typed) else Paint(Get()) end
+        edit:ClearFocus()
+    end
+    edit:SetScript("OnEnterPressed", ReadBox)
+    edit:SetScript("OnEditFocusLost", ReadBox)
+    edit:SetScript("OnEscapePressed", function()
+        Paint(Get())
+        edit:ClearFocus()
+    end)
+
+    AddTooltip(label, spec.label, spec.tooltip)
+    AddTooltip(edit, spec.label, spec.tooltip)
+
+    return function() Paint(Get()) end, y + 52
+end
+
 local function OpenBarColorPicker(owner, f)
     CancelActiveColorPicker()
     local key = f.buffKey
@@ -1428,156 +1704,40 @@ local function EnsureSettingsFrame()
 
     -- The highlight style, with a live sample of it beside the dropdown --
     -- these read as animation names on their own, and the box is the only
-    -- honest way to say what each one looks like.
-    local highlightLabel = statusPage:CreateFontString(nil, "OVERLAY",
-        "GameFontHighlight")
-    highlightLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
-    highlightLabel:SetText("Highlight style:")
-    local highlightDD = CreateFrame("Frame",
-        "WhoDoesWhatStatusBarsHighlightDD", statusPage, "UIDropDownMenuTemplate")
-    highlightDD:SetPoint("LEFT", highlightLabel, "RIGHT", -6, -2)
-    -- Wide enough for the longest of the wing styles ("Pulsing wings (right)").
-    UIDropDownMenu_SetWidth(highlightDD, 135)
-    WhoDoesWhat:StyleDropdown(highlightDD, true)
-
-    local highlightPreview = CreateFrame("Frame", nil, statusPage)
-    highlightPreview:SetSize(56, 18)
-    -- Enough clearance for the styles that draw outside the box (the wings
-    -- flank it the way they flank a status row).
-    highlightPreview:SetPoint("LEFT", highlightDD, "RIGHT", 28, 2)
-    -- Built like a status row rather than as one flat frame: the sample's own
-    -- art lives on a child frame, and the box sits a few levels above the page,
-    -- so the styles that draw behind a row land behind this too.
-    highlightPreview:SetFrameLevel(statusPage:GetFrameLevel() + 3)
-    local previewBody = CreateFrame("Frame", nil, highlightPreview)
-    previewBody:SetAllPoints()
-    local previewBg = previewBody:CreateTexture(nil, "BACKGROUND")
-    previewBg:SetAllPoints()
-    previewBg:SetColorTexture(0.16, 0.16, 0.18, 1)
-    local previewFill = previewBody:CreateTexture(nil, "ARTWORK")
-    previewFill:SetPoint("TOPLEFT", 1, -1)
-    previewFill:SetPoint("BOTTOMLEFT", 1, 1)
-    previewFill:SetWidth(34)
-    previewFill:SetColorTexture(0.96, 0.55, 0.73, 0.8)
-    f.overviewHighlightPreview = highlightPreview
-
-    local function ApplyHighlightPreview(styleKey)
-        -- Off and on again: the colour and the size are read at start, so a
-        -- style that is already running has to be rebuilt to pick either up.
-        WhoDoesWhat:ApplyStatusBarHighlight(highlightPreview, false, styleKey)
-        WhoDoesWhat:ApplyStatusBarHighlight(highlightPreview, true, styleKey)
-    end
-    f.ApplyHighlightPreview = ApplyHighlightPreview
-
-    local function SavedHighlightStyle()
-        local styles, _, default = WhoDoesWhat:GetStatusBarHighlightStyles()
-        local saved = WhoDoesWhat.db.profile.settings.statusBarHighlightStyle
-        if not styles[saved] then saved = default end
-        return saved, styles
-    end
-
-    UIDropDownMenu_Initialize(highlightDD, function(_, level)
-        local styles, order = WhoDoesWhat:GetStatusBarHighlightStyles()
-        local saved = SavedHighlightStyle()
-        for _, key in ipairs(order) do
-            local styleKey = key
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = styles[styleKey].label
-            info.checked = saved == styleKey
-            info.func = function()
-                WhoDoesWhat.db.profile.settings.statusBarHighlightStyle = styleKey
-                UIDropDownMenu_SetText(highlightDD, styles[styleKey].label)
-                ApplyHighlightPreview(styleKey)
+    -- honest way to say what each one looks like -- and one colour under it
+    -- for whichever style is selected, rather than a colour baked into each.
+    -- The same three controls the shout bar and the buffing bar carry.
+    local statusSettings = WhoDoesWhat.db.profile.settings
+    local RefreshStatusHighlight
+    RefreshStatusHighlight, yL = AddHighlightControls(statusPage, CONTENT_X,
+        yL, {
+            name = "WhoDoesWhatStatusBarsHighlightDD",
+            tooltip = "The animation a status bar uses when it wants your"
+                .. " attention -- the box to the right shows it running.",
+            GetStyle = function()
+                return statusSettings.statusBarHighlightStyle
+            end,
+            SetStyle = function(key)
+                statusSettings.statusBarHighlightStyle = key
+            end,
+            colors = {
+                {
+                    label = "Highlight color:",
+                    tooltip = "The color every highlight style is drawn in."
+                        .. " Right-click the swatch to reset it.",
+                    Get = function()
+                        return statusSettings.statusBarHighlightColor
+                    end,
+                    Set = function(color)
+                        statusSettings.statusBarHighlightColor = color
+                    end,
+                },
+            },
+            OnChange = function()
                 WhoDoesWhat:RefreshStatusBarsView()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    AddDropdownTooltip(highlightDD, highlightLabel, "Highlight style",
-        "The animation a status bar uses when it wants your attention -- the"
-            .. " box to the right shows it running.")
-    f.overviewHighlightDD = highlightDD
-
-    -- One colour for whichever style is selected, rather than a colour baked
-    -- into each one. Sits under the dropdown so the sample box beside it shows
-    -- the change as it is dragged.
-    local highlightColorLabel = statusPage:CreateFontString(nil, "OVERLAY",
-        "GameFontHighlight")
-    highlightColorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 36))
-    highlightColorLabel:SetText("Highlight color:")
-    local highlightSwatch = CreateFrame("Button", nil, statusPage)
-    highlightSwatch:SetSize(22, 11)
-    highlightSwatch:SetPoint("LEFT", highlightColorLabel, "RIGHT", 6, 0)
-    highlightSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    local highlightSwatchColor = highlightSwatch:CreateTexture(nil, "ARTWORK")
-    highlightSwatchColor:SetAllPoints()
-    highlightSwatch.color = highlightSwatchColor
-    f.overviewHighlightSwatch = highlightSwatch
-
-    local function RefreshHighlightColor()
-        highlightSwatchColor:SetColorTexture(
-            WhoDoesWhat:GetStatusBarHighlightColor())
-        ApplyHighlightPreview(SavedHighlightStyle())
-        WhoDoesWhat:RefreshStatusBarHighlights()
-    end
-    f.RefreshHighlightColor = RefreshHighlightColor
-
-    local function OpenHighlightColorPicker()
-        CancelActiveColorPicker()
-        local saved = WhoDoesWhat.db.profile.settings.statusBarHighlightColor
-        local original = saved
-            and { r = saved.r, g = saved.g, b = saved.b } or nil
-        local r, g, b = WhoDoesWhat:GetStatusBarHighlightColor()
-        local function Apply(nr, ng, nb)
-            WhoDoesWhat.db.profile.settings.statusBarHighlightColor =
-                { r = nr, g = ng, b = nb }
-            RefreshHighlightColor()
-        end
-        local function Changed()
-            Apply(ColorPickerFrame:GetColorRGB())
-        end
-        local function Cancel()
-            if activeColorPickerCancel == Cancel then
-                activeColorPickerCancel = nil
-            end
-            WhoDoesWhat.db.profile.settings.statusBarHighlightColor = original
-            RefreshHighlightColor()
-        end
-        EnsureColorPickerHook()
-        ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-        ColorPickerFrame:SetFrameLevel(statusPage:GetFrameLevel() + 30)
-        ColorPickerFrame:SetClampedToScreen(true)
-        if ColorPickerFrame.SetupColorPickerAndShow then
-            ColorPickerFrame:SetupColorPickerAndShow({
-                r = r, g = g, b = b,
-                hasOpacity = false,
-                swatchFunc = Changed,
-                cancelFunc = Cancel,
-            })
-        else
-            ColorPickerFrame.func = Changed
-            ColorPickerFrame.hasOpacity = false
-            ColorPickerFrame.opacityFunc = nil
-            ColorPickerFrame.cancelFunc = Cancel
-            ColorPickerFrame:SetColorRGB(r, g, b)
-            ColorPickerFrame:Show()
-        end
-        activeColorPickerCancel = Cancel
-    end
-
-    highlightSwatch:SetScript("OnClick", function(_, button)
-        if button == "RightButton" then
-            WhoDoesWhat.db.profile.settings.statusBarHighlightColor = nil
-            RefreshHighlightColor()
-        else
-            OpenHighlightColorPicker()
-        end
-    end)
-    AddTooltip(highlightColorLabel, "Highlight color",
-        "The color every highlight style is drawn in. Right-click the swatch"
-            .. " to reset it.")
-    AddTooltip(highlightSwatch, "Highlight color",
-        "Left-click for the WoW color picker; right-click to reset.")
+                WhoDoesWhat:RefreshStatusBarHighlights()
+            end,
+        })
 
     -- Every widget on this page, read back out of the settings. Called when the
     -- window opens and again after the Defaults button has rewritten them.
@@ -1596,13 +1756,9 @@ local function EnsureSettingsFrame()
                 or STATUS_TOOLTIP_ANCHOR_LABELS.LEFT)
         UIDropDownMenu_SetText(f.overviewTooltipNamesDD,
             tostring(settings.statusBarTooltipNames or DEFAULT_TOOLTIP_NAMES))
-        local styles = WhoDoesWhat:GetStatusBarHighlightStyles()
-        UIDropDownMenu_SetText(highlightDD, styles[SavedHighlightStyle()].label)
-        -- Paints the swatch and restarts the sample in one go.
-        RefreshHighlightColor()
+        -- The dropdown's text, the swatch, and the running sample in one go.
+        RefreshStatusHighlight()
     end
-
-    yL = yL + 64
 
     -- ---- Buff Tracking ----
     local statusBuffPage = pages[3]
@@ -1931,6 +2087,74 @@ local function EnsureSettingsFrame()
         UIDropDownMenu_SetText(warnDD, WarnLabel(WhoDoesWhat:GetBuffingWarnMinutes()))
     end
 
+    -- Past the four dropdowns above, which hang off a frozen yL at fixed
+    -- offsets rather than advancing it.
+    yL = yL + 124
+
+    local buffingSettings = WhoDoesWhat.db.profile.settings
+    local buffingIconRange = WhoDoesWhat.BUFFING_BAR_ICON_SIZE
+    f.RefreshBuffingIconSize, yL = AddSliderWithInput(paladinPage, CONTENT_X,
+        yL, {
+            name = "WhoDoesWhatBuffingBarIconSizeSlider",
+            label = "Buff icon size:",
+            tooltip = "How big each button on the bar is drawn, in pixels."
+                .. " Everything else on the bar is measured off it, so the"
+                .. " whole bar grows with it. Drag the slider or type an exact"
+                .. " number; a resize during a fight waits until you leave"
+                .. " combat.",
+            min = buffingIconRange.min,
+            max = buffingIconRange.max,
+        },
+        function() return WhoDoesWhat:GetBuffingBarIconSize() end,
+        function(value) buffingSettings.buffingBarIconSize = value end,
+        function() WhoDoesWhat:RefreshPaladinBuffingBar() end)
+
+    -- The status bars' highlight styles, in this bar's own two colours.
+    f.RefreshBuffingHighlight, yL = AddHighlightControls(paladinPage,
+        CONTENT_X, yL, {
+            name = "WhoDoesWhatBuffingBarHighlightDD",
+            tooltip = "The animation a button on the bar wears when it wants"
+                .. " your attention -- the box to the right shows it running."
+                .. " The wide player rows inside a class button keep pulsing"
+                .. " their own outline either way.",
+            GetStyle = function()
+                return buffingSettings.buffingBarGlowStyle
+            end,
+            SetStyle = function(key)
+                buffingSettings.buffingBarGlowStyle = key
+            end,
+            colors = {
+                {
+                    label = "Missing color:",
+                    tooltip = "The color a button glows while there is work on"
+                        .. " it: a class with somebody still to buff, or a"
+                        .. " self-buff that is down. Right-click the swatch to"
+                        .. " reset it.",
+                    Get = function()
+                        return buffingSettings.buffingBarGlowMissingColor
+                    end,
+                    Set = function(color)
+                        buffingSettings.buffingBarGlowMissingColor = color
+                    end,
+                },
+                {
+                    label = "Expiring color:",
+                    tooltip = "The color a self-buff button glows once it is"
+                        .. " inside its warning window, with a countdown"
+                        .. " running. Right-click the swatch to reset it.",
+                    Get = function()
+                        return buffingSettings.buffingBarGlowExpiringColor
+                    end,
+                    Set = function(color)
+                        buffingSettings.buffingBarGlowExpiringColor = color
+                    end,
+                },
+            },
+            OnChange = function()
+                WhoDoesWhat:RefreshPaladinBuffingBar()
+            end,
+        })
+
     -- Every widget on this page, read back out of the settings. Called when the
     -- window opens and again after the Defaults button has rewritten them.
     f.RefreshPaladinPage = function()
@@ -1942,6 +2166,8 @@ local function EnsureSettingsFrame()
         f.buffingHideCompletedCheck:SetChecked(settings.buffingBarHideCompleted)
         RefreshBuffingLayout()
         f.RefreshBuffingWarn()
+        f.RefreshBuffingIconSize()
+        f.RefreshBuffingHighlight()
     end
 
     -- ---- Warrior ----
@@ -2085,6 +2311,62 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.db.profile.settings.shoutBarIgnoreOutOfRange = value
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
+
+    local shoutSettings = WhoDoesWhat.db.profile.settings
+    local shoutIconRange = WhoDoesWhat.SHOUT_BAR_ICON_SIZE
+    f.RefreshShoutIconSize, yL = AddSliderWithInput(warriorPage, CONTENT_X,
+        yL + 4, {
+            name = "WhoDoesWhatShoutBarIconSizeSlider",
+            label = "Buff icon size:",
+            tooltip = "How big each shout icon is drawn, in pixels. The bar is"
+                .. " exactly as wide as its icons, so this sizes the whole"
+                .. " strip. Drag the slider or type an exact number; a resize"
+                .. " during a fight waits until you leave combat.",
+            min = shoutIconRange.min,
+            max = shoutIconRange.max,
+        },
+        function() return WhoDoesWhat:GetShoutBarIconSize() end,
+        function(value) shoutSettings.shoutBarIconSize = value end,
+        function() WhoDoesWhat:RefreshWarriorShoutBar() end)
+
+    -- The status bars' highlight styles, in this bar's own two colours.
+    f.RefreshShoutHighlight, yL = AddHighlightControls(warriorPage, CONTENT_X,
+        yL, {
+            name = "WhoDoesWhatShoutBarHighlightDD",
+            tooltip = "The animation a shout icon wears while somebody in the"
+                .. " party is missing that shout -- the box to the right shows"
+                .. " it running.",
+            GetStyle = function() return shoutSettings.shoutBarGlowStyle end,
+            SetStyle = function(key) shoutSettings.shoutBarGlowStyle = key end,
+            colors = {
+                {
+                    label = "Missing color:",
+                    tooltip = "The color a shout icon glows while nobody in"
+                        .. " the party has that shout. Right-click the swatch"
+                        .. " to reset it.",
+                    Get = function()
+                        return shoutSettings.shoutBarGlowMissingColor
+                    end,
+                    Set = function(color)
+                        shoutSettings.shoutBarGlowMissingColor = color
+                    end,
+                },
+                {
+                    label = "Partial color:",
+                    tooltip = "The color a shout icon glows once some of the"
+                        .. " party has that shout but not all of it -- the"
+                        .. " same state the count under the icon reads in"
+                        .. " yellow for. Right-click the swatch to reset it.",
+                    Get = function()
+                        return shoutSettings.shoutBarGlowPartialColor
+                    end,
+                    Set = function(color)
+                        shoutSettings.shoutBarGlowPartialColor = color
+                    end,
+                },
+            },
+            OnChange = function() WhoDoesWhat:RefreshWarriorShoutBar() end,
+        })
 
     -- ---- Warlock ----
     local warlockPage = pages[6]
@@ -2315,6 +2597,8 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
     f.shoutHideNumbersCheck:SetChecked(settings.shoutBarHideNumbers)
     f.shoutHideWhenBuffedCheck:SetChecked(settings.shoutBarHideWhenBuffed)
     f.shoutIgnoreRangeCheck:SetChecked(settings.shoutBarIgnoreOutOfRange)
+    f.RefreshShoutIconSize()
+    f.RefreshShoutHighlight()
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
 --@do-not-package@
