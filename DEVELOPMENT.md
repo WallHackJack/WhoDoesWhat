@@ -27,7 +27,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
 * `FakeRaid.lua` — "Populate Fake Raid" testing toggle: injects 23 fake raiders (see Features)
 * `Sync.lua` — network sync module (AceComm "WhoDoesWhat" prefix + LibSerialize/LibDeflate); see Features
 * `PallyPowerBridge.lua` — push computed buff grid into PallyPower over its own wire protocol; PLPWR traffic log
-* `WallhackUiKit.lua` — window chrome and widget kit at `ns.UI` (windows, tooltips, scroll areas, section boxes, dropdowns, checkboxes, sliders)
+* `WallhackUiKit.lua` — window chrome and widget kit at `ns.UI` (windows, panels, tooltips, scroll areas, section boxes, dropdowns, checkboxes, sliders, arrow buttons, the colour picker, movable on-screen bars)
 * `UnitMenuExtensions.lua` — unit right-click menu additional options, role/cc/MD setters
 * `RaidFrameExtensions.lua` — spec icon drawn over the group icon on Blizzard's compact raid/party frames (hooks `CompactUnitFrame_UpdateRoleIcon`)
 * `RaidMenuExtensions.lua` — main-tank promote helper extension for WoW raid view UI

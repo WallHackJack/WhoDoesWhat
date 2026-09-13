@@ -39,7 +39,6 @@ local STATUS_TOOLTIP_NAME_COUNTS = { 3, 5, 10, 20, 40 }
 local DEFAULT_TOOLTIP_NAMES = 10
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 local STATUS_BUFF_ROW_H = 26
-local STATUS_ARROW_NUDGE = { Up = 2, Down = -4 }
 
 local function RefreshBuffingTestPaladinDropdown(f)
     WhoDoesWhat:GetBuffingBarTestPaladin()
@@ -56,25 +55,6 @@ local function AddHeading(f, x, y, text, r, g, b)
     h:SetText(text)
     if r then h:SetTextColor(r, g, b) end
     return y + 28, h
-end
-
-local function CreateStatusArrow(parent, direction)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    button:SetSize(24, 24)
-    button:SetText("")
-    local arrow = button:CreateTexture(nil, "OVERLAY")
-    arrow:SetSize(12, 12)
-    arrow:SetPoint("CENTER", 0, STATUS_ARROW_NUDGE[direction])
-    arrow:SetTexture("Interface\\Buttons\\Arrow-" .. direction .. "-Up")
-    button.arrow = arrow
-    return button
-end
-
-local function SetStatusArrowEnabled(button, enabled)
-    button:SetEnabled(enabled)
-    button.arrow:SetDesaturated(not enabled)
-    button.arrow:SetVertexColor(enabled and 1 or 0.5,
-        enabled and 1 or 0.5, enabled and 1 or 0.5)
 end
 
 local function StoreStatusBuffOption(key, option, value)
@@ -117,8 +97,8 @@ local function RefreshStatusBuffRows(f)
         row:SetPoint("TOPLEFT", CONTENT_X,
             -(f.statusBuffListTop + (visualIndex - 1) * STATUS_BUFF_ROW_H))
         row.index:SetText(disabled and "" or (index .. "."))
-        SetStatusArrowEnabled(row.up, index > 1 or disabled)
-        SetStatusArrowEnabled(row.down, index <= enabledCount)
+        row.up:SetArrowEnabled(index > 1 or disabled)
+        row.down:SetArrowEnabled(index <= enabledCount)
         row.bar:SetChecked(options.bar)
         row.grid:SetChecked(options.grid)
         row.grid:SetShown(not WhoDoesWhat.StatusBarChecks[key].gridOptionDisabled)
@@ -592,36 +572,6 @@ local function RefreshBuffOptionsFrame()
     f:SetHeight(y + 7)
 end
 
-local activeColorPickerCancel
-local function CancelActiveColorPicker()
-    local cancel = activeColorPickerCancel
-    local owned = cancel ~= nil
-        or WhoDoesWhat.statusBarColorPreviewKey ~= nil
-    activeColorPickerCancel = nil
-    if cancel then cancel() end
-    if owned and ColorPickerFrame:IsShown() then
-        ColorPickerFrame:Hide()
-    elseif owned and WhoDoesWhat.statusBarColorPreviewKey then
-        WhoDoesWhat.statusBarColorPreviewKey = nil
-        WhoDoesWhat:RefreshStatusBarsView()
-    end
-end
-
--- A picker dismissed with OK, or closed by anything other than its own Cancel
--- button, leaves its cancel handler behind. The next picker to open starts by
--- running whatever handler is still pending, which would undo the edit that was
--- just accepted -- so the handler is dropped the moment the frame goes away.
-local function EnsureColorPickerHook()
-    if ColorPickerFrame.wdwStatusPreviewHooked then return end
-    ColorPickerFrame:HookScript("OnHide", function()
-        activeColorPickerCancel = nil
-        if not WhoDoesWhat.statusBarColorPreviewKey then return end
-        WhoDoesWhat.statusBarColorPreviewKey = nil
-        WhoDoesWhat:RefreshStatusBarsView()
-    end)
-    ColorPickerFrame.wdwStatusPreviewHooked = true
-end
-
 -- ---------------------------------------------------------------------------
 -- Option widgets three pages share
 -- ---------------------------------------------------------------------------
@@ -631,42 +581,20 @@ end
 -- to hand it to the default again, and `OnChange` runs after either -- the
 -- picker calls it on every drag, so whatever it repaints has to be cheap.
 local function OpenSettingColorPicker(parent, Get, Set, OnChange)
-    CancelActiveColorPicker()
+    UI.CancelColorPicker()
     local saved = Get()
     local original = saved and { r = saved.r, g = saved.g, b = saved.b } or nil
-    local current = saved or { r = 1, g = 1, b = 1 }
-    local function Changed()
-        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-        Set({ r = nr, g = ng, b = nb })
-        OnChange()
-    end
-    local function Cancel()
-        if activeColorPickerCancel == Cancel then
-            activeColorPickerCancel = nil
-        end
-        Set(original)
-        OnChange()
-    end
-    EnsureColorPickerHook()
-    ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    ColorPickerFrame:SetFrameLevel(parent:GetFrameLevel() + 30)
-    ColorPickerFrame:SetClampedToScreen(true)
-    if ColorPickerFrame.SetupColorPickerAndShow then
-        ColorPickerFrame:SetupColorPickerAndShow({
-            r = current.r, g = current.g, b = current.b,
-            hasOpacity = false,
-            swatchFunc = Changed,
-            cancelFunc = Cancel,
-        })
-    else
-        ColorPickerFrame.func = Changed
-        ColorPickerFrame.hasOpacity = false
-        ColorPickerFrame.opacityFunc = nil
-        ColorPickerFrame.cancelFunc = Cancel
-        ColorPickerFrame:SetColorRGB(current.r, current.g, current.b)
-        ColorPickerFrame:Show()
-    end
-    activeColorPickerCancel = Cancel
+    UI.OpenColorPicker({
+        color = saved, above = parent,
+        OnChange = function(r, g, b)
+            Set({ r = r, g = g, b = b })
+            OnChange()
+        end,
+        OnCancel = function()
+            Set(original)
+            OnChange()
+        end,
+    })
 end
 
 -- The highlight-style dropdown, the box beside it showing that style running,
@@ -834,7 +762,7 @@ local function AddSliderWithInput(parent, x, y, spec, Get, Set, OnChange)
 end
 
 local function OpenBarColorPicker(owner, f)
-    CancelActiveColorPicker()
+    UI.CancelColorPicker()
     local key = f.buffKey
     local options = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey)
     local definition = WhoDoesWhat.StatusBarChecks[f.buffKey]
@@ -844,40 +772,22 @@ local function OpenBarColorPicker(owner, f)
         g = options.barColor.g,
         b = options.barColor.b,
     } or false
-    local function Apply(r, g, b)
-        SetStatusBuffOption(owner, key, "barColor",
-            { r = r, g = g, b = b })
-        RefreshBuffOptionsFrame()
-    end
-    local function Changed()
-        Apply(ColorPickerFrame:GetColorRGB())
-    end
-    local function Cancel()
-        if activeColorPickerCancel == Cancel then activeColorPickerCancel = nil end
-        SetStatusBuffOption(owner, key, "barColor", original)
-        RefreshBuffOptionsFrame()
-    end
-
-    EnsureColorPickerHook()
-    ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    ColorPickerFrame:SetFrameLevel(f:GetFrameLevel() + 10)
-    ColorPickerFrame:SetClampedToScreen(true)
-    if ColorPickerFrame.SetupColorPickerAndShow then
-        ColorPickerFrame:SetupColorPickerAndShow({
-            r = color.r, g = color.g, b = color.b,
-            hasOpacity = false,
-            swatchFunc = Changed,
-            cancelFunc = Cancel,
-        })
-    else
-        ColorPickerFrame.func = Changed
-        ColorPickerFrame.hasOpacity = false
-        ColorPickerFrame.opacityFunc = nil
-        ColorPickerFrame.cancelFunc = Cancel
-        ColorPickerFrame:SetColorRGB(color.r, color.g, color.b)
-        ColorPickerFrame:Show()
-    end
-    activeColorPickerCancel = Cancel
+    UI.OpenColorPicker({
+        color = color, above = f,
+        OnChange = function(r, g, b)
+            SetStatusBuffOption(owner, key, "barColor", { r = r, g = g, b = b })
+            RefreshBuffOptionsFrame()
+        end,
+        OnCancel = function()
+            SetStatusBuffOption(owner, key, "barColor", original)
+            RefreshBuffOptionsFrame()
+        end,
+        -- WDW Status shows this row's colour live only while it is picked.
+        OnClose = function()
+            WhoDoesWhat.statusBarColorPreviewKey = nil
+            WhoDoesWhat:RefreshStatusBarsView()
+        end,
+    })
     WhoDoesWhat.statusBarColorPreviewKey = key
     WhoDoesWhat:RefreshStatusBarsView()
 end
@@ -885,17 +795,14 @@ end
 local function EnsureBuffOptionsFrame(owner, key)
     if buffOptionsFrame then return buffOptionsFrame end
     local f = UI.CreateWindow("WhoDoesWhatBuffTrackingOptionsFrame",
-        BUFF_OPTIONS_W, 230, "")
+        BUFF_OPTIONS_W, 230, nil, { bare = true, closeButton = true })
     -- UIDropDownMenu_Initialize runs its callback immediately, before this
     -- constructor returns, so the selected key must already be available.
     f.buffKey = key
     f:SetParent(owner)
     f:SetToplevel(false)
     f:SetFrameLevel(owner:GetFrameLevel() + 20)
-    f:HookScript("OnHide", CancelActiveColorPicker)
-    f.titleBar:Hide()
-    f.titleText:Hide()
-    f.titleBarHeight = 0
+    f:HookScript("OnHide", UI.CancelColorPicker)
     f:ClearAllPoints()
     f:SetPoint("LEFT", owner, "RIGHT", 8, 0)
 
@@ -1029,7 +936,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     colorHex:SetMaxLetters(7)
     colorHex:SetText("#FFFFFF")
     colorHex:SetScript("OnEditFocusGained", function(self)
-        CancelActiveColorPicker()
+        UI.CancelColorPicker()
         local options = WhoDoesWhat:GetStatusBarCheckOptions(self.buffKey)
         local definition = WhoDoesWhat.StatusBarChecks[self.buffKey]
         self:SetText(ColorHex(options.barColor
@@ -1249,7 +1156,7 @@ end
 
 local function OpenBuffOptions(owner, key)
     local f = EnsureBuffOptionsFrame(owner, key)
-    if f.buffKey ~= key then CancelActiveColorPicker() end
+    if f.buffKey ~= key then UI.CancelColorPicker() end
     f.buffKey = key
     RefreshBuffOptionsFrame()
     f:Show()
@@ -1268,7 +1175,7 @@ local function ResetBuffTrackingPage(f)
 end
 
 local function CloseBuffOptions()
-    CancelActiveColorPicker()
+    UI.CancelColorPicker()
     if buffOptionsFrame then buffOptionsFrame:Hide() end
 end
 
@@ -1697,11 +1604,11 @@ local function EnsureSettingsFrame()
         stripe:SetAllPoints()
         row.stripe = stripe
 
-        row.up = CreateStatusArrow(row, "Up")
+        row.up = UI.CreateArrowButton(row, "Up")
         row.up:SetPoint("LEFT", 0, 0)
         row.up:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, -1) end)
         UI.AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
-        row.down = CreateStatusArrow(row, "Down")
+        row.down = UI.CreateArrowButton(row, "Down")
         row.down:SetPoint("LEFT", row.up, "RIGHT", 2, 0)
         row.down:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, 1) end)
         UI.AddTooltip(row.down, "Move down",
@@ -1730,7 +1637,7 @@ local function EnsureSettingsFrame()
         name:SetJustifyH("LEFT")
         name:SetWordWrap(false)
         name:SetText(definition.name)
-        UI.AddTooltip(row, definition.name, definition.description)
+        UI.AddTooltip(row, definition.name, definition.description, nil, true)
 
         row.bar = UI.CreateCheckbox(row, nil, "Show in Bars",
             "Show this row in WDW Status. Turning it off moves it below the divider.",

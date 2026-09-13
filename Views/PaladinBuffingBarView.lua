@@ -278,59 +278,17 @@ local VALID_POINTS = {
     TOPLEFT = true, TOPRIGHT = true, TOP = true, BOTTOMLEFT = true, LEFT = true,
 }
 
--- Each half of the anchor point says what its coordinate measures: an edge the
--- point names, or the midpoint of that axis when it names neither.
-local function ClampPosition(x, y, point)
-    local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
-    local width, height = bar:GetWidth(), bar:GetHeight()
-    if point:find("RIGHT") then
-        x = math.max(math.min(width, parentW), math.min(x, parentW))
-    elseif point:find("LEFT") then
-        x = math.max(0, math.min(x, math.max(0, parentW - width)))
-    else
-        -- x is the midpoint, so both halves have to stay on screen.
-        local half = math.min(width / 2, parentW / 2)
-        x = math.max(half, math.min(x, parentW - half))
-    end
-    if point:find("TOP") then
-        y = math.max(math.min(height, parentH), math.min(y, parentH))
-    elseif point:find("BOTTOM") then
-        y = math.max(0, math.min(y, math.max(0, parentH - height)))
-    else
-        local half = math.min(height / 2, parentH / 2)
-        y = math.max(half, math.min(y, parentH - half))
-    end
-    return x, y
-end
-
 local function SavePosition()
     if not bar then return end
     local axis = Vertical() and "VERTICAL" or "HORIZONTAL"
-    local point = GROW_POINTS[axis][BarGrow()] or "TOPLEFT"
-    local cx, cy = bar:GetCenter()
-    local x, y
-    if point:find("RIGHT") then x = bar:GetRight()
-    elseif point:find("LEFT") then x = bar:GetLeft()
-    else x = cx end
-    if point:find("TOP") then y = bar:GetTop()
-    elseif point:find("BOTTOM") then y = bar:GetBottom()
-    else y = cy end
-    if not x or not y then return end
-    x, y = ClampPosition(x, y, point)
-    WhoDoesWhat.db.profile.settings.buffingBarPos = { point = point, x = x, y = y }
+    local pos = UI.SavePoint(bar, GROW_POINTS[axis][BarGrow()] or "TOPLEFT")
+    if pos then WhoDoesWhat.db.profile.settings.buffingBarPos = pos end
 end
 
 local function LoadPosition()
     local p = WhoDoesWhat.db.profile.settings.buffingBarPos
-    bar:ClearAllPoints()
-    if p and p.x and p.y then
-        local point = VALID_POINTS[p.point] and p.point or "TOPLEFT"
-        p.point = point
-        p.x, p.y = ClampPosition(p.x, p.y, point)
-        bar:SetPoint(point, UIParent, "BOTTOMLEFT", p.x, p.y)
-    else
-        bar:SetPoint("CENTER", UIParent, "CENTER", 0, -160)
-    end
+    if p then p.point = VALID_POINTS[p.point] and p.point or "TOPLEFT" end
+    UI.RestorePoint(bar, p, 160)
 end
 
 -- Dark fill and a thin tooltip border, matching the other WDW windows.
@@ -367,28 +325,11 @@ local function CloseAllPopouts()
     if bar.auraButton then bar.auraButton.auraMenu:Hide() end
 end
 
--- Attach Alt-gated dragging to a mouse region that moves the whole bar. Every
--- button gets this as well as the frame and its title strip: the buttons cover
--- most of the bar, and a column leaves barely anything else to grab.
+-- Alt-gated dragging for the whole bar. Every button gets it as well as the
+-- frame and its title strip: the buttons cover most of the bar, and a column
+-- leaves barely anything else to grab.
 local function AttachAltDrag(region)
-    region:EnableMouse(true)
-    region:RegisterForDrag("LeftButton")
-    region:SetScript("OnDragStart", function()
-        if not IsAltKeyDown() then return end
-        bar.moving = true
-        bar:StartMoving()
-        CloseAllPopouts()
-    end)
-    region:SetScript("OnDragStop", function()
-        if not bar.moving then return end
-        bar.moving = nil
-        bar:StopMovingOrSizing()
-        -- Save, then re-anchor to the growth corner so the next resize grows
-        -- the chosen way (StartMoving may have left a different anchor).
-        SavePosition()
-        LoadPosition()
-        WhoDoesWhat:RefreshPaladinBuffingBar()
-    end)
+    UI.AttachDrag(region, bar)
 end
 
 -- Re-anchor by the edge the new mode holds still, reading it off the rect the
@@ -1871,10 +1812,17 @@ local function EnsureBar()
 
     bar = CreateFrame("Frame", "WhoDoesWhatBuffingBar", UIParent, "BackdropTemplate")
     bar:SetFrameStrata("MEDIUM")
-    bar:SetClampedToScreen(true)
-    bar:SetMovable(true)
     ApplyBackdrop(BAR_EDGE)
-    AttachAltDrag(bar)
+    UI.MakeMovable(bar, {
+        OnStart = CloseAllPopouts,
+        -- Save, then re-anchor to the growth corner so the next resize grows
+        -- the chosen way (StartMoving may have left a different anchor).
+        OnStop = function()
+            SavePosition()
+            LoadPosition()
+            WhoDoesWhat:RefreshPaladinBuffingBar()
+        end,
+    })
 
     -- Source-aware title strip, also a drag handle; hover explains Alt-drag.
     local title = CreateFrame("Frame", nil, bar)

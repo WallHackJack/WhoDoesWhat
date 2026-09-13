@@ -275,38 +275,11 @@ function WhoDoesWhat:GetShoutBarAnchorLabel(anchor)
     end
 end
 
-local function ClampPosition(x, y, point)
-    local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
-    local width = bar:GetWidth()
-    if point == "TOPRIGHT" then
-        x = math.max(math.min(width, parentW), math.min(x, parentW))
-    elseif point == "TOP" then
-        -- x is the midpoint, so both halves have to stay on screen.
-        local half = math.min(width / 2, parentW / 2)
-        x = math.max(half, math.min(x, parentW - half))
-    else
-        x = math.max(0, math.min(x, math.max(0, parentW - width)))
-    end
-    y = math.max(math.min(bar:GetHeight(), parentH), math.min(y, parentH))
-    return x, y
-end
-
 -- Record the rect by whichever edge the anchor setting says to keep.
 local function SavePosition()
     if not bar then return end
-    local point = ANCHOR_POINTS[WhoDoesWhat:GetShoutBarAnchor()]
-    local x
-    if point == "TOPRIGHT" then
-        x = bar:GetRight()
-    elseif point == "TOP" then
-        x = bar:GetCenter()
-    else
-        x = bar:GetLeft()
-    end
-    local y = bar:GetTop()
-    if not x or not y then return end
-    x, y = ClampPosition(x, y, point)
-    WhoDoesWhat.db.profile.settings.shoutBarPos = { point = point, x = x, y = y }
+    local pos = UI.SavePoint(bar, ANCHOR_POINTS[WhoDoesWhat:GetShoutBarAnchor()])
+    if pos then WhoDoesWhat.db.profile.settings.shoutBarPos = pos end
 end
 
 -- Anchored by the point the position was SAVED under, not the current setting:
@@ -315,18 +288,12 @@ end
 -- stand on its own.
 local function LoadPosition()
     local p = WhoDoesWhat.db.profile.settings.shoutBarPos
-    bar:ClearAllPoints()
-    if p and p.x and p.y then
-        local point = (p.point == "TOPRIGHT" or p.point == "TOP")
-            and p.point or "TOPLEFT"
-        p.point = point
-        p.x, p.y = ClampPosition(p.x, p.y, point)
-        bar:SetPoint(point, UIParent, "BOTTOMLEFT", p.x, p.y)
-    else
-        -- Dead centre until it is Alt-dragged somewhere: the one spot on any
-        -- screen resolution that is certainly not behind something.
-        bar:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    if p then
+        p.point = (p.point == "TOPRIGHT" or p.point == "TOP") and p.point or "TOPLEFT"
     end
+    -- Dead centre until it is Alt-dragged somewhere: the one spot on any
+    -- screen resolution that is certainly not behind something.
+    UI.RestorePoint(bar, p)
 end
 
 -- Re-anchor to the newly chosen edge without visually moving the bar: save the
@@ -340,26 +307,9 @@ function WhoDoesWhat:SetShoutBarAnchor(anchor)
     self:RefreshWarriorShoutBar()
 end
 
--- Attach Alt-gated dragging to a mouse region that moves the whole bar. The
--- bar parents secure buttons, so moving it mid-fight is forbidden -- the drag
--- simply doesn't start in combat.
+-- Alt-gated dragging for the whole bar, from its buttons as well as itself.
 local function AttachAltDrag(region)
-    region:EnableMouse(true)
-    region:RegisterForDrag("LeftButton")
-    region:SetScript("OnDragStart", function()
-        if not IsAltKeyDown() or InCombatLockdown() then return end
-        bar.moving = true
-        bar:StartMoving()
-    end)
-    region:SetScript("OnDragStop", function()
-        if not bar.moving then return end
-        bar.moving = nil
-        bar:StopMovingOrSizing()
-        -- Save, then re-anchor off the saved corner: StartMoving may have left
-        -- the frame on a different one.
-        SavePosition()
-        LoadPosition()
-    end)
+    UI.AttachDrag(region, bar)
 end
 
 -- ---------------------------------------------------------------------------
@@ -793,8 +743,6 @@ local function EnsureBar()
     -- map, since strata always wins over level.
     bar:SetFrameStrata("MEDIUM")
     bar:SetFrameLevel(20)
-    bar:SetClampedToScreen(true)
-    bar:SetMovable(true)
     bar:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -804,7 +752,16 @@ local function EnsureBar()
     bar:SetBackdropColor(0, 0, 0, 0.95)
     bar:SetBackdropBorderColor(0.4, 0.4, 0.4)
     bar.buttons = {}
-    AttachAltDrag(bar)
+    -- The bar parents secure buttons, so moving it mid-fight is forbidden --
+    -- the drag simply doesn't start in combat. Save, then re-anchor off the
+    -- saved corner: StartMoving may have left the frame on a different one.
+    UI.MakeMovable(bar, {
+        noCombat = true,
+        OnStop = function()
+            SavePosition()
+            LoadPosition()
+        end,
+    })
 
     -- The countdown is the one thing here that changes without an event to
     -- hang off, so it gets its own light tick. Arithmetic on at most two

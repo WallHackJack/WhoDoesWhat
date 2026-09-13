@@ -28,25 +28,6 @@ local LINKS = {
     { label = "Donate", value = "https://ko-fi.com/wallhackjack" },
 }
 
--- The panels this window is built from. `sunken` is the darker treatment for a
--- well INSIDE a panel -- the notes sit in one, so the text reads as content
--- held by the box rather than as more of the box.
-local function SetPanelBackdrop(frame, sunken)
-    frame:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    if sunken then
-        frame:SetBackdropColor(0.07, 0.07, 0.08, 0.95)
-        frame:SetBackdropBorderColor(0.3, 0.3, 0.3)
-    else
-        frame:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
-        frame:SetBackdropBorderColor(0.4, 0.4, 0.4)
-    end
-end
-
 local function SetCopyValue(f, label, value)
     f.copyLabel:SetText(label .. ":")
     f.copyEdit:SetText(value)
@@ -102,7 +83,7 @@ local function EnsureAboutFrame()
     linksBox:SetPoint("TOPLEFT", MARGIN, -(y + 88))
     linksBox:SetPoint("TOPRIGHT", -MARGIN, -(y + 88))
     linksBox:SetHeight(112)
-    SetPanelBackdrop(linksBox)
+    UI.StylePanel(linksBox)
 
     local linksTitle = linksBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     linksTitle:SetPoint("TOPLEFT", 10, -9)
@@ -163,7 +144,7 @@ local function EnsureAboutFrame()
     local updatesBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     updatesBox:SetPoint("TOPLEFT", linksBox, "BOTTOMLEFT", 0, -10)
     updatesBox:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -MARGIN, MARGIN)
-    SetPanelBackdrop(updatesBox)
+    UI.StylePanel(updatesBox)
 
     local updatesTitle = updatesBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     updatesTitle:SetPoint("TOPLEFT", 10, -11)
@@ -200,7 +181,7 @@ local function EnsureAboutFrame()
     local notesWell = CreateFrame("Frame", nil, updatesBox, "BackdropTemplate")
     notesWell:SetPoint("TOPLEFT", 12, -42)
     notesWell:SetPoint("BOTTOMRIGHT", -12, 10)
-    SetPanelBackdrop(notesWell, true)
+    UI.StylePanel(notesWell, "sunken")
 
     local scroll, content = UI.CreateScroll(notesWell, "WhoDoesWhatAboutNotesScroll", true)
     scroll:SetPoint("TOPLEFT", WELL_PAD, -WELL_PAD)

@@ -178,14 +178,7 @@ local function EnsureMainFrame()
     optionsBox:SetPoint("TOPLEFT", MARGIN, -OPTIONS_TOP)
     optionsBox:SetPoint("TOPRIGHT", -MARGIN, -OPTIONS_TOP)
     optionsBox:SetHeight(OPTIONS_H)
-    optionsBox:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    optionsBox:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
-    optionsBox:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    UI.StylePanel(optionsBox)
 
     -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
     -- never releases the widget mid-callback).

@@ -285,6 +285,39 @@ function K.GetPallyPowerState(paladinCount)
         .. " out of sync", count
 end
 
+-- The free-text target box a row shows while its marker is "Custom", filling
+-- the gap between the marker dropdown and the warning icon. Saves into
+-- entry.custom as it is typed; Entry() looks the row's entry up at the time.
+function K.CreateCustomTargetEdit(row, markerDD, warn, Entry)
+    local edit = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+    edit:SetHeight(18)
+    edit:SetPoint("LEFT", markerDD, "RIGHT", -8, 2)
+    edit:SetPoint("RIGHT", warn, "LEFT", -6, 0)
+    edit:SetAutoFocus(false)
+    edit:SetMaxLetters(40)
+    edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnTextChanged", function(self, userInput)
+        if not userInput then return end
+        local entry = Entry()
+        if entry then entry.custom = self:GetText() end
+    end)
+    edit:Hide()
+    return edit
+end
+
+-- Show or hide a row's custom target box for its current entry. A refresh
+-- never rewrites the text while it has focus, or it would fight the typing.
+function K.ShowCustomTargetEdit(edit, entry, shown)
+    if shown then
+        if not edit:HasFocus() then edit:SetText(entry.custom or "") end
+        edit:Show()
+    else
+        edit:ClearFocus()
+        edit:Hide()
+    end
+end
+
 -- Small red mail button: whispers the assigned player their job. GetWhisper
 -- returns (playerName, whisperText, displayText, bare), or nothing while
 -- unassigned; the refresh passes disable/desaturate it accordingly.

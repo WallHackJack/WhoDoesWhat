@@ -62,17 +62,6 @@ local FRAME_W = CONTENT_W + MARGIN * 2 + SCROLLBAR_W
 -- its content viewport to the Paladin section.
 local NARROW_FRAME_W = LEFT_COLUMN_W + MARGIN * 2 + SCROLLBAR_W
 
-local function SetInsetBackdrop(frame)
-    frame:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    frame:SetBackdropColor(0.16, 0.16, 0.18, 0.9)
-    frame:SetBackdropBorderColor(0.4, 0.4, 0.4)
-end
-
 -- Build + refresh order: left column top-to-bottom, then right column.
 -- Within a column this is also the anchor-chain order.
 local function OrderedSections()
@@ -365,7 +354,7 @@ local function EnsureMainFrame()
     local toolbarBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     toolbarBox:SetPoint("TOP", f, "TOP", 0, -top)
     toolbarBox:SetSize(1, TOOLBAR_H)
-    SetInsetBackdrop(toolbarBox)
+    UI.StylePanel(toolbarBox)
 
     -- Fixed width on purpose: the label carries a changing count, and sizing to
     -- text would jitter every other button sideways whenever an issue appeared.

@@ -134,25 +134,7 @@ local function CreateRow(f, index)
     row.warnIcon = warn
 
     -- Custom target text, shown only while "custom" is among the markers.
-    -- Saves as it's typed; refreshes never clobber it while it has focus.
-    local customEdit = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-    customEdit:SetHeight(18)
-    customEdit:SetPoint("LEFT", markerDD, "RIGHT", -8, 2)
-    customEdit:SetPoint("RIGHT", warn, "LEFT", -6, 0)
-    customEdit:SetAutoFocus(false)
-    customEdit:SetMaxLetters(40)
-    customEdit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    customEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    customEdit:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then
-            local entry = Entry()
-            if entry then
-                entry.custom = self:GetText()
-            end
-        end
-    end)
-    customEdit:Hide()
-    row.customEdit = customEdit
+    row.customEdit = K.CreateCustomTargetEdit(row, markerDD, warn, Entry)
 
     -- Read-only stand-in for the whole widget strip (Permissions.lua).
     local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -196,15 +178,8 @@ function Refresh(f) -- forward declared above
         UI.SetDropdownWidth(row.markerDD, MarkerDDWidth(entry))
         UIDropDownMenu_SetText(row.markerDD, TargetText(entry))
 
-        if editable and HasMarkerValue(entry, "custom") then
-            if not row.customEdit:HasFocus() then
-                row.customEdit:SetText(entry.custom or "")
-            end
-            row.customEdit:Show()
-        else
-            row.customEdit:ClearFocus()
-            row.customEdit:Hide()
-        end
+        K.ShowCustomTargetEdit(row.customEdit, entry,
+            editable and HasMarkerValue(entry, "custom"))
 
         -- View-only users cannot fix tank assignments, so hide their warnings.
         local warning = editable and SECTION.GetWarning(entry) or nil

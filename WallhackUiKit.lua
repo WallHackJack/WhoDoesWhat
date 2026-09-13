@@ -45,6 +45,34 @@ UI.BACKDROP = {
     insets = { left = 4, right = 4, top = 4, bottom = 4 },
 }
 
+-- A lighter panel inside a window: section boxes, toolbars, grouped settings.
+-- Thinner border than the window's own so it reads as part of the window
+-- rather than a second one.
+UI.PANEL_BACKDROP = {
+    bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
+-- The fill and border for each kind of panel: `raised` sits on the window,
+-- `sunken` is a well that something scrolls inside, `popup` floats over
+-- other controls.
+UI.PANEL_STYLES = {
+    raised = { fill = { 0.16, 0.16, 0.18, 0.9 },  border = { 0.4, 0.4, 0.4 } },
+    sunken = { fill = { 0.07, 0.07, 0.08, 0.95 }, border = { 0.3, 0.3, 0.3 } },
+    popup  = { fill = { 0.1, 0.1, 0.12, 0.95 },   border = { 0.4, 0.4, 0.4 } },
+}
+
+-- Dress a BackdropTemplate frame as a panel; `style` is a key of PANEL_STYLES,
+-- default raised.
+function UI.StylePanel(frame, style)
+    local s = UI.PANEL_STYLES[style or "raised"]
+    frame:SetBackdrop(UI.PANEL_BACKDROP)
+    frame:SetBackdropColor(s.fill[1], s.fill[2], s.fill[3], s.fill[4])
+    frame:SetBackdropBorderColor(s.border[1], s.border[2], s.border[3])
+end
+
 -- AceGUI's slider art, used for the track behind a native scrollbar.
 UI.SCROLL_TRACK_BACKDROP = {
     bgFile   = "Interface\\Buttons\\UI-SliderBar-Background",
@@ -126,6 +154,8 @@ end
 --               the title bar on something that small is most of its height.
 --               `titleBarHeight` is 0 there, so the same anchoring arithmetic
 --               works either way.
+--   closeButton keep the close button on a `bare` window, for a pop-up that
+--               has nothing else to dismiss it by
 --   titleAlign  "CENTER" (default) or "LEFT"
 --   version     stamp the addon version after the title, greyed: `Name (vX.Y.Z)`.
 --               For the window that IS the addon, not for every pop-up in it.
@@ -150,7 +180,15 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
 
     tinsert(UISpecialFrames, globalName)
 
+    local function AddCloseButton()
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 1, 1)
+        close:SetScript("OnClick", function() f:Hide() end)
+        f.closeButton = close
+    end
+
     if opts.bare then
+        if opts.closeButton then AddCloseButton() end
         f.titleBarHeight = 0
         f:Hide()
         return f
@@ -178,10 +216,7 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
     f.SetTitle = SetTitle
     f:SetTitle(titleText)
 
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", 1, 1)
-    close:SetScript("OnClick", function() f:Hide() end)
-    f.closeButton = close
+    AddCloseButton()
 
     f.titleBarHeight = UI.TITLEBAR_H
     f:Hide()
@@ -348,6 +383,133 @@ function UI.AddTabs(f, specs)
 end
 
 --------------------------------------------------------------------------------
+-- Moving
+--
+-- For frames that live on the screen rather than in a window: bars the player
+-- places once and then leaves. A position is kept as the coordinates of one
+-- anchor POINT of the frame against UIParent's bottom-left, and that point is
+-- the edge that holds still while the frame changes size - so a bar that grows
+-- to the left is saved by its right edge, one that spreads both ways by its
+-- midpoint. The caller picks the point and owns where the position is stored.
+--------------------------------------------------------------------------------
+
+-- Each half of the point says what its coordinate measures: the edge it names,
+-- or that axis's midpoint when it names neither ("TOP" is a horizontal
+-- midpoint, "LEFT" a vertical one).
+local function PointSides(point)
+    local h = point:find("RIGHT") and "RIGHT" or point:find("LEFT") and "LEFT" or nil
+    local v = point:find("TOP") and "TOP" or point:find("BOTTOM") and "BOTTOM" or nil
+    return h, v
+end
+
+-- Keep a frame anchored at `point` fully on screen: pull x, y back so no edge
+-- of a frame its current size would hang off UIParent. A frame larger than the
+-- screen is pinned to the edge its point names.
+function UI.ClampPoint(frame, point, x, y)
+    local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
+    local width, height = frame:GetWidth(), frame:GetHeight()
+    local h, v = PointSides(point)
+    if h == "RIGHT" then
+        x = math.max(math.min(width, parentW), math.min(x, parentW))
+    elseif h == "LEFT" then
+        x = math.max(0, math.min(x, math.max(0, parentW - width)))
+    else
+        local half = math.min(width / 2, parentW / 2)
+        x = math.max(half, math.min(x, parentW - half))
+    end
+    if v == "TOP" then
+        y = math.max(math.min(height, parentH), math.min(y, parentH))
+    elseif v == "BOTTOM" then
+        y = math.max(0, math.min(y, math.max(0, parentH - height)))
+    else
+        local half = math.min(height / 2, parentH / 2)
+        y = math.max(half, math.min(y, parentH - half))
+    end
+    return x, y
+end
+
+-- Where `point` of the frame is right now, against UIParent's bottom-left.
+-- Nil before the frame has a rect.
+function UI.PointPosition(frame, point)
+    local h, v = PointSides(point)
+    local cx, cy = frame:GetCenter()
+    local x = h == "RIGHT" and frame:GetRight() or h == "LEFT" and frame:GetLeft() or cx
+    local y = v == "TOP" and frame:GetTop() or v == "BOTTOM" and frame:GetBottom() or cy
+    if not x or not y then return end
+    return x, y
+end
+
+-- The frame's current place as { point, x, y }, clamped, ready to store. Nil
+-- before the frame has a rect.
+function UI.SavePoint(frame, point)
+    local x, y = UI.PointPosition(frame, point)
+    if not x then return end
+    x, y = UI.ClampPoint(frame, point, x, y)
+    return { point = point, x = x, y = y }
+end
+
+-- Put a frame back where `pos` ({ point, x, y }) says, clamped to the screen as
+-- it is now - the resolution may have changed since it was saved - and written
+-- back into `pos` so the stored copy stays honest. Without a usable `pos` the
+-- frame is centred, `fallbackY` below the middle. Returns whether `pos` was used.
+function UI.RestorePoint(frame, pos, fallbackY)
+    frame:ClearAllPoints()
+    if pos and pos.point and pos.x and pos.y then
+        pos.x, pos.y = UI.ClampPoint(frame, pos.point, pos.x, pos.y)
+        frame:SetPoint(pos.point, UIParent, "BOTTOMLEFT", pos.x, pos.y)
+        return true
+    end
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -(fallbackY or 0))
+    return false
+end
+
+-- Make a frame draggable by a held modifier, so a bar full of buttons can still
+-- be clicked normally and only moves on purpose.
+--
+-- opts, all optional:
+--   modifier  function returning whether dragging is allowed to start; default
+--             IsAltKeyDown
+--   noCombat  refuse to start in combat - required for a frame that parents
+--             secure buttons, which may not move mid-fight
+--   OnStart   function(frame) as the drag begins, e.g. to shut pop-outs that
+--             would otherwise ride along
+--   OnStop    function(frame) after it is dropped. StartMoving can leave the
+--             frame on a different anchor than the one its position is kept
+--             by, so this is where the caller saves and re-anchors.
+--
+-- `frame.moving` is true for the length of a drag, for a repaint that must not
+-- re-anchor the frame out from under the cursor.
+function UI.MakeMovable(frame, opts)
+    frame.uiMove = opts or {}
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    UI.AttachDrag(frame, frame)
+end
+
+-- Let another region - a title strip, a button covering most of the frame -
+-- start the same drag. The options are read off the frame at drag time, so a
+-- region may be attached before the frame has been through MakeMovable.
+function UI.AttachDrag(region, frame)
+    region:EnableMouse(true)
+    region:RegisterForDrag("LeftButton")
+    region:SetScript("OnDragStart", function()
+        local opts = frame.uiMove
+        if not opts then return end
+        if not (opts.modifier or IsAltKeyDown)() then return end
+        if opts.noCombat and InCombatLockdown() then return end
+        frame.moving = true
+        frame:StartMoving()
+        if opts.OnStart then opts.OnStart(frame) end
+    end)
+    region:SetScript("OnDragStop", function()
+        if not frame.moving then return end
+        frame.moving = nil
+        frame:StopMovingOrSizing()
+        if frame.uiMove.OnStop then frame.uiMove.OnStop(frame) end
+    end)
+end
+
+--------------------------------------------------------------------------------
 -- Scrolling
 --------------------------------------------------------------------------------
 
@@ -460,12 +622,7 @@ function UI.CreateSectionBox(parent, titleText, color)
     -- backdrop can end up drawing over its own rows until something moves and
     -- re-sorts the frames.
     box:SetFrameLevel(parent:GetFrameLevel() + 1)
-    box:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
+    box:SetBackdrop(UI.PANEL_BACKDROP)
     color = color or UI.SECTION_COLOR
     local r, g, b = color[1], color[2], color[3]
     box:SetBackdropColor(r, g, b, 1)
@@ -1154,6 +1311,35 @@ function UI.CreateIconButton(parent, iconPath, tooltipTitle, tooltipText, OnClic
     btn.icon = icon
     btn:SetScript("OnClick", OnClick)
     UI.AddTooltip(btn, tooltipTitle, tooltipText)
+    return btn
+end
+
+-- The Blizzard arrow art sits off-centre inside its texture - the up caret
+-- rides high, the down caret low - so each is nudged to sit visually centred.
+local ARROW_NUDGE = { Up = 2, Down = -4, Left = 0, Right = 0 }
+
+local function SetArrowEnabled(btn, enabled)
+    btn:SetEnabled(enabled)
+    -- The template greys its own chrome but not a texture laid over it.
+    btn.arrow:SetDesaturated(not enabled)
+    local shade = enabled and 1 or 0.5
+    btn.arrow:SetVertexColor(shade, shade, shade)
+end
+
+-- A framed button with an arrow in it, for moving something up or down a list.
+-- `direction` is "Up", "Down", "Left" or "Right"; `size` defaults to 24.
+-- Enable and disable it with `btn:SetArrowEnabled(on)`, which dims the arrow
+-- along with the frame.
+function UI.CreateArrowButton(parent, direction, size)
+    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    btn:SetSize(size or 24, size or 24)
+    btn:SetText("")
+    local arrow = btn:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(12, 12)
+    arrow:SetPoint("CENTER", 0, ARROW_NUDGE[direction] or 0)
+    arrow:SetTexture("Interface\\Buttons\\Arrow-" .. direction .. "-Up")
+    btn.arrow = arrow
+    btn.SetArrowEnabled = SetArrowEnabled
     return btn
 end
 
@@ -1948,6 +2134,99 @@ function UI.CreatePrompt(globalName)
     end
 
     return p
+end
+
+--------------------------------------------------------------------------------
+-- Colour picker
+--
+-- The client has one ColorPickerFrame for everybody, and its API changed shape
+-- between clients. This wraps both, and keeps track of the one edit the kit
+-- has open so a second can cleanly back out the first.
+--------------------------------------------------------------------------------
+
+local pickerSession
+local pickerHooked
+
+-- A picker dismissed with OK, or closed by anything other than its own Cancel
+-- button, leaves its cancel handler behind. The next picker to open starts by
+-- cancelling whatever is still pending, which would undo the edit that was just
+-- accepted - so the session ends the moment the frame goes away.
+local function HookPicker()
+    if pickerHooked then return end
+    pickerHooked = true
+    ColorPickerFrame:HookScript("OnHide", function()
+        local session = pickerSession
+        pickerSession = nil
+        if session and session.OnClose then session.OnClose() end
+    end)
+end
+
+-- Back out the colour edit the kit has open, if there is one: its OnCancel
+-- restores the old value, then the picker closes. Returns whether there was
+-- anything to cancel. Call it when whatever the picker is editing goes away.
+function UI.CancelColorPicker()
+    local session = pickerSession
+    if not session then return false end
+    session.cancel()
+    if ColorPickerFrame:IsShown() then
+        ColorPickerFrame:Hide()   -- the OnHide hook ends the session
+    else
+        pickerSession = nil
+        if session.OnClose then session.OnClose() end
+    end
+    return true
+end
+
+-- Open the picker over a colour.
+--
+-- opts:
+--   color     { r, g, b } to start from
+--   above     frame the picker must sit over; it is lifted clear of it
+--   OnChange  function(r, g, b), on every drag - keep what it repaints cheap
+--   OnCancel  function() when the edit is backed out; restore the old value
+--   OnClose   function() whenever the picker goes away, accepted or not
+--
+-- Any edit already open is cancelled first. A caller that reads the value it
+-- will restore should cancel before reading it, or it reads the value the
+-- previous edit is about to put back.
+function UI.OpenColorPicker(opts)
+    UI.CancelColorPicker()
+    HookPicker()
+
+    local session = { OnClose = opts.OnClose }
+    session.cancel = function()
+        if session.cancelled then return end
+        session.cancelled = true
+        if opts.OnCancel then opts.OnCancel() end
+    end
+    local function Changed()
+        if opts.OnChange then opts.OnChange(ColorPickerFrame:GetColorRGB()) end
+    end
+
+    local c = opts.color or { r = 1, g = 1, b = 1 }
+    ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+    if opts.above then
+        ColorPickerFrame:SetFrameLevel(opts.above:GetFrameLevel() + 30)
+    end
+    ColorPickerFrame:SetClampedToScreen(true)
+    if ColorPickerFrame.SetupColorPickerAndShow then
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = c.r, g = c.g, b = c.b,
+            hasOpacity = false,
+            swatchFunc = Changed,
+            cancelFunc = session.cancel,
+        })
+    else
+        ColorPickerFrame.func = Changed
+        ColorPickerFrame.hasOpacity = false
+        ColorPickerFrame.opacityFunc = nil
+        ColorPickerFrame.cancelFunc = session.cancel
+        ColorPickerFrame:SetColorRGB(c.r, c.g, c.b)
+        ColorPickerFrame:Show()
+    end
+    -- After showing: a picker that was already up and gets re-shown can fire
+    -- its OnHide first, which would end this session before it began.
+    pickerSession = session
 end
 
 --------------------------------------------------------------------------------

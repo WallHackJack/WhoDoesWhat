@@ -21,41 +21,6 @@ local BUFF_ROW_H = 30
 local BUFF_ICON_SIZE = 22
 local ARROW_BTN_SIZE = 24
 
--- The Blizzard arrow art sits off-center inside its texture (the up caret rides
--- high, the down caret rides low), so nudge each vertically to visually center
--- it in the button. Tweak here if a different arrow texture is swapped in.
-local ARROW_NUDGE = { Up = 2, Down = -4 }
-
-
--- A small standard (red) WoW button with an arrow texture centered inside,
--- used to nudge a buff up or down in the list. `dir` is "Up" or "Down".
-local function CreateArrowButton(parent, dir)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(ARROW_BTN_SIZE, ARROW_BTN_SIZE)
-    b:SetText("")
-
-    local arrow = b:CreateTexture(nil, "OVERLAY")
-    arrow:SetSize(12, 12)
-    arrow:SetPoint("CENTER", 0, ARROW_NUDGE[dir] or 0)
-    arrow:SetTexture("Interface\\Buttons\\Arrow-" .. dir .. "-Up")
-    b.arrow = arrow
-
-    return b
-end
-
-
--- Enable/disable an arrow button. UIPanelButtonTemplate greys its own chrome on
--- Disable(), but our overlaid arrow texture isn't part of that, so dim it too.
-local function SetArrowEnabled(b, enabled)
-    b:SetEnabled(enabled)
-    b.arrow:SetDesaturated(not enabled)
-    if enabled then
-        b.arrow:SetVertexColor(1, 1, 1)
-    else
-        b.arrow:SetVertexColor(0.5, 0.5, 0.5)
-    end
-end
-
 
 -- Dropdown display text for a WoW role: its micro atlas icon + name.
 local function RoleText(key)
@@ -143,8 +108,8 @@ local function RenderBuffRows(f)
         row.upBtn:SetShown(editable)
         row.downBtn:SetShown(editable)
         if editable then
-            SetArrowEnabled(row.upBtn, i > 1 or i > f.allowedCount)
-            SetArrowEnabled(row.downBtn, i <= f.allowedCount)
+            row.upBtn:SetArrowEnabled(i > 1 or i > f.allowedCount)
+            row.downBtn:SetArrowEnabled(i <= f.allowedCount)
         end
         row:Show()
     end
@@ -292,14 +257,7 @@ function ToggleIconPicker(f) -- forward declared above
         local picker = CreateFrame("Frame", nil, f, "BackdropTemplate")
         picker:SetFrameLevel(f:GetFrameLevel() + 10)
         picker:SetPoint("TOPLEFT", f.classIcon, "BOTTOMLEFT", 0, -4)
-        picker:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        picker:SetBackdropColor(0.1, 0.1, 0.12, 0.95)
-        picker:SetBackdropBorderColor(0.4, 0.4, 0.4)
+        UI.StylePanel(picker, "popup")
         picker.cells = {}
         picker:Hide()
         f.iconPicker = picker
@@ -594,12 +552,12 @@ local function EnsureCustomizeFrame()
         -- edge, out of the way of the list itself. A built-in role hides them,
         -- and because they were never holding left-hand space the rows still
         -- line up with everything above.
-        local downBtn = CreateArrowButton(row, "Down")
+        local downBtn = UI.CreateArrowButton(row, "Down", ARROW_BTN_SIZE)
         downBtn:SetPoint("RIGHT", 0, 0)
         downBtn:SetScript("OnClick", function() MoveBuff(f, i, 1) end)
         row.downBtn = downBtn
 
-        local upBtn = CreateArrowButton(row, "Up")
+        local upBtn = UI.CreateArrowButton(row, "Up", ARROW_BTN_SIZE)
         upBtn:SetPoint("RIGHT", downBtn, "LEFT", -2, 0)
         upBtn:SetScript("OnClick", function() MoveBuff(f, i, -1) end)
         row.upBtn = upBtn

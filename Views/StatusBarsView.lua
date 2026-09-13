@@ -86,30 +86,13 @@ local function CoverageColor(correct, total, endpoint)
         0.08 + (endpoint.b - 0.08) * t
 end
 
-local function ClampPosition(x, y, anchor)
-    local parentW, parentH = UIParent:GetWidth(), UIParent:GetHeight()
-    if IsRightAnchor(anchor) then
-        x = math.max(math.min(view:GetWidth(), parentW), math.min(x, parentW))
-    else
-        x = math.max(0, math.min(x, math.max(0, parentW - view:GetWidth())))
-    end
-    if IsBottomAnchor(anchor) then
-        y = math.max(0, math.min(y, math.max(0, parentH - view:GetHeight())))
-    else
-        y = math.max(math.min(view:GetHeight(), parentH), math.min(y, parentH))
-    end
-    return x, y
-end
-
 local function SavePosition()
     if not view then return end
     local anchor = StatusBarsAnchor()
-    local x = IsRightAnchor(anchor) and view:GetRight() or view:GetLeft()
-    local y = IsBottomAnchor(anchor) and view:GetBottom() or view:GetTop()
-    if x and y then
-        x, y = ClampPosition(x, y, anchor)
+    local pos = UI.SavePoint(view, anchor)
+    if pos then
         WhoDoesWhat.db.profile.settings.overviewPos = {
-            x = x, y = y, anchor = anchor,
+            x = pos.x, y = pos.y, anchor = anchor,
         }
     end
 end
@@ -139,7 +122,7 @@ local function LoadPosition()
                 or view:GetHeight())
         end
         p.anchor = anchor
-        p.x, p.y = ClampPosition(p.x, p.y, anchor)
+        p.x, p.y = UI.ClampPoint(view, anchor, p.x, p.y)
         view:SetPoint(anchor, UIParent, "BOTTOMLEFT", p.x, p.y)
     else
         -- No saved position: dead centre. This is where the Status Bars page's
@@ -151,20 +134,7 @@ local function LoadPosition()
 end
 
 local function AttachAltDrag(region)
-    region:EnableMouse(true)
-    region:RegisterForDrag("LeftButton")
-    region:SetScript("OnDragStart", function()
-        if not IsAltKeyDown() then return end
-        view.moving = true
-        view:StartMoving()
-    end)
-    region:SetScript("OnDragStop", function()
-        if not view.moving then return end
-        view.moving = nil
-        view:StopMovingOrSizing()
-        SavePosition()
-        LoadPosition()
-    end)
+    UI.AttachDrag(region, view)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1870,8 +1840,12 @@ local function EnsureView()
 
     view = CreateFrame("Frame", "WhoDoesWhatStatusBars", UIParent, "BackdropTemplate")
     view:SetFrameStrata("MEDIUM")
-    view:SetClampedToScreen(true)
-    view:SetMovable(true)
+    UI.MakeMovable(view, {
+        OnStop = function()
+            SavePosition()
+            LoadPosition()
+        end,
+    })
     view:SetResizable(true)
     ApplyResizeBounds()
     view:SetBackdrop({
@@ -1882,7 +1856,6 @@ local function EnsureView()
     })
     view:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
     view:SetBackdropBorderColor(0.4, 0.4, 0.4)
-    AttachAltDrag(view)
     view:SetScript("OnMouseUp", StatusBarsClick)
 
     local title = CreateFrame("Frame", nil, view)
