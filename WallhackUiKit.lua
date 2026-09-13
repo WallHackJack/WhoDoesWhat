@@ -1317,9 +1317,10 @@ function UI.SetSliderValue(s, value)
     s.settingValue = nil
 end
 
--- A whole-number slider with a number box beside it and its range written
--- under its ends, for a setting where dragging is for finding the value and
--- typing is for knowing it. The caller anchors the slider; the box follows it.
+-- A whole-number slider with a number box beside it, for a setting where
+-- dragging is for finding the value and typing is for knowing it. No range is
+-- written under it, so it fits on one row beside its label. The caller anchors
+-- the slider; the box follows it.
 --
 -- spec: { name, min, max, width }
 -- Get() returns the saved value, Set(value) saves one, OnChange() runs after a
@@ -1334,13 +1335,6 @@ end
 function UI.CreateSliderWithInput(parent, spec, Get, Set, OnChange)
     local slider = UI.CreateSlider(parent, spec.name, spec.min, spec.max, 1)
     slider:SetWidth(spec.width or 150)
-
-    local low = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    low:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 0, -3)
-    low:SetText(spec.min)
-    local high = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    high:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", 0, -3)
-    high:SetText(spec.max)
 
     local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
     edit:SetSize(40, 20)

@@ -607,7 +607,7 @@ local function CreateShoutButton(index)
         if down then return end
         if mouseButton ~= "RightButton" then return end
         if IsShiftKeyDown() then
-            WhoDoesWhat:OpenAddonSettingsView("Warriors")
+            WhoDoesWhat:OpenAddonSettingsView("Warrior Bar")
         elseif self.isSoloIcon then
             WhoDoesWhat:ToggleSoloShout()
         end

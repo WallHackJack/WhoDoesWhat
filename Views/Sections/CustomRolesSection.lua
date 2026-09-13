@@ -452,7 +452,7 @@ local function Build(f, content)
     local rolesBtn = UI.CreateGearButton(box, "Roles",
         "Every role WDW knows, plus your own custom ones. Built-in roles are a"
         .. " read-only reference there -- change one by overriding it here.",
-        function() WhoDoesWhat:OpenAllRolesView() end)
+        function() WhoDoesWhat:OpenAddonSettingsView("Roles") end)
     K.ChainHeaderButton(chrome, rolesBtn)
 
     local addBtn

@@ -2,7 +2,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local AceGUI = LibStub("AceGUI-3.0")
 
--- The Roles window: every role WDW knows, by class, plus your own custom ones.
+-- The Roles settings page: every role WDW knows, by class, plus your own custom
+-- ones. It was a window of its own until it became a tab in Settings.
 --
 -- It used to be where blessing orders were edited. It isn't any more -- an order
 -- deviates from the defaults only on the shared board (the main window's Custom
@@ -15,11 +16,11 @@ local AceGUI = LibStub("AceGUI-3.0")
 -- custom roles ever wear one. What the raid is overriding tonight belongs to
 -- the Custom Roles section, not to a role's entry in your library.
 --
--- Persistent custom root frame (owns the chrome) and the AceGUI content group
--- rebuilt inside it. The root frame is created once and never pooled, so the
--- title/close/background/options box never leak the way overlays on AceGUI's
--- pooled Window frames did.
-local mainFrame = nil
+-- The settings page's scroll child (owns the options strip) and the AceGUI
+-- content group rebuilt inside it. The strip is built once and never pooled,
+-- so nothing leaks onto AceGUI's pooled frames.
+local rolesPage = nil
+local rolesScroll = nil
 local contentGroup = nil
 
 -- Soft row highlight shown when hovering a role
@@ -38,14 +39,12 @@ local PAD_BELOW_HEADER = 4 -- gap under a class divider before its first role
 local PAD_BETWEEN_ROLES = 2 -- gap between role rows so icons don't touch
 local PAD_END_OF_CLASS = 8 -- gap after a class before the next divider
 
--- Frame geometry
-local FRAME_W = 380
-local FRAME_H = 500
-local TITLEBAR_H = UI.TITLEBAR_H
-local MARGIN = 10
-local OPTIONS_TOP = TITLEBAR_H + MARGIN -- y (from top) where the options box sits
-local OPTIONS_H = 32
-local CONTENT_TOP = OPTIONS_TOP + OPTIONS_H + 8 -- y (from top) where the columns start
+-- Page geometry: one column, centred on the page, holding the options strip
+-- and the two class columns under it.
+local COLUMN_W = 520
+local OPTIONS_TOP = 10 -- y (from the page top) where the options strip sits
+local OPTIONS_H = 24
+local CONTENT_TOP = OPTIONS_TOP + OPTIONS_H + 10 -- y where the class columns start
 
 
 -- Add a precise-height vertical spacer. A SimpleGroup normally re-sizes itself
@@ -165,101 +164,24 @@ local function BuildClassBlock(column, classInfo)
 end
 
 
--- Build our root frame once and reuse it. Chrome (backdrop / title bar / close /
--- drag / Escape) comes from the shared factory; we add the persistent lighter
--- options box + expand checkbox on top. The class list is (re)built separately.
-local function EnsureMainFrame()
-    if mainFrame then return mainFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatFrame", FRAME_W, FRAME_H, "WDW - Roles")
-
-    -- Persistent lighter options box (child of our frame, never pooled)
-    local optionsBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
-    optionsBox:SetPoint("TOPLEFT", MARGIN, -OPTIONS_TOP)
-    optionsBox:SetPoint("TOPRIGHT", -MARGIN, -OPTIONS_TOP)
-    optionsBox:SetHeight(OPTIONS_H)
-    UI.StylePanel(optionsBox)
-
-    -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
-    -- never releases the widget mid-callback).
-    local check = UI.CreateCheckbox(f, "Expand Roles", nil, nil, function(self)
-        local value = self:GetChecked() and true or false
-        WhoDoesWhat.db.profile.expandRoles = value
-        WhoDoesWhat:LogUiBuilding("Expand Roles toggled to " .. tostring(value) .. "; rebuilding roles.")
-        WhoDoesWhat:RebuildAllRolesView()
-    end, { size = 22, font = "GameFontHighlight", gap = 2 })
-    check:SetPoint("LEFT", optionsBox, "LEFT", 8, 0)
-    f.expandCheck = check
-
-    -- Create Role, right-aligned in the same strip. Its tooltip is written for
-    -- somebody who has not met the concept yet: this window is where a new user
-    -- most plausibly goes looking, and "role" is doing a lot of work in WDW.
-    -- Parented to the options box and lifted above it: as a sibling at the same
-    -- frame level its art fought with the box's backdrop.
-    local createBtn = CreateFrame("Button", nil, optionsBox, "UIPanelButtonTemplate")
-    createBtn:SetFrameLevel(optionsBox:GetFrameLevel() + 2)
-    createBtn:SetSize(110, 22)
-    createBtn:SetPoint("RIGHT", optionsBox, "RIGHT", -8, 0)
-    createBtn:SetText("Create Role")
-    createBtn:SetScript("OnClick", function()
-        WhoDoesWhat:OpenCustomizerForNewRole()
-    end)
-    UI.AddTooltip(createBtn, function(self)
-        GameTooltip:SetText("Create a custom role", unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine("A role is the job a raider is doing -- Frost Mage,"
-            .. " Protection Warrior, Holy Priest. WhoDoesWhat uses it to work"
-            .. " out which paladin blessings they should get and whether they"
-            .. " count as a tank, healer or damage dealer.", 0.8, 0.8, 0.8, true)
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Every class already has its specs listed here."
-            .. " Make your own when a raider's job needs its own name or its own"
-            .. " blessings -- an off-tank, a decurser, a kite duty.",
-            0.8, 0.8, 0.8, true)
-        return true
-    end)
-    f.createButton = createBtn
-
-    -- "Reset all" used to live here, when this window owned per-profile buff
-    -- orders. It no longer owns any: overrides are the raid's, and removing one
-    -- is a row in the Custom Roles section.
-    mainFrame = f
-    return f
-end
-
-
--- Resize a frame's height while keeping its top-left corner fixed on screen, so
--- content that grows or shrinks downward doesn't shift widgets anchored top-left.
-local function SetFrameHeightKeepingTopLeft(f, height)
-    local left, top = f:GetLeft(), f:GetTop()
-    f:ClearAllPoints()
-    if left and top then
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-    else
-        f:SetPoint("CENTER") -- not yet positioned (first build, before Show)
-    end
-    f:SetHeight(height)
-end
-
-
--- (Re)build the AceGUI class-list content inside the root frame. Releasing the
--- previous content group returns all its widgets to the pool cleanly -- and we
--- attach no raw frames to them, so nothing leaks across rebuilds.
+-- (Re)build the AceGUI class-list content on the page. Releasing the previous
+-- content group returns all its widgets to the pool cleanly -- and we attach no
+-- raw frames to them, so nothing leaks across rebuilds.
 local function BuildContent()
-    local f = EnsureMainFrame()
-
     if contentGroup then
         AceGUI:Release(contentGroup)
         contentGroup = nil
     end
 
     WhoDoesWhat:LogUiBuilding("Building class list content.")
+    rolesPage.expandCheck:SetChecked(WhoDoesWhat.db.profile.expandRoles)
 
     local group = AceGUI:Create("SimpleGroup")
     group:SetLayout("Flow")
-    group.frame:SetParent(f)
+    group.frame:SetParent(rolesPage)
     group.frame:ClearAllPoints()
-    group.frame:SetPoint("TOPLEFT", f, "TOPLEFT", MARGIN, -CONTENT_TOP)
-    group:SetWidth(FRAME_W - MARGIN * 2)
+    group.frame:SetPoint("TOP", rolesPage, "TOP", 0, -CONTENT_TOP)
+    group:SetWidth(COLUMN_W)
     group.frame:Show()
     contentGroup = group
 
@@ -286,36 +208,83 @@ local function BuildContent()
         BuildClassBlock(rightColumn, classInfo)
     end
 
-    -- Fit the window to the taller column, keeping the top-left corner fixed so
-    -- the options checkbox stays under the cursor when toggling
-    -- expand/collapse. Creating a role is the strip's button now, not a row
-    -- down here, so nothing trails the columns.
+    -- The group is as tall as the taller column, which is what the page's
+    -- scroll area measures.
     local contentH = math.max(leftColumn.frame:GetHeight(), rightColumn.frame:GetHeight())
-    SetFrameHeightKeepingTopLeft(f, CONTENT_TOP + contentH + MARGIN)
+    group.frame:SetHeight(contentH)
+    UI.FitScrollToContent(rolesScroll)
 
     WhoDoesWhat:LogUiBuilding("Class list population complete. Content height: " .. math.floor(contentH))
 end
 
 
--- Rebuild just the class list in place (the frame and its chrome stay put).
-function WhoDoesWhat:RebuildAllRolesView()
-    if not mainFrame or not mainFrame:IsShown() then return end
-    BuildContent()
+-- Build the options strip onto the Roles settings page, once. The class list
+-- is (re)built separately, each time the page comes up.
+function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
+    rolesPage, rolesScroll = page, scroll
+
+    local strip = CreateFrame("Frame", nil, page)
+    strip:SetPoint("TOP", 0, -OPTIONS_TOP)
+    strip:SetSize(COLUMN_W, OPTIONS_H)
+
+    -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
+    -- never releases the widget mid-callback).
+    local check = UI.CreateCheckbox(strip, "Expand Roles", nil, nil, function(self)
+        local value = self:GetChecked() and true or false
+        WhoDoesWhat.db.profile.expandRoles = value
+        WhoDoesWhat:LogUiBuilding("Expand Roles toggled to " .. tostring(value) .. "; rebuilding roles.")
+        BuildContent()
+    end, { size = 22, font = "GameFontHighlight", gap = 2 })
+    check:SetPoint("LEFT", 4, 0)
+    page.expandCheck = check
+
+    -- Create Role, right-aligned in the same strip. Its tooltip is written for
+    -- somebody who has not met the concept yet: this page is where a new user
+    -- most plausibly goes looking, and "role" is doing a lot of work in WDW.
+    local createBtn = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
+    createBtn:SetSize(110, 22)
+    createBtn:SetPoint("RIGHT", -4, 0)
+    createBtn:SetText("Create Role")
+    createBtn:SetScript("OnClick", function()
+        WhoDoesWhat:OpenCustomizerForNewRole()
+    end)
+    UI.AddTooltip(createBtn, function(self)
+        GameTooltip:SetText("Create a custom role", unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:AddLine("A role is the job a raider is doing -- Frost Mage,"
+            .. " Protection Warrior, Holy Priest. WhoDoesWhat uses it to work"
+            .. " out which paladin blessings they should get and whether they"
+            .. " count as a tank, healer or damage dealer.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Every class already has its specs listed here."
+            .. " Make your own when a raider's job needs its own name or its own"
+            .. " blessings -- an off-tank, a decurser, a kite duty.",
+            0.8, 0.8, 0.8, true)
+        return true
+    end)
 end
 
 
--- Toggle the window open/closed.
-function WhoDoesWhat:OpenAllRolesView()
-    local f = EnsureMainFrame()
+-- Build the class list now; the Settings page calls this as the tab comes up.
+function WhoDoesWhat:RefreshRolesSettingsPage()
+    if rolesPage then BuildContent() end
+end
 
-    if f:IsShown() then
-        WhoDoesWhat:LogUiBuilding("All Roles View open, closing it.")
-        f:Hide()
-        return
-    end
 
-    WhoDoesWhat:LogUiBuilding("Opening All Roles View...")
-    f.expandCheck:SetChecked(WhoDoesWhat.db.profile.expandRoles)
-    BuildContent()
-    f:Show()
+-- Rebuild the class list if the page is on screen (the customizer calls this
+-- after a save); otherwise the next visit builds it.
+function WhoDoesWhat:RebuildAllRolesView()
+    if rolesPage and rolesPage:IsVisible() then BuildContent() end
+end
+
+
+-- The page's Reset Defaults: your custom role library goes, and the list
+-- collapses back to categories. Roles published to the raid are the board's,
+-- not the library's, so they stay.
+function WhoDoesWhat:ResetRolesSettingsPage()
+    self.db.profile.expandRoles = false
+    wipe(self.db.profile.customRoles)
+    self:PopulateRolesAndCategories()
+    self:RefreshMainAssignmentsView()
+    self:RefreshBoardViews()
+    self:RefreshRolesSettingsPage()
 end
