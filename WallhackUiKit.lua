@@ -1075,7 +1075,9 @@ function UI.AddTooltip(btn, title, body, source, follow)
     btn:SetScript("OnLeave", function(self, ...)
         if previousLeave then previousLeave(self, ...) end
         if follow then self:SetScript("OnUpdate", nil) end
-        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+        -- GetOwner rather than IsOwned: a dropdown's caption is a font string,
+        -- and IsOwned refuses anything that is not a frame.
+        if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
     end)
 end
 

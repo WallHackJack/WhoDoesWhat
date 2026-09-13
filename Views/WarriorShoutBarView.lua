@@ -27,8 +27,13 @@ local Assign = WhoDoesWhat.Assign
 -- lone warrior gets one icon -- right-click it to choose which shout that is.
 -- Two or more warriors, and the second shout is somebody's job, so both show.
 --
--- Left-click a button to cast its shout. Each one's spell never changes, so
--- unlike the paladin bar there is no rotation to rebake -- the secure
+-- A warrior left-clicks a button to cast its shout; anyone else left-clicks to
+-- ask for it in party chat. Each has a set of settings of its own
+-- (GetShoutBarSettings), so the bar tuned for casting is not the one an alt
+-- sees.
+--
+-- Each button's spell never changes, so unlike the paladin bar there is no
+-- rotation to rebake -- the secure
 -- attributes are set once at creation and never touched again. What the secure
 -- template does cost is the combat-lockdown discipline around LAYOUT: a
 -- protected button cannot be created, shown, hidden or moved mid-fight, and
@@ -55,9 +60,37 @@ local BTN_GAP = 5
 -- two-icon strip is a banner.
 WhoDoesWhat.SHOUT_BAR_ICON_SIZE = { min = 16, max = 64, default = 28 }
 
+-- Two sets of settings, both per account (Core.lua): the warrior's, live while
+-- playing one, and everyone else's. A warrior casts from the bar and anyone
+-- else asks from it, which want different things of it. Casting or asking
+-- always follows your class; which SET the bar reads can be overridden while
+-- the settings page is up, so either set can be edited and seen.
+function WhoDoesWhat:IsShoutBarWarriorMode()
+    local _, class = UnitClass("player")
+    return class == "WARRIOR"
+end
+
+function WhoDoesWhat:GetShoutBarSettingsKey()
+    return self.shoutBarEditingKey
+        or (self:IsShoutBarWarriorMode() and "warrior" or "nonWarrior")
+end
+
+-- "warrior" or "nonWarrior" to show and edit that set, nil to go back to your
+-- class's own. The bar is re-laid out either way: the sets differ in size,
+-- position and whether the bar is on at all.
+function WhoDoesWhat:SetShoutBarEditingKey(key)
+    if self.shoutBarEditingKey == key then return end
+    self.shoutBarEditingKey = key
+    self:UpdateWarriorShoutBarVisibility()
+end
+
+function WhoDoesWhat:GetShoutBarSettings()
+    return self.db.global.shoutBar[self:GetShoutBarSettingsKey()]
+end
+
 function WhoDoesWhat:GetShoutBarIconSize()
     local range = self.SHOUT_BAR_ICON_SIZE
-    local size = tonumber(self.db.profile.settings.shoutBarIconSize)
+    local size = tonumber(self:GetShoutBarSettings().iconSize)
         or range.default
     return math.floor(math.max(range.min, math.min(range.max, size)) + 0.5)
 end
@@ -79,11 +112,11 @@ local MISSING_GLOW_COLOR = { r = 0.949, g = 0.71, b = 0 }
 local PARTIAL_GLOW_COLOR = { r = 0.157, g = 0.561, b = 1 }
 
 function WhoDoesWhat:GetShoutBarGlowColor(which)
-    local settings = self.db.profile.settings
+    local settings = self:GetShoutBarSettings()
     if which == "partial" then
-        return settings.shoutBarGlowPartialColor or PARTIAL_GLOW_COLOR
+        return settings.glowPartialColor or PARTIAL_GLOW_COLOR
     end
-    return settings.shoutBarGlowMissingColor or MISSING_GLOW_COLOR
+    return settings.glowMissingColor or MISSING_GLOW_COLOR
 end
 
 -- Named rather than left nil: an unset style would otherwise fall through to
@@ -91,18 +124,18 @@ end
 local DEFAULT_GLOW_STYLE = "flash"
 
 function WhoDoesWhat:GetShoutBarGlowStyle()
-    return self.db.profile.settings.shoutBarGlowStyle or DEFAULT_GLOW_STYLE
+    return self:GetShoutBarSettings().glowStyle or DEFAULT_GLOW_STYLE
 end
 
 -- Names a tooltip lists before the rest collapse into a count.
 local TOOLTIP_NAMES = 6
--- How close to lapsing the soonest shout gets before its countdown appears.
--- 0 is Off -- no countdown at any point.
-WhoDoesWhat.ShoutBarTimerSeconds = { 30, 15, 10, 0 }
+-- How close to lapsing the soonest shout gets before its countdown appears, in
+-- the order the dropdown lists them. -1 is Always and 0 is Never.
+WhoDoesWhat.ShoutBarTimerSeconds = { -1, 60, 30, 15, 10, 0 }
 WhoDoesWhat.SHOUT_BAR_DEFAULT_TIMER = 30
 
 function WhoDoesWhat:GetShoutBarTimerSeconds()
-    local saved = self.db.profile.settings.shoutBarTimerSeconds
+    local saved = self:GetShoutBarSettings().timerSeconds
     for _, seconds in ipairs(self.ShoutBarTimerSeconds) do
         if seconds == saved then return saved end
     end
@@ -110,7 +143,10 @@ function WhoDoesWhat:GetShoutBarTimerSeconds()
 end
 
 function WhoDoesWhat:GetShoutBarTimerLabel(seconds)
-    return seconds == 0 and "Off" or (seconds .. "s")
+    if seconds == 0 then return "Never" end
+    if seconds < 0 then return "Always" end
+    if seconds % 60 == 0 then return "Under " .. (seconds / 60) .. "m" end
+    return "Under " .. seconds .. "s"
 end
 
 -- y from the bar's top down to where the button row begins. With no title
@@ -169,7 +205,7 @@ end
 -- has to go looking for. The choice is remembered, so a second warrior joining
 -- and leaving again hands the icon back the way it was.
 function WhoDoesWhat:GetSoloShout()
-    local saved = self.db.profile.settings.shoutBarSoloShout
+    local saved = self:GetShoutBarSettings().soloShout
     for _, shout in ipairs(self.WarriorShouts) do
         if shout.key == saved then return shout end
     end
@@ -185,7 +221,7 @@ function WhoDoesWhat:ToggleSoloShout()
     local current = self:GetSoloShout()
     for _, shout in ipairs(self.WarriorShouts) do
         if shout ~= current then
-            self.db.profile.settings.shoutBarSoloShout = shout.key
+            self:GetShoutBarSettings().soloShout = shout.key
             self:LogUiBuilding("Shout bar solo icon swapped to "
                 .. tostring(shout.name) .. ".")
             self:RefreshWarriorShoutBar()
@@ -196,40 +232,15 @@ function WhoDoesWhat:ToggleSoloShout()
 end
 
 -- ---------------------------------------------------------------------------
--- Visibility mode
+-- Visibility
 -- ---------------------------------------------------------------------------
 
--- The four answers the settings dropdown offers, and what each one means.
--- Every mode but "always" wants a warrior in the group: a shout bar in a
--- warriorless group is glowing at something nobody present can cast.
-WhoDoesWhat.ShoutBarModes = {
-    { key = "warriorOnly", label = "Warriors only" },
-    { key = "withWarrior", label = "With a warrior" },
-    { key = "always", label = "Always" },
-    { key = "never", label = "Never" },
-}
-WhoDoesWhat.SHOUT_BAR_DEFAULT_MODE = "warriorOnly"
-
-function WhoDoesWhat:GetShoutBarMode()
-    local mode = self.db.profile.settings.shoutBarShow
-    for _, entry in ipairs(self.ShoutBarModes) do
-        if entry.key == mode then return mode end
-    end
-    return self.SHOUT_BAR_DEFAULT_MODE
-end
-
-function WhoDoesWhat:GetShoutBarModeLabel(mode)
-    for _, entry in ipairs(self.ShoutBarModes) do
-        if entry.key == mode then return entry.label end
-    end
-end
-
 -- Should the bar be up, and how many warriors are here to divide the shouts
--- between? The count is returned even when it is zero, because "always" mode
--- shows the bar anyway and still wants to lay it out.
+-- between? Up when the live set's switch is on and your party has a warrior:
+-- a shout bar in a warriorless party is glowing at something nobody present
+-- can cast, or asking nobody for it.
 local function ResolveShoutBar()
-    local mode = WhoDoesWhat:GetShoutBarMode()
-    if mode == "never" then return false, 0 end
+    if not WhoDoesWhat:GetShoutBarSettings().enabled then return false, 0 end
     -- Warriors in OUR party: a warrior two subgroups over shouts for their own
     -- party, not ours, so they neither keep the bar up nor take one of its
     -- shouts off our hands.
@@ -238,12 +249,7 @@ local function ResolveShoutBar()
     for _, name in ipairs(Assign.MembersOfClass("Warrior")) do
         if not party or party[name] then warriors = warriors + 1 end
     end
-    if mode == "warriorOnly" then
-        local _, class = UnitClass("player")
-        if class ~= "WARRIOR" then return false, warriors end
-    end
-    if mode ~= "always" and warriors == 0 then return false, warriors end
-    return true, warriors
+    return warriors > 0, warriors
 end
 
 -- ---------------------------------------------------------------------------
@@ -266,7 +272,7 @@ WhoDoesWhat.ShoutBarAnchors = {
 WhoDoesWhat.SHOUT_BAR_DEFAULT_ANCHOR = "CENTER"
 
 function WhoDoesWhat:GetShoutBarAnchor()
-    local anchor = self.db.profile.settings.shoutBarAnchor
+    local anchor = self:GetShoutBarSettings().anchor
     return ANCHOR_POINTS[anchor] and anchor or self.SHOUT_BAR_DEFAULT_ANCHOR
 end
 
@@ -280,7 +286,7 @@ end
 local function SavePosition()
     if not bar then return end
     local pos = UI.SavePoint(bar, ANCHOR_POINTS[WhoDoesWhat:GetShoutBarAnchor()])
-    if pos then WhoDoesWhat.db.profile.settings.shoutBarPos = pos end
+    if pos then WhoDoesWhat:GetShoutBarSettings().pos = pos end
 end
 
 -- Anchored by the point the position was SAVED under, not the current setting:
@@ -288,7 +294,7 @@ end
 -- follows it, and re-reading the saved point is what makes a stored position
 -- stand on its own.
 local function LoadPosition()
-    local p = WhoDoesWhat.db.profile.settings.shoutBarPos
+    local p = WhoDoesWhat:GetShoutBarSettings().pos
     if p then
         p.point = (p.point == "TOPRIGHT" or p.point == "TOP") and p.point or "TOPLEFT"
     end
@@ -300,7 +306,7 @@ end
 -- Re-anchor to the newly chosen edge without visually moving the bar: save the
 -- current rect under the new point, then load it straight back.
 function WhoDoesWhat:SetShoutBarAnchor(anchor)
-    self.db.profile.settings.shoutBarAnchor = anchor
+    self:GetShoutBarSettings().anchor = anchor
     if bar and bar:GetLeft() then
         SavePosition()
         LoadPosition()
@@ -429,7 +435,9 @@ end
 local function MissingFor(shout)
     local disconnected = Assign.DisconnectedGroupTargets()
     local party = PartyNames()
-    local checkRange = WhoDoesWhat.db.profile.settings.shoutBarIgnoreOutOfRange
+    -- A Warrior Settings option only; the non-warrior page does not offer it.
+    local checkRange = WhoDoesWhat:GetShoutBarSettingsKey() == "warrior"
+        and WhoDoesWhat:GetShoutBarSettings().ignoreOutOfRange
     local nameToUnit = checkRange and BuildNameToUnit() or nil
     local targets = {}
     for _, m in ipairs(Assign.GetEligibleMembers(nil)) do
@@ -514,7 +522,8 @@ local function ShowShoutTooltip(btn)
     -- The bar has no title strip to hang these off any more, so every button
     -- carries them.
     GameTooltip:AddLine(" ")
-    UI.AddTooltipHint(GameTooltip, "Left-Click:", "Shout")
+    UI.AddTooltipHint(GameTooltip, "Left-Click:",
+        WhoDoesWhat:IsShoutBarWarriorMode() and "Shout" or "Ask for it in party chat")
     if btn.isSoloIcon then
         UI.AddTooltipHint(GameTooltip, "Right-Click:", "Swap shout")
     end
@@ -546,6 +555,29 @@ local function SizeShoutButton(btn, size)
     local timerFace, _, timerFlags = btn.timer:GetFont()
     btn.timer:SetFont(timerFace or FALLBACK_FONT,
         math.max(10, math.floor(size * TIMER_FONT_RATIO + 0.5)), timerFlags)
+end
+
+-- Anyone but a warrior asks rather than casts: party chat, which in a raid
+-- reaches exactly your subgroup -- the only warriors whose shout reaches you.
+-- Throttled, so an impatient hand posts once. Solo there is nobody to ask, so
+-- it shows you the line instead, the way the status bars' announce does.
+local REQUEST_COOLDOWN = 10
+local lastRequest = 0
+
+local function RequestShout(btn)
+    if not btn.shout then return end
+    local now = GetTime()
+    if now - lastRequest < REQUEST_COOLDOWN then return end
+    lastRequest = now
+    local total = btn.total or 0
+    local covered = total - #(btn.missing or {})
+    local text = "[WhoDoesWhat] " .. btn.shout.name .. " please! ("
+        .. covered .. "/" .. total .. " in party have it)"
+    if IsInGroup() then
+        SendChatMessage(text, "PARTY")
+    else
+        WhoDoesWhat:Print(text)
+    end
 end
 
 local function CreateShoutButton(index)
@@ -611,6 +643,10 @@ local function CreateShoutButton(index)
         -- window and immediately close it again, and swap the shout straight
         -- back to where it started.
         if down then return end
+        if mouseButton == "LeftButton" and not WhoDoesWhat:IsShoutBarWarriorMode() then
+            RequestShout(self)
+            return
+        end
         if mouseButton ~= "RightButton" then return end
         if IsShiftKeyDown() then
             WhoDoesWhat:OpenAddonSettingsView("Warrior Bar")
@@ -639,9 +675,13 @@ end
 -- writes when the shout actually changed -- which is rare, but does happen: a
 -- lone icon right-clicked to the other shout, or a second warrior arriving and
 -- handing button one its canonical shout back.
+--
+-- Only a warrior's buttons cast. Anyone else's carry no action at all, which
+-- leaves left-click to PostClick and the request above.
 local function ConfigureShoutButton(btn, shout)
     if btn.shout == shout then return end
     btn.shout = shout
+    if not WhoDoesWhat:IsShoutBarWarriorMode() then return end
     btn:SetAttribute("type1", "spell")
     btn:SetAttribute("spell1", shout.name)
 end
@@ -653,8 +693,13 @@ end
 local function UpdateShoutTimer(btn)
     local warn = WhoDoesWhat:GetShoutBarTimerSeconds()
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
-    if warn > 0 and remaining and remaining > 0 and remaining < warn then
-        btn.timer:SetFormattedText("%d", math.ceil(remaining))
+    if warn ~= 0 and remaining and remaining > 0 and (warn < 0 or remaining < warn) then
+        -- Minutes once there are any, so "Always" fits a two-minute shout.
+        if remaining >= 60 then
+            btn.timer:SetFormattedText("%dm", math.ceil(remaining / 60))
+        else
+            btn.timer:SetFormattedText("%d", math.ceil(remaining))
+        end
         -- The bar's second colour, as the Paladin Bar's countdown wears its
         -- expiring one.
         local c = WhoDoesWhat:GetShoutBarGlowColor("partial")
@@ -669,10 +714,13 @@ end
 -- countdown running on it. Asked per button, so a Battle Shout that is fully
 -- up goes quiet while a Commanding Shout somebody is missing stays put.
 local function ButtonIsIdle(btn)
-    if not WhoDoesWhat.db.profile.settings.shoutBarHideWhenBuffed then
+    if not WhoDoesWhat:GetShoutBarSettings().hideWhenBuffed then
         return false
     end
-    return not ((btn.missing and #btn.missing > 0) or btn.timer:IsShown())
+    -- An "Always" countdown is running whenever the shout is up at all, so it
+    -- is no reason to stay lit there.
+    local counting = btn.timer:IsShown() and WhoDoesWhat:GetShoutBarTimerSeconds() > 0
+    return not ((btn.missing and #btn.missing > 0) or counting)
 end
 
 -- "Hide while everything is up": fade each icon out on its own once its shout
@@ -823,9 +871,9 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
     -- Chrome the user can switch off. The backdrop keeps its inset either way,
     -- so hiding it leaves the icons exactly where they were rather than
     -- shifting the whole bar under the cursor.
-    local settings = self.db.profile.settings
-    local hideBackground = settings.shoutBarHideBackground and true or false
-    local hideNumbers = settings.shoutBarHideNumbers and true or false
+    local settings = self:GetShoutBarSettings()
+    local hideBackground = settings.hideBackground and true or false
+    local hideNumbers = settings.hideNumbers and true or false
     -- The Paladin Bar's navy and the main window's gold edge (Theme.lua).
     local fill, edge = self.Theme.paladinBarFill, self.Theme.mainBorder
     bar:SetBackdropColor(fill[1], fill[2], fill[3], hideBackground and 0 or fill[4])
@@ -856,32 +904,32 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
     -- The bar is exactly as wide as its icons, with no caption left to pad it
     -- out past them.
     local rowW = shown * size + (shown - 1) * BTN_GAP
-    bar:SetSize(INSET * 2 + PAD * 2 + rowW,
-        CONTENT_TOP + size + (hideNumbers and 0 or CountHeight(size))
-            + INSET + 1)
+    -- With no counts under the icons the bar is the same inset and padding
+    -- below them as above; the counts bring their own room instead.
+    local belowIcons = hideNumbers and (PAD + INSET) or (CountHeight(size) + INSET + 1)
+    bar:SetSize(INSET * 2 + PAD * 2 + rowW, CONTENT_TOP + size + belowIcons)
     if not bar.moving then LoadPosition() end
     ApplyIdleFade()
 end
 
--- The settings page's Reset Defaults. The solo shout is left alone: it is
--- picked on the bar itself, not on the page.
-local RESET_SETTINGS = {
-    "shoutBarShow", "shoutBarAnchor", "shoutBarHideBackground",
-    "shoutBarHideNumbers", "shoutBarTimerSeconds", "shoutBarIgnoreOutOfRange",
-    "shoutBarHideWhenBuffed", "shoutBarIconSize", "shoutBarGlowStyle",
-    "shoutBarGlowMissingColor", "shoutBarGlowPartialColor",
-}
-
+-- The settings page's Reset Defaults: the live set only, back to its own
+-- defaults. The solo shout is left alone: it is picked on the bar itself, not
+-- on the page. The position goes with the rest, and with none saved
+-- LoadPosition centres the bar.
 function WhoDoesWhat:ResetShoutBarSettings()
-    self:RestoreDefaultSettings(RESET_SETTINGS)
-    -- Dropped rather than centred by hand: with no saved position LoadPosition
-    -- centres the bar.
-    self.db.profile.settings.shoutBarPos = nil
+    local key = self:GetShoutBarSettingsKey()
+    local settings = self.db.global.shoutBar[key]
+    local solo = settings.soloShout
+    wipe(settings)
+    for option, value in pairs(self.db.defaults.global.shoutBar[key]) do
+        settings[option] = type(value) == "table" and CopyTable(value) or value
+    end
+    settings.soloShout = solo
     if bar then LoadPosition() end
     self:UpdateWarriorShoutBarVisibility()
 end
 
--- Show or hide the whole bar per the settings mode, then repaint.
+-- Show or hide the whole bar per the live set's switch, then repaint.
 function WhoDoesWhat:UpdateWarriorShoutBarVisibility()
     -- GROUP_ROSTER_UPDATE can beat AceDB's profile into existence at login.
     if not self.db then return end
@@ -909,7 +957,7 @@ end
 -- aura scan have had time to land.
 --
 -- The roster event hangs here rather than on the bar, because the bar may not
--- exist yet: in "with a warrior" mode a group without one has nothing on
+-- exist yet: a party without a warrior has nothing on
 -- screen, and a frame that was never created cannot notice the warrior who
 -- walks in. Buff arrivals ride the buff-tracking notify instead
 -- (RefreshBoardViews in Views/ViewRefresh.lua).

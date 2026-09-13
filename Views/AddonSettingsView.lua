@@ -621,7 +621,7 @@ local function AddPageDivider(parent, y, text, color)
     divider:SetPoint("TOPLEFT", PAGE_X, -y)
     divider:SetWidth(PAGE_COLUMN_W)
     divider.isPageDivider = true
-    return y + 18
+    return y + 18, divider
 end
 
 -- The same, after the group above it, with the gap between groups first.
@@ -705,6 +705,9 @@ end
 --   spec.colors     { { label, tooltip, key }, ... }, `key` naming the colour's
 --                   setting; the first one leads: it is the colour the preview
 --                   box is drawn in
+--   spec.Store / spec.Defaults  optional functions returning the table those
+--                   keys live in and its defaults; the profile's settings
+--                   when left out
 --   spec.OnChange   repaint whatever wears these
 -- Returns the page refresher and the y the next widget starts at.
 local function AddHighlightControls(parent, x, y, spec)
@@ -712,14 +715,15 @@ local function AddHighlightControls(parent, x, y, spec)
     -- a table, and AceDB copies a table default into the profile instead of
     -- falling back to it, so a nil left there stays nil: the swatch went white
     -- and each bar drew its own stale fallback colour.
+    local Store = spec.Store or function() return WhoDoesWhat.db.profile.settings end
+    local Defaults = spec.Defaults
+        or function() return WhoDoesWhat.db.defaults.profile.settings end
     for _, entry in ipairs(spec.colors) do
         local key = entry.key
-        entry.Default = function()
-            return WhoDoesWhat.db.defaults.profile.settings[key]
-        end
-        entry.Get = function() return WhoDoesWhat.db.profile.settings[key] end
+        entry.Default = function() return Defaults()[key] end
+        entry.Get = function() return Store()[key] end
         entry.Set = function(color)
-            WhoDoesWhat.db.profile.settings[key] = color or CopyTable(entry.Default())
+            Store()[key] = color or CopyTable(entry.Default())
         end
     end
 
@@ -834,7 +838,7 @@ local function AddHighlightControls(parent, x, y, spec)
         ApplyPreview(SavedStyle())
     end
 
-    return Refresh, rowY + 4
+    return Refresh, rowY + 4, labels, fields
 end
 
 -- A whole number with two ways in: a slider to drag, and a box beside it to
@@ -1388,7 +1392,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             reset = WithReload(function() WhoDoesWhat:ResetPaladinBarSettings() end) },
         { label = "Warrior Bar", title = "Warrior Shouts", color = { 0.78, 0.61, 0.43 },
             description = "Puts every option on this page back and re-centres the"
-                .. " shout bar.",
+                .. " shout bar -- for the settings you are editing now only.",
             reset = WithReload(function() WhoDoesWhat:ResetShoutBarSettings() end) },
         { label = "Developer", title = "Developer Options", right = true,
             description = "Turns Developer Mode, the Logs tab and every logging"
@@ -2232,41 +2236,59 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         .. " members based on WDW roles. Hover the bar and check the tooltips"
         .. " for additional info")
 
-    yL = AddPageDivider(warriorPage, yL, "Bar")
-    local shoutShowLabel, shoutShowDD
-    shoutShowLabel, shoutShowDD, yL = AddDropdownRow(warriorPage, yL,
-        "Show shout bar:", "WhoDoesWhatShoutBarShowDD")
-    UIDropDownMenu_Initialize(shoutShowDD, function(_, level)
-        local saved = WhoDoesWhat:GetShoutBarMode()
-        for _, mode in ipairs(WhoDoesWhat.ShoutBarModes) do
+    -- Two sets of these settings, per account: a warrior's, and everyone
+    -- else's. The page opens on the set your class uses; picking the other
+    -- shows it on the bar while you edit, and closing the settings hands the
+    -- bar back to your class's set.
+    local SHOUT_SET_LABELS = {
+        warrior = "Warrior Settings", nonWarrior = "Non-Warrior Settings",
+    }
+    local shoutEditingLabel, shoutEditingDD
+    shoutEditingLabel, shoutEditingDD, yL = AddDropdownRow(warriorPage, yL,
+        "Editing:", "WhoDoesWhatShoutBarEditingDD")
+    shoutEditingLabel:SetFontObject(GameFontNormalLarge)
+    UIDropDownMenu_Initialize(shoutEditingDD, function(_, level)
+        local current = WhoDoesWhat:GetShoutBarSettingsKey()
+        for _, key in ipairs({ "warrior", "nonWarrior" }) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = mode.label
-            info.checked = (saved == mode.key)
+            info.text = SHOUT_SET_LABELS[key]
+            info.checked = current == key
             info.func = function()
-                WhoDoesWhat.db.profile.settings.shoutBarShow = mode.key
-                UIDropDownMenu_SetText(shoutShowDD, mode.label)
-                WhoDoesWhat:LogUiBuilding("Warrior Shout Bar set to "
-                    .. mode.label .. ".")
-                WhoDoesWhat:UpdateWarriorShoutBarVisibility()
-                f.SetShoutControlsEnabled(mode.key ~= "never")
+                WhoDoesWhat:SetShoutBarEditingKey(key)
+                LoadSettings(f)
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    -- Category names in yellow so the four answers are scannable, and Always
-    -- in red because it is a testing setting: a shout bar in a group with no
-    -- warrior is glowing at something nobody present can cast.
-    UI.AddDropdownTooltip(shoutShowDD, shoutShowLabel, "Show shout bar",
-        "|cffffd100Warriors only:|r Only visible if YOU are a warrior"
-        .. "\n\n|cffffd100With a warrior:|r Only visible with a warrior in"
-        .. " your group"
-        .. "\n\n|cffff4d4dAlways:|r Testing only - shown even with no warrior"
-        .. " around to cast anything"
-        .. "\n\n|cffffd100Never:|r never shown")
-    f.shoutShowDD = shoutShowDD
-    -- Never is the shout bar's off switch.
+    UI.AddDropdownTooltip(shoutEditingDD, shoutEditingLabel, "Editing",
+        "Warriors and everyone else keep separate Warrior Shout Bar settings,"
+        .. " shared across your account. A warrior's bar casts shouts; anyone"
+        .. " else's asks for them in party chat.\n\nThe bar shows the set you"
+        .. " are editing until you close the settings, then goes back to the"
+        .. " set for your class.")
+    f.shoutEditingDD = shoutEditingDD
+    f.shoutSetLabels = SHOUT_SET_LABELS
+    f:HookScript("OnHide", function() WhoDoesWhat:SetShoutBarEditingKey(nil) end)
+
+    local shoutStore = function() return WhoDoesWhat:GetShoutBarSettings() end
+
+    yL = AddPageDivider(warriorPage, yL, "Bar")
+    local shoutEnableLabel
+    f.shoutEnableCheck, yL, shoutEnableLabel = AddCompactCheckboxRow(warriorPage,
+        PAGE_X, yL, "Enable Warrior Shout Bar",
+        "Shows the bar while your party has a warrior in it. A warrior's bar"
+        .. " casts shouts; anyone else's asks for them.",
+        function(value)
+            shoutStore().enabled = value
+            WhoDoesWhat:LogUiBuilding("Warrior Shout Bar "
+                .. (value and "enabled." or "disabled."))
+            WhoDoesWhat:UpdateWarriorShoutBarVisibility()
+            f.SetShoutControlsEnabled(value)
+        end)
+    -- The on switch greys out everything under it.
     f.SetShoutControlsEnabled = PageControlSwitch(warriorPage,
-        { shoutIntro, shoutShowLabel, shoutShowDD })
+        { shoutIntro, shoutEditingLabel, shoutEditingDD, f.shoutEnableCheck,
+            shoutEnableLabel })
 
     local shoutAnchorLabel, shoutAnchorDD
     shoutAnchorLabel, shoutAnchorDD, yL = AddDropdownRow(warriorPage, yL,
@@ -2291,7 +2313,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local shoutTimerLabel, shoutTimerDD
     shoutTimerLabel, shoutTimerDD, yL = AddDropdownRow(warriorPage, yL,
-        "Countdown at:", "WhoDoesWhatShoutBarTimerDD")
+        "Countdown Timer:", "WhoDoesWhatShoutBarTimerDD")
     UIDropDownMenu_Initialize(shoutTimerDD, function(_, level)
         local saved = WhoDoesWhat:GetShoutBarTimerSeconds()
         for _, seconds in ipairs(WhoDoesWhat.ShoutBarTimerSeconds) do
@@ -2300,16 +2322,17 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             info.text = label
             info.checked = (saved == seconds)
             info.func = function()
-                WhoDoesWhat.db.profile.settings.shoutBarTimerSeconds = seconds
+                shoutStore().timerSeconds = seconds
                 UIDropDownMenu_SetText(shoutTimerDD, label)
                 WhoDoesWhat:RefreshWarriorShoutBar()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(shoutTimerDD, shoutTimerLabel, "Countdown at",
-        "Puts a countdown over the icon when the first person is about to lose"
-        .. " the shout. Off hides it entirely.")
+    UI.AddDropdownTooltip(shoutTimerDD, shoutTimerLabel, "Countdown Timer",
+        "Puts a countdown over the icon once the first person is that close to"
+        .. " losing the shout. Always shows it whenever the shout is up; Never"
+        .. " hides it entirely.")
     f.shoutTimerDD = shoutTimerDD
 
     yL = AddNextPageDivider(warriorPage, yL, "Display")
@@ -2318,16 +2341,16 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         "Leaves just the icons floating on your screen. Alt-drag still moves"
         .. " the bar.",
         function(value)
-            WhoDoesWhat.db.profile.settings.shoutBarHideBackground = value
+            shoutStore().hideBackground = value
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
 
     f.shoutHideNumbersCheck, yL = AddCompactCheckboxRow(warriorPage,
-        PAGE_X, yL, "Hide numbers",
+        PAGE_X, yL, "Hide Coverage Numbers",
         "Drops the count under each icon. The glow still tells you somebody is"
         .. " missing the shout, and the tooltip still names them.",
         function(value)
-            WhoDoesWhat.db.profile.settings.shoutBarHideNumbers = value
+            shoutStore().hideNumbers = value
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
 
@@ -2337,23 +2360,29 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         .. " back the moment somebody loses it. Hidden icons can't be clicked"
         .. " or dragged, so place the bar before turning this on.",
         function(value)
-            WhoDoesWhat.db.profile.settings.shoutBarHideWhenBuffed = value
+            shoutStore().hideWhenBuffed = value
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
 
-    f.shoutIgnoreRangeCheck, yL = AddCompactCheckboxRow(warriorPage,
+    -- Warrior Settings only: someone asking for a shout has no use for trimming
+    -- who counts. Everything under it rides a frame of its own, so hiding the
+    -- row slides the rest up rather than leaving a hole.
+    local shoutRangeLabel, _
+    f.shoutIgnoreRangeCheck, _, shoutRangeLabel = AddCompactCheckboxRow(warriorPage,
         PAGE_X, yL, "Ignore players far out of range",
         "Stops counting party members who are nowhere near you. Anyone just a"
         .. " step too far back still counts, since stepping in is the fix.",
         function(value)
-            WhoDoesWhat.db.profile.settings.shoutBarIgnoreOutOfRange = value
+            shoutStore().ignoreOutOfRange = value
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
+    local shoutRangeY = yL
+    local shoutLower = CreateFrame("Frame", nil, warriorPage)
+    local yLower = 0
 
-    local shoutSettings = WhoDoesWhat.db.profile.settings
     local shoutIconRange = WhoDoesWhat.SHOUT_BAR_ICON_SIZE
-    f.RefreshShoutIconSize, yL = AddSliderWithInput(warriorPage, PAGE_X,
-        yL, {
+    f.RefreshShoutIconSize, yLower = AddSliderWithInput(shoutLower, PAGE_X,
+        yLower, {
             name = "WhoDoesWhatShoutBarIconSizeSlider",
             label = "Buff icon size:",
             tooltip = "How big each shout icon is drawn, in pixels. The bar is"
@@ -2364,38 +2393,69 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             max = shoutIconRange.max,
         },
         function() return WhoDoesWhat:GetShoutBarIconSize() end,
-        function(value) shoutSettings.shoutBarIconSize = value end,
+        function(value) shoutStore().iconSize = value end,
         function() WhoDoesWhat:RefreshWarriorShoutBar() end)
 
     -- The status bars' highlight styles, in this bar's own two colours.
-    yL = AddNextPageDivider(warriorPage, yL, "Highlight")
-    f.RefreshShoutHighlight, yL = AddHighlightControls(warriorPage, PAGE_X,
-        yL, {
+    yLower = AddNextPageDivider(shoutLower, yLower, "Highlight")
+    local shoutHighlightLabels, shoutHighlightFields
+    f.RefreshShoutHighlight, yLower, shoutHighlightLabels, shoutHighlightFields =
+        AddHighlightControls(shoutLower, PAGE_X, yLower, {
             name = "WhoDoesWhatShoutBarHighlightDD",
             tooltip = "The animation a shout icon wears while somebody in the"
                 .. " party is missing that shout -- the box to the right shows"
                 .. " it running.",
-            GetStyle = function() return shoutSettings.shoutBarGlowStyle end,
-            SetStyle = function(key) shoutSettings.shoutBarGlowStyle = key end,
+            GetStyle = function() return shoutStore().glowStyle end,
+            SetStyle = function(key) shoutStore().glowStyle = key end,
+            Store = shoutStore,
+            Defaults = function()
+                return WhoDoesWhat.db.defaults.global.shoutBar[
+                    WhoDoesWhat:GetShoutBarSettingsKey()]
+            end,
             colors = {
                 {
                     label = "Missing color:",
                     tooltip = "The color a shout icon glows while nobody in"
                         .. " the party has that shout. Right-click the swatch"
                         .. " to reset it.",
-                    key = "shoutBarGlowMissingColor",
+                    key = "glowMissingColor",
                 },
                 {
                     label = "Partial color:",
                     tooltip = "The color a shout icon glows once some of the"
-                        .. " party has that shout but not all of it -- the"
-                        .. " same state the count under the icon reads in"
-                        .. " yellow for. Right-click the swatch to reset it.",
-                    key = "shoutBarGlowPartialColor",
+                        .. " party has that shout but not all of it. Right-click"
+                        .. " the swatch to reset it.",
+                    key = "glowPartialColor",
                 },
             },
             OnChange = function() WhoDoesWhat:RefreshWarriorShoutBar() end,
         })
+    -- Sized to what it holds, which is what the page's scroll height measures.
+    shoutLower:SetHeight(yLower)
+
+    -- The on switch reaches into the frame as well as the page around it.
+    local SwitchShoutLower = PageControlSwitch(shoutLower, {})
+    local SwitchShoutPage = f.SetShoutControlsEnabled
+    f.SetShoutControlsEnabled = function(enabled)
+        SwitchShoutPage(enabled)
+        -- The page pass dims the frame as one more child; its own pass does
+        -- the dimming inside it, and doing both would dim twice.
+        shoutLower:SetAlpha(1)
+        SwitchShoutLower(enabled)
+    end
+
+    -- The warrior-only rows in and out, the frame below following. The partial
+    -- colour is the last row on the page, so it leaves no hole to close.
+    function f.SetShoutWarriorRowsShown(shown)
+        f.shoutIgnoreRangeCheck:SetShown(shown)
+        shoutRangeLabel:SetShown(shown)
+        shoutHighlightLabels[2]:SetShown(shown)
+        shoutHighlightFields[2]:SetShown(shown)
+        shoutLower:ClearAllPoints()
+        shoutLower:SetPoint("TOPLEFT", 0, -(shoutRangeY + (shown and 28 or 0)))
+        shoutLower:SetPoint("TOPRIGHT", 0, -(shoutRangeY + (shown and 28 or 0)))
+    end
+    f.SetShoutWarriorRowsShown(true)
 
     -- ---- Developer ----
     local developerPage = pages.Developer
@@ -2576,20 +2636,24 @@ function LoadSettings(f)
     f.logSyncTrafficCheck:SetChecked(self.LOG_SYNC)
     f.logBuffingClicksCheck:SetChecked(settings.logBuffingBarClicks)
     f.logRolePromotionCheck:SetChecked(settings.logRolePromotion)
-    local shoutMode = self:GetShoutBarMode()
-    UIDropDownMenu_SetText(f.shoutShowDD, self:GetShoutBarModeLabel(shoutMode))
+    local shout = self:GetShoutBarSettings()
+    UIDropDownMenu_SetText(f.shoutEditingDD,
+        f.shoutSetLabels[self:GetShoutBarSettingsKey()])
+    f.shoutEnableCheck:SetChecked(shout.enabled)
     local shoutAnchor = self:GetShoutBarAnchor()
     UIDropDownMenu_SetText(f.shoutAnchorDD,
         self:GetShoutBarAnchorLabel(shoutAnchor))
     UIDropDownMenu_SetText(f.shoutTimerDD,
         self:GetShoutBarTimerLabel(self:GetShoutBarTimerSeconds()))
-    f.shoutHideBackgroundCheck:SetChecked(settings.shoutBarHideBackground)
-    f.shoutHideNumbersCheck:SetChecked(settings.shoutBarHideNumbers)
-    f.shoutHideWhenBuffedCheck:SetChecked(settings.shoutBarHideWhenBuffed)
-    f.shoutIgnoreRangeCheck:SetChecked(settings.shoutBarIgnoreOutOfRange)
+    f.shoutHideBackgroundCheck:SetChecked(shout.hideBackground)
+    f.shoutHideNumbersCheck:SetChecked(shout.hideNumbers)
+    f.shoutHideWhenBuffedCheck:SetChecked(shout.hideWhenBuffed)
+    f.shoutIgnoreRangeCheck:SetChecked(shout.ignoreOutOfRange)
+    local editingWarrior = self:GetShoutBarSettingsKey() == "warrior"
+    f.SetShoutWarriorRowsShown(editingWarrior)
     f.RefreshShoutIconSize()
     f.RefreshShoutHighlight()
-    f.SetShoutControlsEnabled(shoutMode ~= "never")
+    f.SetShoutControlsEnabled(shout.enabled and true or false)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
 --@do-not-package@

@@ -279,9 +279,64 @@ function WhoDoesWhat:DisplayName(name, short)
     return petName .. " (" .. owner .. ")"
 end
 
+-- One set of Warrior Shout Bar settings. There are two, kept per account: the
+-- set in use while you play a warrior, who casts from the bar, and the set in
+-- use on everything else, who asks for shouts from it
+-- (Views/WarriorShoutBarView.lua). Only the defaults tell them apart.
+local function ShoutBarDefaults(warrior)
+    return {
+        -- The bar's on switch. Off for a non-warrior out of the box, as it
+        -- always was: asking for shouts is something to opt into.
+        enabled = warrior,
+        -- Where it was last Alt-dragged to; nil = centred.
+        pos = nil,
+        -- Which edge holds still as the bar changes width (a second warrior
+        -- joining or leaving adds or drops the second icon): "LEFT", "CENTER"
+        -- (spread from the midpoint) or "RIGHT".
+        anchor = "CENTER",
+        -- Chrome the bar can do without: its backdrop, and the covered/total
+        -- count under each icon -- which a non-warrior, who only wants to
+        -- know whether to ask, does without by default.
+        hideBackground = false,
+        hideNumbers = not warrior,
+        -- How close the soonest-to-lapse shout gets before its countdown
+        -- appears over the icon: seconds, -1 for always, or 0 for never. A
+        -- non-warrior only needs to know once it is nearly time to ask.
+        timerSeconds = warrior and 30 or 15,
+        -- Leave raiders who are nowhere near you (UnitInRange, ~40 yards) out
+        -- of the shout counts entirely. Off: someone standing a little too far
+        -- back is a gap worth showing, not one worth hiding.
+        ignoreOutOfRange = false,
+        -- Which shout the single icon covers while the party has one warrior
+        -- (a WhoDoesWhat.WarriorShouts key); right-clicking that icon swaps
+        -- it. nil = Battle Shout.
+        soloShout = nil,
+        -- Fade each icon out while its shout is on everybody, bringing it back
+        -- the moment it goes missing or a countdown starts. On for a
+        -- non-warrior: the bar only needs to be seen when there is asking to do.
+        hideWhenBuffed = not warrior,
+        -- How big a shout icon is, in pixels. The bar is exactly as wide as
+        -- its icons, so this sizes the whole strip.
+        iconSize = 28,
+        -- The glow: one of the status bars' highlight styles (HIGHLIGHT_STYLES
+        -- in StatusBarsView), amber while the shout is on nobody, blue once it
+        -- is on part of the party.
+        glowStyle = "flash",
+        glowMissingColor = { r = 0.949, g = 0.71, b = 0 },
+        glowPartialColor = { r = 0.157, g = 0.561, b = 1 },
+    }
+end
+
 -- Default saved settings. Stored per-profile in WhoDoesWhatDB (see the
--- SavedVariables line in WhoDoesWhat.toc).
+-- SavedVariables line in WhoDoesWhat.toc), bar the shout bar's, which is per
+-- account.
 local defaults = {
+    global = {
+        shoutBar = {
+            warrior = ShoutBarDefaults(true),
+            nonWarrior = ShoutBarDefaults(false),
+        },
+    },
     profile = {
         expandRoles = false,
         -- User-created custom roles -- the local library: array of
@@ -508,44 +563,6 @@ local defaults = {
             buffingBarGlowStyle = "flash",
             buffingBarGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
             buffingBarGlowExpiringColor = { r = 0.157, g = 0.561, b = 1 },
-            -- When the Warrior Shout Bar is on screen: "warriorOnly" (only
-            -- while you are a warrior), "withWarrior" (whenever the group has
-            -- one), "always", or "never". See Views/WarriorShoutBarView.lua.
-            shoutBarShow = "warriorOnly",
-            -- Where it was last Alt-dragged to; nil = centred.
-            shoutBarPos = nil,
-            -- Which edge holds still as the bar changes width (a second
-            -- warrior joining or leaving adds or drops the second icon):
-            -- "LEFT", "CENTER" (spread from the midpoint) or "RIGHT".
-            shoutBarAnchor = "CENTER",
-            -- Chrome the bar can do without: its backdrop, and the
-            -- covered/total count under each icon.
-            shoutBarHideBackground = false,
-            shoutBarHideNumbers = false,
-            -- How close the soonest-to-lapse shout gets before its countdown
-            -- appears over the icon: 30, 15 or 10 seconds, or 0 for never.
-            shoutBarTimerSeconds = 30,
-            -- Leave raiders who are nowhere near you (UnitInRange, ~40 yards)
-            -- out of the shout counts entirely. Off: someone standing a little
-            -- too far back is a gap worth showing, not one worth hiding.
-            shoutBarIgnoreOutOfRange = false,
-            -- Which shout the single icon covers while the party has one
-            -- warrior (a WhoDoesWhat.WarriorShouts key); right-clicking that
-            -- icon swaps it. nil = Battle Shout.
-            shoutBarSoloShout = nil,
-            -- Fade the bar out while every shout is on everybody, bringing it
-            -- back the moment one goes missing or a countdown starts.
-            shoutBarHideWhenBuffed = false,
-            -- How big a shout icon is, in pixels. The bar is exactly as wide
-            -- as its icons, so this sizes the whole strip.
-            shoutBarIconSize = 28,
-            -- The shout bar's glow: one of the status bars' highlight styles
-            -- (HIGHLIGHT_STYLES in StatusBarsView) drawn in the two colours
-            -- below -- amber while the shout is on nobody, blue once it is on
-            -- part of the party.
-            shoutBarGlowStyle = "flash",
-            shoutBarGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
-            shoutBarGlowPartialColor = { r = 0.157, g = 0.561, b = 1 },
             -- Movable per-paladin live blessing coverage window. On out of the
             -- box: it is the view that says what still needs doing, and a fresh
             -- install has no reason to hunt for it in the settings.
@@ -603,6 +620,52 @@ function WhoDoesWhat:OnInitialize()
     local settings = self.db.profile.settings
     -- The Paladin-only view went away with the tabbed main window.
     settings.paladinOnlyView = nil
+
+    -- The shout bar's settings left the profile for two per-account sets.
+    -- Whatever this profile had tuned goes into both, once, bar the two
+    -- options the non-warrior set defaults differently; the old show mode
+    -- becomes each set's on switch. Other profiles' shout settings are
+    -- dropped unread.
+    do
+        local store = self.db.global.shoutBar
+        if not store.migrated then
+            store.migrated = true
+            local moved = {
+                shoutBarPos = "pos", shoutBarAnchor = "anchor",
+                shoutBarHideBackground = "hideBackground",
+                shoutBarHideNumbers = "hideNumbers",
+                shoutBarTimerSeconds = "timerSeconds",
+                shoutBarIgnoreOutOfRange = "ignoreOutOfRange",
+                shoutBarSoloShout = "soloShout",
+                shoutBarHideWhenBuffed = "hideWhenBuffed",
+                shoutBarIconSize = "iconSize", shoutBarGlowStyle = "glowStyle",
+                shoutBarGlowMissingColor = "glowMissingColor",
+                shoutBarGlowPartialColor = "glowPartialColor",
+            }
+            local keepDefault = {
+                hideNumbers = true, hideWhenBuffed = true, timerSeconds = true,
+                ignoreOutOfRange = true,
+            }
+            for old, new in pairs(moved) do
+                local value = settings[old]
+                if value ~= nil then
+                    local copy = type(value) == "table" and CopyTable(value) or value
+                    store.warrior[new] = copy
+                    if not keepDefault[new] then
+                        store.nonWarrior[new] = type(value) == "table"
+                            and CopyTable(value) or value
+                    end
+                end
+                settings[old] = nil
+            end
+            local mode = settings.shoutBarShow
+            if mode == "never" then store.warrior.enabled = false end
+            if mode == "withWarrior" or mode == "always" then
+                store.nonWarrior.enabled = true
+            end
+            settings.shoutBarShow = nil
+        end
+    end
     -- Migrate the short-lived native minimap-button settings to LibDBIcon.
     if settings.showMinimapButton ~= nil then
         settings.minimapButton.hide = settings.showMinimapButton == false
