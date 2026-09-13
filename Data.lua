@@ -363,7 +363,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
         className = "Priest",
         colorRGB = { r = 225 / 255, g = 1, b = 202 / 255 }, -- #E1FFCA
-        includeHunterPets = true,
+        defaultHunterPets = true,
         improvedTalent = {
             name = "Improved Power Word: Fortitude",
             tab = 1, tier = 2, column = 2, maxRank = 2,
@@ -376,7 +376,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
         auraNames = { "Mark of the Wild", "Gift of the Wild" },
         className = "Druid",
-        includeHunterPets = true,
+        defaultHunterPets = true,
         improvedTalent = {
             name = "Improved Mark of the Wild",
             tab = 3, tier = 1, column = 2, maxRank = 5,
@@ -389,11 +389,13 @@ WhoDoesWhat.CoreRaidBuffs = {
         icon = 136000, -- Spell_Misc_Food
         auraNames = { "Well Fed", "Enlightened" }, -- Enlightened: TBC Skullfish Soup
         colorRGB = { r = 1, g = 0.82, b = 0 },
-        includeHunterPets = not features.isClassicEra,
+        defaultHunterPets = not features.isClassicEra,
         -- Nobody casts this one for you, so "Glow when responsible" has no
         -- class to key on. It watches the local player's own row instead --
         -- and their pet's, since the owner is who feeds it.
         selfSupplied = true,
+        -- Everybody eats; the one targeting question is whether pets do.
+        hiddenOptions = { onlyManaUsers = true, onlyTanks = true },
     },
     shadowProtection = {
         name = "Shadow",
@@ -461,8 +463,15 @@ if WhoDoesWhat.CoreRaidBuffs.spirit then
     table.insert(WhoDoesWhat.StatusBarCheckOrder, 6, "spirit")
 end
 WhoDoesWhat.StatusBarChecks = {}
+-- A class's raid buff is always a buff, and who it is for is part of the buff:
+-- its definition already says whether pets and non-mana classes count. None of
+-- that is worth a setting. Food, which no class casts, keeps them.
+local CLASS_BUFF_HIDDEN_OPTIONS = {
+    negative = true, onlyManaUsers = true, onlyTanks = true, hunterPets = true,
+}
 for _, key in ipairs(WhoDoesWhat.CoreRaidBuffOrder) do
     local buff = WhoDoesWhat.CoreRaidBuffs[key]
+    if buff.className then buff.hiddenOptions = CLASS_BUFF_HIDDEN_OPTIONS end
     WhoDoesWhat.StatusBarChecks[key] = buff
 end
 local paladinInfo, shamanInfo
@@ -477,15 +486,15 @@ WhoDoesWhat.StatusBarChecks.paladinBuffs = {
     colorRGB = paladinInfo.colorRGB,
     className = "Paladin",
     customCoverage = true,
-    includeHunterPets = true,
+    -- Its bars are one per paladin, which the combined-row option folds up.
+    perPaladinRows = true,
+    defaultHunterPets = true,
     gridOptionDisabled = true,
     hiddenOptions = {
         negative = true,
         bestAvailable = true,
         onlyManaUsers = true,
         onlyTanks = true,
-        hideColumnUnavailable = true,
-        hideColumnComplete = true,
     },
 }
 WhoDoesWhat.StatusBarChecks.pallyPower = {
@@ -527,6 +536,9 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     className = "Druid",
     colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
+    -- Like the other class buffs, less "Only for tanks": thorns on whoever is
+    -- taking the hits is the usual ask, but not the only one.
+    hiddenOptions = { negative = true, onlyManaUsers = true, hunterPets = true },
     improvedTalent = {
         name = features.isClassicEra and "Improved Thorns" or "Brambles",
         tab = 1, tier = 3, column = 1, maxRank = 3,
@@ -545,11 +557,8 @@ WhoDoesWhat.StatusBarChecks.dead = {
     defaultHideColumnComplete = true,
     defaultSaturatedStyle = "x",
     gridOptionDisabled = true,
-    hunterPetsOptionDisabled = true,
-    hiddenOptions = {
-        hideColumnUnavailable = true,
-        hideColumnComplete = true,
-    },
+    -- A corpse is whoever it is; there is nobody to narrow it down to.
+    hiddenOptions = { onlyManaUsers = true, onlyTanks = true, hunterPets = true },
 }
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.sated = {
@@ -567,7 +576,7 @@ if not features.isClassicEra then
         -- Bloodlust lands on pets too, and a shadowfiend summoned after the
         -- cast is exactly the kind of straggler the partial glow is for, so
         -- this check counts every pet rather than the hunters' alone.
-        includeHunterPets = true,
+        defaultHunterPets = true,
         allPets = true,
         -- Out of combat the useful list is who is still Sated (nobody can lust
         -- them yet); mid-fight it's who the lust missed. See FlagsTheCovered.
@@ -577,7 +586,11 @@ if not features.isClassicEra then
         -- worth a shaman's attention is a lust that reached almost everybody
         -- (see partialGlow in StatusBarsView).
         partialGlow = true,
-        hiddenOptions = { responsibleGlow = true },
+        -- Everyone the lust reaches counts, pets included: no Targets section.
+        hiddenOptions = {
+            responsibleGlow = true,
+            onlyManaUsers = true, onlyTanks = true, hunterPets = true,
+        },
     }
 end
 if not features.isClassicEra then
@@ -592,7 +605,8 @@ if not features.isClassicEra then
         defaultHideColumnComplete = true,
         defaultSaturatedStyle = "check",
         colorRGB = { r = 0.78, g = 0.14, b = 0.10 },
-        hunterPetsOptionDisabled = true,
+        -- Everyone in the party counts: no Targets section.
+        hiddenOptions = { onlyManaUsers = true, onlyTanks = true, hunterPets = true },
     }
 end
 
@@ -608,6 +622,126 @@ for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
     local definition = WhoDoesWhat.StatusBarChecks[key]
     if definition.defaultEnabled == nil then definition.defaultEnabled = true end
     definition.defaultGrid = not definition.gridOptionDisabled
+end
+
+-- Which per-check options a check offers, in one place: the Buff Tracking
+-- options panel shows exactly these, and GetStatusBarCheckOptions ignores a
+-- saved value for any option a check does not offer, so nothing can apply that
+-- cannot be seen. Options missing from this table (bar, grid, scope) are
+-- offered by every check.
+--
+-- Each rule:
+--   offered   function(definition): whether the check has the option at all.
+--             A definition can also opt out of any option by name through its
+--             `hiddenOptions`.
+--   parent    another option this one refines: shown only while that one is
+--             shown and switched on.
+--   shown     function(definition, options): whether it is worth showing given
+--             the check's other current options. Settings-page only; the
+--             saved value is kept while it is out of view.
+--   aliases   older saved keys for the same setting, ignored along with it.
+--
+-- A custom check (one with `customOptions`) replaces the coverage options with
+-- its own short list, which is why most rules start from Coverage.
+local function Coverage(definition) return not definition.customOptions end
+local function CustomStack(name)
+    return function(definition) return definition.customOptions == name end
+end
+local function HasClass(_, options) return options.requiredClass ~= false end
+local function Positive(_, options) return not options.negative end
+local function HasGrid(definition)
+    return Coverage(definition) and not definition.gridOptionDisabled
+end
+local function HasImprovedTalent(definition)
+    return Coverage(definition) and definition.improvedTalent ~= nil
+end
+
+WhoDoesWhat.StatusBarOptionRules = {
+    display = { offered = Coverage },
+    barColor = { offered = Coverage, aliases = { "backgroundColor", "background" } },
+    -- Every built-in check already names its class. Kept for custom checks,
+    -- which set `requiredClassOption` to let the player pick one.
+    requiredClass = {
+        offered = function(definition)
+            return Coverage(definition) and definition.requiredClassOption == true
+        end,
+    },
+    combinePaladinBars = {
+        offered = function(definition) return definition.perPaladinRows == true end,
+    },
+    bestAvailable = { offered = HasImprovedTalent, aliases = { "includeUnimproved" } },
+    anyInCombat = { offered = HasImprovedTalent, parent = "bestAvailable" },
+    -- What matters is who cast it, not how well, so any positive check.
+    flagOutsideRaid = { offered = Coverage, shown = Positive },
+    -- Keyed on the check's class; a self-supplied check (food) is always
+    -- your own job, so it offers the glow without one.
+    responsibleGlow = {
+        offered = Coverage,
+        shown = function(definition, options)
+            return Positive(definition, options)
+                and (HasClass(definition, options) or definition.selfSupplied)
+        end,
+    },
+    -- Only where the class cannot all cast it (`requiredTalent`, Divine Spirit).
+    offspecResponsible = {
+        offered = function(definition)
+            return Coverage(definition) and definition.requiredTalent ~= nil
+        end,
+        parent = "responsibleGlow",
+    },
+    -- Only where the check asks for it: "most of them have it" suits a
+    -- raid-wide cast, not a buff applied one raider at a time.
+    partialGlow = { offered = function(definition) return definition.partialGlow == true end },
+    partialGlowOnlyClass = {
+        offered = function(definition) return definition.partialGlow == true end,
+        parent = "partialGlow", shown = HasClass,
+    },
+    hideBarUnavailable = { offered = Coverage, shown = HasClass },
+    hideColumnUnavailable = { offered = HasGrid, shown = HasClass },
+    negative = { offered = Coverage },
+    hideComplete = { offered = Coverage },
+    saturatedStyle = {
+        offered = Coverage,
+        shown = function(_, options) return options.negative end,
+    },
+    hideColumnComplete = { offered = HasGrid },
+    onlyManaUsers = { offered = Coverage },
+    onlyTanks = { offered = Coverage },
+    hunterPets = { offered = Coverage },
+
+    hideWhenSynced = { offered = CustomStack("pallyPower"), aliases = { "onlyDesynced" } },
+    hideWhenInactive = { offered = CustomStack("pallyPower") },
+    assignmentIssuesGlow = { offered = CustomStack("pallyPower") },
+
+    hideWhenClear = { offered = CustomStack("actionItems") },
+    hideWhenSolo = { offered = CustomStack("actionItems") },
+    hideWhenNotYours = { offered = CustomStack("actionItems") },
+    actionItemsGlow = { offered = CustomStack("actionItems") },
+}
+
+-- Whether a check has an option at all, whatever its other options are.
+function WhoDoesWhat:StatusBarOptionOffered(definition, option)
+    if definition.hiddenOptions and definition.hiddenOptions[option] then
+        return false
+    end
+    local rule = self.StatusBarOptionRules[option]
+    return not rule or not rule.offered or rule.offered(definition)
+end
+
+-- Whether the settings page should show an option for this check right now.
+function WhoDoesWhat:StatusBarOptionShown(key, option)
+    local definition = self.StatusBarChecks[key]
+    if not definition or not self:StatusBarOptionOffered(definition, option) then
+        return false
+    end
+    local rule = self.StatusBarOptionRules[option]
+    if not rule then return true end
+    local options = self:GetStatusBarCheckOptions(key)
+    if rule.parent and not (options[rule.parent]
+        and self:StatusBarOptionShown(key, rule.parent)) then
+        return false
+    end
+    return not rule.shown or rule.shown(definition, options) and true or false
 end
 
 -- Resolved check options per key, and the resolved order list.
@@ -672,6 +806,18 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     if not definition then return nil end
     local all = self.db.profile.settings.statusBarChecks
     local saved = all and all[key] or {}
+    -- An option this check does not offer resolves to its default: a value
+    -- saved before it stopped being offered would otherwise keep applying with
+    -- no way to see or change it. See StatusBarOptionRules.
+    local offered = {}
+    for option, value in pairs(saved) do offered[option] = value end
+    for option, rule in pairs(self.StatusBarOptionRules) do
+        if not self:StatusBarOptionOffered(definition, option) then
+            offered[option] = nil
+            for _, alias in ipairs(rule.aliases or {}) do offered[alias] = nil end
+        end
+    end
+    saved = offered
     local bar = saved.bar
     if bar == nil then bar = saved.enabled end -- old settings-page key
     if bar == nil then bar = definition.defaultEnabled end
@@ -679,7 +825,7 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     if grid == nil then grid = definition.defaultGrid == true end
     if definition.gridOptionDisabled then grid = false end
     local hunterPets = saved.hunterPets
-    if hunterPets == nil then hunterPets = definition.includeHunterPets == true end
+    if hunterPets == nil then hunterPets = definition.defaultHunterPets == true end
     local onlyManaUsers = saved.onlyManaUsers
     if onlyManaUsers == nil then
         onlyManaUsers = definition.defaultOnlyManaUsers == true

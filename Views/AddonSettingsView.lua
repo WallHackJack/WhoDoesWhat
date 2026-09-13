@@ -494,10 +494,14 @@ local function RefreshBuffOptionsFrame()
         check:SetChecked(options[option])
     end
 
-    local hidden = definition.hiddenOptions or {}
-    local hasRequirement = options.requiredClass ~= false
-    local function PlaceOption(option, shown, y, indent)
+    -- What shows is StatusBarOptionRules' call (Data.lua); only the order and
+    -- the spacing are decided here.
+    local function Shown(option)
+        return WhoDoesWhat:StatusBarOptionShown(f.buffKey, option)
+    end
+    local function PlaceOption(option, y, indent)
         local check, label = f.optionChecks[option], f.optionLabels[option]
+        local shown = Shown(option)
         check:SetShown(shown)
         label:SetShown(shown)
         if shown then
@@ -521,11 +525,8 @@ local function RefreshBuffOptionsFrame()
     end
 
     local y = -6
-    if f.buffKey == "paladinBuffs" then
-        y = PlaceOption("combinePaladinBars", true, 4)
-    else
-        PlaceOption("combinePaladinBars", false, y)
-    end
+    if Shown("combinePaladinBars") then y = 4 end
+    y = PlaceOption("combinePaladinBars", y)
 
     y = PlaceDivider(f.displayDivider, true, y)
     y = PlaceDropdown(f.displayLabel, f.displayDD, y)
@@ -538,93 +539,48 @@ local function RefreshBuffOptionsFrame()
 
     y = PlaceDivider(f.requirementDivider, true, y)
     y = PlaceDropdown(f.scopeLabel, f.scopeDD, y)
-    y = PlaceDropdown(f.classLabel, f.classDD, y)
-    local showBest = definition.improvedTalent ~= nil
-        and not hidden.bestAvailable
-    local showHideBarUnavailable = hasRequirement
-        and not hidden.hideBarUnavailable
-    local showHideColumnUnavailable = hasRequirement
-        and not definition.gridOptionDisabled
-        and not hidden.hideColumnUnavailable
-    -- Responsibility follows the "Requires Class" dropdown: clearing it means
-    -- nobody in particular owns the buff, so the glow has nothing to key on.
-    -- A self-supplied check answers the question a different way -- it is
-    -- always your own job -- so it offers the option without a class set.
-    local showResponsibleGlow = (hasRequirement or definition.selfSupplied)
-        and not options.negative and not hidden.responsibleGlow
-    -- Only where the check asks for it: "most of them have it" is a sensible
-    -- thing to glow about for a raid-wide cast, and nonsense for a buff that
-    -- is applied one raider at a time.
-    local showPartialGlow = definition.partialGlow == true
-    -- Applies to any positive check, talent ranks or not: what matters is who
-    -- cast it, not how well.
-    local showFlagOutside = not options.negative
-        and not hidden.flagOutsideRaid
-    y = PlaceOption("bestAvailable", showBest, y)
-    -- A sub-option of the box above it: indented, and gone entirely while the
-    -- rule it relaxes is switched off.
-    y = PlaceOption("anyInCombat", showBest and options.bestAvailable, y, 14)
-    y = PlaceOption("flagOutsideRaid", showFlagOutside, y)
-    y = PlaceOption("responsibleGlow", showResponsibleGlow, y)
-    -- Sub-option of the box above it, and only on a check whose class does not
-    -- all get the spell (Divine Spirit): everywhere else there is no offspec
-    -- question to answer.
-    y = PlaceOption("offspecResponsible",
-        showResponsibleGlow and options.responsibleGlow
-            and definition.requiredTalent ~= nil, y, 14)
-    -- The class this one names is the "Requires Class" one, so it says which.
+    local showClass = Shown("requiredClass")
+    f.classLabel:SetShown(showClass)
+    f.classDD:SetShown(showClass)
+    if showClass then y = PlaceDropdown(f.classLabel, f.classDD, y) end
+    y = PlaceOption("bestAvailable", y)
+    y = PlaceOption("anyInCombat", y, 14)
+    y = PlaceOption("flagOutsideRaid", y)
+    y = PlaceOption("responsibleGlow", y)
+    y = PlaceOption("offspecResponsible", y, 14)
+    -- Names the check's class where it has one.
     f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
         and ("Only as " .. options.requiredClass)
         or "Only as the supplying class")
-    y = PlaceOption("partialGlow", showPartialGlow, y)
-    y = PlaceOption("partialGlowOnlyClass",
-        showPartialGlow and options.partialGlow and hasRequirement, y, 14)
-    y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
-    y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
+    y = PlaceOption("partialGlow", y)
+    y = PlaceOption("partialGlowOnlyClass", y, 14)
+    y = PlaceOption("hideBarUnavailable", y)
+    y = PlaceOption("hideColumnUnavailable", y)
 
     y = PlaceDivider(f.completionDivider, true, y)
-    y = PlaceOption("negative", not hidden.negative, y)
+    y = PlaceOption("negative", y)
     f.optionLabels.hideComplete:SetText(options.negative
         and "Hide Bar when debuff missing" or "Hide Bar when complete")
-    y = PlaceOption("hideComplete", not hidden.hideComplete, y)
-    f.saturatedLabel:SetShown(options.negative)
-    f.saturatedDD:SetShown(options.negative)
-    local showHideColumnComplete = not definition.gridOptionDisabled
-        and not hidden.hideColumnComplete
-    if options.negative then
+    y = PlaceOption("hideComplete", y)
+    local showSaturated = Shown("saturatedStyle")
+    f.saturatedLabel:SetShown(showSaturated)
+    f.saturatedDD:SetShown(showSaturated)
+    if showSaturated then
         y = PlaceDropdown(f.saturatedLabel, f.saturatedDD, y)
     end
     f.optionLabels.hideColumnComplete:SetText(options.negative
         and "Hide grid column when debuff missing"
         or "Hide grid column when complete")
-    y = PlaceOption("hideColumnComplete", showHideColumnComplete, y)
+    y = PlaceOption("hideColumnComplete", y)
 
-    local showMana = not hidden.onlyManaUsers
-    local showTanks = not hidden.onlyTanks
-    local showPets = not hidden.hunterPets
-    y = PlaceDivider(f.targetsDivider,
-        showMana or showTanks or showPets, y)
-    y = PlaceOption("onlyManaUsers", showMana, y)
-    y = PlaceOption("onlyTanks", showTanks, y)
+    y = PlaceDivider(f.targetsDivider, Shown("onlyManaUsers")
+        or Shown("onlyTanks") or Shown("hunterPets"), y)
+    y = PlaceOption("onlyManaUsers", y)
+    y = PlaceOption("onlyTanks", y)
     -- A check that counts every class's pet says so; the rest are hunters-only.
     f.optionLabels.hunterPets:SetText(definition.allPets
         and "Used by pets" or "Used by hunter pets")
-    y = PlaceOption("hunterPets", showPets, y)
-    for _, option in ipairs({ "bestAvailable", "anyInCombat", "flagOutsideRaid",
-        "hideBarUnavailable",
-        "hideColumnUnavailable", "combinePaladinBars",
-        "negative", "hideComplete", "responsibleGlow", "offspecResponsible",
-        "partialGlow", "partialGlowOnlyClass",
-        "hideColumnComplete", "onlyManaUsers", "onlyTanks", "hunterPets" }) do
-        if not f.optionChecks[option]:IsShown() then
-            f.optionLabels[option]:Hide()
-        end
-    end
-    if f.optionChecks.hunterPets:IsShown() then
-        SetOptionAvailable(f.optionChecks.hunterPets,
-            f.optionLabels.hunterPets,
-            not definition.hunterPetsOptionDisabled)
-    end
+    y = PlaceOption("hunterPets", y)
     f:SetHeight(y + 7)
 end
 
@@ -1226,8 +1182,8 @@ local function EnsureBuffOptionsFrame(owner, key)
                 .. " a pet summoned since. That handful is worth one more"
                 .. " cast; an empty raid-wide bar is not." },
         { "partialGlowOnlyClass", "Only as the supplying class",
-            "Restrict that glow to the class named above, the one that can"
-                .. " actually cast it. Off, everybody sees the stragglers." },
+            "Restrict that glow to the class that can actually cast it. Off,"
+                .. " everybody sees the stragglers." },
     }
     for index, entry in ipairs(checkboxOptions) do
         local option, labelText, tooltip = entry[1], entry[2], entry[3]

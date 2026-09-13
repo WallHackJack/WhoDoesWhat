@@ -1960,7 +1960,7 @@ local function ComputeCoreRaidBuffCoverage()
                 mainProvider = mainProvider,
             }
             local targets = members
-            if options.hunterPets and not buff.hunterPetsOptionDisabled then
+            if options.hunterPets then
                 local petList = pets
                 if buff.allPets then
                     allPets = allPets or GetPetMembers(true)

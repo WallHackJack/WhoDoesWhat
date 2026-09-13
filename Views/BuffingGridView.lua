@@ -595,7 +595,7 @@ local function RefreshGrid(f)
                     and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name] or false)
                 or (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
             local showForTarget = not m.isPet
-                or (options.hunterPets and not buff.hunterPetsOptionDisabled)
+                or options.hunterPets
             local has
             if showForTarget and not notNeeded then
                 has = WhoDoesWhat:HasBuff(m.name, key)

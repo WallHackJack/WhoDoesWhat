@@ -1048,7 +1048,7 @@ end
 -- their row stays quiet.
 local function ResponsibleForCheck(key, definition, options, coverage)
     if not options.responsibleGlow or options.negative then return false end
-    if definition.hiddenOptions and definition.hiddenOptions.responsibleGlow then
+    if not WhoDoesWhat:StatusBarOptionOffered(definition, "responsibleGlow") then
         return false
     end
     -- Food and its like: nobody else can cast it for you, so there is no class
