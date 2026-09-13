@@ -227,6 +227,15 @@ end
 -- Tabs
 --------------------------------------------------------------------------------
 
+-- A tab can be named by its position or by its spec's `page` key; everything
+-- that takes a tab takes either. Nil for a key nothing answers to.
+local function TabIndex(f, key)
+    if type(key) == "number" then
+        return f.tabs[key] and key or nil
+    end
+    return f.tabIndexByPage[key]
+end
+
 -- One function decides what "selected" looks like, for the tab and its page
 -- both, so the two can never disagree about which tab is up.
 --
@@ -238,21 +247,165 @@ end
 --
 -- Both levels are derived from the panel rather than written down, so the only
 -- thing that has to stay true is the gap AddTabs leaves around it.
-local function SelectTab(f, index)
+local function PaintTabs(f)
     local panelLevel = f.tabPanel:GetFrameLevel()
     for i, tab in ipairs(f.tabs) do
-        local on = i == index
+        local on = i == f.selectedTab
         tab.bg:SetColorTexture(on and 0.22 or 0.10, on and 0.22 or 0.10,
                                on and 0.26 or 0.12, 1)
-        tab.label:SetTextColor(on and 1 or 0.65, on and 0.82 or 0.65,
-                               on and 0 or 0.65)
+        if on then
+            tab.label:SetTextColor(1, 0.82, 0)
+        elseif tab:IsEnabled() then
+            tab.label:SetTextColor(0.65, 0.65, 0.65)
+        else
+            tab.label:SetTextColor(0.35, 0.35, 0.35)
+        end
         tab.underline:SetShown(on)
         -- +2 clears the pages, which are the panel's own children at +1.
         tab:SetFrameLevel(on and panelLevel + 2 or panelLevel - 1)
         f.pages[i]:SetShown(on)
     end
-    f.selectedTab = index
-    if f.onTabSelected then f.onTabSelected(index) end
+end
+
+-- Bring a tab up. Refuses - returning false - a tab that is hidden, disabled
+-- or unknown, so a stale saved choice cannot land the window on a page that
+-- should not be reachable.
+--
+-- A page with a `build` is filled the first time it comes up rather than when
+-- the window is made, and before it is shown, so an OnShow hooked on the page
+-- sees it finished.
+local function SelectTab(f, key)
+    local index = TabIndex(f, key)
+    local tab = index and f.tabs[index]
+    if not tab or not tab:IsShown() or not tab:IsEnabled() then return false end
+
+    local spec = f.tabSpecs[index]
+    if spec.build and not tab.built then
+        tab.built = true
+        spec.build(f.pages[index], f)
+    end
+
+    f.selectedTab, f.selectedPage = index, spec.page
+    PaintTabs(f)
+    for _, listener in ipairs(f.tabListeners) do
+        listener(index, spec.page, f.pages[index])
+    end
+    return true
+end
+
+-- The first tab that can be selected, in spec order. Nil when none can.
+local function FirstAvailableTab(f)
+    for i, tab in ipairs(f.tabs) do
+        if tab:IsShown() and tab:IsEnabled() then return i end
+    end
+end
+
+-- Whatever was selected may just have been hidden or disabled; move off it to
+-- the first tab that is still available, or to no page at all.
+local function EnsureSelectable(f)
+    local current = f.selectedTab and f.tabs[f.selectedTab]
+    if current and current:IsShown() and current:IsEnabled() then
+        PaintTabs(f)
+        return
+    end
+    local fallback = FirstAvailableTab(f)
+    if fallback then
+        SelectTab(f, fallback)
+    else
+        f.selectedTab, f.selectedPage = nil, nil
+        PaintTabs(f)
+    end
+end
+
+-- Tabs run left to right, each anchored to the one before it, so the label
+-- widths stay the only thing deciding the spacing. A hidden tab is skipped
+-- rather than left as a hole, which is why this re-runs on every visibility
+-- change.
+--
+-- A spec with `right = true` is anchored from the other end instead, and the
+-- two runs simply never meet in the middle. That is how a tab that is not part
+-- of the sequence - About, Help, anything you go to rather than through - gets
+-- separated from it without anybody counting pixels.
+local function LayoutTabs(f)
+    local previous, previousRight
+    for i, tab in ipairs(f.tabs) do
+        if tab:IsShown() then
+            tab:ClearAllPoints()
+            if f.tabSpecs[i].right then
+                if previousRight then
+                    tab:SetPoint("TOPRIGHT", previousRight, "TOPLEFT", -UI.TAB_GAP, 0)
+                else
+                    tab:SetPoint("TOPRIGHT", f, "TOPRIGHT",
+                        -(UI.INSET + UI.TAB_INDENT), -f.tabTop)
+                end
+                previousRight = tab
+            else
+                if previous then
+                    tab:SetPoint("TOPLEFT", previous, "TOPRIGHT", UI.TAB_GAP, 0)
+                else
+                    tab:SetPoint("TOPLEFT", f, "TOPLEFT",
+                        UI.INSET + UI.TAB_INDENT, -f.tabTop)
+                end
+                previous = tab
+            end
+        end
+    end
+end
+
+local function SizeTab(tab)
+    tab:SetWidth(tab.label:GetStringWidth() + UI.TAB_PAD * 2)
+end
+
+-- Show or hide a tab. The row closes up around a hidden one, and if it was the
+-- selected tab the window moves to the first tab still available.
+local function SetTabShown(f, key, shown)
+    local index = TabIndex(f, key)
+    if not index then return end
+    f.tabs[index]:SetShown(shown and true or false)
+    LayoutTabs(f)
+    EnsureSelectable(f)
+end
+
+-- Enable or grey out a tab. A disabled tab stays in the row - so the page it
+-- leads to is still known to exist - and its tooltip says `reason`.
+local function SetTabEnabled(f, key, enabled, reason)
+    local index = TabIndex(f, key)
+    if not index then return end
+    local tab = f.tabs[index]
+    tab:SetEnabled(enabled and true or false)
+    tab.disabledReason = (not enabled) and reason or nil
+    EnsureSelectable(f)
+end
+
+-- Reword a tab - a count that changes, say - and re-fit its width to it.
+local function SetTabLabel(f, key, label)
+    local index = TabIndex(f, key)
+    if not index then return end
+    local tab = f.tabs[index]
+    tab.label:SetText(label)
+    SizeTab(tab)
+end
+
+-- Hear about every switch: `listener(index, pageKey, page)`. Any number may
+-- listen; they run in the order they were added.
+local function OnTabSelected(f, listener)
+    f.tabListeners[#f.tabListeners + 1] = listener
+end
+
+-- How wide the row of shown tabs is, both runs and their indents, for a window
+-- that sizes itself to fit its tabs. The row does not wrap or scroll: a window
+-- narrower than this overlaps its left and right runs.
+local function GetTabRowWidth(f)
+    local width, left, right = 0, 0, 0
+    for i, tab in ipairs(f.tabs) do
+        if tab:IsShown() then
+            width = width + tab:GetWidth()
+            if f.tabSpecs[i].right then right = right + 1 else left = left + 1 end
+        end
+    end
+    local gaps = math.max(left - 1, 0) + math.max(right - 1, 0)
+        + ((left > 0 and right > 0) and 1 or 0)
+    return width + gaps * UI.TAB_GAP + 2 * (UI.INSET + UI.TAB_INDENT)
 end
 
 -- Deliberately not PanelTabButtonTemplate: the stock tab art is parchment and
@@ -282,18 +435,47 @@ local function BuildTab(f, index, spec)
     tab.underline:SetHeight(2)
     tab.underline:Hide()
 
-    tab:SetWidth(tab.label:GetStringWidth() + UI.TAB_PAD * 2)
+    SizeTab(tab)
     tab:SetScript("OnClick", function() SelectTab(f, index) end)
+    -- A tooltip on every tab, even without one to say: a disabled tab has to
+    -- be able to explain itself.
+    UI.AddTooltip(tab, function(self)
+        if spec.tooltip or self.disabledReason then
+            return self.label:GetText(), spec.tooltip
+        end
+    end)
 
     return tab
 end
 
 -- Fit a window out with a tab row and a content panel, one page per tab.
 --
--- `specs` is a list of `{ label = "...", page = "..." }`; adding a tab is adding
--- an entry, and nothing here counts them by hand. The caller fills each page and
--- otherwise ignores the machinery; it can set `f.onTabSelected` to hear about
--- switches, and call `f:SelectTab(i)` to drive one from outside.
+-- `specs` is a list, one entry per tab:
+--   label     what the tab says
+--   page      a stable key for the page - see below
+--   right     run this tab from the right-hand end of the row
+--   build     function(page, f), called the first time the tab is selected,
+--             for a page too expensive to fill until somebody opens it
+--   tooltip   a sentence about what the page is for
+--   hidden    start hidden
+--   disabled  start disabled; `disabledReason` is what its tooltip says
+--
+-- opts, all optional:
+--   top       extra room between the title bar and the tab row, for chrome the
+--             window keeps above its tabs
+--   initial   the tab to open on, by index or page key; falls back to the first
+--             available tab when it cannot be selected
+--
+-- Adding a tab is adding an entry, and nothing here counts them by hand. The
+-- window gains:
+--   f:SelectTab(key)                  -> whether it could
+--   f:SetTabShown(key, shown)
+--   f:SetTabEnabled(key, enabled, reason)
+--   f:SetTabLabel(key, label)
+--   f:OnTabSelected(listener)         listener(index, pageKey, page)
+--   f:GetTabRowWidth()
+--   f.selectedTab, f.selectedPage     index and page key of the tab that is up
+-- where `key` is an index or a page key.
 --
 -- Returns the pages under BOTH keys: the index, and `spec.page` when a spec
 -- carries one. Reach for the name - `pages.general`, not `pages[6]`. The index is
@@ -305,12 +487,17 @@ end
 -- label is the part that gets reworded.
 --
 -- Every page fills the panel and all but the selected one is hidden, so they
--- stack and no page needs to know anything about the others.
-function UI.AddTabs(f, specs)
-    f.tabs, f.pages = {}, {}
+-- stack and no page needs to know anything about the others. Remembering the
+-- last tab across sessions is the caller's: listen, save the page key, pass it
+-- back as `initial`.
+function UI.AddTabs(f, specs, opts)
+    opts = opts or {}
+    f.tabs, f.pages, f.tabSpecs = {}, {}, {}
+    f.tabIndexByPage, f.tabListeners = {}, {}
+    f.tabTop = (f.titleBarHeight or 0) + UI.INSET + UI.TAB_DROP + (opts.top or 0)
 
     -- The panel is deliberately parked THREE levels above the window, and every
-    -- tab level is measured from it (see SelectTab). The gap underneath is the
+    -- tab level is measured from it (see PaintTabs). The gap underneath is the
     -- point: an unselected tab has to be below the panel to tuck behind it, and
     -- still above `f` to be clickable at all.
     --
@@ -322,44 +509,23 @@ function UI.AddTabs(f, specs)
     -- brought-forward tab.
     local panel = CreateFrame("Frame", nil, f, UI.TEMPLATE)
     panel:SetFrameLevel(f:GetFrameLevel() + 3)
-    panel:SetPoint("TOPLEFT", UI.INSET,
-        -(UI.INSET + UI.TITLEBAR_H + UI.TAB_DROP + UI.TAB_H - UI.TAB_LIP))
+    panel:SetPoint("TOPLEFT", UI.INSET, -(f.tabTop + UI.TAB_H - UI.TAB_LIP))
     panel:SetPoint("BOTTOMRIGHT", -UI.INSET, UI.INSET)
     panel:SetBackdrop(UI.BACKDROP)
     panel:SetBackdropColor(0.06, 0.06, 0.07, 1)
     panel:SetBackdropBorderColor(0.25, 0.25, 0.25)
     f.tabPanel = panel
 
-    -- Tabs run left to right, each anchored to the one before it, so the label
-    -- widths stay the only thing deciding the spacing.
-    --
-    -- A spec with `right = true` is anchored from the other end instead, and
-    -- the two runs simply never meet in the middle. That is how a tab that is
-    -- not part of the sequence - About, Help, anything you go to rather than
-    -- through - gets separated from it without anybody counting pixels.
-    local previous, previousRight
     for i, spec in ipairs(specs) do
+        f.tabSpecs[i] = spec
         local tab = BuildTab(f, i, spec)
-        if spec.right then
-            if previousRight then
-                tab:SetPoint("TOPRIGHT", previousRight, "TOPLEFT", -UI.TAB_GAP, 0)
-            else
-                tab:SetPoint("TOPRIGHT", f.titleBar, "BOTTOMRIGHT",
-                    -UI.TAB_INDENT, -UI.TAB_DROP)
-            end
-            previousRight = tab
-        elseif previous then
-            tab:SetPoint("TOPLEFT", previous, "TOPRIGHT", UI.TAB_GAP, 0)
-            previous = tab
-        else
-            tab:SetPoint("TOPLEFT", f.titleBar, "BOTTOMLEFT",
-                UI.TAB_INDENT, -UI.TAB_DROP)
-            previous = tab
-        end
         f.tabs[i] = tab
-    end
+        if spec.hidden then tab:Hide() end
+        if spec.disabled then
+            tab:Disable()
+            tab.disabledReason = spec.disabledReason
+        end
 
-    for i, spec in ipairs(specs) do
         local page = CreateFrame("Frame", nil, panel)
         page:SetPoint("TOPLEFT", 10, -10)
         page:SetPoint("BOTTOMRIGHT", -10, 10)
@@ -368,17 +534,29 @@ function UI.AddTabs(f, specs)
         -- The named key is an ALIAS onto the same frame, not a second page. A
         -- duplicated `page` in the specs would silently overwrite the earlier
         -- alias and leave one tab unreachable by name, so it is caught here
-        -- rather than puzzled over later.
+        -- rather than puzzled over later. A number would collide with the
+        -- positions, so it is refused for the same reason.
         if spec.page then
-            if f.pages[spec.page] then
-                error(("UI.AddTabs: duplicate page key %q"):format(spec.page), 2)
+            if f.pages[spec.page] or type(spec.page) ~= "string" then
+                error(("UI.AddTabs: bad or duplicate page key %q")
+                    :format(tostring(spec.page)), 2)
             end
             f.pages[spec.page] = page
+            f.tabIndexByPage[spec.page] = i
         end
     end
 
     f.SelectTab = SelectTab
-    SelectTab(f, 1)
+    f.SetTabShown = SetTabShown
+    f.SetTabEnabled = SetTabEnabled
+    f.SetTabLabel = SetTabLabel
+    f.OnTabSelected = OnTabSelected
+    f.GetTabRowWidth = GetTabRowWidth
+
+    LayoutTabs(f)
+    if not (opts.initial and SelectTab(f, opts.initial)) then
+        EnsureSelectable(f)
+    end
     return f.pages
 end
 
