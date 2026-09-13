@@ -27,9 +27,12 @@ WhoDoesWhat.ClientFeatures = {
     warlockHealthstone = isClassicEra and {
         name = "Major Healthstone",
         lifeByTalentRank = { [0] = 1200, [1] = 1320, [2] = 1440 },
+        -- Each Improved Healthstone rank conjures a distinct item.
+        talentRankByItemId = { [9421] = 0, [19012] = 1, [19013] = 2 },
     } or {
         name = "Master Healthstone",
         lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
+        talentRankByItemId = { [22103] = 0, [22104] = 1, [22105] = 2 },
     },
     warlockCurseSpellIds = isClassicEra and {
         reck = 11717,     -- Curse of Recklessness (Rank 4)

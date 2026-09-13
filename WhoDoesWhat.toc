@@ -53,6 +53,7 @@ PallyPowerBridge.lua
 WdwFrame.lua
 UnitMenuExtensions.lua
 UnitTooltipExtensions.lua
+ItemTooltipExtensions.lua
 RaidFrameExtensions.lua
 RaidMenuExtensions.lua
 

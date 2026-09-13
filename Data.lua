@@ -850,6 +850,7 @@ WhoDoesWhat.WarlockHealthstone = {
     maxRank = 2,
     name = healthstoneClient.name,
     lifeByTalentRank = healthstoneClient.lifeByTalentRank,
+    talentRankByItemId = healthstoneClient.talentRankByItemId,
 }
 
 -- TBC crowd-control spells offered by the CC Assignments section, listed in
