@@ -221,7 +221,15 @@ end
 -- confirm "nothing to fix" is a legitimate thing to want before a pull.
 local function UpdateTabs(f)
     local count, actionable = WhoDoesWhat:CountActionItems()
-    f:SetTabLabel("members", (count > 0 and ("Members (" .. count .. ")") or "Members")
+    -- "25 Raid Members - 3 (!)": the group's size and kind, then how many
+    -- issues it has. Solo, it is just "Members".
+    local label = "Members"
+    if IsInRaid() then
+        label = GetNumGroupMembers() .. " Raid Members"
+    elseif IsInGroup() then
+        label = GetNumGroupMembers() .. " Party Members"
+    end
+    f:SetTabLabel("members", label .. (count > 0 and (" - " .. count) or "")
         .. (actionable > 0 and ISSUE_MARKUP or ""))
     -- Asking for the logs directly (/wdw log) shows the tab for the rest of the
     -- session even with the setting off; otherwise the setting decides.
@@ -310,13 +318,12 @@ local function EnsureMainFrame()
     -- Left to right, then the right-hand run from the window's right edge
     -- inward: About is outermost.
     local pages = UI.AddTabs(f, {
-        { label = "Raid", page = "raid",
+        { label = "Raid & Assignments", page = "raid",
             tooltip = "The assignment board: paladin buffs, roles, curses, tanks, CC and misdirects.",
             build = function(page) BuildRaidPage(f, page) end },
         { label = "Members", page = "members",
-            tooltip = "Everyone in the group, the role each of them holds, and anything still"
-                .. " wrong with them -- players waiting on a role, group roles that don't"
-                .. " match, talents that disagree, and tanks not yet promoted to Main Tank.",
+            tooltip = "A list of all members in your group, sorted by role. Used to assign"
+                .. " roles, get an overview of your raiders, and address issues",
             build = ViewPage("BuildMembersPage") },
         { label = "Buff Grid", page = "grid",
             tooltip = "The raid-wide paladin blessing plan and live buff status.",
