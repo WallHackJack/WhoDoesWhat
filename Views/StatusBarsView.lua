@@ -1854,8 +1854,9 @@ local function EnsureView()
         tile = false, edgeSize = 16,
         insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
     })
-    view:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
-    view:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local fill, edge = WhoDoesWhat.Theme.statusBarsFill, WhoDoesWhat.Theme.mainBorder
+    view:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    view:SetBackdropBorderColor(edge[1], edge[2], edge[3])
     view:SetScript("OnMouseUp", StatusBarsClick)
 
     local title = CreateFrame("Frame", nil, view)
@@ -1865,7 +1866,7 @@ local function EnsureView()
     view.title = title
     local titleBg = title:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
-    titleBg:SetColorTexture(0.09, 0.09, 0.11, 1)
+    titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
     titleText:SetText("WDW Status")

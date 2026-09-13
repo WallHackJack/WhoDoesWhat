@@ -17,6 +17,12 @@ local T = {
     -- takes full gold as something close to yellow.
     mainBorder = { 0.70, 0.55, 0.17 },
 
+    -- The loose on-screen frames, dressed like the main window: its gold edge
+    -- and title bar, over a navy fill. The Paladin Bar's is the window's own
+    -- near-black navy; the Status Bars' a step lighter, as its grey was.
+    paladinBarFill = { 0.015, 0.025, 0.06, 0.95 },
+    statusBarsFill = { 0.04, 0.06, 0.12, 0.97 },
+
     -- UI.AddTabs `colors`. The panel and its border are left to the kit's own
     -- blue and grey; the blue is what About sits on. The selected tab is a dark
     -- bronze, which the gold label and underline stand out on.

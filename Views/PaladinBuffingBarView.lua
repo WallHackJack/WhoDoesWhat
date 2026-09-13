@@ -310,8 +310,9 @@ local function ApplyBackdrop(edgeSize)
         tile = false, edgeSize = edgeSize,
         insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
     })
-    bar:SetBackdropColor(0, 0, 0, 0.95)
-    bar:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local fill, edge = WhoDoesWhat.Theme.paladinBarFill, WhoDoesWhat.Theme.mainBorder
+    bar:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    bar:SetBackdropBorderColor(edge[1], edge[2], edge[3])
 end
 
 -- Everything the bar pops out, shut at once. Dragging starts from anywhere on
@@ -1831,7 +1832,7 @@ local function EnsureBar()
     title:SetPoint("TOPRIGHT", -INSET, -INSET)
     local titleBg = title:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
-    titleBg:SetColorTexture(0.12, 0.12, 0.15, 1)
+    titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
     titleText:SetText("Paladin Bar")
