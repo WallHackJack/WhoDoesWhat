@@ -301,7 +301,7 @@ local function EnsureMainFrame()
         return function(page) WhoDoesWhat[builder](WhoDoesWhat, page) end
     end
     -- Left to right, then the right-hand run from the window's right edge
-    -- inward: Settings is outermost.
+    -- inward: About is outermost.
     local pages = UI.AddTabs(f, {
         { label = "Raid", page = "raid",
             tooltip = "The assignment board: paladin buffs, roles, curses, tanks, CC and misdirects.",
@@ -314,7 +314,7 @@ local function EnsureMainFrame()
         { label = "Buff Grid", page = "grid",
             tooltip = "The raid-wide paladin blessing plan and live buff status.",
             build = ViewPage("BuildBuffingGridPage") },
-        { label = SETTINGS_LABEL, page = "settings", right = true,
+        { label = SETTINGS_LABEL, page = "settings",
             build = ViewPage("BuildAddonSettingsPage") },
         { label = "About", page = "about", right = true,
             tooltip = "Links, contact information, version details, and release notes.",

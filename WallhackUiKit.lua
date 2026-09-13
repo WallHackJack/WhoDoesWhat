@@ -428,7 +428,7 @@ local function BuildTab(f, index, spec)
     tab.bg = tab:CreateTexture(nil, "BACKGROUND")
     tab.bg:SetAllPoints(tab)
 
-    tab.label = tab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    tab.label = tab:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     tab.label:SetPoint("CENTER")
     tab.label:SetText(spec.label)
 
