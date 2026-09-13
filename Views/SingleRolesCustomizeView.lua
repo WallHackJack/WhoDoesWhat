@@ -257,7 +257,7 @@ function ToggleIconPicker(f) -- forward declared above
         local picker = CreateFrame("Frame", nil, f, "BackdropTemplate")
         picker:SetFrameLevel(f:GetFrameLevel() + 10)
         picker:SetPoint("TOPLEFT", f.classIcon, "BOTTOMLEFT", 0, -4)
-        UI.StylePanel(picker, "popup")
+        UI.StylePanel(picker, WhoDoesWhat.Theme.popup)
         picker.cells = {}
         picker:Hide()
         f.iconPicker = picker
@@ -384,7 +384,8 @@ end
 local function EnsureCustomizeFrame()
     if customizeFrame then return customizeFrame end
 
-    local f = UI.CreateWindow("WhoDoesWhatCustomizeFrame", FRAME_W, FRAME_H, "")
+    local f = UI.CreateWindow("WhoDoesWhatCustomizeFrame", FRAME_W, FRAME_H, "",
+        WhoDoesWhat.Theme.window)
     local top = f.titleBarHeight + 14
 
     -- The icon grid is a child, so it would otherwise survive Escape and the

@@ -71,9 +71,9 @@ UI.PANEL_STYLES = {
 }
 
 -- Dress a BackdropTemplate frame as a panel; `style` is a key of PANEL_STYLES,
--- default raised.
+-- default raised, or a `{ fill = ..., border = ... }` of the caller's own.
 function UI.StylePanel(frame, style)
-    local s = UI.PANEL_STYLES[style or "raised"]
+    local s = type(style) == "table" and style or UI.PANEL_STYLES[style or "raised"]
     frame:SetBackdrop(UI.PANEL_BACKDROP)
     frame:SetBackdropColor(s.fill[1], s.fill[2], s.fill[3], s.fill[4])
     frame:SetBackdropBorderColor(s.border[1], s.border[2], s.border[3])
@@ -165,6 +165,8 @@ end
 --   titleAlign  "CENTER" (default) or "LEFT"
 --   version     stamp the addon version after the title, greyed: `Name (vX.Y.Z)`.
 --               For the window that IS the addon, not for every pop-up in it.
+--   borderColor    { r, g, b } for the window's edge; grey when left out
+--   titleBarColor  { r, g, b } for the title bar; slate when left out
 function UI.CreateWindow(globalName, width, height, titleText, opts)
     opts = opts or {}
     UI.Log("Creating window frame: " .. tostring(globalName))
@@ -176,7 +178,8 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
     f:SetBackdrop(UI.BACKDROP)
     local c = UI.WINDOW_COLOR
     f:SetBackdropColor(c[1], c[2], c[3], c[4])
-    f:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local edge = opts.borderColor or { 0.4, 0.4, 0.4 }
+    f:SetBackdropBorderColor(edge[1], edge[2], edge[3])
 
     f:EnableMouse(true)
     f:SetMovable(true)
@@ -202,7 +205,8 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
     end
 
     local titlebar = f:CreateTexture(nil, "ARTWORK")
-    titlebar:SetColorTexture(0.12, 0.12, 0.15, 1)
+    local bar = opts.titleBarColor or { 0.12, 0.12, 0.15 }
+    titlebar:SetColorTexture(bar[1], bar[2], bar[3], 1)
     titlebar:SetPoint("TOPLEFT", UI.INSET, -UI.INSET)
     titlebar:SetPoint("TOPRIGHT", -UI.INSET, -UI.INSET)
     titlebar:SetHeight(UI.TITLEBAR_H)
@@ -254,19 +258,25 @@ end
 --
 -- Both levels are derived from the panel rather than written down, so the only
 -- thing that has to stay true is the gap AddTabs leaves around it.
+--
+-- PaintTab is the colours alone, which is all the mouse crossing a tab changes.
+local function PaintTab(f, i)
+    local tab, c = f.tabs[i], f.tabColors
+    local on = i == f.selectedTab
+    local hot = not on and tab:IsEnabled() and tab.hovered
+    local bg = on and c.selected or (hot and c.hover) or c.unselected
+    tab.bg:SetColorTexture(bg[1], bg[2], bg[3], 1)
+    local text = on and c.labelSelected
+        or (not tab:IsEnabled() and c.labelDisabled)
+        or (hot and c.labelHover) or c.label
+    tab.label:SetTextColor(text[1], text[2], text[3])
+end
+
 local function PaintTabs(f)
     local panelLevel = f.tabPanel:GetFrameLevel()
     for i, tab in ipairs(f.tabs) do
         local on = i == f.selectedTab
-        tab.bg:SetColorTexture(on and 0.22 or 0.10, on and 0.22 or 0.10,
-                               on and 0.26 or 0.12, 1)
-        if on then
-            tab.label:SetTextColor(1, 0.82, 0)
-        elseif tab:IsEnabled() then
-            tab.label:SetTextColor(0.65, 0.65, 0.65)
-        else
-            tab.label:SetTextColor(0.35, 0.35, 0.35)
-        end
+        PaintTab(f, i)
         tab.underline:SetShown(on)
         -- +2 clears the pages, which are the panel's own children at +1.
         tab:SetFrameLevel(on and panelLevel + 2 or panelLevel - 1)
@@ -415,6 +425,18 @@ local function GetTabRowWidth(f)
     return width + gaps * UI.TAB_GAP + 2 * (UI.INSET + UI.TAB_INDENT)
 end
 
+-- The tab row's colours where AddTabs is given none of its own.
+local TAB_COLORS = {
+    selected      = { 0.22, 0.22, 0.26 },
+    unselected    = { 0.10, 0.10, 0.12 },
+    label         = { 0.65, 0.65, 0.65 },
+    labelSelected = { 1, 0.82, 0 },
+    labelDisabled = { 0.35, 0.35, 0.35 },
+    underline     = { 1, 0.82, 0 },
+    panel         = UI.TAB_PANEL_COLOR,
+    panelBorder   = { 0.25, 0.25, 0.25 },
+}
+
 -- Deliberately not PanelTabButtonTemplate: the stock tab art is parchment and
 -- would look pasted on against a black window, and its availability varies by
 -- client. A button, a background and a label is the whole of it.
@@ -436,7 +458,8 @@ local function BuildTab(f, index, spec)
     -- background the colour change on its own is too subtle; this is what
     -- actually reads as "this one" at a glance.
     tab.underline = tab:CreateTexture(nil, "ARTWORK")
-    tab.underline:SetColorTexture(1, 0.82, 0, 1)
+    local line = f.tabColors.underline
+    tab.underline:SetColorTexture(line[1], line[2], line[3], 1)
     tab.underline:SetPoint("BOTTOMLEFT", 0, 0)
     tab.underline:SetPoint("BOTTOMRIGHT", 0, 0)
     tab.underline:SetHeight(2)
@@ -451,6 +474,17 @@ local function BuildTab(f, index, spec)
             return self.label:GetText(), spec.tooltip
         end
     end)
+    -- Hover repaints only when the caller gave it colours to repaint with.
+    if f.tabColors.hover or f.tabColors.labelHover then
+        tab:HookScript("OnEnter", function(self)
+            self.hovered = true
+            PaintTab(f, index)
+        end)
+        tab:HookScript("OnLeave", function(self)
+            self.hovered = nil
+            PaintTab(f, index)
+        end)
+    end
 
     return tab
 end
@@ -472,6 +506,10 @@ end
 --             window keeps above its tabs
 --   initial   the tab to open on, by index or page key; falls back to the first
 --             available tab when it cannot be selected
+--   colors    any keys of TAB_COLORS, each { r, g, b }, over the kit's greys;
+--             `panel` may carry an alpha. Also `hover` and `labelHover`, which
+--             have no default: without them a tab does not change under the
+--             mouse.
 --
 -- Adding a tab is adding an entry, and nothing here counts them by hand. The
 -- window gains:
@@ -499,6 +537,9 @@ end
 -- back as `initial`.
 function UI.AddTabs(f, specs, opts)
     opts = opts or {}
+    f.tabColors = {}
+    for key, color in pairs(TAB_COLORS) do f.tabColors[key] = color end
+    for key, color in pairs(opts.colors or {}) do f.tabColors[key] = color end
     f.tabs, f.pages, f.tabSpecs = {}, {}, {}
     f.tabIndexByPage, f.tabListeners = {}, {}
     f.tabTop = (f.titleBarHeight or 0) + UI.INSET + UI.TAB_DROP + (opts.top or 0)
@@ -519,9 +560,9 @@ function UI.AddTabs(f, specs, opts)
     panel:SetPoint("TOPLEFT", UI.INSET, -(f.tabTop + UI.TAB_H - UI.TAB_LIP))
     panel:SetPoint("BOTTOMRIGHT", -UI.INSET, UI.INSET)
     panel:SetBackdrop(UI.BACKDROP)
-    local fill = UI.TAB_PANEL_COLOR
-    panel:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
-    panel:SetBackdropBorderColor(0.25, 0.25, 0.25)
+    local fill, edge = f.tabColors.panel, f.tabColors.panelBorder
+    panel:SetBackdropColor(fill[1], fill[2], fill[3], fill[4] or 1)
+    panel:SetBackdropBorderColor(edge[1], edge[2], edge[3])
     f.tabPanel = panel
 
     for i, spec in ipairs(specs) do
@@ -843,8 +884,9 @@ UI.SECTION_COLOR = { 0.16, 0.16, 0.18 }
 --
 -- Alternating row colours are derived from the panel colour and cached on the
 -- box, so rows tint with the panel instead of being picked twice. `color` is an
--- optional { r, g, b } panel colour; nil is the neutral grey.
-function UI.CreateSectionBox(parent, titleText, color)
+-- optional { r, g, b } panel colour; nil is the neutral grey. `borderColor` is
+-- likewise optional, grey when left out.
+function UI.CreateSectionBox(parent, titleText, color, borderColor)
     local box = CreateFrame("Frame", nil, parent, UI.TEMPLATE)
     -- Explicit level: same-level siblings render in unstable order, and the box
     -- backdrop can end up drawing over its own rows until something moves and
@@ -854,7 +896,8 @@ function UI.CreateSectionBox(parent, titleText, color)
     color = color or UI.SECTION_COLOR
     local r, g, b = color[1], color[2], color[3]
     box:SetBackdropColor(r, g, b, 1)
-    box:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local edge = borderColor or { 0.4, 0.4, 0.4 }
+    box:SetBackdropBorderColor(edge[1], edge[2], edge[3])
     box.rowColors = {
         { TowardWhite(r, 0.09), TowardWhite(g, 0.09), TowardWhite(b, 0.09) },
         { TowardWhite(r, 0.04), TowardWhite(g, 0.04), TowardWhite(b, 0.04) },

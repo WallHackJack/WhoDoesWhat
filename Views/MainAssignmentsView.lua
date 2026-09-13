@@ -52,8 +52,9 @@ local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
 -- Page backgrounds over the window's blue panel. The roster-style pages sit on
 -- near-black, which their class-tinted rows were picked against and read muddy
 -- on blue, and Logs reads better on it too. Settings sits on it around its own
--- section tabs, whose pages are grey. About stays on the panel's own blue.
-local PAGE_DARK = { 0.012, 0.012, 0.014, 1 }
+-- section tabs, whose pages are slate. About stays on the panel's own blue.
+local THEME = WhoDoesWhat.Theme
+local PAGE_DARK = THEME.pageDark
 local PAGE_COLORS = {
     raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, logs = PAGE_DARK,
     settings = PAGE_DARK,
@@ -289,8 +290,14 @@ end
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
+    -- The icon rides inside the title as a texture escape, so icon, name and
+    -- version stamp stay one centred string.
     local f = UI.CreateWindow("WhoDoesWhatMainFrame", WINDOW_W, WINDOW_H,
-        "WhoDoesWhat", { version = true })
+        "|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t WhoDoesWhat", {
+            version = true,
+            titleBarColor = THEME.window.titleBarColor,
+            borderColor = THEME.mainBorder,
+        })
     f.closeButton:SetHitRectInsets(4, 4, 4, 4)
     local versionWarn = UI.CreateWarningIcon(f)
     versionWarn:SetPoint("LEFT", f.titleText, "RIGHT", 4, 0)
@@ -322,7 +329,7 @@ local function EnsureMainFrame()
         { label = "Logs", page = "logs", right = true, hidden = true,
             tooltip = "The combined WhoDoesWhat and PallyPower addon-message logs.",
             build = ViewPage("BuildSyncLogPage") },
-    }, { initial = "raid" })
+    }, { initial = "raid", colors = THEME.tabs })
     for key, color in pairs(PAGE_COLORS) do UI.SetTabPageColor(pages[key], color) end
 
     f:HookScript("OnShow", UpdateTabs)

@@ -61,7 +61,8 @@ RaidMenuExtensions.lua
 # --- Views ---
 # SectionKit before the section files (they localize it at load), sections
 # before MainAssignmentsView (it looks them up on open, but keep the order
-# honest).
+# honest). Theme first of all: every view reads its colours at load.
+Views\Theme.lua
 Views\SectionKit.lua
 Views\ViewRefresh.lua
 Views\RaiderTooltipView.lua

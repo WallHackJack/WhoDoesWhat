@@ -347,14 +347,20 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Boxed section shell in its column. A class tint mixes a little of the
--- class colour into the panel; the kit derives the row stripes from it.
+-- class colour into the panel; the kit derives the row stripes from it. The
+-- border leans the same way, so a section's frame matches it rather than the
+-- window's theme; an untinted section keeps the kit's grey for both.
 local function CreateSectionBox(f, content, titleText, column, tintClass)
     local col = f.columns[column]
     local tint = tintClass and classColors[tintClass]
     local color = tint and {
         0.08 + tint.r * 0.18, 0.08 + tint.g * 0.18, 0.08 + tint.b * 0.18,
     }
-    local box = UI.CreateSectionBox(content, titleText, color)
+    local border = tint and {
+        0.4 + (tint.r - 0.4) * 0.35, 0.4 + (tint.g - 0.4) * 0.35,
+        0.4 + (tint.b - 0.4) * 0.35,
+    }
+    local box = UI.CreateSectionBox(content, titleText, color, border)
     box:SetWidth(col.width)
     col.boxes[#col.boxes + 1] = box
     return box

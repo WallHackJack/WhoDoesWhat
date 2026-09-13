@@ -445,7 +445,7 @@ local function EnsureCalcFrame()
     if calcFrame then return calcFrame end
 
     local f = UI.CreateWindow("WhoDoesWhatCurseCalcFrame", FRAME_W, FRAME_H,
-        "WhoDoesWhat - Curse Value Calculator")
+        "WhoDoesWhat - Curse Value Calculator", WhoDoesWhat.Theme.window)
     f.state = {
         bossArmor = BOSS_ARMORS[1],
         sunder = true, expose = false,
@@ -590,7 +590,7 @@ local function EnsureCalcFrame()
     -- Divider above results
     local ry = iy + 172
     local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
     divider:SetHeight(1)
     divider:SetPoint("TOPLEFT", MARGIN, -ry)
     divider:SetPoint("TOPRIGHT", -MARGIN, -ry)

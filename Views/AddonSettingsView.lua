@@ -27,10 +27,17 @@ local PAGE_FIELD_OFFSET = 146
 -- choice any of them has ("Pulsing wings (right)").
 local PAGE_DROPDOWN_W = 140
 local PAGE_DROPDOWN_ROW_H = 32
--- Behind each section, inside the Settings tab's near-black.
-local PAGE_GREY = { 0.06, 0.06, 0.07, 1 }
--- Around the header and those wells, inside the section tabs' border.
-local PANEL_SLATE = { 0.095, 0.095, 0.11, 1 }
+-- Behind each section, inside the Settings tab's near-black: a dark navy well,
+-- just light enough for its edge shadows to show.
+local PAGE_WELL = { 0.045, 0.06, 0.10, 1 }
+-- Around the header and those wells, inside the section tabs' border - a step
+-- lighter, so each well reads as sunk into it.
+local PANEL_SLATE = { 0.075, 0.095, 0.16, 1 }
+-- The Buffs row options' title bar: a deep navy, darker and bluer than both,
+-- so it stands apart without shouting over the options under it.
+local OPTIONS_HEADER_BLUE = { 0.025, 0.035, 0.085, 1 }
+-- Settings table rows, over the well: odd, even.
+local ROW_STRIPES = { { 0.14, 0.17, 0.26 }, { 0.085, 0.10, 0.17 } }
 -- The shared title and Reset Defaults strip above every section.
 local HEADER_H = 34
 local BUFF_OPTIONS_W = 242
@@ -157,8 +164,8 @@ local function RefreshStatusBuffRows(f)
             -- The row whose options are showing beside the table.
             row.stripe:SetColorTexture(0.42, 0.33, 0.04, 0.85)
         else
-            local shade = index % 2 == 1 and 0.18 or 0.10
-            row.stripe:SetColorTexture(shade, shade, shade + 0.02, 0.72)
+            local shade = ROW_STRIPES[index % 2 == 1 and 1 or 2]
+            row.stripe:SetColorTexture(shade[1], shade[2], shade[3], 0.72)
         end
     end
 end
@@ -888,9 +895,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     nameBar:SetFrameLevel(scroll:GetFrameLevel() + 20)
     local barFill = nameBar:CreateTexture(nil, "BACKGROUND")
     barFill:SetAllPoints()
-    -- The window's tab-panel blue, so the bar stands apart from the slate
-    -- around the section.
-    local blue = UI.TAB_PANEL_COLOR
+    local blue = OPTIONS_HEADER_BLUE
     barFill:SetColorTexture(blue[1], blue[2], blue[3], blue[4])
     local topEdge = CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, true)
     topEdge:SetPoint("TOPLEFT", nameBar, "BOTTOMLEFT")
@@ -1385,12 +1390,13 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     for i, section in ipairs(sections) do
         specs[i] = { label = section.label, right = section.right }
     end
-    local sectionTabs = UI.AddTabs(f, specs)
-    -- The section panel, around the header and each section's grey well, in a
+    -- The section panel, around the header and each section's well, in a
     -- lighter slate than the Settings tab's near-black: each well reads as sunk
     -- into it, and its edge shadows have something to fall away from.
+    local sectionTabs = UI.AddTabs(f, specs,
+        { colors = WhoDoesWhat.Theme.TabsWith({ panel = PANEL_SLATE },
+            WhoDoesWhat.Theme.subTabs) })
     local panel = f.tabPanel
-    panel:SetBackdropColor(PANEL_SLATE[1], PANEL_SLATE[2], PANEL_SLATE[3], PANEL_SLATE[4])
 
     -- One header for every section, above its content: the title, centred, and
     -- the Reset Defaults button hard right. Both read the section that is up.
@@ -1419,7 +1425,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         return "Reset " .. f.section.title, f.section.description
     end)
 
-    -- Each section's content sits below the header in a grey well of its own,
+    -- Each section's content sits below the header in a well of its own,
     -- which is all its scroll area - and scrollbar - covers.
     for i in ipairs(sections) do
         local well = sectionTabs[i]
@@ -1428,7 +1434,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         well:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 10)
         local fill = well:CreateTexture(nil, "BACKGROUND")
         fill:SetAllPoints()
-        fill:SetColorTexture(PAGE_GREY[1], PAGE_GREY[2], PAGE_GREY[3], PAGE_GREY[4])
+        fill:SetColorTexture(PAGE_WELL[1], PAGE_WELL[2], PAGE_WELL[3], PAGE_WELL[4])
         well.fill = fill
         -- Flush with the grey on every side, bar the scrollbar's gutter. A
         -- shadow along the top and bottom edges shows the content scrolling
@@ -1828,7 +1834,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     local buffScroll = scrolls.Buffs
     local buffWell = buffScroll:GetParent()
 
-    -- Two panels in place of the section's one grey fill: the table's on the
+    -- Two panels in place of the section's one fill: the table's on the
     -- left, the row options' on the right.
     buffWell.fill:Hide()
     local tableFill = buffWell:CreateTexture(nil, "BACKGROUND")
@@ -1839,7 +1845,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     optionsFill:SetPoint("TOPLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP, 0)
     optionsFill:SetPoint("BOTTOMRIGHT")
     for _, fill in ipairs({ tableFill, optionsFill }) do
-        fill:SetColorTexture(PAGE_GREY[1], PAGE_GREY[2], PAGE_GREY[3], PAGE_GREY[4])
+        fill:SetColorTexture(PAGE_WELL[1], PAGE_WELL[2], PAGE_WELL[3], PAGE_WELL[4])
     end
 
     -- The rows scroll under their column headings, which sit on the panel

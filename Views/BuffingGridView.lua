@@ -714,7 +714,7 @@ function WhoDoesWhat:BuildBuffingGridPage(page)
     f.raiderLabel = raiderLabel
 
     local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
     divider:SetHeight(1)
     divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
     divider:SetPoint("TOPRIGHT", -(MARGIN + SCROLLBAR_W), -f.headerBottom)

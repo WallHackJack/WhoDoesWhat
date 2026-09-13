@@ -785,7 +785,7 @@ local function EnsureFrame()
     if diffFrame then return diffFrame end
 
     local f = UI.CreateWindow("WhoDoesWhatPallyPowerDiffFrame",
-        COMPACT_W, COMPACT_H, "Paladin Assignment Differences")
+        COMPACT_W, COMPACT_H, "Paladin Assignment Differences", WhoDoesWhat.Theme.window)
 
     local sendBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     sendBtn:SetSize(130, 22)

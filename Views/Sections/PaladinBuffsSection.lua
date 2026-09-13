@@ -1174,7 +1174,7 @@ local function Build(f, content)
     ruleTitle:SetText("Buffing Rules")
 
     local ruleDivider = box:CreateTexture(nil, "ARTWORK")
-    ruleDivider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+    ruleDivider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
     ruleDivider:SetHeight(1)
 
     local clearRulesBtn = UI.CreateCloseButton(box, nil, 0.25)
