@@ -8,16 +8,38 @@ local K = WhoDoesWhat.SectionKit
 local settingsFrame = nil
 local buffOptionsFrame = nil
 
-local NAV_X = 14
-local NAV_W = 104
--- Each section scrolls on its own from here rightwards, so the navigation
--- column beside it stays put. Everything a section lays out is measured from
--- the left of its own scroll area, which is why CONTENT_X is so small.
-local PAGE_X = 126
+-- Each section scrolls on its own under its tab. Everything a section lays out
+-- is measured from the left of its own scroll area, which is why CONTENT_X is
+-- so small.
 local CONTENT_X = 8
 local CONTENT_W = 410
-local FRAME_W = 560
+-- Most sections set their column in from the left so it sits near the middle of
+-- the page. Buff Tracking's table is wide enough to want the room.
+local PAGE_X = CONTENT_X + 200
+-- Behind each section, inside the Settings tab's near-black.
+local PAGE_GREY = { 0.06, 0.06, 0.07, 1 }
+-- The shared title and Reset Defaults strip above every section.
+local HEADER_H = 34
 local BUFF_OPTIONS_W = 242
+-- Buff Tracking splits its section in two: the table on a panel just wide
+-- enough for it and its scrollbar, and the row options on a second panel that
+-- takes the rest. The table's column headings stay put above its rows.
+local BUFF_TABLE_W = CONTENT_X + CONTENT_W + UI.SCROLLBAR_W
+local BUFF_PANEL_GAP = 8
+local BUFF_HEADINGS_H = 30
+-- The row options' own heading bar, a little taller for its bigger icon.
+local OPTIONS_HEADER_H = 38
+-- The row options' layout. Labels sit at the left; every dropdown box and the
+-- colour swatch start at one shared x beside them. The dropdown template draws
+-- its box DROPDOWN_INSET in from its own left edge.
+local OPTIONS_LABEL_X = 10
+local OPTIONS_FIELD_X = 150
+local DROPDOWN_INSET = 17
+-- One width for every dropdown there, wide enough for the longest choice.
+local OPTIONS_DROPDOWN_W = 120
+local OPTION_ROW_H = 22
+local DROPDOWN_ROW_H = 28
+local DIVIDER_GAP = 14
 local FIRST_PALADIN_LABEL = "(use first paladin)"
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local STATUS_SCOPE_LABELS = {
@@ -48,13 +70,29 @@ local function RefreshBuffingTestPaladinDropdown(f)
     end
 end
 
--- Section heading at column origin `x`. Returns the y below it.
-local function AddHeading(f, x, y, text, r, g, b)
-    local h = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    h:SetPoint("TOPLEFT", x, -y)
-    h:SetText(text)
-    if r then h:SetTextColor(r, g, b) end
-    return y + 28, h
+-- One confirm for every reset. The `data` passed to StaticPopup_Show is the
+-- reset to run on Yes; the text is the whole question.
+StaticPopupDialogs["WHODOESWHAT_RESET_SETTINGS"] = {
+    text = "%s",
+    button1 = "Reset",
+    button2 = "Cancel",
+    OnAccept = function(self) self.data() end,
+    timeout = 0,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Put settings keys back to their profile defaults - straight from the defaults
+-- rather than a second list of values, so a reset and a fresh install cannot
+-- disagree. Tables are copied: handing out the defaults' own table would let the
+-- next edit rewrite the default itself.
+function WhoDoesWhat:RestoreDefaultSettings(keys)
+    local settings = self.db.profile.settings
+    local defaults = self.db.defaults.profile.settings
+    for _, key in ipairs(keys) do
+        local value = defaults[key]
+        settings[key] = type(value) == "table" and CopyTable(value) or value
+    end
 end
 
 local function StoreStatusBuffOption(key, option, value)
@@ -102,8 +140,13 @@ local function RefreshStatusBuffRows(f)
         row.bar:SetChecked(options.bar)
         row.grid:SetChecked(options.grid)
         row.grid:SetShown(not WhoDoesWhat.StatusBarChecks[key].gridOptionDisabled)
-        local shade = index % 2 == 1 and 0.18 or 0.10
-        row.stripe:SetColorTexture(shade, shade, shade + 0.02, 0.72)
+        if buffOptionsFrame and buffOptionsFrame.buffKey == key then
+            -- The row whose options are showing beside the table.
+            row.stripe:SetColorTexture(0.42, 0.33, 0.04, 0.85)
+        else
+            local shade = index % 2 == 1 and 0.18 or 0.10
+            row.stripe:SetColorTexture(shade, shade, shade + 0.02, 0.72)
+        end
     end
 end
 
@@ -294,6 +337,12 @@ function WhoDoesWhat:UpdateMinimapButtonVisibility()
     end
 end
 
+-- Re-read the whole minimap button setting, position included.
+function WhoDoesWhat:RefreshMinimapButton()
+    if not minimapIcon then return end
+    minimapIcon:Refresh(MINIMAP_NAME, self.db.profile.settings.minimapButton)
+end
+
 local function SetOptionAvailable(check, label, available)
     check:SetEnabled(available)
     label:SetTextColor(available and 1 or 0.45,
@@ -339,22 +388,24 @@ local function ParseColorHex(text)
 end
 
 local function CreateMiniDivider(parent, text)
+    -- Width comes from where it is placed: it spans the options panel.
     local divider = CreateFrame("Frame", nil, parent)
-    divider:SetSize(BUFF_OPTIONS_W - 16, 10)
-    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("CENTER")
+    divider:SetHeight(10)
+    -- Near the left end, a short rule before it and the long one after.
+    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 36, 0)
     label:SetText(text)
-    label:SetTextColor(0.52, 0.52, 0.52)
+    label:SetTextColor(0.8, 0.65, 0.12)
     local left = divider:CreateTexture(nil, "ARTWORK")
     left:SetHeight(1)
     left:SetPoint("LEFT")
     left:SetPoint("RIGHT", label, "LEFT", -6, 0)
-    left:SetColorTexture(0.35, 0.35, 0.35, 0.7)
+    left:SetColorTexture(0.8, 0.65, 0.12, 0.3)
     local right = divider:CreateTexture(nil, "ARTWORK")
     right:SetHeight(1)
     right:SetPoint("LEFT", label, "RIGHT", 6, 0)
     right:SetPoint("RIGHT")
-    right:SetColorTexture(0.35, 0.35, 0.35, 0.7)
+    right:SetColorTexture(0.8, 0.65, 0.12, 0.3)
     return divider
 end
 
@@ -374,14 +425,19 @@ local function RefreshBuffOptionsFrame()
         WhoDoesWhat:ApplyStatusCheckIcon(f.buffIcon, definition)
     end
     f.buffName:SetText(definition.name)
+    f.buffNameGroup:SetWidth(33 + f.buffName:GetStringWidth())
     UIDropDownMenu_SetText(f.scopeDD,
         STATUS_SCOPE_LABELS[options.scope] or STATUS_SCOPE_LABELS.always)
 
+    -- A label, and its dropdown's box at the shared field x on the same line.
+    -- Returns the y below the row.
     local function PlaceDropdown(label, dd, y)
         label:ClearAllPoints()
-        label:SetPoint("TOPLEFT", 10, -(y + 1))
+        label:SetPoint("TOPLEFT", OPTIONS_LABEL_X, -(y + 7))
         dd:ClearAllPoints()
-        dd:SetPoint("LEFT", label, "RIGHT", -7, -4)
+        dd:SetPoint("LEFT", label, "LEFT",
+            OPTIONS_FIELD_X - OPTIONS_LABEL_X - DROPDOWN_INSET, -2)
+        return y + DROPDOWN_ROW_H
     end
     for _, region in ipairs(f.normalOptionRegions) do
         region:SetShown(not custom)
@@ -411,13 +467,13 @@ local function RefreshBuffOptionsFrame()
         end
     end
     if activeRows then
-        PlaceDropdown(f.scopeLabel, f.scopeDD, 36)
+        local top = PlaceDropdown(f.scopeLabel, f.scopeDD, 4) + 2
         -- Sized to the stack rather than a constant: the two custom checks no
         -- longer have the same number of rows.
-        f:SetHeight(74 + #activeRows * 22)
+        f:SetHeight(top + #activeRows * OPTION_ROW_H + 8)
         for index, row in ipairs(activeRows) do
             row[1]:ClearAllPoints()
-            row[1]:SetPoint("TOPLEFT", 7, -(66 + (index - 1) * 22))
+            row[1]:SetPoint("TOPLEFT", 7, -(top + (index - 1) * OPTION_ROW_H))
             row[1]:SetChecked(row[3])
             SetOptionAvailable(row[1], row[2], true)
         end
@@ -447,38 +503,42 @@ local function RefreshBuffOptionsFrame()
         if shown then
             check:ClearAllPoints()
             check:SetPoint("TOPLEFT", 7 + (indent or 0), -y)
-            return y + 21
+            return y + OPTION_ROW_H
         end
         return y
     end
+    -- A section divider across the panel, with room above and below it.
     local function PlaceDivider(divider, shown, y)
         divider:SetShown(shown)
         if shown then
+            y = y + DIVIDER_GAP
             divider:ClearAllPoints()
             divider:SetPoint("TOPLEFT", 8, -y)
-            return y + 10
+            divider:SetPoint("TOPRIGHT", -8, -y)
+            return y + 10 + 8
         end
         return y
     end
 
-    local y = 36
-    y = PlaceOption("combinePaladinBars", f.buffKey == "paladinBuffs", y)
+    local y = -6
+    if f.buffKey == "paladinBuffs" then
+        y = PlaceOption("combinePaladinBars", true, 4)
+    else
+        PlaceOption("combinePaladinBars", false, y)
+    end
 
-    y = PlaceDivider(f.displayDivider, true, y + 1)
-    y = y + 8
-    PlaceDropdown(f.displayLabel, f.displayDD, y)
-    y = y + 23
+    y = PlaceDivider(f.displayDivider, true, y)
+    y = PlaceDropdown(f.displayLabel, f.displayDD, y)
     f.colorLabel:ClearAllPoints()
-    f.colorLabel:SetPoint("TOPLEFT", 10, -y)
+    f.colorLabel:SetPoint("TOPLEFT", OPTIONS_LABEL_X, -(y + 4))
     f.colorSwatch:ClearAllPoints()
-    f.colorSwatch:SetPoint("LEFT", f.colorLabel, "RIGHT", 6, 0)
-    y = y + 21
+    f.colorSwatch:SetPoint("LEFT", f.colorLabel, "LEFT",
+        OPTIONS_FIELD_X - OPTIONS_LABEL_X, 0)
+    y = y + 24
 
-    y = PlaceDivider(f.requirementDivider, true, y + 1)
-    y = y + 8
-    PlaceDropdown(f.scopeLabel, f.scopeDD, y)
-    y = y + 23
-    PlaceDropdown(f.classLabel, f.classDD, y)
+    y = PlaceDivider(f.requirementDivider, true, y)
+    y = PlaceDropdown(f.scopeLabel, f.scopeDD, y)
+    y = PlaceDropdown(f.classLabel, f.classDD, y)
     local showBest = definition.improvedTalent ~= nil
         and not hidden.bestAvailable
     local showHideBarUnavailable = hasRequirement
@@ -500,9 +560,6 @@ local function RefreshBuffOptionsFrame()
     -- cast it, not how well.
     local showFlagOutside = not options.negative
         and not hidden.flagOutsideRaid
-    y = y + ((showBest or showHideBarUnavailable or showHideColumnUnavailable
-        or showResponsibleGlow or showPartialGlow or showFlagOutside)
-        and 18 or 25)
     y = PlaceOption("bestAvailable", showBest, y)
     -- A sub-option of the box above it: indented, and gone entirely while the
     -- rule it relaxes is switched off.
@@ -525,7 +582,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("hideBarUnavailable", showHideBarUnavailable, y)
     y = PlaceOption("hideColumnUnavailable", showHideColumnUnavailable, y)
 
-    y = PlaceDivider(f.completionDivider, true, y + 1)
+    y = PlaceDivider(f.completionDivider, true, y)
     y = PlaceOption("negative", not hidden.negative, y)
     f.optionLabels.hideComplete:SetText(options.negative
         and "Hide Bar when debuff missing" or "Hide Bar when complete")
@@ -535,8 +592,7 @@ local function RefreshBuffOptionsFrame()
     local showHideColumnComplete = not definition.gridOptionDisabled
         and not hidden.hideColumnComplete
     if options.negative then
-        PlaceDropdown(f.saturatedLabel, f.saturatedDD, y + 2)
-        y = y + (showHideColumnComplete and 20 or 25)
+        y = PlaceDropdown(f.saturatedLabel, f.saturatedDD, y)
     end
     f.optionLabels.hideColumnComplete:SetText(options.negative
         and "Hide grid column when debuff missing"
@@ -547,7 +603,7 @@ local function RefreshBuffOptionsFrame()
     local showTanks = not hidden.onlyTanks
     local showPets = not hidden.hunterPets
     y = PlaceDivider(f.targetsDivider,
-        showMana or showTanks or showPets, y + 1)
+        showMana or showTanks or showPets, y)
     y = PlaceOption("onlyManaUsers", showMana, y)
     y = PlaceOption("onlyTanks", showTanks, y)
     -- A check that counts every class's pet says so; the rest are hunters-only.
@@ -792,40 +848,129 @@ local function OpenBarColorPicker(owner, f)
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
+-- Put one check's options back to its defaults. Whether it shows in Bars and in
+-- the Buff Grid, and where it sits in the order, belong to the table beside the
+-- options, so they are kept.
+local function ResetBuffOptions(key)
+    UI.CancelColorPicker()
+    local all = WhoDoesWhat.db.profile.settings.statusBarChecks
+    local saved = all and all[key]
+    if saved then
+        all[key] = { bar = saved.bar, enabled = saved.enabled, grid = saved.grid }
+    end
+    WhoDoesWhat:InvalidateStatusBarCheckCache()
+    RefreshBuffOptionsFrame()
+    WhoDoesWhat:RefreshBoardViews()
+    WhoDoesWhat:RefreshStatusBarsView()
+end
+
 local function EnsureBuffOptionsFrame(owner, key)
     if buffOptionsFrame then return buffOptionsFrame end
-    local f = UI.CreateWindow("WhoDoesWhatBuffTrackingOptionsFrame",
-        BUFF_OPTIONS_W, 230, nil, { bare = true, closeButton = true })
+    -- The right-hand panel of the Buff Tracking section, beside its table, in
+    -- a scroll area of its own: the rows and the options each scroll on their
+    -- own, and both come and go with the section's tab.
+    local well = owner.buffTrackingWell
+    local scroll, content = UI.CreateScroll(well, "WhoDoesWhatBuffTrackingOptionsScroll")
+    scroll:SetPoint("TOPLEFT", well, "TOPLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP + 4,
+        -OPTIONS_HEADER_H)
+    scroll:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT", -UI.SCROLLBAR_W, 0)
+
+    local f = CreateFrame("Frame", "WhoDoesWhatBuffTrackingOptionsFrame", content)
+    f:SetPoint("TOPLEFT")
+    f:SetPoint("TOPRIGHT")
+    f:SetHeight(230)
+    UI.SetScrollHeight(scroll, 230)
+    -- The refresh sizes the panel to whichever option stack is showing.
+    f:SetScript("OnSizeChanged", function(_, _, height)
+        UI.SetScrollHeight(scroll, height)
+    end)
     -- UIDropDownMenu_Initialize runs its callback immediately, before this
     -- constructor returns, so the selected key must already be available.
     f.buffKey = key
-    f:SetParent(owner)
-    f:SetToplevel(false)
-    f:SetFrameLevel(owner:GetFrameLevel() + 20)
     f:HookScript("OnHide", UI.CancelColorPicker)
-    f:ClearAllPoints()
-    -- Clear of the section's scrollbar, which hangs off the right of the page.
-    f:SetPoint("LEFT", owner, "RIGHT", 8 + UI.SCROLLBAR_W, 0)
 
-    local icon = f:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(20, 20)
-    icon:SetPoint("TOPLEFT", 8, -8)
+    -- The row's icon and name, centred on a lighter bar across the top of the
+    -- options panel, down to where the scroll area starts. Outside the scroll
+    -- area so they stay in view, and above it so the bar's shadow falls over
+    -- the options as they scroll up under it. The group is re-fitted to the
+    -- name on every refresh.
+    local nameBar = CreateFrame("Frame", nil, well)
+    nameBar:SetPoint("TOPLEFT", well, "TOPLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP, 0)
+    nameBar:SetPoint("TOPRIGHT", well, "TOPRIGHT")
+    nameBar:SetHeight(OPTIONS_HEADER_H)
+    nameBar:SetFrameLevel(scroll:GetFrameLevel() + 20)
+    local barFill = nameBar:CreateTexture(nil, "BACKGROUND")
+    barFill:SetAllPoints()
+    barFill:SetColorTexture(0.12, 0.12, 0.135, 1)
+    if barFill.SetGradient and CreateColor then
+        local shadow = nameBar:CreateTexture(nil, "BACKGROUND")
+        shadow:SetPoint("TOPLEFT", nameBar, "BOTTOMLEFT")
+        shadow:SetPoint("TOPRIGHT", nameBar, "BOTTOMRIGHT")
+        shadow:SetHeight(10)
+        shadow:SetColorTexture(1, 1, 1, 1)
+        -- Vertical gradients run bottom to top: clear below, dark at the bar.
+        shadow:SetGradient("VERTICAL", CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.55))
+
+        -- The same shadow upside down along the panel's bottom edge, which the
+        -- options scroll down under.
+        local bottomEdge = CreateFrame("Frame", nil, well)
+        bottomEdge:SetPoint("BOTTOMLEFT", well, "BOTTOMLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP, 0)
+        bottomEdge:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT")
+        bottomEdge:SetHeight(10)
+        bottomEdge:SetFrameLevel(scroll:GetFrameLevel() + 20)
+        local bottomShadow = bottomEdge:CreateTexture(nil, "BACKGROUND")
+        bottomShadow:SetAllPoints()
+        bottomShadow:SetColorTexture(1, 1, 1, 1)
+        bottomShadow:SetGradient("VERTICAL", CreateColor(0, 0, 0, 0.55), CreateColor(0, 0, 0, 0))
+    end
+
+    -- The template hangs the bar's arrow buttons right at the scroll area's
+    -- ends, where they would poke into the heading bar and the bottom shadow.
+    local bar = scroll.uiScrollBar
+    if bar then
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -28)
+        bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 28)
+    end
+
+    local nameGroup = CreateFrame("Frame", nil, nameBar)
+    nameGroup:SetPoint("CENTER")
+    nameGroup:SetHeight(26)
+    f.buffNameGroup = nameGroup
+
+    local RESET_DESCRIPTION = "Puts this row's options back. Whether it shows in"
+        .. " Bars and the Buff Grid, and its place in the order, are kept."
+    local resetRow = CreateFrame("Button", nil, nameBar, "UIPanelButtonTemplate")
+    resetRow:SetSize(60, 22)
+    resetRow:SetPoint("RIGHT", -8, 0)
+    resetRow:SetText("Reset")
+    resetRow:SetScript("OnClick", function()
+        local rowKey = f.buffKey
+        StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS", "Reset "
+            .. WhoDoesWhat.StatusBarChecks[rowKey].name .. " to defaults?\n\n"
+            .. RESET_DESCRIPTION, nil, function() ResetBuffOptions(rowKey) end)
+    end)
+    UI.AddTooltip(resetRow, function()
+        return "Reset " .. WhoDoesWhat.StatusBarChecks[f.buffKey].name, RESET_DESCRIPTION
+    end)
+
+    local icon = nameGroup:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(26, 26)
+    icon:SetPoint("LEFT")
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     f.buffIcon = icon
-    local ppHeaderBadge = K.CreatePallyPowerBadge(f, 20)
-    ppHeaderBadge:SetPoint("TOPLEFT", 8, -8)
+    local ppHeaderBadge = K.CreatePallyPowerBadge(nameGroup, 26)
+    ppHeaderBadge:SetPoint("LEFT")
     ppHeaderBadge:Hide()
     f.ppHeaderBadge = ppHeaderBadge
-    local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    name:SetPoint("LEFT", icon, "RIGHT", 5, 0)
-    name:SetWidth(BUFF_OPTIONS_W - 55)
-    name:SetJustifyH("LEFT")
+    local name = nameGroup:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    name:SetPoint("LEFT", icon, "RIGHT", 7, 0)
     f.buffName = name
 
-    local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     scopeLabel:SetPoint("TOPLEFT", 10, -46)
     scopeLabel:SetText("Party type")
-    local scopeDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingScopeDD", 72)
+    local scopeDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingScopeDD", OPTIONS_DROPDOWN_W)
     scopeDD:SetPoint("LEFT", scopeLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(scopeDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).scope
@@ -846,10 +991,10 @@ local function EnsureBuffOptionsFrame(owner, key)
     UI.AddDropdownTooltip(scopeDD, scopeLabel, "Party type",
         "Limit this check to raids, parties, or all group types.")
 
-    local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     displayLabel:SetPoint("TOPLEFT", 190, -46)
     displayLabel:SetText("Text Mode")
-    local displayDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingDisplayDD", 98)
+    local displayDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingDisplayDD", OPTIONS_DROPDOWN_W)
     displayDD:SetPoint("LEFT", displayLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).display
@@ -872,10 +1017,10 @@ local function EnsureBuffOptionsFrame(owner, key)
     UI.AddDropdownTooltip(displayDD, displayLabel, "Text Mode",
         "Choose the text shown on the bar: percent, counts, or a fraction.")
 
-    local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     classLabel:SetPoint("TOPLEFT", 10, -77)
     classLabel:SetText("Requires Class:")
-    local classDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingClassDD", 90)
+    local classDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingClassDD", OPTIONS_DROPDOWN_W)
     classDD:SetPoint("LEFT", classLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(classDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).requiredClass
@@ -904,16 +1049,43 @@ local function EnsureBuffOptionsFrame(owner, key)
     UI.AddDropdownTooltip(classDD, classLabel, "Requires class",
         "The check is unavailable unless a member of this class is present.")
 
-    local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     colorLabel:SetPoint("TOPLEFT", 190, -77)
     colorLabel:SetText("Bar Color")
     local colorSwatch = CreateFrame("Button", nil, f)
-    colorSwatch:SetSize(22, 11)
+    -- Built to read as a button: the height of the hex box beside it, a light
+    -- frame round a dark gap round the colour, a gold frame and a sheen on
+    -- hover, and the colour pressing in a pixel while held.
+    colorSwatch:SetSize(34, 18)
     colorSwatch:SetPoint("LEFT", colorLabel, "RIGHT", 6, 0)
     colorSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local swatchFrame = colorSwatch:CreateTexture(nil, "BACKGROUND")
+    swatchFrame:SetAllPoints()
+    swatchFrame:SetColorTexture(0.55, 0.55, 0.55, 1)
+    local swatchGap = colorSwatch:CreateTexture(nil, "BORDER")
+    swatchGap:SetPoint("TOPLEFT", 1, -1)
+    swatchGap:SetPoint("BOTTOMRIGHT", -1, 1)
+    swatchGap:SetColorTexture(0, 0, 0, 1)
     local color = colorSwatch:CreateTexture(nil, "ARTWORK")
-    color:SetAllPoints()
+    local function PlaceColor(pressed)
+        local shift = pressed and 1 or 0
+        color:ClearAllPoints()
+        color:SetPoint("TOPLEFT", 2 + shift, -2 - shift)
+        color:SetPoint("BOTTOMRIGHT", -2 + shift, 2 - shift)
+    end
+    PlaceColor(false)
     colorSwatch.color = color
+    local sheen = colorSwatch:CreateTexture(nil, "HIGHLIGHT")
+    sheen:SetPoint("TOPLEFT", color, "TOPLEFT")
+    sheen:SetPoint("BOTTOMRIGHT", color, "BOTTOMRIGHT")
+    sheen:SetColorTexture(1, 1, 1, 0.18)
+    colorSwatch:HookScript("OnEnter", function() swatchFrame:SetColorTexture(1, 0.82, 0, 1) end)
+    colorSwatch:HookScript("OnLeave", function()
+        swatchFrame:SetColorTexture(0.55, 0.55, 0.55, 1)
+        PlaceColor(false)
+    end)
+    colorSwatch:HookScript("OnMouseDown", function() PlaceColor(true) end)
+    colorSwatch:HookScript("OnMouseUp", function() PlaceColor(false) end)
     colorSwatch:SetScript("OnClick", function(_, button)
         if f.colorHex and f.colorHex:HasFocus() then f.colorHex:ClearFocus() end
         if button == "RightButton" then
@@ -932,7 +1104,7 @@ local function EnsureBuffOptionsFrame(owner, key)
 
     local colorHex = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
     colorHex:SetSize(64, 18)
-    colorHex:SetPoint("LEFT", colorSwatch, "RIGHT", 7, 0)
+    colorHex:SetPoint("LEFT", colorSwatch, "RIGHT", 16, 0)
     colorHex:SetAutoFocus(false)
     colorHex:SetMaxLetters(7)
     colorHex:SetText("#FFFFFF")
@@ -968,9 +1140,9 @@ local function EnsureBuffOptionsFrame(owner, key)
     f.colorHex = colorHex
 
     local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
-        "GameFontHighlightSmall")
+        "GameFontHighlight")
     saturatedLabel:SetText("Fully Debuffed Style:")
-    local saturatedDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingSaturatedStyleDD", 72)
+    local saturatedDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingSaturatedStyleDD", OPTIONS_DROPDOWN_W)
     UIDropDownMenu_Initialize(saturatedDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(
             f.buffKey).saturatedStyle
@@ -1065,8 +1237,8 @@ local function EnsureBuffOptionsFrame(owner, key)
                     self:GetChecked() and true or false)
                 RefreshBuffOptionsFrame()
             end,
-            { size = 22, font = "GameFontHighlightSmall", gap = 1, labelParent = f })
-        check:SetPoint("TOPLEFT", 7, -(104 + (index - 1) * 21))
+            { size = 24, font = "GameFontHighlight", gap = 2, labelParent = f })
+        check:SetPoint("TOPLEFT", 7, -(104 + (index - 1) * OPTION_ROW_H))
         check:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
         local label = check.label
         f.optionChecks[option] = check
@@ -1160,8 +1332,8 @@ local function OpenBuffOptions(owner, key)
     if f.buffKey ~= key then UI.CancelColorPicker() end
     f.buffKey = key
     RefreshBuffOptionsFrame()
+    RefreshStatusBuffRows(owner)
     f:Show()
-    f:Raise()
 end
 
 local function ResetBuffTrackingPage(f)
@@ -1175,81 +1347,215 @@ local function ResetBuffTrackingPage(f)
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
-local function CloseBuffOptions()
-    UI.CancelColorPicker()
-    if buffOptionsFrame then buffOptionsFrame:Hide() end
-end
-
--- Build the settings window once and reuse it. Section buttons down the left
--- keep each page to one narrow column and work consistently across clients.
 local LoadSettings -- defined after the page, which it reads the controls off
 
--- Build the page into the Settings tab: the navigation column, fixed, and one
--- scroll area per section beside it. Left-aligned so the buff options pop-up has
--- room to the right. A section's scrollbar only appears if its content outgrows
--- the tab.
+-- Build the page into the Settings tab: a second, indented row of tabs, one per
+-- section, under one shared header, each over its own scroll area. Buff
+-- Tracking keeps its row options in a second scroll area beside its table. A
+-- section's scrollbar only appears if its content outgrows the tab.
 function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     local f = CreateFrame("Frame", nil, tabPage)
-    f:SetPoint("TOPLEFT", tabPage, "TOPLEFT")
-    f:SetPoint("BOTTOMLEFT", tabPage, "BOTTOMLEFT")
-    f:SetWidth(FRAME_W)
+    f:SetAllPoints(tabPage)
     f.titleBarHeight = 0
-    local y0 = f.titleBarHeight + 20
+    local y0 = 10
     local pages, scrolls = {}, {}
-    local buttons = {}
-    local sectionLabels = {
-        "General", "Status Bars", "Buff Tracking", "Paladin Bar",
-        "Warriors", "Warlocks", "Testing", "Developer",
+
+    -- ---- Resets ----
+    -- One per page, each followed by LoadSettings so every control catches up.
+    -- The Status Bars, Paladin Bar and Warrior Shout resets live with their
+    -- views, which own the frames they move back.
+    local RESET_GENERAL = {
+        "unitTooltipRole", "unitTooltipDetail", "raidFrameRoleIcons",
+        "raidFrameRoleIconsInCombat", "raidFrameRoleIconStyle",
+        "announceRoleChanges", "manageBlizzardRoles",
     }
+    local RESET_WARLOCKS = { "autoAssignAfflictionElements", "allowRecklessnessAutoAssign" }
+    local RESET_TESTING = { "buffingBarTestMode", "buffingBarTestPaladin" }
+    local RESET_DEVELOPER = {
+        "developerMode", "showLogsButton", "logUiUpdates", "logOperations",
+        "logSyncStatus", "logBuffingBarClicks", "logRolePromotion",
+        "simulateNewerAddonVersion",
+    }
+
+    local function ResetGeneral()
+        WhoDoesWhat:RestoreDefaultSettings(RESET_GENERAL)
+        -- In place: LibDBIcon holds on to this very table.
+        local minimap = WhoDoesWhat.db.profile.settings.minimapButton
+        local defaultMinimap = WhoDoesWhat.db.defaults.profile.settings.minimapButton
+        minimap.hide, minimap.minimapPos = defaultMinimap.hide, defaultMinimap.minimapPos
+        WhoDoesWhat:RefreshMinimapButton()
+        WhoDoesWhat:RefreshRaidFrameRoleIcons()
+        if WhoDoesWhat.db.profile.settings.manageBlizzardRoles then
+            WhoDoesWhat:ReconcileBlizzardRoles()
+        end
+    end
+
+    local function ResetStatusBars()
+        UI.CancelColorPicker()
+        WhoDoesWhat:ResetStatusBarSettings()
+    end
+
+    local function ResetWarlocks()
+        WhoDoesWhat:RestoreDefaultSettings(RESET_WARLOCKS)
+    end
+
+    -- Fake raid off first: that is what wipes the board, and with it off the
+    -- paladin count changes without wiping it a second time.
+    local function ResetTesting()
+        if WhoDoesWhat:IsFakeRaidEnabled() then WhoDoesWhat:SetFakeRaidEnabled(false) end
+        WhoDoesWhat:SetFakeRaidPaladinCount(
+            WhoDoesWhat.db.defaults.profile.settings.fakeRaidPaladinCount)
+        WhoDoesWhat:RestoreDefaultSettings(RESET_TESTING)
+        WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
+    end
+
+    local function ResetDeveloper()
+        WhoDoesWhat:RestoreDefaultSettings(RESET_DEVELOPER)
+        local settings = WhoDoesWhat.db.profile.settings
+        WhoDoesWhat.LOG_UI_BUILDING = settings.logUiUpdates
+        WhoDoesWhat.LOG_OPERATIONS = settings.logOperations
+        WhoDoesWhat:SetSyncLoggingEnabled(false)
+        WhoDoesWhat:RefreshMainAssignmentsView()
+    end
+
+    local function WithReload(reset)
+        return function()
+            reset()
+            LoadSettings(f)
+        end
+    end
+
+    local TESTING_DESCRIPTION = "Turns off Populate Fake Raid, which wipes the"
+        .. " assignment board if it is on, and puts the fake paladin count and"
+        .. " the buffing bar test options back."
+
+    -- ---- Sections ----
+    -- One entry per tab. `title` and `color` head the page, `description` says
+    -- what its reset touches (tooltip and confirm both), `right` runs the tab
+    -- from the right-hand end of the row, where the first listed is outermost.
+    local sections = {
+        { label = "General", title = "General",
+            description = "Puts every option on this page back and returns the"
+                .. " minimap button to its default spot.",
+            reset = WithReload(ResetGeneral) },
+        { label = "Status Bars", title = "Status Bars",
+            description = "Puts every option on this page back and moves the"
+                .. " window to the middle of the screen. Per-check options on"
+                .. " the Buff Tracking page are left alone.",
+            reset = WithReload(ResetStatusBars) },
+        { label = "Buff Tracking", title = "Buff Tracking",
+            tooltip = "Use arrows to order Bars; disabled rows move below the"
+                .. " divider. Use the cog for display and target options.",
+            description = "Restores the default order, visibility, colors, and"
+                .. " per-row options.",
+            reset = function() ResetBuffTrackingPage(f) end },
+        { label = "Paladin Bar", title = "Paladin Buffing Bar",
+            color = { 0.96, 0.55, 0.73 },
+            description = "Puts every option on this page back and moves the bar"
+                .. " to where a fresh install finds it. Test mode on the Testing"
+                .. " page is left alone.",
+            reset = WithReload(function() WhoDoesWhat:ResetPaladinBarSettings() end) },
+        { label = "Warriors", title = "Warrior Shouts", color = { 0.78, 0.61, 0.43 },
+            description = "Puts every option on this page back and re-centres the"
+                .. " shout bar.",
+            reset = WithReload(function() WhoDoesWhat:ResetShoutBarSettings() end) },
+        { label = "Warlocks", title = "Warlock Curses", color = { 0.72, 0.45, 1 },
+            description = "Puts both curse auto-assign options back.",
+            reset = WithReload(ResetWarlocks) },
+        { label = "Developer", title = "Developer Options", right = true,
+            description = "Turns Developer Mode, the Logs tab and every logging"
+                .. " option off.",
+            reset = WithReload(ResetDeveloper) },
+        { label = "Testing", title = "Testing", right = true,
+            description = TESTING_DESCRIPTION,
+            reset = WithReload(ResetTesting) },
+    }
+
+    local specs = {}
+    for i, section in ipairs(sections) do
+        specs[i] = { label = section.label, right = section.right }
+    end
+    local sectionTabs = UI.AddTabs(f, specs)
+    -- The Settings tab's near-black shows through around the header.
+    local panel = f.tabPanel
+    panel:SetBackdropColor(0, 0, 0, 0)
+
+    -- One header for every section, above its content: the title, centred, and
+    -- the Reset Defaults button hard right. Both read the section that is up.
+    local header = CreateFrame("Frame", nil, panel)
+    header:SetPoint("TOPLEFT", 10, -10)
+    header:SetPoint("TOPRIGHT", -10, -10)
+    header:SetHeight(HEADER_H)
+
+    local title = CreateFrame("Frame", nil, header)
+    title:SetPoint("CENTER")
+    title.text = title:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title.text:SetPoint("CENTER")
+    UI.AddTooltip(title, function()
+        if f.section.tooltip then return f.section.title, f.section.tooltip end
+    end)
+
+    local resetButton = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+    resetButton:SetSize(110, 22)
+    resetButton:SetPoint("RIGHT")
+    resetButton:SetText("Reset Defaults")
+    resetButton:SetScript("OnClick", function()
+        StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS", "Reset " .. f.section.title
+            .. " to defaults?\n\n" .. f.section.description, nil, f.section.reset)
+    end)
+    UI.AddTooltip(resetButton, function()
+        return "Reset " .. f.section.title, f.section.description
+    end)
+
+    -- Each section's content sits below the header in a grey well of its own,
+    -- which is all its scroll area - and scrollbar - covers.
+    for i in ipairs(sections) do
+        local well = sectionTabs[i]
+        well:ClearAllPoints()
+        well:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -(10 + HEADER_H))
+        well:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 10)
+        local fill = well:CreateTexture(nil, "BACKGROUND")
+        fill:SetAllPoints()
+        fill:SetColorTexture(PAGE_GREY[1], PAGE_GREY[2], PAGE_GREY[3], PAGE_GREY[4])
+        well.fill = fill
+        local scroll, page = UI.CreateScroll(well, "WhoDoesWhatSettingsSection" .. i)
+        scroll:SetPoint("TOPLEFT", 0, -4)
+        scroll:SetPoint("BOTTOMRIGHT", -UI.SCROLLBAR_W, 4)
+        pages[i], scrolls[i] = page, scroll
+    end
 
     -- A section always opens at its top, and is re-measured each time it comes
     -- up: what it shows can have changed since it was last looked at.
-    local function SelectSection(index)
-        CloseBuffOptions()
+    f:OnTabSelected(function(index)
+        UI.CancelColorPicker()
+        local section = sections[index]
+        f.section = section
+        title.text:SetText(section.title)
+        local color = section.color or { 1, 0.82, 0 }
+        title.text:SetTextColor(color[1], color[2], color[3])
+        title:SetSize(title.text:GetStringWidth(), title.text:GetStringHeight())
         f.currentScroll = scrolls[index]
-        for i, scroll in ipairs(scrolls) do
-            scroll:SetShown(i == index)
-            if i == index then buttons[i]:LockHighlight() else buttons[i]:UnlockHighlight() end
-        end
         f.currentScroll:SetVerticalScroll(0)
         UI.FitScrollToContent(f.currentScroll)
-    end
+    end)
 
     f.SelectSection = function(label)
-        for i, name in ipairs(sectionLabels) do
-            if name == label then SelectSection(i) return end
+        for i, section in ipairs(sections) do
+            if section.label == label then f:SelectTab(i) return end
         end
-    end
-
-    for i, label in ipairs(sectionLabels) do
-        local index = i
-        local button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        button:SetSize(NAV_W, 24)
-        button:SetPoint("TOPLEFT", f, "TOPLEFT", NAV_X, -(y0 + (i - 1) * 28))
-        button:SetText(label)
-        button:SetScript("OnClick", function() SelectSection(index) end)
-        buttons[i] = button
-
-        local scroll, page = UI.CreateScroll(f, "WhoDoesWhatSettingsSection" .. i, true)
-        scroll:SetPoint("TOPLEFT", f, "TOPLEFT", PAGE_X, 0)
-        scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT")
-        page:SetWidth(FRAME_W - PAGE_X)
-        scroll:Hide()
-        pages[i], scrolls[i] = page, scroll
     end
 
     -- ---- General ----
     local generalPage = pages[1]
     local yL = y0
-    yL = AddHeading(generalPage, CONTENT_X, yL, "General")
-    f.minimapCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+    f.minimapCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show minimap button",
         "Show a draggable WhoDoesWhat button on the minimap.",
         function(value)
             WhoDoesWhat.db.profile.settings.minimapButton.hide = not value
             WhoDoesWhat:UpdateMinimapButtonVisibility()
         end)
-    f.unitTooltipCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+    f.unitTooltipCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show roles in unit tooltips",
         "Add the player's assigned WhoDoesWhat role to Blizzard's unit tooltip "
             .. "when you hover a group member. Display only - nothing is "
@@ -1257,7 +1563,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipRole = value
         end)
-    f.unitTooltipDetailCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+    f.unitTooltipDetailCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show class details in unit tooltips",
         "Also append the summary the roster views show on hover: a Paladin's "
             .. "blessing talents and addon status, or a Warlock's Improved "
@@ -1265,7 +1571,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipDetail = value
         end)
-    f.raidFrameRoleCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+    f.raidFrameRoleCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show roles on raid frames",
         "Draw each raider's spec icon onto Blizzard's raid frames, over the "
             .. "group icon that normally sits there. Players whose spec has "
@@ -1281,7 +1587,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     local raidStyleLabel = generalPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    raidStyleLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    raidStyleLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     raidStyleLabel:SetText("Raid frame style:")
     local raidStyleLabels = {
         corner = "Replace WoW Icon",
@@ -1315,7 +1621,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     yL = yL + 32
 
     f.raidFrameCombatCheck, yL, f.raidFrameCombatLabel = AddCompactCheckboxRow(
-        generalPage, CONTENT_X, yL,
+        generalPage, PAGE_X, yL,
         "Keep raid frame roles in combat",
         "Leave those spec icons up while you are fighting. Turn off to hand "
             .. "that corner back to Blizzard for the length of a pull and take "
@@ -1326,13 +1632,13 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                 .. (value and "enabled." or "disabled."))
             WhoDoesWhat:RefreshRaidFrameRoleIcons()
         end)
-    f.announceRoleCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL, "Announce role changes in chat",
+    f.announceRoleCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL, "Announce role changes in chat",
         "Post to raid/party chat when someone's role is changed. Turn off to keep role edits silent.",
         function(value)
             WhoDoesWhat.db.profile.settings.announceRoleChanges = value
             WhoDoesWhat:LogUiBuilding("Announce role changes " .. (value and "enabled." or "disabled."))
         end)
-    f.manageBlizzRolesCheck, yL = AddCompactCheckboxRow(generalPage, CONTENT_X, yL,
+    f.manageBlizzRolesCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Set Blizzard group roles",
         "Keep each player's Blizzard group role (Tank / Healer / Damage Dealer) "
             .. "and main-tank state matching their WhoDoesWhat role.\n\n"
@@ -1350,29 +1656,41 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             if value then WhoDoesWhat:ReconcileBlizzardRoles() end
         end)
 
+    -- Every page's reset in one go, plus the custom role library. Roles already
+    -- published to the raid and who holds which role are board state, not
+    -- settings, so they stay.
+    local resetAll = CreateFrame("Button", nil, generalPage, "UIPanelButtonTemplate")
+    resetAll:SetSize(150, 22)
+    resetAll:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 16))
+    resetAll:SetText("Reset ALL Defaults")
+    local RESET_ALL_DESCRIPTION = "Resets every settings page and deletes your"
+        .. " custom role library. Custom roles already published to the raid, and"
+        .. " who holds which role, are kept.\n\n" .. TESTING_DESCRIPTION
+    resetAll:SetScript("OnClick", function()
+        StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS",
+            "Reset ALL WhoDoesWhat settings to defaults?\n\n" .. RESET_ALL_DESCRIPTION,
+            nil, function()
+                ResetGeneral()
+                ResetStatusBars()
+                ResetBuffTrackingPage(f)
+                WhoDoesWhat:ResetPaladinBarSettings()
+                WhoDoesWhat:ResetShoutBarSettings()
+                ResetWarlocks()
+                ResetTesting()
+                ResetDeveloper()
+                wipe(WhoDoesWhat.db.profile.customRoles)
+                WhoDoesWhat:PopulateRolesAndCategories()
+                WhoDoesWhat:RefreshMainAssignmentsView()
+                WhoDoesWhat:RefreshBoardViews()
+                LoadSettings(f)
+            end)
+    end)
+    UI.AddTooltip(resetAll, "Reset ALL Defaults", RESET_ALL_DESCRIPTION)
+
     -- ---- Status Bars ----
     local statusPage = pages[2]
     yL = y0
-    yL = AddHeading(statusPage, CONTENT_X, yL, "Status Bars", 0.96, 0.55, 0.73)
-
-    -- On the heading's line, hard right: it undoes this whole page at once, so
-    -- it belongs beside the page's name rather than buried under the last
-    -- option it happens to reset.
-    local resetButton = CreateFrame("Button", nil, statusPage,
-        "UIPanelButtonTemplate")
-    resetButton:SetSize(80, 22)
-    resetButton:SetPoint("TOPRIGHT", statusPage, "TOPRIGHT", -16, -(y0 - 2))
-    resetButton:SetText("Defaults")
-    resetButton:SetScript("OnClick", function()
-        CloseBuffOptions()
-        WhoDoesWhat:ResetStatusBarSettings()
-        f.RefreshStatusPage()
-    end)
-    UI.AddTooltip(resetButton, "Reset Status Bars",
-        "Put every option on this page back to its default and move the"
-            .. " window to the middle of the screen. Per-check options on the"
-            .. " Buff Tracking page are left alone.")
-    f.overviewCheck, yL = AddCompactCheckboxRow(statusPage, CONTENT_X, yL,
+    f.overviewCheck, yL = AddCompactCheckboxRow(statusPage, PAGE_X, yL,
         "Enable WDW Status Bars UI",
         "Shows a persistent UI element with many bars to see your raid's status at a quick glance.",
         function(value)
@@ -1384,7 +1702,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         BOTTOMLEFT = "Bottom Left", BOTTOMRIGHT = "Bottom Right",
     }
     local anchorLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    anchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    anchorLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     anchorLabel:SetText("Anchor point:")
     local anchorDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsAnchorDD", 110)
     anchorDD:SetPoint("LEFT", anchorLabel, "RIGHT", -6, -2)
@@ -1408,7 +1726,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     yL = yL + 32
 
     local defaultDisplayLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    defaultDisplayLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    defaultDisplayLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     defaultDisplayLabel:SetText("Default text-mode:")
     local defaultDisplayDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsDefaultDisplayDD", 110)
     defaultDisplayDD:SetPoint("LEFT", defaultDisplayLabel, "RIGHT", -6, -2)
@@ -1436,7 +1754,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local tooltipAnchorLabel = statusPage:CreateFontString(nil, "OVERLAY",
         "GameFontHighlight")
-    tooltipAnchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    tooltipAnchorLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     tooltipAnchorLabel:SetText("Tooltip side:")
     local tooltipAnchorDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsTooltipAnchorDD", 110)
     tooltipAnchorDD:SetPoint("LEFT", tooltipAnchorLabel, "RIGHT", -6, -2)
@@ -1464,7 +1782,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local tooltipNamesLabel = statusPage:CreateFontString(nil, "OVERLAY",
         "GameFontHighlight")
-    tooltipNamesLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    tooltipNamesLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     tooltipNamesLabel:SetText("Tooltip names:")
     local tooltipNamesDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsTooltipNamesDD", 110)
     tooltipNamesDD:SetPoint("LEFT", tooltipNamesLabel, "RIGHT", -6, -2)
@@ -1497,7 +1815,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- The same three controls the shout bar and the buffing bar carry.
     local statusSettings = WhoDoesWhat.db.profile.settings
     local RefreshStatusHighlight
-    RefreshStatusHighlight, yL = AddHighlightControls(statusPage, CONTENT_X,
+    RefreshStatusHighlight, yL = AddHighlightControls(statusPage, PAGE_X,
         yL, {
             name = "WhoDoesWhatStatusBarsHighlightDD",
             tooltip = "The animation a status bar uses when it wants your"
@@ -1550,28 +1868,37 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     -- ---- Buff Tracking ----
     local statusBuffPage = pages[3]
-    yL = y0
-    local statusBuffHeading
-    yL, statusBuffHeading = AddHeading(statusBuffPage, CONTENT_X, yL,
-        "Buff Tracking", 0.96, 0.55, 0.73)
-    UI.AddTooltip(statusBuffHeading, "Buff Tracking",
-        "Use arrows to order Bars; disabled rows move below the divider. Use the cog for display and target options.")
-    local resetBuffs = CreateFrame("Button", nil, statusBuffPage, "UIPanelButtonTemplate")
-    resetBuffs:SetSize(100, 22)
-    resetBuffs:SetPoint("TOPRIGHT", statusBuffPage, "TOPRIGHT", -16, -(y0 - 2))
-    resetBuffs:SetText("Reset Defaults")
-    resetBuffs:SetScript("OnClick", function() ResetBuffTrackingPage(f) end)
-    UI.AddTooltip(resetBuffs, "Reset Buff Tracking",
-        "Restore the default order, visibility, colors, and per-row options.")
-    yL = yL + 6
+    local buffScroll = scrolls[3]
+    local buffWell = buffScroll:GetParent()
+
+    -- Two panels in place of the section's one grey fill: the table's on the
+    -- left, the row options' on the right.
+    buffWell.fill:Hide()
+    local tableFill = buffWell:CreateTexture(nil, "BACKGROUND")
+    tableFill:SetPoint("TOPLEFT")
+    tableFill:SetPoint("BOTTOMLEFT")
+    tableFill:SetWidth(BUFF_TABLE_W)
+    local optionsFill = buffWell:CreateTexture(nil, "BACKGROUND")
+    optionsFill:SetPoint("TOPLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP, 0)
+    optionsFill:SetPoint("BOTTOMRIGHT")
+    for _, fill in ipairs({ tableFill, optionsFill }) do
+        fill:SetColorTexture(PAGE_GREY[1], PAGE_GREY[2], PAGE_GREY[3], PAGE_GREY[4])
+    end
+
+    -- The rows scroll under their column headings, which sit on the panel
+    -- itself and so stay in view. The scrollbar runs down the panel's right.
+    buffScroll:ClearAllPoints()
+    buffScroll:SetPoint("TOPLEFT", 0, -BUFF_HEADINGS_H)
+    buffScroll:SetPoint("BOTTOMLEFT", 0, 4)
+    buffScroll:SetWidth(CONTENT_X + CONTENT_W)
 
     local headers = {
         { "Buff", 84, 155 }, { "Bars", 250, 44 },
         { "Buff Grid", 298, 62 }, { "Options", 364, 46 },
     }
     for _, header in ipairs(headers) do
-        local text = statusBuffPage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        text:SetPoint("TOPLEFT", CONTENT_X + header[2], -yL)
+        local text = buffWell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        text:SetPoint("TOPLEFT", CONTENT_X + header[2], -2)
         text:SetSize(header[3], 26)
         text:SetJustifyH(header[1] == "Buff" and "LEFT" or "CENTER")
         text:SetText(header[1])
@@ -1583,8 +1910,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         }
         UI.AddTooltip(text, header[1], tips[header[1]])
     end
-    yL = yL + 28
-    f.statusBuffListTop = yL
+    f.statusBuffListTop = 0
     local divider = CreateFrame("Frame", nil, statusBuffPage)
     divider:SetSize(CONTENT_W, STATUS_BUFF_ROW_H)
     local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalSmall")
@@ -1623,11 +1949,17 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
         row.up = UI.CreateArrowButton(row, "Up")
         row.up:SetPoint("LEFT", 0, 0)
-        row.up:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, -1) end)
+        row.up:SetScript("OnClick", function()
+            MoveStatusBuff(f, rowKey, -1)
+            OpenBuffOptions(f, rowKey)
+        end)
         UI.AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
         row.down = UI.CreateArrowButton(row, "Down")
         row.down:SetPoint("LEFT", row.up, "RIGHT", 2, 0)
-        row.down:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, 1) end)
+        row.down:SetScript("OnClick", function()
+            MoveStatusBuff(f, rowKey, 1)
+            OpenBuffOptions(f, rowKey)
+        end)
         UI.AddTooltip(row.down, "Move down",
             "Move this row later, or disable it when it is last.")
 
@@ -1685,33 +2017,19 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         options:SetHighlightTexture(
             "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
         options:SetScript("OnClick", function() OpenBuffOptions(f, rowKey) end)
-        UI.AddTooltip(options, definition.name .. " options", "Open this row's settings.")
+        UI.AddTooltip(options, definition.name .. " options", "Show this row's options beside the table.")
         row.options = options
     end
     RefreshStatusBuffRows(f)
+    -- The options view is part of the section, so it always shows a row: the
+    -- first one until a cog picks another.
+    f.buffTrackingWell = buffWell
+    OpenBuffOptions(f, WhoDoesWhat:GetStatusBarCheckOrder()[1])
 
     -- ---- Paladin ----
     local paladinPage = pages[4]
     yL = y0
-    yL = AddHeading(paladinPage, CONTENT_X, yL, "Paladin Buffing Bar", 0.96, 0.55, 0.73)
-
-    -- Same place and same job as the Status Bars page's: on the heading line,
-    -- hard right, undoing the whole page at once.
-    local paladinReset = CreateFrame("Button", nil, paladinPage,
-        "UIPanelButtonTemplate")
-    paladinReset:SetSize(80, 22)
-    paladinReset:SetPoint("TOPRIGHT", paladinPage, "TOPRIGHT", -16, -(y0 - 2))
-    paladinReset:SetText("Defaults")
-    paladinReset:SetScript("OnClick", function()
-        WhoDoesWhat:ResetPaladinBarSettings()
-        f.RefreshPaladinPage()
-    end)
-    UI.AddTooltip(paladinReset, "Reset Paladin Bar",
-        "Put every option on this page back to its default and move the bar"
-            .. " to where a fresh install finds it. Test mode on the Developer"
-            .. " page is left alone.")
-
-    f.buffingBarCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL, "Enable Paladin Buffing Bar",
+    f.buffingBarCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL, "Enable Paladin Buffing Bar",
         "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarEnabled = value
@@ -1719,7 +2037,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
 
-    f.buffingAuraCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
+    f.buffingAuraCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Paladin Aura Helper",
         "Add an aura swapper at the left end of the bar. Hovering it opens a picker of every aura you know, left-click casts the one it's offering; it turns grey with a red glow while that aura isn't the one you're running.",
         function(value)
@@ -1729,7 +2047,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:RefreshPaladinBuffingBar()
         end)
 
-    f.buffingRighteousFuryCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
+    f.buffingRighteousFuryCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Righteous Fury Reminder",
         "Add a Righteous Fury button next to the aura swapper, shown only while you hold a tank role. Left-click refreshes it; red glow when it's down, yellow with a countdown in its last ten minutes.",
         function(value)
@@ -1739,7 +2057,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:RefreshPaladinBuffingBar()
         end)
 
-    f.buffingHideCompletedCheck, yL = AddCompactCheckboxRow(paladinPage, CONTENT_X, yL,
+    f.buffingHideCompletedCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Hide completed classes",
         "Drop a class button off the bar while everyone it covers is buffed, so the bar shows only what's left to do. Buttons come back as blessings lapse, though adding or removing one has to wait until you leave combat.",
         function(value)
@@ -1767,7 +2085,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local function AddBuffingDropdown(name, text, dy, width)
         local label = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        label:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + dy))
+        label:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + dy))
         label:SetText(text)
         local dd = UI.CreateMenuDropdown(paladinPage, name, width)
         dd:SetPoint("LEFT", label, "RIGHT", -6, -2)
@@ -1867,7 +2185,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local buffingSettings = WhoDoesWhat.db.profile.settings
     local buffingIconRange = WhoDoesWhat.BUFFING_BAR_ICON_SIZE
-    f.RefreshBuffingIconSize, yL = AddSliderWithInput(paladinPage, CONTENT_X,
+    f.RefreshBuffingIconSize, yL = AddSliderWithInput(paladinPage, PAGE_X,
         yL, {
             name = "WhoDoesWhatBuffingBarIconSizeSlider",
             label = "Buff icon size:",
@@ -1885,7 +2203,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     -- The status bars' highlight styles, in this bar's own two colours.
     f.RefreshBuffingHighlight, yL = AddHighlightControls(paladinPage,
-        CONTENT_X, yL, {
+        PAGE_X, yL, {
             name = "WhoDoesWhatBuffingBarHighlightDD",
             tooltip = "The animation a button on the bar wears when it wants"
                 .. " your attention -- the box to the right shows it running."
@@ -1947,10 +2265,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- ---- Warrior ----
     local warriorPage = pages[5]
     yL = y0
-    yL = AddHeading(warriorPage, CONTENT_X, yL, "Warrior Shouts", 0.78, 0.61, 0.43)
-
     local shoutIntro = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    shoutIntro:SetPoint("TOPLEFT", CONTENT_X + 4, -yL)
+    shoutIntro:SetPoint("TOPLEFT", PAGE_X + 4, -yL)
     shoutIntro:SetWidth(CONTENT_W - 8)
     shoutIntro:SetJustifyH("LEFT")
     shoutIntro:SetTextColor(0.7, 0.7, 0.7)
@@ -1960,7 +2276,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     yL = yL + math.ceil(shoutIntro:GetStringHeight()) + 12
 
     local shoutShowLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    shoutShowLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
+    shoutShowLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 4))
     shoutShowLabel:SetText("Show shout bar:")
     local shoutShowDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarShowDD", 120)
     shoutShowDD:SetPoint("LEFT", shoutShowLabel, "RIGHT", -6, -2)
@@ -1993,7 +2309,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.shoutShowDD = shoutShowDD
 
     local shoutAnchorLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    shoutAnchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 34))
+    shoutAnchorLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 34))
     shoutAnchorLabel:SetText("Anchor:")
     local shoutAnchorDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarAnchorDD", 90)
     shoutAnchorDD:SetPoint("LEFT", shoutAnchorLabel, "RIGHT", -6, -2)
@@ -2016,7 +2332,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.shoutAnchorDD = shoutAnchorDD
 
     local shoutTimerLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    shoutTimerLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 64))
+    shoutTimerLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yL + 64))
     shoutTimerLabel:SetText("Countdown at:")
     local shoutTimerDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarTimerDD", 70)
     shoutTimerDD:SetPoint("LEFT", shoutTimerLabel, "RIGHT", -6, -2)
@@ -2041,7 +2357,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.shoutTimerDD = shoutTimerDD
 
     f.shoutHideBackgroundCheck, yL = AddCompactCheckboxRow(warriorPage,
-        CONTENT_X, yL + 98, "Hide background",
+        PAGE_X, yL + 98, "Hide background",
         "Leaves just the icons floating on your screen. Alt-drag still moves"
         .. " the bar.",
         function(value)
@@ -2050,7 +2366,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     f.shoutHideNumbersCheck, yL = AddCompactCheckboxRow(warriorPage,
-        CONTENT_X, yL, "Hide numbers",
+        PAGE_X, yL, "Hide numbers",
         "Drops the count under each icon. The glow still tells you somebody is"
         .. " missing the shout, and the tooltip still names them.",
         function(value)
@@ -2059,7 +2375,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     f.shoutHideWhenBuffedCheck, yL = AddCompactCheckboxRow(warriorPage,
-        CONTENT_X, yL, "Hide while everything is up",
+        PAGE_X, yL, "Hide while everything is up",
         "Hides each icon while its own shout is on everybody, and brings it"
         .. " back the moment somebody loses it. Hidden icons can't be clicked"
         .. " or dragged, so place the bar before turning this on.",
@@ -2069,7 +2385,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     f.shoutIgnoreRangeCheck, yL = AddCompactCheckboxRow(warriorPage,
-        CONTENT_X, yL, "Ignore players far out of range",
+        PAGE_X, yL, "Ignore players far out of range",
         "Stops counting party members who are nowhere near you. Anyone just a"
         .. " step too far back still counts, since stepping in is the fix.",
         function(value)
@@ -2079,7 +2395,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     local shoutSettings = WhoDoesWhat.db.profile.settings
     local shoutIconRange = WhoDoesWhat.SHOUT_BAR_ICON_SIZE
-    f.RefreshShoutIconSize, yL = AddSliderWithInput(warriorPage, CONTENT_X,
+    f.RefreshShoutIconSize, yL = AddSliderWithInput(warriorPage, PAGE_X,
         yL + 4, {
             name = "WhoDoesWhatShoutBarIconSizeSlider",
             label = "Buff icon size:",
@@ -2095,7 +2411,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         function() WhoDoesWhat:RefreshWarriorShoutBar() end)
 
     -- The status bars' highlight styles, in this bar's own two colours.
-    f.RefreshShoutHighlight, yL = AddHighlightControls(warriorPage, CONTENT_X,
+    f.RefreshShoutHighlight, yL = AddHighlightControls(warriorPage, PAGE_X,
         yL, {
             name = "WhoDoesWhatShoutBarHighlightDD",
             tooltip = "The animation a shout icon wears while somebody in the"
@@ -2136,13 +2452,12 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- ---- Warlock ----
     local warlockPage = pages[6]
     yL = y0
-    yL = AddHeading(warlockPage, CONTENT_X, yL, "Warlock Curses", 0.72, 0.45, 1)
     local magicCurseLabel = IS_CLASSIC_ERA and "Auto assign elements and shadow"
         or "Auto assign Affliction to elements"
     local magicCurseDescription = IS_CLASSIC_ERA
         and "Let the Auto button fill Curse of the Elements and Curse of Shadow on separate warlocks."
         or "Auto-place Curse of the Elements on an Affliction warlock - on spec detection and via the Auto button."
-    f.afflElementsCheck, yL = AddCompactCheckboxRow(warlockPage, CONTENT_X, yL, magicCurseLabel,
+    f.afflElementsCheck, yL = AddCompactCheckboxRow(warlockPage, PAGE_X, yL, magicCurseLabel,
         magicCurseDescription,
         function(value)
             WhoDoesWhat.db.profile.settings.autoAssignAfflictionElements = value
@@ -2151,7 +2466,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:LogUiBuilding(settingName .. " "
                 .. (value and "enabled." or "disabled."))
         end)
-    f.recklessnessCheck, yL = AddCompactCheckboxRow(warlockPage, CONTENT_X, yL, "Allow recklessness auto-assign",
+    f.recklessnessCheck, yL = AddCompactCheckboxRow(warlockPage, PAGE_X, yL, "Allow recklessness auto-assign",
         "Let auto-assign fill Curse of Recklessness. It raises the boss's damage, so it can be risky.",
         function(value)
             WhoDoesWhat.db.profile.settings.allowRecklessnessAutoAssign = value
@@ -2159,55 +2474,54 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     -- ---- Developer ----
-    local developerPage = pages[8]
+    local developerPage = pages[7]
     local yR = y0
-    yR = AddHeading(developerPage, CONTENT_X, yR, "Developer Options")
-    f.devModeCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Developer Mode",
+    f.devModeCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Developer Mode",
         "Assignment dropdowns list every group member, not just the eligible class.",
         function(value)
             WhoDoesWhat.db.profile.settings.developerMode = value
             WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
         end)
-    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs tab",
+    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Show Logs tab",
         "Show the combined WhoDoesWhat and PallyPower traffic logs as a tab in the main window.",
         function(value)
             WhoDoesWhat.db.profile.settings.showLogsButton = value
             WhoDoesWhat:RefreshMainAssignmentsView()
         end)
-    f.logUiCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log UI Updates",
+    f.logUiCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log UI Updates",
         "Print verbose UI build and layout logging to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logUiUpdates = value
             WhoDoesWhat.LOG_UI_BUILDING = value
             WhoDoesWhat:LogUiBuilding("Log UI Updates " .. (value and "enabled." or "disabled."))
         end)
-    f.logOperationsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log Operations",
+    f.logOperationsCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log Operations",
         "Print routine assignment, reset, auto-assign, role, and whisper confirmations to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logOperations = value
             WhoDoesWhat.LOG_OPERATIONS = value
             WhoDoesWhat:LogUiBuilding("Log Operations " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncStatusCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log sync status",
+    f.logSyncStatusCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log sync status",
         "Print automatic board updates, role syncs, and group-clear notices to chat.",
         function(value)
             WhoDoesWhat.db.profile.settings.logSyncStatus = value
             WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
         end)
-    f.logSyncTrafficCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log sync details",
+    f.logSyncTrafficCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log sync details",
         "Capture WDW/PallyPower traffic and print WDW sync diagnostics to chat. Session-only; resets off on reload.",
         function(value)
             WhoDoesWhat:SetSyncLoggingEnabled(value)
             WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
         end)
-    f.logBuffingClicksCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log buffing bar clicks",
+    f.logBuffingClicksCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log buffing bar clicks",
         "Print each recognized left/right buffing-bar click and its castable target count.",
         function(value)
             WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
             WhoDoesWhat:LogUiBuilding("Log buffing bar clicks "
                 .. (value and "enabled." or "disabled."))
         end)
-    f.logRolePromotionCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Log role/promotion flow",
+    f.logRolePromotionCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log role/promotion flow",
         "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
         function(value)
             WhoDoesWhat.db.profile.settings.logRolePromotion = value
@@ -2215,7 +2529,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                 .. (value and "enabled." or "disabled."))
         end)
 --@do-not-package@
-    f.newerVersionTestCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR,
+    f.newerVersionTestCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR,
         "|cffff2020Simulate newer addon version|r",
         "|cffff2020WARNING: This feature should never be turned on. It falsely reports the next addon version to your group.|r",
         function(value)
@@ -2227,10 +2541,9 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 --@end-do-not-package@
 
     -- ---- Testing ----
-    local testingPage = pages[7]
+    local testingPage = pages[8]
     yR = y0
-    yR = AddHeading(testingPage, CONTENT_X, yR, "Testing")
-    f.fakeRaidCheck, yR = AddCompactCheckboxRow(testingPage, CONTENT_X, yR, "Populate Fake Raid",
+    f.fakeRaidCheck, yR = AddCompactCheckboxRow(testingPage, PAGE_X, yR, "Populate Fake Raid",
         "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
@@ -2239,7 +2552,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    palLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
+    palLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
     palLabel:SetText("Fake paladins:")
     local palDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatFakePaladinCountDD", 40)
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
@@ -2261,7 +2574,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.fakePaladinDD = palDD
     yR = yR + 40
 
-    f.buffingTestCheck, yR = AddCompactCheckboxRow(testingPage, CONTENT_X, yR, "Show buffing bar as non-paladin",
+    f.buffingTestCheck, yR = AddCompactCheckboxRow(testingPage, PAGE_X, yR, "Show buffing bar as non-paladin",
         "Render the Paladin Buffing Bar even when you're not a paladin, as the paladin picked below (real or fake). Preview only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarTestMode = value
@@ -2270,7 +2583,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end)
 
     local testLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    testLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
+    testLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
     testLabel:SetText("Test as paladin:")
     local testDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatBuffingTestPaladinDD", 120)
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
@@ -2300,8 +2613,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     end)
     f.buffingTestDD = testDD
 
-    SelectSection(1)
-    f:HookScript("OnHide", CloseBuffOptions)
+    f:SelectTab(1)
+    f:HookScript("OnHide", UI.CancelColorPicker)
     f:SetScript("OnShow", function(self)
         LoadSettings(self)
         if self.currentScroll then UI.FitScrollToContent(self.currentScroll) end
@@ -2370,8 +2683,8 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
 end
 
 -- Open one check's cog options directly (WDW Status' shift-right-click on a
--- bar). Selecting the page closes any open options popup, so the popup opens
--- after the window is on the right page.
+-- bar). Selecting the page cancels any open colour picker, so the row is
+-- picked after the window is on the right page.
 function WhoDoesWhat:OpenBuffTrackingOptions(key)
     if not self.StatusBarChecks[key] then return end
     self:OpenAddonSettingsView("Buff Tracking")

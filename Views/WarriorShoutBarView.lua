@@ -851,6 +851,24 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
     ApplyIdleFade()
 end
 
+-- The settings page's Reset Defaults. The solo shout is left alone: it is
+-- picked on the bar itself, not on the page.
+local RESET_SETTINGS = {
+    "shoutBarShow", "shoutBarAnchor", "shoutBarHideBackground",
+    "shoutBarHideNumbers", "shoutBarTimerSeconds", "shoutBarIgnoreOutOfRange",
+    "shoutBarHideWhenBuffed", "shoutBarIconSize", "shoutBarGlowStyle",
+    "shoutBarGlowMissingColor", "shoutBarGlowPartialColor",
+}
+
+function WhoDoesWhat:ResetShoutBarSettings()
+    self:RestoreDefaultSettings(RESET_SETTINGS)
+    -- Dropped rather than centred by hand: with no saved position LoadPosition
+    -- centres the bar.
+    self.db.profile.settings.shoutBarPos = nil
+    if bar then LoadPosition() end
+    self:UpdateWarriorShoutBarVisibility()
+end
+
 -- Show or hide the whole bar per the settings mode, then repaint.
 function WhoDoesWhat:UpdateWarriorShoutBarVisibility()
     -- GROUP_ROSTER_UPDATE can beat AceDB's profile into existence at login.

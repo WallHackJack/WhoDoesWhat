@@ -2328,13 +2328,7 @@ local RESET_SETTINGS = {
 
 function WhoDoesWhat:ResetPaladinBarSettings()
     local settings = self.db.profile.settings
-    -- Straight from the profile defaults rather than from a second list of
-    -- values here, so the button and a fresh install cannot disagree.
-    local defaults = self.db.defaults and self.db.defaults.profile
-        and self.db.defaults.profile.settings or {}
-    for _, key in ipairs(RESET_SETTINGS) do
-        settings[key] = defaults[key]
-    end
+    self:RestoreDefaultSettings(RESET_SETTINGS)
     -- Dropped rather than placed by hand: with no saved position LoadPosition
     -- puts the bar where a fresh install finds it, which is what the button
     -- promises.

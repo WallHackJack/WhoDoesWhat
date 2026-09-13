@@ -51,13 +51,12 @@ local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
 
 -- Page backgrounds over the window's blue panel. The roster-style pages sit on
 -- near-black, which their class-tinted rows were picked against and read muddy
--- on blue, and Logs reads better on it too; Settings keeps the grey the tab panel
--- used to be. About stays on the panel's own blue.
+-- on blue, and Logs reads better on it too. Settings sits on it around its own
+-- section tabs, whose pages are grey. About stays on the panel's own blue.
 local PAGE_DARK = { 0.012, 0.012, 0.014, 1 }
-local PAGE_GREY = { 0.06, 0.06, 0.07, 1 }
 local PAGE_COLORS = {
     raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, logs = PAGE_DARK,
-    settings = PAGE_GREY,
+    settings = PAGE_DARK,
 }
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
