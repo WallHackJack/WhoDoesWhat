@@ -1960,6 +1960,22 @@ local function EnsureBar()
     hint:SetTextColor(0.6, 0.6, 0.6)
     bar.hint = hint
 
+    -- A column is one icon wide, too narrow for the hint's sentence, so with
+    -- nobody to preview it shows this X and keeps the sentence for the hover.
+    local noPaladin = CreateFrame("Frame", nil, bar)
+    noPaladin:SetPoint("TOP", 0, -CONTENT_TOP)
+    local noPaladinIcon = noPaladin:CreateTexture(nil, "ARTWORK")
+    noPaladinIcon:SetAllPoints()
+    noPaladinIcon:SetTexture(MISSING_ICON)
+    noPaladin.tooltipAnchor = bar
+    noPaladin.FillTooltip = function()
+        GameTooltip:SetText("No Paladin selected for testing.", 1, 1, 1)
+    end
+    noPaladin:SetScript("OnEnter", ShowBarTooltip)
+    noPaladin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    noPaladin:Hide()
+    bar.noPaladin = noPaladin
+
     -- Hairline between the left-anchored self-buff buttons and the class row.
     local divider = bar:CreateTexture(nil, "ARTWORK")
     divider:SetSize(DIVIDER_W, BTN_SIZE)
@@ -2106,6 +2122,7 @@ local function CollapseForPallyPower()
     bar.rfButton:Hide()
     bar.divider:Hide()
     bar.hint:Hide()
+    bar.noPaladin:Hide()
     -- A column keeps its width so the strip doesn't jump around when the switch
     -- flips; a row shrinks to the words it is still showing.
     local width = INSET * 2 + PAD * 2
@@ -2305,8 +2322,15 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
             + (leadW > 0 and DIVIDER_GAP or 0)
     end
     ApplyBackdrop(BAR_EDGE)
-    bar.hint:SetShown(leadW + classW == 0)
-    if leadW + classW == 0 then
+    local empty = leadW + classW == 0
+    local noPaladinX = empty and vertical and not paladin and hidden == 0
+    bar.hint:SetShown(empty and not noPaladinX)
+    bar.noPaladin:SetShown(noPaladinX)
+    if noPaladinX then
+        bar.noPaladin:SetSize(BTN_SIZE, BTN_SIZE)
+        bar:SetSize(INSET * 2 + PAD * 2 + BTN_SIZE,
+            CONTENT_TOP + BTN_SIZE + INSET + 1)
+    elseif empty then
         -- The empty state is a sentence either way, so it keeps the row's shape
         -- rather than wrapping into a column one word wide. An empty bar means
         -- something different once completed classes are being hidden: the work
