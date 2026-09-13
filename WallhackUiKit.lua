@@ -36,6 +36,12 @@ UI.TAB_DROP    = 6    -- title bar to the top of the tabs
 UI.TAB_LIP     = 3    -- how far the panel rides UP behind the tab row, so the
                       -- tabs sit on the panel instead of floating above it
 
+-- The window fill, and the slightly lighter panel a tabbed window's pages sit
+-- on. Very dark blues rather than black: black reads as a hole in the screen,
+-- and the blue keeps the class-coloured rows on top of it from looking muddy.
+UI.WINDOW_COLOR    = { 0.015, 0.025, 0.06, 0.95 }
+UI.TAB_PANEL_COLOR = { 0.03, 0.045, 0.09, 1 }
+
 -- Solid dark, thin border. Every window uses this and only this, which is the
 -- whole reason they look like they came from the same hand.
 UI.BACKDROP = {
@@ -168,7 +174,8 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
     f:SetBackdrop(UI.BACKDROP)
-    f:SetBackdropColor(0, 0, 0, 0.95)
+    local c = UI.WINDOW_COLOR
+    f:SetBackdropColor(c[1], c[2], c[3], c[4])
     f:SetBackdropBorderColor(0.4, 0.4, 0.4)
 
     f:EnableMouse(true)
@@ -512,7 +519,8 @@ function UI.AddTabs(f, specs, opts)
     panel:SetPoint("TOPLEFT", UI.INSET, -(f.tabTop + UI.TAB_H - UI.TAB_LIP))
     panel:SetPoint("BOTTOMRIGHT", -UI.INSET, UI.INSET)
     panel:SetBackdrop(UI.BACKDROP)
-    panel:SetBackdropColor(0.06, 0.06, 0.07, 1)
+    local fill = UI.TAB_PANEL_COLOR
+    panel:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
     panel:SetBackdropBorderColor(0.25, 0.25, 0.25)
     f.tabPanel = panel
 
@@ -558,6 +566,20 @@ function UI.AddTabs(f, specs, opts)
         EnsureSelectable(f)
     end
     return f.pages
+end
+
+-- Give one tab page its own background colour in place of the panel's, across
+-- the whole panel inside its border - not just wherever the page's content
+-- happens to reach - so the page reads as one surface. The fill belongs to the
+-- page, so it comes and goes with its tab. `color` is { r, g, b, a }.
+function UI.SetTabPageColor(page, color)
+    local panel = page:GetParent()
+    if not page.uiFill then
+        page.uiFill = page:CreateTexture(nil, "BACKGROUND", nil, -8)
+        page.uiFill:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
+        page.uiFill:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
+    end
+    page.uiFill:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
 end
 
 --------------------------------------------------------------------------------
@@ -727,6 +749,11 @@ function UI.CreateScroll(parent, globalName, ownWidth)
         track:SetBackdrop(UI.SCROLL_TRACK_BACKDROP)
         scroll.uiScrollBar   = bar
         scroll.uiScrollTrack = track
+        -- Hidden until SetScrollHeight says the content needs them. The
+        -- template shows its bar from the start, so a scroll area whose
+        -- height is measured after it appears would flash one for a frame.
+        bar:Hide()
+        track:Hide()
     end
 
     -- The scroll child's width has to track the viewport or the content lays
@@ -751,6 +778,29 @@ function UI.SetScrollHeight(scroll, height)
     if scroll.uiScrollBar   then scroll.uiScrollBar:SetShown(needed) end
     if scroll.uiScrollTrack then scroll.uiScrollTrack:SetShown(needed) end
     if not needed then scroll:SetVerticalScroll(0) end
+end
+
+-- Size a scroll area to what its content actually covers, for a page laid out
+-- by hand where nobody kept a running total. Measured off the shown children
+-- and regions of the scroll child, a frame after the call: rects are not settled
+-- until the layout pass after something is shown, so measuring on the spot
+-- reads a page that is not there yet. `pad` is the room left under the lowest
+-- thing, default 12.
+function UI.FitScrollToContent(scroll, pad)
+    local content = scroll:GetScrollChild()
+    C_Timer.After(0, function()
+        local top = content:GetTop()
+        if not top then return end
+        local lowest = top
+        local function Consider(region)
+            if not region:IsShown() then return end
+            local bottom = region:GetBottom()
+            if bottom and bottom < lowest then lowest = bottom end
+        end
+        for _, child in ipairs({ content:GetChildren() }) do Consider(child) end
+        for _, region in ipairs({ content:GetRegions() }) do Consider(region) end
+        UI.SetScrollHeight(scroll, top - lowest + (pad or 12))
+    end)
 end
 
 --------------------------------------------------------------------------------

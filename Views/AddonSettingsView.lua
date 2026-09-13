@@ -2,7 +2,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local K = WhoDoesWhat.SectionKit
 
--- Addon settings window. Checkbox state persists in db.profile.settings except
+-- Addon settings (the main window's Settings tab). Checkbox state persists in db.profile.settings except
 -- detailed sync logging, which is deliberately session-only and resets off.
 
 local settingsFrame = nil
@@ -10,14 +10,14 @@ local buffOptionsFrame = nil
 
 local NAV_X = 14
 local NAV_W = 104
-local CONTENT_X = 134
+-- Each section scrolls on its own from here rightwards, so the navigation
+-- column beside it stays put. Everything a section lays out is measured from
+-- the left of its own scroll area, which is why CONTENT_X is so small.
+local PAGE_X = 126
+local CONTENT_X = 8
 local CONTENT_W = 410
 local FRAME_W = 560
-local FRAME_H = 564
 local BUFF_OPTIONS_W = 242
---@do-not-package@
-FRAME_H = 594
---@end-do-not-package@
 local FIRST_PALADIN_LABEL = "(use first paladin)"
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local STATUS_SCOPE_LABELS = {
@@ -804,7 +804,8 @@ local function EnsureBuffOptionsFrame(owner, key)
     f:SetFrameLevel(owner:GetFrameLevel() + 20)
     f:HookScript("OnHide", UI.CancelColorPicker)
     f:ClearAllPoints()
-    f:SetPoint("LEFT", owner, "RIGHT", 8, 0)
+    -- Clear of the section's scrollbar, which hangs off the right of the page.
+    f:SetPoint("LEFT", owner, "RIGHT", 8 + UI.SCROLLBAR_W, 0)
 
     local icon = f:CreateTexture(nil, "ARTWORK")
     icon:SetSize(20, 20)
@@ -1181,24 +1182,37 @@ end
 
 -- Build the settings window once and reuse it. Section buttons down the left
 -- keep each page to one narrow column and work consistently across clients.
-local function EnsureSettingsFrame()
-    if settingsFrame then return settingsFrame end
+local LoadSettings -- defined after the page, which it reads the controls off
 
-    local f = UI.CreateWindow("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
+-- Build the page into the Settings tab: the navigation column, fixed, and one
+-- scroll area per section beside it. Left-aligned so the buff options pop-up has
+-- room to the right. A section's scrollbar only appears if its content outgrows
+-- the tab.
+function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
+    local f = CreateFrame("Frame", nil, tabPage)
+    f:SetPoint("TOPLEFT", tabPage, "TOPLEFT")
+    f:SetPoint("BOTTOMLEFT", tabPage, "BOTTOMLEFT")
+    f:SetWidth(FRAME_W)
+    f.titleBarHeight = 0
     local y0 = f.titleBarHeight + 20
-    local pages = {}
+    local pages, scrolls = {}, {}
     local buttons = {}
     local sectionLabels = {
         "General", "Status Bars", "Buff Tracking", "Paladin Bar",
         "Warriors", "Warlocks", "Testing", "Developer",
     }
 
+    -- A section always opens at its top, and is re-measured each time it comes
+    -- up: what it shows can have changed since it was last looked at.
     local function SelectSection(index)
         CloseBuffOptions()
-        for i, page in ipairs(pages) do
-            if i == index then page:Show() else page:Hide() end
+        f.currentScroll = scrolls[index]
+        for i, scroll in ipairs(scrolls) do
+            scroll:SetShown(i == index)
             if i == index then buttons[i]:LockHighlight() else buttons[i]:UnlockHighlight() end
         end
+        f.currentScroll:SetVerticalScroll(0)
+        UI.FitScrollToContent(f.currentScroll)
     end
 
     f.SelectSection = function(label)
@@ -1216,9 +1230,12 @@ local function EnsureSettingsFrame()
         button:SetScript("OnClick", function() SelectSection(index) end)
         buttons[i] = button
 
-        local page = CreateFrame("Frame", nil, f)
-        page:SetAllPoints(f)
-        pages[i] = page
+        local scroll, page = UI.CreateScroll(f, "WhoDoesWhatSettingsSection" .. i, true)
+        scroll:SetPoint("TOPLEFT", f, "TOPLEFT", PAGE_X, 0)
+        scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT")
+        page:SetWidth(FRAME_W - PAGE_X)
+        scroll:Hide()
+        pages[i], scrolls[i] = page, scroll
     end
 
     -- ---- General ----
@@ -2151,8 +2168,8 @@ local function EnsureSettingsFrame()
             WhoDoesWhat.db.profile.settings.developerMode = value
             WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
         end)
-    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs button",
-        "Show the combined WhoDoesWhat and PallyPower traffic-log button on the assignment window.",
+    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, CONTENT_X, yR, "Show Logs tab",
+        "Show the combined WhoDoesWhat and PallyPower traffic logs as a tab in the main window.",
         function(value)
             WhoDoesWhat.db.profile.settings.showLogsButton = value
             WhoDoesWhat:RefreshMainAssignmentsView()
@@ -2285,26 +2302,18 @@ local function EnsureSettingsFrame()
 
     SelectSection(1)
     f:HookScript("OnHide", CloseBuffOptions)
+    f:SetScript("OnShow", function(self)
+        LoadSettings(self)
+        if self.currentScroll then UI.FitScrollToContent(self.currentScroll) end
+    end)
     settingsFrame = f
     return f
 end
 
--- Toggle the settings window open/closed, loading checkbox state from the DB.
--- An optional section label opens straight to that page instead of toggling.
-function WhoDoesWhat:OpenAddonSettingsView(section)
-    local f = EnsureSettingsFrame()
-
-    if f:IsShown() then
-        if section then
-            f.SelectSection(section)
-            f:Raise()
-            return
-        end
-        self:LogUiBuilding("Addon Settings View open, closing it.")
-        f:Hide()
-        return
-    end
-
+-- Put every control back in step with the saved settings. Run each time the
+-- page comes up, since anything can have changed them while it was away.
+function LoadSettings(f)
+    local self = WhoDoesWhat
     local settings = self.db.profile.settings
     f.minimapCheck:SetChecked(not settings.minimapButton.hide)
     f.RefreshPaladinPage()
@@ -2350,12 +2359,14 @@ function WhoDoesWhat:OpenAddonSettingsView(section)
 --@end-do-not-package@
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)
     UIDropDownMenu_SetText(f.fakePaladinDD, tostring(settings.fakeRaidPaladinCount or 3))
+end
 
-    if section then f.SelectSection(section) end
-
-    self:LogUiBuilding("Opening Addon Settings View...")
-    f:Show()
-    f:Raise()
+-- Open the main window on the Settings tab, or close it if it is already there.
+-- A section label opens straight to that section and never closes the window.
+function WhoDoesWhat:OpenAddonSettingsView(section)
+    if self:ShowMainTab("settings", section ~= nil) and section then
+        settingsFrame.SelectSection(section)
+    end
 end
 
 -- Open one check's cog options directly (WDW Status' shift-right-click on a
@@ -2363,14 +2374,8 @@ end
 -- after the window is on the right page.
 function WhoDoesWhat:OpenBuffTrackingOptions(key)
     if not self.StatusBarChecks[key] then return end
-    local f = EnsureSettingsFrame()
-    if f:IsShown() then
-        f.SelectSection("Buff Tracking")
-        f:Raise()
-    else
-        self:OpenAddonSettingsView("Buff Tracking")
-    end
-    OpenBuffOptions(f, key)
+    self:OpenAddonSettingsView("Buff Tracking")
+    OpenBuffOptions(settingsFrame, key)
 end
 
 function WhoDoesWhat:RefreshAddonSettingsLoggingCheck()

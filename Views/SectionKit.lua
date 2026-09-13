@@ -458,7 +458,7 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Re-anchor each column's VISIBLE section boxes top-to-bottom, so a hidden box
--- (Paladin-only view) leaves no gap, and size the scroll child to the taller
+-- leaves no gap, and size the scroll child to the taller
 -- column. Section boxes grow and shrink with their rows, so every section runs
 -- this after settling its own height.
 function K.LayoutColumns(f)

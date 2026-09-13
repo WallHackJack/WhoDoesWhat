@@ -1,7 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 
--- Members window ("Members" button on the main view): every group member in one
+-- Members page (the main window's Members tab): every group member in one
 -- of four role grids, bucketed by their assigned role's tank/healer/dps
 -- classification and sorted by class then name.
 --
@@ -34,10 +34,6 @@ local UI = select(2, ...).UI
 
 local membersFrame = nil
 
--- The window auto-fits its content between these two; only at the ceiling does
--- the scrollbar appear (UpdateContentHeight).
-local MIN_FRAME_H = 230
-local MAX_FRAME_H = 560
 local OVERVIEW_H = 55 -- two-line summary strip between the title bar and grids
 -- The counts line's inline icons stand taller than the font, so it needs a bit
 -- more clearance under the title bar than the text alone would suggest.
@@ -76,9 +72,6 @@ local TALENT_X = WDW_X + WDW_DD_W
 local TALENT_PAD = 6
 local TALENT_TEXT_W = 132
 local RESCAN_BTN_W = 62
-local TALENT_COL_W = TALENT_PAD + TALENT_TEXT_W + 8 + RESCAN_BTN_W + 4
-local CONTENT_W = TALENT_X + TALENT_COL_W
-local FRAME_W = CONTENT_W + MARGIN * 2 + SCROLLBAR_W
 
 -- UIDropDownMenuTemplate's visible box starts inset from the frame's own left
 -- edge, so both dropdown anchors back off by this much to line the box up with
@@ -310,8 +303,9 @@ local function CreateRow(f, section, index)
 
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetSize(box:GetWidth(), ROW_H)
+    row:SetHeight(ROW_H)
     row:SetPoint("TOPLEFT", 0, -(GRID_HEADER_H + (index - 1) * ROW_H))
+    row:SetPoint("TOPRIGHT", 0, -(GRID_HEADER_H + (index - 1) * ROW_H))
 
     local stripe = row:CreateTexture(nil, "BACKGROUND")
     stripe:SetAllPoints()
@@ -589,19 +583,20 @@ local function LayoutRow(row, m, data, index, connected)
     row:Show()
 end
 
--- Recompute the scroll child's height from the stacked grids, then fit the
--- window to it. Empty grids are hidden (RefreshRoster), so they contribute
--- nothing. The trailing GRID_GAP after the last grid doubles as bottom padding,
--- exactly as the main view's SECTION_GAP does. Only once the content passes
--- MAX_FRAME_H does the window stop growing and the scrollbar appear.
+-- Recompute the scroll child's height from the stacked grids. Empty grids are
+-- hidden (RefreshRoster), so they contribute nothing. The trailing GRID_GAP
+-- after the last grid doubles as bottom padding, exactly as the Raid page's
+-- SECTION_GAP does.
 local function UpdateContentHeight(f)
     local h = 0
     for _, section in ipairs(SECTIONS) do
         local box = f.sections[section.key].box
         if box:IsShown() then h = h + box:GetHeight() + GRID_GAP end
     end
-    local desired = f.scrollTop + h + MARGIN
-    f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
+    -- The scroll area keeps the content as wide as itself when it resizes; this
+    -- covers a first paint that lands before the scroll area has had a size.
+    local width = f.scroll:GetWidth()
+    if width and width > 1 then f.content:SetWidth(width) end
     UI.SetScrollHeight(f.scroll, h)
 end
 
@@ -614,8 +609,6 @@ function RefreshRoster(f)
         return
     end
     pendingRepaint = false
-
-    f:SetTitle(IsInRaid() and "Raid Members" or "Group Members")
 
     -- One pass over the roster answers every row: role, flag, talents,
     -- permissions and everything wrong with them (ActionItems.lua).
@@ -659,11 +652,16 @@ function RefreshRoster(f)
         state.box:SetShown(#members > 0)
         if #members > 0 then
             state.box:SetHeight(GRID_HEADER_H + #members * ROW_H)
+            -- Both edges, every time: the grid takes its width from the page,
+            -- and a grid pinned by one corner alone has no width, so neither
+            -- do the rows hung across it.
             state.box:ClearAllPoints()
             if prevBox then
                 state.box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
+                state.box:SetPoint("TOPRIGHT", prevBox, "BOTTOMRIGHT", 0, -GRID_GAP)
             else
                 state.box:SetPoint("TOPLEFT", f.content, "TOPLEFT", 0, 0)
+                state.box:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", 0, 0)
             end
             prevBox = state.box
         end
@@ -675,13 +673,14 @@ function RefreshRoster(f)
     UpdateContentHeight(f)
 end
 
--- Build the window once and reuse it: shared chrome, a scroll column, and the
--- four role grids (rows come from RefreshRoster).
-local function EnsureMembersFrame()
-    if membersFrame then return membersFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatMembersFrame",
-        FRAME_W, MIN_FRAME_H, "Group Members")
+-- Build the page into the Members tab: the four role grids (rows come from
+-- RefreshRoster) scrolling under a fixed overview strip, stretched across the
+-- page. The columns keep their places from the left; the Rescan button rides the
+-- right edge, so the rows' stripes span the whole width.
+function WhoDoesWhat:BuildMembersPage(page)
+    local f = CreateFrame("Frame", nil, page)
+    f:SetAllPoints(page)
+    f.titleBarHeight = 0
 
     -- Overview strip: fixed chrome above the scroll area, so it stays put while
     -- the grids scroll under it.
@@ -704,10 +703,9 @@ local function EnsureMembersFrame()
 
     f.scrollTop = f.titleBarHeight + OVERVIEW_H + 8 -- chrome above the scroll area
 
-    local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMembersScroll", true)
+    local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMembersScroll")
     scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
-    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
-    content:SetWidth(CONTENT_W)
+    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), 0)
     f.content = content
     f.scroll = scroll
 
@@ -718,11 +716,12 @@ local function EnsureMembersFrame()
     for _, section in ipairs(SECTIONS) do
         local box = CreateFrame("Frame", nil, content)
         box:SetFrameLevel(content:GetFrameLevel() + 1)
-        box:SetWidth(CONTENT_W)
         if prevBox then
             box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
+            box:SetPoint("TOPRIGHT", prevBox, "BOTTOMRIGHT", 0, -GRID_GAP)
         else
             box:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+            box:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
         end
         prevBox = box
 
@@ -755,11 +754,13 @@ local function EnsureMembersFrame()
         f.sections[section.key] = { box = box, title = title, rows = {} }
     end
 
-    -- Track joins/leaves live while the window is open.
+    -- Track joins/leaves live while the page is on screen, and catch up
+    -- whenever it comes back.
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
     f:RegisterEvent("UNIT_CONNECTION")
+    f:SetScript("OnShow", RefreshRoster)
     f:SetScript("OnEvent", function(self)
-        if self:IsShown() then
+        if self:IsVisible() then
             RefreshRoster(self)
         end
     end)
@@ -772,7 +773,7 @@ local function EnsureMembersFrame()
         DropDownList1:HookScript("OnHide", function()
             if not pendingRepaint then return end
             pendingRepaint = false
-            if membersFrame and membersFrame:IsShown() then
+            if membersFrame and membersFrame:IsVisible() then
                 RefreshRoster(membersFrame)
             end
         end)
@@ -782,26 +783,17 @@ local function EnsureMembersFrame()
     return f
 end
 
--- Repaint if the window is up. Called from outside the view when assignments
--- change (SetAssignedRole in UnitMenuExtensions.lua, talent auto-detection).
+-- Repaint if the page is on screen, and keep the Members tab's count honest
+-- either way. Called from outside the view when assignments change
+-- (SetAssignedRole in UnitMenuExtensions.lua, talent auto-detection).
 function WhoDoesWhat:RefreshMembersView()
-    if membersFrame and membersFrame:IsShown() then
+    self:RefreshMainTabs()
+    if membersFrame and membersFrame:IsVisible() then
         RefreshRoster(membersFrame)
     end
 end
 
--- Toggle the members window open/closed.
+-- Open the main window on the Members tab, or close it if it is already there.
 function WhoDoesWhat:OpenMembersView()
-    local f = EnsureMembersFrame()
-
-    if f:IsShown() then
-        self:LogUiBuilding("Members View open, closing it.")
-        f:Hide()
-        return
-    end
-
-    self:LogUiBuilding("Opening Members View...")
-    RefreshRoster(f)
-    f:Show()
-    f:Raise()
+    self:ShowMainTab("members")
 end

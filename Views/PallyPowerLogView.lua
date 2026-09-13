@@ -25,8 +25,6 @@ local DISPLAY_OPTIONS = {
     },
 }
 
-local FRAME_W = 640
-local FRAME_H = 340
 local MARGIN = 10
 
 -- Class-colored sender name; group members resolve through UnitClass, anyone
@@ -163,17 +161,11 @@ local function SelectDisplay(f, selected)
     RenderAll(f)
 end
 
-local function EnsureLogFrame()
-    if logFrame then return logFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatPallyPowerLogFrame",
-        FRAME_W, FRAME_H, "WhoDoesWhat - Sync Traffic")
-    f:SetResizable(true)
-    if f.SetResizeBounds then
-        f:SetResizeBounds(420, 180)
-    elseif f.SetMinResize then
-        f:SetMinResize(420, 180)
-    end
+-- Build the page into the Logs tab; the log fills the page.
+function WhoDoesWhat:BuildSyncLogPage(page)
+    local f = CreateFrame("Frame", nil, page)
+    f:SetAllPoints(page)
+    f.titleBarHeight = 0
 
     local clear = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     clear:SetSize(50, 18)
@@ -248,7 +240,7 @@ local function EnsureLogFrame()
 
     local smf = CreateFrame("ScrollingMessageFrame", nil, f)
     smf:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 34))
-    smf:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
+    smf:SetPoint("BOTTOMRIGHT", -MARGIN, 0)
     smf:SetFontObject(GameFontHighlightSmall)
     smf:SetJustifyH("LEFT")
     smf:SetFading(false)
@@ -266,15 +258,8 @@ local function EnsureLogFrame()
     end)
     f.smf = smf
 
-    -- Bottom-right resize grip (the window is otherwise fixed-size chrome).
-    local grip = CreateFrame("Button", nil, f)
-    grip:SetSize(16, 16)
-    grip:SetPoint("BOTTOMRIGHT", -4, 4)
-    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-    grip:SetScript("OnMouseDown", function() f:StartSizing("BOTTOMRIGHT") end)
-    grip:SetScript("OnMouseUp", function() f:StopMovingOrSizing() end)
+    -- Redrawn whenever the page comes up: history kept arriving while it was away.
+    f:SetScript("OnShow", function(self) SelectSource(self, source) end)
 
     WhoDoesWhat:LogUiBuilding("Building sync traffic log content.")
 
@@ -285,7 +270,7 @@ end
 -- Live feed from the bridge: append while open; a history trim means line
 -- indices shifted, so redraw the lot instead.
 function WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
-    if not (logFrame and logFrame:IsShown() and source == "pp") then return end
+    if not (logFrame and logFrame:IsVisible() and source == "pp") then return end
     if trimmed then
         RenderAll(logFrame)
     elseif PassesFilter(entry) then
@@ -294,7 +279,7 @@ function WhoDoesWhat:PallyPowerLogAppended(entry, trimmed)
 end
 
 function WhoDoesWhat:SyncLogAppended(entry, trimmed)
-    if not (logFrame and logFrame:IsShown() and source == "wdw") then return end
+    if not (logFrame and logFrame:IsVisible() and source == "wdw") then return end
     if trimmed then
         RenderAll(logFrame)
     elseif PassesFilter(entry) then
@@ -309,26 +294,14 @@ function WhoDoesWhat:RefreshSyncLogLoggingCheck()
     end
 end
 
--- Toggle the combined log window. Asking for the other source while it is
--- already open switches tabs instead of unexpectedly closing it.
+-- Open the main window on the Logs tab, or close it if it is already there.
+-- Asking for the other source while the logs are up switches source instead of
+-- unexpectedly closing them.
 function WhoDoesWhat:OpenSyncLogView(selected)
-    local f = EnsureLogFrame()
-
-    if f:IsShown() then
-        if selected and selected ~= source then
-            SelectSource(f, selected)
-            f:Raise()
-            return
-        end
-        self:LogUiBuilding("Sync Traffic open, closing it.")
-        f:Hide()
-        return
+    local switching = selected and selected ~= source
+    if self:ShowMainTab("logs", switching) and selected then
+        SelectSource(logFrame, selected)
     end
-
-    self:LogUiBuilding("Opening Sync Traffic...")
-    SelectSource(f, selected or source)
-    f:Show()
-    f:Raise()
 end
 
 function WhoDoesWhat:OpenPallyPowerLogView()

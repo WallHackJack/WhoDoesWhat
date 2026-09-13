@@ -12,7 +12,7 @@ local UI = select(2, ...).UI
 -- (ComputePaladinBuffSummary). Row mail whispers one paladin's missing live
 -- coverage. A second "Buffing Rules" header below the paladin rows owns the
 -- "Add (+)" and clear-all buttons and hides with its rows in PallyPower mode.
--- Buff Grid lives in the window toolbar. PallyBuffSource sits in the main
+-- Buff Grid is its own main-window tab. PallyBuffSource sits in the main
 -- header; its compact sync/action row leads the summary rows.
 --
 -- Below the summary sit the custom rule rows (the model docs the semantics
@@ -658,8 +658,7 @@ local function CreateRuleRow(f, index)
         table.remove(GetBuffRules(), index)
         WhoDoesWhat:LogOperation("Paladin Buffs: rule removed.")
         -- Route through the main refresh (not the section-local Refresh) so
-        -- ApplyViewMode refits the window height -- removing a rule shrinks
-        -- the box, and the collapsed view must follow.
+        -- the tab row's counts move along with the board.
         WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshBoardViews()
     end)

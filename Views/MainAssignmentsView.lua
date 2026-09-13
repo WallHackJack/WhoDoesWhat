@@ -1,11 +1,18 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 
--- Main /wdw window: two scrollable columns of boxed assignment sections.
+-- Main /wdw window: one fixed-size window, one tab per page.
 --
--- This file is only the window itself: chrome, the top button strip, the
--- editing-permission strip, the scroll/column plumbing, and the refresh
--- coordinator. Every section is hard-coded in its own file under
+--   Raid  Members  Buff Grid                          Logs  About  Settings
+--
+-- This file owns the window, its tab row and the Raid page. Every other page is
+-- built by its own view file (BuildMembersPage and friends) the first time its
+-- tab is opened, and repaints itself whenever it comes back on screen. The
+-- old per-page openers (OpenMembersView, OpenAddonSettingsView...) now open
+-- this window on their tab through ShowMainTab.
+--
+-- The Raid page is the permission strip over two scrollable columns of boxed
+-- assignment sections. Every section is hard-coded in its own file under
 -- Views/Sections/ (registered on WhoDoesWhat.SectionViews as Build/Refresh
 -- pairs, built from the shared primitives in Views/SectionKit.lua):
 --
@@ -31,23 +38,27 @@ local Sync = WhoDoesWhat:GetModule("Sync")
 
 local mainFrame = nil
 
--- The window auto-fits its height to the visible content (ApplyViewMode), so
--- Paladin-only view collapses to a short, low-profile window while the full
--- board grows -- but never past MAX (it scrolls) or below MIN (the button
--- strip + a stub box still need room).
-local MAX_FRAME_H = 550
-local MIN_FRAME_H = 130
-local MARGIN = 12
 local SCROLLBAR_W = UI.SCROLLBAR_W
-local BUTTON_ROW_H = 22
-local TOOLBAR_PAD = 6
-local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
-local BUTTON_GAP = 6
-local ABOUT_BUTTON_W = 52
--- Wide enough for "Members (99)" so a changing count never resizes the button
--- (which would shift the whole centered toolbar sideways).
-local MEMBERS_BUTTON_W = 96
-local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
+-- Fixed size: wide enough for the Raid board's two columns and its scrollbar
+-- inside the tab panel. Pages taller than the panel scroll.
+local WINDOW_W = 900
+local WINDOW_H = 560
+-- Room above the Raid page's columns for the permission picker.
+local PERMISSION_STRIP_H = 30
+
+local SETTINGS_LABEL = "|T" .. UI.GEAR_ICON .. ":14:14:0:0|t Settings"
+local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
+
+-- Page backgrounds over the window's blue panel. The roster-style pages sit on
+-- near-black, which their class-tinted rows were picked against and read muddy
+-- on blue, and Logs reads better on it too; Settings keeps the grey the tab panel
+-- used to be. About stays on the panel's own blue.
+local PAGE_DARK = { 0.012, 0.012, 0.014, 1 }
+local PAGE_GREY = { 0.06, 0.06, 0.07, 1 }
+local PAGE_COLORS = {
+    raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, logs = PAGE_DARK,
+    settings = PAGE_GREY,
+}
 
 -- Column geometry (widths only live here; the kit reads them off f.columns).
 -- Left is the narrow column (Paladin Buffs / Warlocks); right is wider for
@@ -57,10 +68,6 @@ local COLUMN_GAP = 12
 local LEFT_COLUMN_W = 330
 local RIGHT_COLUMN_W = 500
 local CONTENT_W = LEFT_COLUMN_W + COLUMN_GAP + RIGHT_COLUMN_W
-local FRAME_W = CONTENT_W + MARGIN * 2 + SCROLLBAR_W
--- Paladin-only view keeps the same in-window scrollbar gutter while narrowing
--- its content viewport to the Paladin section.
-local NARROW_FRAME_W = LEFT_COLUMN_W + MARGIN * 2 + SCROLLBAR_W
 
 -- Build + refresh order: left column top-to-bottom, then right column.
 -- Within a column this is also the anchor-chain order.
@@ -140,7 +147,7 @@ local function InitPermissionsDropdown(_, level)
     end
 end
 
--- The strip at the window's top-left: the raid leader gets the picker
+-- The strip at the Raid page's top-left: the raid leader gets the picker
 -- dropdown, every other raid member a note: the rule if they may edit under it,
 -- otherwise just "Read Only Mode". Hidden outside raids -- parties and solo are
 -- always open, nothing to say.
@@ -176,122 +183,17 @@ end
 -- Refresh coordinator + window
 -- ---------------------------------------------------------------------------
 
--- Apply the current view mode: hide every box but Paladin Buffs in paladin-only
--- mode, then re-anchor the visible boxes and recompute the scroll height. Runs
--- after the sections refresh (their heights must be settled first).
-local function ApplyViewMode(f)
-    local full = not WhoDoesWhat.db.profile.settings.paladinOnlyView
-    local frameWidth = full and FRAME_W or NARROW_FRAME_W
-    if not full and WhoDoesWhat.db.profile.settings.showLogsButton then
-        -- The developer Logs button widens the centered toolbar. Keep enough
-        -- frame on both sides for the external About button and a normal margin.
-        frameWidth = math.max(frameWidth, f.toolbarBox:GetWidth()
-            + 2 * (BUTTON_GAP + ABOUT_BUTTON_W + MARGIN))
-    end
-
-    -- The content viewport stops before the reserved scrollbar gutter, keeping
-    -- the template's outside-anchored bar inside the window in both modes.
-    -- Full view shows both columns; Paladin-only narrows to the left section.
-    f:SetWidth(frameWidth)
+-- The Raid page's scroll area starts under the permission strip while the strip
+-- has something to say, and takes its room back when it doesn't (outside raids).
+local function LayoutRaidPage(f)
+    local stripShown = f.permDD:IsShown() or f.permNote:IsShown()
     f.scroll:ClearAllPoints()
-    f.scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
-    f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
-    if full then
-        f.columns[K.COL_LEFT].x = 0
-    else
-        f.permDD:Hide()
-        f.permNote:Hide()
-        local interior = frameWidth - MARGIN * 2 - SCROLLBAR_W
-        f.columns[K.COL_LEFT].x = math.floor((interior - LEFT_COLUMN_W) / 2)
-    end
-
-    local keep = f.pallySection and f.pallySection.box
-    for _, col in ipairs(f.columns) do
-        for _, box in ipairs(col.boxes) do
-            box:SetShown(full or box == keep)
-        end
-    end
-    K.LayoutColumns(f)
-
-    -- Auto-fit the window to the content: short in Paladin-only view, taller
-    -- (up to MAX, then it scrolls) for the full board. LayoutColumns
-    -- already trailed a SECTION_GAP after the last box, so that doubles as the
-    -- bottom margin.
-    local desired = f.scrollTop + f.content:GetHeight() + MARGIN
-    f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
-end
-
--- Nova-style pixel glow, same helper shape the buffing bar uses: track the
--- state so a refresh doesn't restart the animation every two seconds.
-local LCG = LibStub("LibCustomGlow-1.0", true)
-local MEMBERS_GLOW_COLOR = { 1, 0.82, 0.2, 1 }
-
-local function SetMembersGlow(btn, on)
-    if not LCG then return end
-    if on and not btn.glowing then
-        LCG.PixelGlow_Start(btn, MEMBERS_GLOW_COLOR, 12, nil, 4, nil,
-            2, 2, false, nil, 5)
-        btn.glowing = true
-    elseif not on and btn.glowing then
-        LCG.PixelGlow_Stop(btn)
-        btn.glowing = false
-    end
-end
-
--- Members advertises the outstanding issue count and lights up when there's
--- something to do. This used to be a second "Actions (n)" button beside it,
--- back when the roster issues had a window of their own; the two merged, so the
--- count and the glow moved onto the one button that opens the merged page.
---
--- Nothing about the count makes it un-clickable -- opening it to confirm
--- "nothing to fix" is a legitimate thing to want before a pull -- so a clean
--- roster is said with a plain white label instead of a dead button.
---
--- The gold label and the glow are a PROMPT, so they follow what this client may
--- actually fix, not the raw total. An unpermitted raider still sees an honest
--- "Members (23)" if they go looking, in plain white -- nothing pulses at them
--- about roles that are the leader's to set.
-local function UpdateMembersButton(f)
-    local count, actionable = WhoDoesWhat:CountActionItems()
-    f.membersBtn:SetText(count > 0 and ("Members (" .. count .. ")") or "Members")
-    local label = f.membersBtn:GetFontString()
-    if label then
-        if actionable > 0 then
-            label:SetTextColor(1, 0.82, 0.2)
-        else
-            label:SetTextColor(1, 1, 1)
-        end
-    end
-    SetMembersGlow(f.membersBtn, actionable > 0)
-end
-
-local function UpdateToolbar(f)
-    local showLogs = WhoDoesWhat.db.profile.settings.showLogsButton
-    f.logsBtn:SetShown(showLogs)
-    UpdateMembersButton(f)
-    local width = TOOLBAR_PAD * 2 + f.buffGridBtn:GetWidth()
-        + f.membersBtn:GetWidth() + BUTTON_GAP
-    if showLogs then
-        width = width + f.logsBtn:GetWidth() + BUTTON_GAP
-    end
-    f.toolbarBox:SetWidth(width)
-end
-
-local function UpdateViewToggle(f)
-    if not f.viewToggleBtn then return end
-    local prefOn = WhoDoesWhat.db.profile.settings.paladinOnlyView
-    local base = "Interface\\Buttons\\UI-Panel-"
-        .. (prefOn and "BiggerButton" or "SmallerButton")
-    f.viewToggleBtn:SetNormalTexture(base .. "-Up")
-    f.viewToggleBtn:SetPushedTexture(base .. "-Down")
-    f.viewToggleBtn:SetDisabledTexture(base .. "-Disabled")
-    f.viewToggleBtn.tooltipTitle = prefOn and "Full view" or "Paladin-only view"
-    f.viewToggleBtn.tooltipText = prefOn and "Show the whole assignment board."
-        or "Show only the Paladin Buffs section."
+    f.scroll:SetPoint("TOPLEFT", f.raidPage, "TOPLEFT", 0,
+        stripShown and -PERMISSION_STRIP_H or 0)
+    f.scroll:SetPoint("BOTTOMRIGHT", f.raidPage, "BOTTOMRIGHT", -SCROLLBAR_W, 0)
 end
 
 local function UpdateVersionWarning(f)
-    if not f.versionWarn then return end
     local current = Sync:GetReportedAddonVersion()
     local newer = Sync:GetNewerAddonVersions()
     if #newer == 0 then
@@ -309,143 +211,59 @@ local function UpdateVersionWarning(f)
     f.versionWarn:Show()
 end
 
--- Repaint everything: the permission strip, then every section (each owns
--- its rows, warnings, header buttons and box height), then the view mode
--- (which box(es) show) and the header mail buttons' enabled states. Mail
--- visibility settles first (cheap, no collectors) so every section lays out
--- its header chain against it.
-local function RefreshAll(f)
+-- The tab row's own state: the Members count and its warning, and whether Logs
+-- is on offer.
+--
+-- The warning is a PROMPT, so it follows what this client may actually fix, not
+-- the raw total. An unpermitted raider still sees an honest "Members (23)" if
+-- they go looking -- nothing flags at them about roles that are the leader's to
+-- set. Nothing about the count makes the tab unselectable either: opening it to
+-- confirm "nothing to fix" is a legitimate thing to want before a pull.
+local function UpdateTabs(f)
+    local count, actionable = WhoDoesWhat:CountActionItems()
+    f:SetTabLabel("members", (count > 0 and ("Members (" .. count .. ")") or "Members")
+        .. (actionable > 0 and ISSUE_MARKUP or ""))
+    -- Asking for the logs directly (/wdw log) shows the tab for the rest of the
+    -- session even with the setting off; otherwise the setting decides.
+    f:SetTabShown("logs", f.logsRequested
+        or WhoDoesWhat.db.profile.settings.showLogsButton)
     UpdateVersionWarning(f)
-    UpdateToolbar(f)
+end
+
+-- Repaint the Raid page: the permission strip, then every section (each owns
+-- its rows, warnings, header buttons and box height), then the header mail
+-- buttons' enabled states. Mail visibility settles first (cheap, no
+-- collectors) so every section lays out its header chain against it.
+local function RefreshRaidPage(f)
     UpdatePermissionControls(f)
+    LayoutRaidPage(f)
     K.UpdateHeaderMailVisibility(f)
     for _, section in ipairs(f.sections) do
         section.Refresh(f)
     end
-    ApplyViewMode(f)
-    UpdateViewToggle(f)
     K.UpdateHeaderMailButtons(f)
 end
 
-local function CreateToolbarButton(f, text, width, title, body, onClick)
-    local btn = UI.CreateTextButton(f, text, title, body, onClick)
-    btn:SetSize(width, BUTTON_ROW_H)
-    return btn
-end
-
--- Build the window once and reuse it: shared chrome, the header strip
--- (permission strip left, compact centered button box, external About button), the title-bar
--- Settings / view / Close icon cluster,
--- and the two scrollable columns.
-local function EnsureMainFrame()
-    if mainFrame then return mainFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H,
-        "WhoDoesWhat", { version = true })
-    f.closeButton:SetHitRectInsets(4, 4, 4, 4)
-    local versionWarn = UI.CreateWarningIcon(f)
-    versionWarn:SetPoint("LEFT", f.titleText, "RIGHT", 4, 0)
-    f.versionWarn = versionWarn
-    local top = f.titleBarHeight + 10
-
-    -- Compact centered toolbar: [Logs, when enabled] [Buff Grid] [Members],
-    -- chained inward from the right edge. Its backdrop grows only wide enough to
-    -- contain the visible buttons.
-    local toolbarBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
-    toolbarBox:SetPoint("TOP", f, "TOP", 0, -top)
-    toolbarBox:SetSize(1, TOOLBAR_H)
-    UI.StylePanel(toolbarBox)
-
-    -- Fixed width on purpose: the label carries a changing count, and sizing to
-    -- text would jitter every other button sideways whenever an issue appeared.
-    local membersBtn = CreateToolbarButton(toolbarBox, "Members", MEMBERS_BUTTON_W,
-        "Group Members",
-        "Everyone in the group, the role each of them holds, and anything still "
-            .. "wrong with them -- players waiting on a role, group roles "
-            .. "(Tank / Healer / Damage Dealer) that don't match, talents that "
-            .. "disagree, and tanks not yet promoted to Main Tank.",
-        function() WhoDoesWhat:OpenMembersView() end)
-    membersBtn:SetPoint("RIGHT", toolbarBox, "RIGHT", -TOOLBAR_PAD, 0)
-
-    -- Roles used to sit right of Members. It edits your own role library, which
-    -- is what the Custom Roles section's list is published from, so it moved to
-    -- that section's header gear -- beside the per-role gears it matches.
-    local buffGridBtn = CreateToolbarButton(toolbarBox, "Buff Grid", 72, "Buffing Grid",
-        "Open the raid-wide paladin blessing plan and live buff status.",
-        function() WhoDoesWhat:OpenBuffingGridView() end)
-    buffGridBtn:SetPoint("RIGHT", membersBtn, "LEFT", -BUTTON_GAP, 0)
-
-    local logsBtn = CreateToolbarButton(toolbarBox, "Logs", 52, "Sync traffic",
-        "Open the combined WhoDoesWhat and PallyPower addon-message logs.",
-        function() WhoDoesWhat:OpenSyncLogView("wdw") end)
-    logsBtn:SetPoint("RIGHT", buffGridBtn, "LEFT", -BUTTON_GAP, 0)
-
-    f.toolbarBox = toolbarBox
-    f.membersBtn = membersBtn
-    f.buffGridBtn = buffGridBtn
-    f.logsBtn = logsBtn
-    UpdateToolbar(f)
-
-    -- About follows the centered toolbar's right edge without being parented by
-    -- it or included in its width, so the toolbar remains exactly centered.
-    local aboutBtn = CreateToolbarButton(f, "About", ABOUT_BUTTON_W, "About & Updates",
-        "Open links, contact information, version details, and release notes.",
-        function() WhoDoesWhat:OpenAboutView() end)
-    aboutBtn:SetPoint("LEFT", toolbarBox, "RIGHT", BUTTON_GAP, 0)
-    f.aboutBtn = aboutBtn
-
-    -- Tight title-bar icon cluster: Settings, view toggle, Close. The custom
-    -- cog uses addon-owned copies of the standard close-button states.
-    local settingsBtn = CreateFrame("Button", nil, f)
-    settingsBtn:SetSize(32, 32)
-    settingsBtn:SetHitRectInsets(4, 4, 4, 4)
-    settingsBtn:SetPoint("TOPRIGHT", -20, 1)
-    settingsBtn:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
-    settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
-    settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
-    settingsBtn:SetScript("OnClick", function() WhoDoesWhat:OpenAddonSettingsView() end)
-    UI.AddTooltip(settingsBtn, "Settings", "Open WhoDoesWhat settings.")
-
-    -- Bigger opens the full board; Smaller collapses to Paladin Buffs only.
-    local viewToggleBtn = CreateFrame("Button", nil, f)
-    viewToggleBtn:SetSize(32, 32)
-    viewToggleBtn:SetHitRectInsets(4, 4, 4, 4)
-    viewToggleBtn:SetPoint("RIGHT", settingsBtn, "LEFT", 11, 0)
-    viewToggleBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
-    viewToggleBtn:SetScript("OnClick", function()
-        local s = WhoDoesWhat.db.profile.settings
-        s.paladinOnlyView = not s.paladinOnlyView
-        WhoDoesWhat:LogUiBuilding("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
-        RefreshAll(f)
-    end)
-    UI.AddTooltip(viewToggleBtn, function(self)
-        return self.tooltipTitle, self.tooltipText
-    end)
-    f.viewToggleBtn = viewToggleBtn
+-- The Raid page: the permission strip over the two scrollable columns.
+local function BuildRaidPage(f, page)
+    f.raidPage = page
 
     -- Editing-permission strip: the raid leader sees the picker, other raid
-    -- members a read-only note, and
-    -- outside raids both hide (UpdatePermissionControls decides each refresh).
-    local permDD = UI.CreateMenuDropdown(f, "WhoDoesWhatPermissionsDD", 170)
-    permDD:SetPoint("LEFT", f, "TOPLEFT", MARGIN - 15,
-        -(top + TOOLBAR_H / 2 + 2)) -- template overhangs ~15px left
+    -- members a read-only note, and outside raids both hide
+    -- (UpdatePermissionControls decides each refresh).
+    local permDD = UI.CreateMenuDropdown(page, "WhoDoesWhatPermissionsDD", 170)
+    -- The template overhangs ~15px left of its visible box.
+    permDD:SetPoint("LEFT", page, "TOPLEFT", -15, -(PERMISSION_STRIP_H / 2) - 2)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
     permDD:Hide()
     f.permDD = permDD
 
-    local permNote = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    permNote:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -(top + TOOLBAR_H / 2))
+    local permNote = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    permNote:SetPoint("LEFT", page, "TOPLEFT", 0, -(PERMISSION_STRIP_H / 2))
     permNote:Hide()
     f.permNote = permNote
 
-    local scrollTop = top + TOOLBAR_H + 8
-    f.scrollTop = scrollTop -- chrome above the scroll area; ApplyViewMode sizes to it
-
-    -- The content keeps the full two-column width even while Paladin-only view
-    -- narrows the viewport around the left column.
-    local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMainScroll", true)
-    scroll:SetPoint("TOPLEFT", MARGIN, -scrollTop)
-    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + UI.SCROLLBAR_W), MARGIN)
+    local scroll, content = UI.CreateScroll(page, "WhoDoesWhatMainScroll", true)
     content:SetWidth(CONTENT_W)
     f.content = content
     f.scroll = scroll
@@ -462,42 +280,108 @@ local function EnsureMainFrame()
     for _, section in ipairs(f.sections) do
         section.Build(f, content)
     end
-    -- Creates rows for saved entries and settles every height.
-    RefreshAll(f)
+
+    -- Every time the page comes up, whether by tab or by the window opening.
+    page:HookScript("OnShow", function() RefreshRaidPage(f) end)
+end
+
+-- Build the window once and reuse it: the chrome, the tab row, and the Raid
+-- page. Every other page is built by its own view the first time it is opened.
+local function EnsureMainFrame()
+    if mainFrame then return mainFrame end
+
+    local f = UI.CreateWindow("WhoDoesWhatMainFrame", WINDOW_W, WINDOW_H,
+        "WhoDoesWhat", { version = true })
+    f.closeButton:SetHitRectInsets(4, 4, 4, 4)
+    local versionWarn = UI.CreateWarningIcon(f)
+    versionWarn:SetPoint("LEFT", f.titleText, "RIGHT", 4, 0)
+    f.versionWarn = versionWarn
+    mainFrame = f
+
+    local function ViewPage(builder)
+        return function(page) WhoDoesWhat[builder](WhoDoesWhat, page) end
+    end
+    -- Left to right, then the right-hand run from the window's right edge
+    -- inward: Settings is outermost.
+    local pages = UI.AddTabs(f, {
+        { label = "Raid", page = "raid",
+            tooltip = "The assignment board: paladin buffs, roles, curses, tanks, CC and misdirects.",
+            build = function(page) BuildRaidPage(f, page) end },
+        { label = "Members", page = "members",
+            tooltip = "Everyone in the group, the role each of them holds, and anything still"
+                .. " wrong with them -- players waiting on a role, group roles that don't"
+                .. " match, talents that disagree, and tanks not yet promoted to Main Tank.",
+            build = ViewPage("BuildMembersPage") },
+        { label = "Buff Grid", page = "grid",
+            tooltip = "The raid-wide paladin blessing plan and live buff status.",
+            build = ViewPage("BuildBuffingGridPage") },
+        { label = SETTINGS_LABEL, page = "settings", right = true,
+            build = ViewPage("BuildAddonSettingsPage") },
+        { label = "About", page = "about", right = true,
+            tooltip = "Links, contact information, version details, and release notes.",
+            build = ViewPage("BuildAboutPage") },
+        { label = "Logs", page = "logs", right = true, hidden = true,
+            tooltip = "The combined WhoDoesWhat and PallyPower addon-message logs.",
+            build = ViewPage("BuildSyncLogPage") },
+    }, { initial = "raid" })
+    for key, color in pairs(PAGE_COLORS) do UI.SetTabPageColor(pages[key], color) end
+
+    f:HookScript("OnShow", UpdateTabs)
+    UpdateTabs(f)
 
     -- Keep names' class colors and the warnings honest while the window is
     -- open (an assigned player leaving the group turns gray, etc.).
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
     f:SetScript("OnEvent", function(self)
-        if self:IsShown() then
-            RefreshAll(self)
-        end
+        if not self:IsShown() then return end
+        UpdateTabs(self)
+        if self.raidPage:IsVisible() then RefreshRaidPage(self) end
     end)
 
-    mainFrame = f
     return f
 end
 
--- Repaint if the window is up. Called from outside the view when something
--- board-relevant changes (setters, sync, role assignments in UnitMenu).
+-- Repaint if the window is up: the tab row always, the Raid page only while it
+-- is the page on screen - it repaints itself when it comes back. Called from
+-- outside the view when something board-relevant changes (setters, sync, role
+-- assignments in UnitMenu).
 function WhoDoesWhat:RefreshMainAssignmentsView()
-    if mainFrame and mainFrame:IsShown() then
-        RefreshAll(mainFrame)
-    end
+    if not (mainFrame and mainFrame:IsShown()) then return end
+    UpdateTabs(mainFrame)
+    if mainFrame.raidPage:IsVisible() then RefreshRaidPage(mainFrame) end
 end
 
--- Toggle the main assignments window open/closed.
-function WhoDoesWhat:OpenMainAssignmentsView()
+-- Just the tab row, for a page whose change moves the Members count without
+-- touching the board.
+function WhoDoesWhat:RefreshMainTabs()
+    if mainFrame and mainFrame:IsShown() then UpdateTabs(mainFrame) end
+end
+
+-- Open the main window on a tab, by page key. Asking for the tab that is
+-- already up closes the window, as every opener used to close its own window;
+-- asking for any other tab switches to it. `stayOpen` switches without ever
+-- closing, for an opener that also picks something inside the page.
+--
+-- Returns whether the window is open on that tab afterwards.
+function WhoDoesWhat:ShowMainTab(key, stayOpen)
     local f = EnsureMainFrame()
-
-    if f:IsShown() then
-        self:LogUiBuilding("Main Assignments View open, closing it.")
-        f:Hide()
-        return
+    if key == "logs" and not f.logsRequested then
+        f.logsRequested = true
+        UpdateTabs(f)
     end
-
-    self:LogUiBuilding("Opening Main Assignments View...")
-    RefreshAll(f)
+    if f:IsShown() and f.selectedPage == key and not stayOpen then
+        self:LogUiBuilding("Main window open on " .. key .. ", closing it.")
+        f:Hide()
+        return false
+    end
+    self:LogUiBuilding("Opening main window on " .. key .. "...")
+    f:SelectTab(key)
     f:Show()
     f:Raise()
+    return true
+end
+
+-- Toggle the main window on the Raid page.
+function WhoDoesWhat:OpenMainAssignmentsView()
+    self:ShowMainTab("raid")
 end

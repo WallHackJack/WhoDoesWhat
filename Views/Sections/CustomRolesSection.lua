@@ -310,8 +310,8 @@ local function CreateCustomRoleRow(f, index)
         if not def then return end
         local roleId = def.id
         WhoDoesWhat:ConfirmRemoveRaidRole(roleId, function()
-            -- Through the main refresh, not the section-local one: the box
-            -- shrinks by a row and the collapsed view has to refit.
+            -- Through the main refresh, not the section-local one: the tab
+            -- row's counts can move along with the board.
             WhoDoesWhat:RefreshMainAssignmentsView()
             WhoDoesWhat:RefreshBoardViews()
         end)

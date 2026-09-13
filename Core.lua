@@ -414,13 +414,10 @@ local defaults = {
             -- one raider disabling it must not disable everyone. See
             -- ApplyBlizzardRole.
             manageBlizzardRoles = true,
-            -- Whether the main-window Full view checkbox is off, showing only
-            -- Paladin Buffs. Local view preference (not synced).
-            paladinOnlyView = false,
             -- Assignment dropdowns list every group member instead of only
             -- the eligible class (e.g. non-paladins for paladin buffs).
             developerMode = false,
-            -- Show the combined addon-message log button in the main toolbar.
+            -- Show the combined addon-message logs as a main-window tab.
             showLogsButton = false,
             -- Raid-wide source for paladin buff assignments. This field rides
             -- the permission-gated synchronized board state.
@@ -604,6 +601,8 @@ function WhoDoesWhat:OnInitialize()
     -- Alive became the inverse Dead status; keep any per-row preferences under
     -- the new key while the grid option itself remains hard-disabled in Data.
     local settings = self.db.profile.settings
+    -- The Paladin-only view went away with the tabbed main window.
+    settings.paladinOnlyView = nil
     -- Migrate the short-lived native minimap-button settings to LibDBIcon.
     if settings.showMinimapButton ~= nil then
         settings.minimapButton.hide = settings.showMinimapButton == false

@@ -1,12 +1,12 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 
--- Buffing Grid ("Buffing Grid" button on the main view): raid-wide buff
--- status columns followed by every paladin's blessing for each raider. The
--- blessing columns can show WDW's plan, WDW's PLPWR wire mirror, or the live
--- tables of a co-installed PallyPower addon.
--- At SPLIT_AT_ROWS raiders (or more) the grid splits into balanced side-by-side
--- blocks instead of growing taller.
+-- Buffing Grid (the main window's Buff Grid tab): raid-wide buff status
+-- columns followed by every paladin's blessing for each raider. The blessing
+-- columns can show WDW's plan, WDW's PLPWR wire mirror, or the live tables of a
+-- co-installed PallyPower addon.
+-- The grid is centred in its page at its own width; the column headers stay put
+-- and the raider rows scroll under them.
 --
 -- Grid cells can show WDW's computed plan, a co-installed PallyPower's live
 -- tables, or WDW's observed PallyPower mirror. A paladin with no assignment
@@ -21,11 +21,9 @@ local gridFrame = nil
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 
-local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
-
-local MIN_FRAME_W = 330 -- floor for the title text + title-bar buttons; width tracks columns
-local MIN_FRAME_H = 260 -- floor so an empty group still shows the chrome
+local MIN_FRAME_W = 330 -- floor for the source picker; width tracks columns
 local MARGIN = 12
+local SCROLLBAR_W = UI.SCROLLBAR_W
 
 local NAME_COL_W = 150 -- role icon + raider name (minimum; grows to fill)
 -- The name column absorbs whatever width the window has beyond its columns,
@@ -48,10 +46,6 @@ local SOURCE_OPTIONS = {
 }
 local SOURCE_LABELS = { wdw = "WDW", observed = "PP Mirror", addon = "PP Addon" }
 
--- Grid blocks: at this many raiders (or more) the rows split into two
--- side-by-side blocks (balanced halves) rather than making the window taller.
-local SPLIT_AT_ROWS = 20
-local BLOCK_GAP = 14
 local GRID_X = MARGIN
 
 local function RemainingText(seconds)
@@ -360,12 +354,12 @@ local function CreatePaladinCell(row, c)
 end
 
 -- One pooled raider row: class-tinted alternating background (set by the
--- refresh, since a row's block-local position moves as the group changes),
--- role icon, class-colored name; the buff cells hang off it per column.
--- RefreshGrid anchors it into its block each pass.
+-- refresh, since a row's position moves as the group changes), role icon,
+-- class-colored name; the buff cells hang off it per column. Rows live in the
+-- scroll child; RefreshGrid anchors each one every pass.
 local function CreateRow(f, index)
-    local row = CreateFrame("Frame", nil, f)
-    row:SetFrameLevel(f:GetFrameLevel() + 1)
+    local row = CreateFrame("Frame", nil, f.rowContent)
+    row:SetFrameLevel(f.rowContent:GetFrameLevel() + 1)
     row:SetHeight(ROW_H)
 
     local stripe = row:CreateTexture(nil, "BACKGROUND")
@@ -428,8 +422,8 @@ local function BuffPlanForSource(source)
     return WhoDoesWhat.Assign.GetPaladinBuffPlan()
 end
 
--- Map the current group onto the pooled widgets and size the window to its
--- content: width tracks the paladin count and block count. No scrolling.
+-- Map the current group onto the pooled widgets and size the grid to its
+-- content: width tracks the column count, and the rows scroll.
 local function RefreshGrid(f)
     local members = SortedMembers()
     local paladins = GroupPaladins()
@@ -456,34 +450,36 @@ local function RefreshGrid(f)
     f.divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
     f.divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
 
-    local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
-    local rowsPerBlock = math.ceil(#members / numBlocks)
     local paladinGap = hasPaladins and PALADIN_SECTION_GAP or 0
     local columnsW = #coreKeys * COL_W + paladinGap
         + K.PaladinColumnsWidth(paladins, COL_W, 0)
-    local gaps = GRID_X + (numBlocks - 1) * BLOCK_GAP + MARGIN
-    local frameW = math.max(MIN_FRAME_W,
-        gaps + numBlocks * (NAME_COL_W + columnsW))
-    -- Spend the window's leftover width on the name column so the blocks
-    -- always reach the right edge, even at the minimum window width.
-    nameColW = (frameW - gaps) / numBlocks - columnsW
+    local gaps = GRID_X + MARGIN
+    local frameW = math.max(MIN_FRAME_W, gaps + NAME_COL_W + columnsW)
+    -- Spend the leftover width on the name column so the rows always reach
+    -- the right edge, even at the minimum width.
+    nameColW = frameW - gaps - columnsW
     local blockW = nameColW + columnsW
-    local function BlockX(b)
-        return GRID_X + (b - 1) * (blockW + BLOCK_GAP)
-    end
 
-    f:SetWidth(frameW)
+    -- The grid plus its scrollbar gutter, centred in the page, but never wider
+    -- than the page: past that the name column is what gets cut.
+    local pageW = f:GetParent():GetWidth()
+    local width = frameW + SCROLLBAR_W
+    f:SetWidth(pageW > 0 and math.min(width, pageW) or width)
+    f.rowContent:SetWidth(frameW)
+    f.scroll:ClearAllPoints()
+    f.scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(f.headerBottom + 4))
+    f.scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -SCROLLBAR_W, 0)
 
-    -- Raid-buff icon headers above every block, from one flat pool.
+    -- Raid-buff icon headers, from one flat pool.
     local coreHeaderCount = 0
-    for b = 1, numBlocks do
+    do
         for c, key in ipairs(coreKeys) do
             coreHeaderCount = coreHeaderCount + 1
             local header = f.coreHeaders[coreHeaderCount]
                 or CreateCoreHeader(f, coreHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + nameColW + (c - 1) * COL_W
+                GRID_X + nameColW + (c - 1) * COL_W
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.buffKey = key
             header.providers = providerPools[key]
@@ -514,14 +510,14 @@ local function RefreshGrid(f)
 
     -- Role-icon paladin headers follow the raid-buff columns.
     local paladinHeaderCount = 0
-    for b = 1, numBlocks do
+    do
         for c, p in ipairs(paladins) do
             paladinHeaderCount = paladinHeaderCount + 1
             local header = f.paladinHeaders[paladinHeaderCount]
                 or CreatePaladinHeader(f, paladinHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                BlockX(b) + nameColW + #coreKeys * COL_W
+                GRID_X + nameColW + #coreKeys * COL_W
                     + PALADIN_SECTION_GAP
                     + K.PaladinColumnOffset(c, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
@@ -539,33 +535,27 @@ local function RefreshGrid(f)
     end
 
     -- The local paladin's first column stays visually attached across the
-    -- header and all rows, with a small break before the other paladins.
-    for b = 1, 2 do
-        local stripe = f.localPaladinStripes[b]
-        if b <= numBlocks and paladins[1] and K.IsLocalPaladin(paladins[1]) then
-            stripe:ClearAllPoints()
-            stripe:SetPoint("TOPLEFT", f, "TOPLEFT",
-                BlockX(b) + nameColW + #coreKeys * COL_W
-                    + PALADIN_SECTION_GAP,
-                -(f.headerBottom - HEADER_H))
-            stripe:SetSize(COL_W, HEADER_H + 4 + rowsPerBlock * ROW_H)
-            stripe:Show()
-        else
-            stripe:Hide()
-        end
+    -- header and all rows, with a small break before the other paladins. Two
+    -- pieces, since the header stays put while the rows scroll: one over the
+    -- header, one down the scroll child.
+    local stripeX = GRID_X + nameColW + #coreKeys * COL_W + PALADIN_SECTION_GAP
+    local localFirst = paladins[1] and K.IsLocalPaladin(paladins[1])
+    local headerStripe = f.localPaladinStripes.header
+    local rowsStripe = f.localPaladinStripes.rows
+    headerStripe:SetShown(localFirst and true or false)
+    rowsStripe:SetShown(localFirst and #members > 0 or false)
+    if localFirst then
+        headerStripe:ClearAllPoints()
+        headerStripe:SetPoint("TOPLEFT", f, "TOPLEFT", stripeX,
+            -(f.headerBottom - HEADER_H))
+        headerStripe:SetSize(COL_W, HEADER_H + 4)
+        rowsStripe:ClearAllPoints()
+        rowsStripe:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT", stripeX, 0)
+        rowsStripe:SetSize(COL_W, math.max(#members * ROW_H, 1))
     end
 
-    -- One "Raider" label per visible block.
-    for b = 1, #f.raiderLabels do
-        local lbl = f.raiderLabels[b]
-        if b <= numBlocks then
-            lbl:ClearAllPoints()
-            lbl:SetPoint("BOTTOMLEFT", f, "TOPLEFT", BlockX(b) + 4, -(f.headerBottom - 6))
-            lbl:Show()
-        else
-            lbl:Hide()
-        end
-    end
+    f.raiderLabel:ClearAllPoints()
+    f.raiderLabel:SetPoint("BOTTOMLEFT", f, "TOPLEFT", GRID_X + 4, -(f.headerBottom - 6))
 
     -- All three sources expose the assignment-model snapshot shape expected
     -- below, so the rendering path remains shared.
@@ -582,18 +572,13 @@ local function RefreshGrid(f)
 
     for i, m in ipairs(members) do
         local row = f.rows[i] or CreateRow(f, i)
-        -- Anchor into this row's block slot; the stripe follows the
-        -- block-local position so both blocks stripe from their own top.
-        local b = math.ceil(i / rowsPerBlock)
-        local localRow = i - (b - 1) * rowsPerBlock
         row:SetWidth(blockW)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", f, "TOPLEFT",
-            BlockX(b), -(f.headerBottom + 4 + (localRow - 1) * ROW_H))
+        row:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT", GRID_X, -((i - 1) * ROW_H))
         local connected = m.isFake or not disconnected[m.name]
         local rowColors = connected and m.classInfo.gridRowColors
             or WhoDoesWhat.DisconnectedGridRowColors
-        local rowColor = rowColors[localRow % 2 == 1 and 1 or 2]
+        local rowColor = rowColors[i % 2 == 1 and 1 or 2]
         row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
         row:Show()
         WhoDoesWhat:SetRoleIconTexture(row.roleIcon, RoleIconFor(m))
@@ -679,33 +664,17 @@ local function RefreshGrid(f)
         f.rows[i]:Hide()
     end
 
-    local gridH = f.headerBottom + 4 + rowsPerBlock * ROW_H + MARGIN
-    f:SetHeight(math.max(gridH, MIN_FRAME_H))
+    UI.SetScrollHeight(f.scroll, #members * ROW_H)
 end
 
--- Build the window once and reuse it. Everything parents straight onto the
--- window; RefreshGrid sizes it to the content.
-local function EnsureGridFrame()
-    if gridFrame then return gridFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatBuffingGridFrame",
-        MIN_FRAME_W, MIN_FRAME_H, "Buffing Grid")
-
-    -- Same title-bar cog as the main view, but straight to the page that
-    -- configures these columns.
-    local settingsBtn = CreateFrame("Button", nil, f)
-    settingsBtn:SetSize(32, 32)
-    settingsBtn:SetHitRectInsets(4, 4, 4, 4)
-    settingsBtn:SetPoint("TOPRIGHT", -20, 1)
-    settingsBtn:SetNormalTexture(OPTIONS_BUTTON .. "Up.tga")
-    settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
-    settingsBtn:SetHighlightTexture(
-        "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
-    settingsBtn:SetScript("OnClick", function()
-        WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
-    end)
-    UI.AddTooltip(settingsBtn, "Buff Tracking settings",
-        "Choose which buffs get a column here, and how each one is tracked.")
+-- Build the page into the Buff Grid tab. The header parents straight onto the
+-- grid frame; the rows go in a scroll child under it. RefreshGrid sizes both.
+function WhoDoesWhat:BuildBuffingGridPage(page)
+    local f = CreateFrame("Frame", nil, page)
+    f:SetPoint("TOP", page, "TOP")
+    f:SetPoint("BOTTOM", page, "BOTTOM")
+    f:SetWidth(MIN_FRAME_W)
+    f.titleBarHeight = 0
 
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
@@ -740,38 +709,45 @@ local function EnsureGridFrame()
     -- role icons stand and the rows begin.
     f.headerBottom = f.titleBarHeight + 8 + SOURCE_ROW_H + HEADER_H
 
-    -- One "Raider" label per possible block; RefreshGrid positions and shows
-    -- however many blocks are in use.
-    f.raiderLabels = {}
-    for b = 1, 2 do
-        local lbl = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        lbl:SetText("Raider")
-        lbl:Hide()
-        f.raiderLabels[b] = lbl
-    end
+    local raiderLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    raiderLabel:SetText("Raider")
+    f.raiderLabel = raiderLabel
 
     local divider = f:CreateTexture(nil, "ARTWORK")
     divider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
     divider:SetHeight(1)
     divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
-    divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
+    divider:SetPoint("TOPRIGHT", -(MARGIN + SCROLLBAR_W), -f.headerBottom)
     f.divider = divider
+
+    local scroll, rowContent = UI.CreateScroll(f, "WhoDoesWhatBuffGridScroll", true)
+    f.scroll, f.rowContent = scroll, rowContent
 
     WhoDoesWhat:LogUiBuilding("Building buffing grid content.")
 
     f.coreHeaders = {}
     f.paladinHeaders = {}
     f.localPaladinStripes = {
-        K.CreateLocalPaladinStripe(f),
-        K.CreateLocalPaladinStripe(f),
+        header = K.CreateLocalPaladinStripe(f),
+        rows = K.CreateLocalPaladinStripe(rowContent),
     }
     f.rows = {}
 
-    -- Track joins/leaves live while the window is open.
+    -- The source picker is a look at something else for comparison, so it goes
+    -- back to the raid's real source each time the window is opened - not each
+    -- time the tab is switched to.
+    local window = page:GetParent():GetParent()
+    window:HookScript("OnHide", function() f.gridSource = nil end)
+    f:SetScript("OnShow", function(self)
+        self.gridSource = self.gridSource or DefaultGridSource()
+        RefreshGrid(self)
+    end)
+
+    -- Track joins/leaves live while the page is on screen.
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
     f:RegisterEvent("UNIT_CONNECTION")
     f:SetScript("OnEvent", function(self)
-        if self:IsShown() then
+        if self:IsVisible() then
             RefreshGrid(self)
         end
     end)
@@ -780,7 +756,7 @@ local function EnsureGridFrame()
     return f
 end
 
--- Repaint the grid if the window is up, and nothing else.
+-- Repaint the grid if it is on screen, and nothing else.
 --
 -- This used to double as the "buff plan changed" hook and fan out to four
 -- other views, which made it impossible to read a call site (or a profile) and
@@ -789,24 +765,12 @@ end
 -- repainted WDW Status twice. Callers that mean "the plan changed" now say
 -- RefreshBoardViews.
 function WhoDoesWhat:RefreshBuffingGridView()
-    if gridFrame and gridFrame:IsShown() then
+    if gridFrame and gridFrame:IsVisible() then
         RefreshGrid(gridFrame)
     end
 end
 
--- Toggle the grid window open/closed.
+-- Open the main window on the Buff Grid tab, or close it if it is already there.
 function WhoDoesWhat:OpenBuffingGridView()
-    local f = EnsureGridFrame()
-
-    if f:IsShown() then
-        self:LogUiBuilding("Buffing Grid View open, closing it.")
-        f:Hide()
-        return
-    end
-
-    self:LogUiBuilding("Opening Buffing Grid View...")
-    f.gridSource = DefaultGridSource()
-    f:Show()
-    RefreshGrid(f)
-    f:Raise()
+    self:ShowMainTab("grid")
 end

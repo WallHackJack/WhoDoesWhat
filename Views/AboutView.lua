@@ -4,8 +4,6 @@ local UI = select(2, ...).UI
 -- About, contact, and release notes. WoW cannot open arbitrary web links, so
 -- link buttons place their value in one copy-ready field instead.
 
-local aboutFrame
-
 local FRAME_W = 500
 local FRAME_H = 430
 local MARGIN = 14
@@ -53,11 +51,12 @@ local function SelectRelease(f, release)
     f.releaseScroll:SetVerticalScroll(0)
 end
 
-local function EnsureAboutFrame()
-    if aboutFrame then return aboutFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatAboutFrame", FRAME_W,
-        FRAME_H, "WhoDoesWhat - About & Updates")
+-- Build the page into the About tab, at its own size, centred along the top.
+function WhoDoesWhat:BuildAboutPage(page)
+    local f = CreateFrame("Frame", nil, page)
+    f:SetSize(FRAME_W, FRAME_H)
+    f:SetPoint("TOP", page, "TOP")
+    f.titleBarHeight = 0
     local y = f.titleBarHeight + 16
 
     local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -201,22 +200,19 @@ local function EnsureAboutFrame()
     copyEdit:ClearFocus()
     SelectRelease(f, RELEASES[1])
 
-    aboutFrame = f
+    f:SetScript("OnShow", function(self)
+        self.installedVersion:SetText("Installed version: v"
+            .. tostring(WhoDoesWhat.VERSION or "?"))
+        -- Re-measure the notes now the page is up: a wrapped string built
+        -- while the frame was hidden can report no height, which would leave
+        -- the scroll child too short to reach the bottom of a long release.
+        SelectRelease(self, self.selectedRelease)
+    end)
+
     return f
 end
 
+-- Open the main window on the About tab, or close it if it is already there.
 function WhoDoesWhat:OpenAboutView()
-    local f = EnsureAboutFrame()
-    if f:IsShown() then
-        f:Hide()
-        return
-    end
-
-    f.installedVersion:SetText("Installed version: v" .. tostring(self.VERSION or "?"))
-    f:Show()
-    f:Raise()
-    -- Re-measure the notes now the window is up: a wrapped string built while
-    -- the frame was hidden can report no height, which would leave the scroll
-    -- child too short to reach the bottom of a long release.
-    SelectRelease(f, f.selectedRelease)
+    self:ShowMainTab("about")
 end
