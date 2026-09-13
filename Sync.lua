@@ -39,7 +39,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --     character facts rather than the departed raid's assignments.
 --   - Joining a group makes the LEADER the source of truth: the joiner says
 --     HELLO, the leader whispers back a full snapshot, and the joiner's local
---     board is replaced outright (a popup says so when it overwrote anything).
+--     board is replaced outright.
 --     No reply within JOIN_SYNC_TIMEOUT (leader without the addon) means the
 --     joiner keeps what they have and normal syncing takes over.
 --   - While grouped, any PERMITTED member's edit broadcasts the full board
@@ -295,8 +295,7 @@ local function ApplySnapshot(state)
     WhoDoesWhat:PopulateRolesAndCategories()
 end
 
--- True when the synced slice holds anything at all -- decides whether a
--- leader snapshot on join actually replaced something worth a popup.
+-- True when the synced slice holds anything at all.
 local function BoardNonEmpty()
     local p = WhoDoesWhat.db.profile
     if next(p.assignments) then return true end
@@ -980,15 +979,6 @@ end
 -- Join / leave
 -- ---------------------------------------------------------------------------
 
-StaticPopupDialogs["WHODOESWHAT_SYNC_REPLACED"] = {
-    text = "%s",
-    button1 = OKAY,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3, -- keep Blizzard's default dialog slots free (taint)
-}
-
 function Sync:OnGroupJoined(initialHello)
     initialHello = initialHello ~= false
     if initialHello then WhoDoesWhat:RequestPallyPowerPeers() end
@@ -1122,8 +1112,6 @@ end
 
 -- Apply a received snapshot and converge the revision clock on it.
 function Sync:ApplyState(msg, senderKey)
-    local replacedSomething = awaitingSync and BoardNonEmpty()
-        and Fingerprint() ~= Canon(msg.state)
     -- PallyPower rejects assignment changes from ordinary raiders. When the
     -- leader receives a board containing exactly one role change, relay that
     -- player's minimal blessing delta from the accepted authority instead.
@@ -1173,11 +1161,6 @@ function Sync:ApplyState(msg, senderKey)
             awaitTimer = nil
         end
         LogSyncStatus("Assignments synced from the group leader (" .. senderKey .. ").")
-        if replacedSomething then
-            StaticPopup_Show("WHODOESWHAT_SYNC_REPLACED",
-                "The group leader's assignments have replaced your local"
-                .. " WhoDoesWhat board (leader: " .. senderKey .. ").")
-        end
     else
         LogSyncStatus("Assignments updated from " .. senderKey .. ".")
     end
