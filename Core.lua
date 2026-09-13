@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-3.0")
+local UI = select(2, ...).UI
 
 local GetMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 WhoDoesWhat.VERSION = GetMetadata and GetMetadata("WhoDoesWhat", "Version") or "?"
@@ -16,6 +17,7 @@ function WhoDoesWhat:LogUiBuilding(...)
         self:Print(...)
     end
 end
+UI.logger = function(message) WhoDoesWhat:LogUiBuilding(message) end
 
 -- Routine user and automatic state changes. Off by default so assignment
 -- edits and similar successful operations do not fill chat during normal use.
@@ -28,7 +30,7 @@ end
 -- The (!) alert used wherever something needs the user's attention: the main
 -- window's per-row warnings (MainAssignmentsView) and the unit menu's "no role
 -- yet" hint (UnitMenu). Shared so the two stay visually identical.
-WhoDoesWhat.WARNING_ICON = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
+WhoDoesWhat.WARNING_ICON = UI.WARNING_ICON
 
 -- WDW's own icon: the minimap button wears it, and it signs the tooltips that
 -- name the addon outright.

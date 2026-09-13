@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Buffing Grid ("Buffing Grid" button on the main view): raid-wide buff
 -- status columns followed by every paladin's blessing for each raider. The
@@ -175,10 +176,9 @@ local function CreateCoreHeader(f, index)
     local icon = header:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()
     header.icon = icon
-    header:SetScript("OnEnter", function(self)
+    UI.AddTooltip(header, function(self)
         local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(buff.gridName or buff.name, 1, 1, 1)
+        GameTooltip:SetText(buff.gridName or buff.name, unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine(buff.description or "Tracked raid status.",
             0.8, 0.8, 0.8, true)
         if self.available == false then
@@ -199,9 +199,8 @@ local function CreateCoreHeader(f, index)
                     RankColor(provider.rank, buff.improvedTalent.maxRank))
             end
         end
-        GameTooltip:Show()
+        return true
     end)
-    header:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.coreHeaders[index] = header
     return header
 end
@@ -257,11 +256,10 @@ local function CreateCoreCell(row, column)
     icon:SetPoint("CENTER")
     cell.icon = icon
 
-    cell:SetScript("OnEnter", function(self)
+    UI.AddTooltip(cell, function(self)
         local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(buff.name .. " - "
-            .. WhoDoesWhat:DisplayName(self.raider), 1, 1, 1)
+            .. WhoDoesWhat:DisplayName(self.raider), unpack(UI.TOOLTIP_TITLE))
         if self.notNeeded then
             GameTooltip:AddLine("Not required for this class.", 0.6, 0.6, 0.6)
         elseif not self.connected then
@@ -312,9 +310,8 @@ local function CreateCoreCell(row, column)
         else
             GameTooltip:AddLine("Aura state has not been scanned yet.", 0.6, 0.6, 0.6)
         end
-        GameTooltip:Show()
+        return true
     end)
-    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row.coreCells[column] = cell
     return cell
@@ -327,11 +324,10 @@ local function CreatePaladinCell(row, c)
     PositionCell(cell, row, c)
     cell.missing = cell.alert
 
-    cell:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    UI.AddTooltip(cell, function(self)
         local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
-            GameTooltip:SetText(self.paladin, 1, 1, 1)
+            GameTooltip:SetText(self.paladin, unpack(UI.TOOLTIP_TITLE))
             GameTooltip:AddLine("Blesses " .. raider .. " with "
                 .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
                 .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long
@@ -356,9 +352,8 @@ local function CreatePaladinCell(row, c)
                     .. source .. ".", 0.6, 0.6, 0.6, true)
             end
         end
-        GameTooltip:Show()
+        return true
     end)
-    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row.paladinCells[c] = cell
     return cell
@@ -693,10 +688,8 @@ end
 local function EnsureGridFrame()
     if gridFrame then return gridFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatBuffingGridFrame",
+    local f = UI.CreateWindow("WhoDoesWhatBuffingGridFrame",
         MIN_FRAME_W, MIN_FRAME_H, "Buffing Grid")
-    f.titleText:ClearAllPoints()
-    f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
 
     -- Same title-bar cog as the main view, but straight to the page that
     -- configures these columns.
@@ -711,14 +704,8 @@ local function EnsureGridFrame()
     settingsBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenAddonSettingsView("Buff Tracking")
     end)
-    settingsBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Buff Tracking settings", 1, 1, 1)
-        GameTooltip:AddLine("Choose which buffs get a column here, and how"
-            .. " each one is tracked.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    settingsBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(settingsBtn, "Buff Tracking settings",
+        "Choose which buffs get a column here, and how each one is tracked.")
 
     local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
@@ -726,11 +713,8 @@ local function EnsureGridFrame()
     f.sourceCaption = sourceCaption
 
     f.gridSource = DefaultGridSource()
-    local sourceDD = CreateFrame("Frame", "WhoDoesWhatBuffGridSourceDD", f,
-        "UIDropDownMenuTemplate")
+    local sourceDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffGridSourceDD", 82)
     sourceDD:SetPoint("LEFT", sourceCaption, "RIGHT", -12, -2)
-    UIDropDownMenu_SetWidth(sourceDD, 82)
-    K.LeftAlignDropdown(sourceDD)
     UIDropDownMenu_Initialize(sourceDD, function(_, level)
         for _, option in ipairs(SOURCE_OPTIONS) do
             local key, label = option.key, option.label
@@ -747,7 +731,7 @@ local function EnsureGridFrame()
     end)
     f.sourceDD = sourceDD
 
-    local sourceWarning = K.CreateWarningIcon(f)
+    local sourceWarning = UI.CreateWarningIcon(f)
     sourceWarning:SetPoint("LEFT", sourceDD, "RIGHT", -10, 0)
     f.sourceWarning = sourceWarning
     UpdateSourceControl(f)

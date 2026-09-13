@@ -17,6 +17,7 @@ For the user-facing overview, see [README.md](README.md). For the detailed imple
 
 ## Architecture
 
+- `WallhackUiKit.lua`: addon-agnostic window chrome and widget kit at `ns.UI` (windows, tooltips, scroll areas, section boxes, dropdowns, checkboxes, sliders). Put reusable UI here, not in a view.
 - `Core.lua`: addon initialization, AceDB defaults, and saved-variable migrations.
 - `Data.lua`: shared class/spec/role/ability metadata and customization storage.
 - `Permissions.lua`: leader-owned board editing rules.

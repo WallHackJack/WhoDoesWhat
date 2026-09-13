@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Misdirect Assignments section: one row per hunter, auto-managed from the
 -- roster (EnsureAutoRows) -- no Add/per-row [x], the hunter cell is a fixed label;
@@ -41,7 +42,7 @@ end
 -- up by index at click time.
 local function CreateRow(f, index)
     local state = f.mdSection
-    local row = K.CreateSectionRow(state.box, index)
+    local row = UI.CreateSectionRow(state.box, index)
     row.entryIndex = index
     local function Entry() return GetEntries(SECTION)[row.entryIndex] end
 
@@ -60,10 +61,8 @@ local function CreateRow(f, index)
 
     -- Tank picker: the whole group, marked tanks floated above a divider,
     -- with the None clearer at the top.
-    local targetDD = CreateFrame("Frame", "WhoDoesWhatmdTargetDD" .. index, row, "UIDropDownMenuTemplate")
+    local targetDD = UI.CreateMenuDropdown(row, "WhoDoesWhatmdTargetDD" .. index, K.DYN_PLAYER_DD_WIDTH)
     targetDD:SetPoint("LEFT", forLabel, "RIGHT", -12, -2)
-    UIDropDownMenu_SetWidth(targetDD, K.DYN_PLAYER_DD_WIDTH)
-    K.LeftAlignDropdown(targetDD)
     UIDropDownMenu_Initialize(targetDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -85,10 +84,8 @@ local function CreateRow(f, index)
 
     -- Marker on the pair (which pull the hunter misdirects on): plain
     -- markers plus None, no "Everything else"/custom here.
-    local markerDD = CreateFrame("Frame", "WhoDoesWhatmdTargetMarkerDD" .. index, row, "UIDropDownMenuTemplate")
+    local markerDD = UI.CreateMenuDropdown(row, "WhoDoesWhatmdTargetMarkerDD" .. index, K.MARKER_DD_WIDTH)
     markerDD:SetPoint("LEFT", onLabel, "RIGHT", -12, -2)
-    UIDropDownMenu_SetWidth(markerDD, K.MARKER_DD_WIDTH)
-    K.LeftAlignDropdown(markerDD)
     UIDropDownMenu_Initialize(markerDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -102,7 +99,7 @@ local function CreateRow(f, index)
             end
             UIDropDownMenu_AddButton(info, level)
         end
-        K.AddDropdownDivider(level)
+        UI.AddDropdownDivider(level)
         local info = UIDropDownMenu_CreateInfo()
         info.text = "None"
         info.checked = (entry.marker == nil)
@@ -127,7 +124,7 @@ local function CreateRow(f, index)
 
     -- Warning (!) left of mail; anchored off the button rather than the row
     -- so it holds its column while hidden and nothing shifts.
-    local warn = K.CreateWarningIcon(row)
+    local warn = UI.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", row.mailBtn, "LEFT", -4, 0)
     row.warnIcon = warn
 
@@ -205,12 +202,12 @@ function Refresh(f) -- forward declared above
     state.emptyHint:SetShown(#visible == 0)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(hasAssignments)
-    K.LayoutHeaderChain(state.headerChain)
+    UI.LayoutHeaderChain(state.box)
 
-    local rowsH = (#visible > 0) and (#visible * K.ROW_H) or K.DYN_EMPTY_H
-    state.box:SetHeight(K.BOX_PAD + K.SECTION_TITLE_H + rowsH + K.BOX_PAD)
+    local rowsH = (#visible > 0) and (#visible * UI.ROW_H) or UI.EMPTY_ROWS_H
+    state.box:SetHeight(UI.BOX_PAD + UI.SECTION_TITLE_H + rowsH + UI.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
-    K.UpdateContentHeight(f)
+    K.LayoutColumns(f)
 end
 
 local function Build(f, content)
@@ -223,8 +220,7 @@ local function Build(f, content)
 
     -- Header [x]: clear every misdirect behind the shared confirmation;
     -- hunter rows repopulate blank on refresh.
-    local clearBtn = K.CreateCloseButton(chrome.box, nil, 0.25)
-    clearBtn:SetPoint("RIGHT", chrome.mailBtn, "LEFT", -2, 0)
+    local clearBtn = UI.CreateCloseButton(chrome.box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
         StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
         StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
@@ -234,21 +230,12 @@ local function Build(f, content)
                 Refresh(f)
             end)
     end)
-    clearBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self:IsEnabled() then
-            GameTooltip:SetText("Clear misdirect assignments", 1, 1, 1)
-            GameTooltip:AddLine("Clear every misdirect back to default (asks first).",
-                0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:SetText("Nothing to clear", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    clearBtn.disabledReason = "Nothing to clear."
+    UI.AddTooltip(clearBtn, "Clear misdirect assignments",
+        "Clear every misdirect back to default (asks first).")
     table.insert(chrome.headerChain, 1, clearBtn)
 
-    local hint = K.CreateEmptyHint(chrome.box)
+    local hint = UI.CreateEmptyHint(chrome.box)
     hint:SetText("No hunters in the group.")
 
     f.mdSection = {

@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Combined traffic log for WhoDoesWhat's own sync and the PallyPower bridge.
 -- Both histories are live, capped in their respective network modules, and
@@ -165,7 +166,7 @@ end
 local function EnsureLogFrame()
     if logFrame then return logFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatPallyPowerLogFrame",
+    local f = UI.CreateWindow("WhoDoesWhatPallyPowerLogFrame",
         FRAME_W, FRAME_H, "WhoDoesWhat - Sync Traffic")
     f:SetResizable(true)
     if f.SetResizeBounds then
@@ -183,33 +184,18 @@ local function EnsureLogFrame()
         RenderAll(f)
     end)
 
-    local logging = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    logging:SetSize(20, 20)
+    local logging = UI.CreateCheckbox(f, "Log", "Sync traffic logging",
+        "Capture WhoDoesWhat and PallyPower traffic and print WDW sync"
+        .. " diagnostics to chat. Resets off on reload.",
+        function(self) WhoDoesWhat:SetSyncLoggingEnabled(self:GetChecked()) end,
+        { size = 20, font = "GameFontNormalSmall", gap = 0, labelParent = f })
     logging:SetPoint("RIGHT", clear, "LEFT", -22, 0)
     logging:SetChecked(WhoDoesWhat.LOG_SYNC)
-    logging:SetScript("OnClick", function(self)
-        WhoDoesWhat:SetSyncLoggingEnabled(self:GetChecked())
-    end)
-    logging:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Sync traffic logging", 1, 1, 1)
-        GameTooltip:AddLine("Capture WhoDoesWhat and PallyPower traffic and print WDW"
-            .. " sync diagnostics to chat. Resets off on reload.",
-            0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    logging:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    local loggingLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    loggingLabel:SetPoint("LEFT", logging, "RIGHT", 0, 0)
-    loggingLabel:SetText("Log")
-    logging:SetHitRectInsets(0, -loggingLabel:GetStringWidth() - 4, 0, 0)
+    logging:SetHitRectInsets(0, -logging.label:GetStringWidth() - 4, 0, 0)
     f.loggingCheck = logging
 
-    local sourceDD = CreateFrame("Frame", "WhoDoesWhatSyncLogSourceDD", f,
-        "UIDropDownMenuTemplate")
+    local sourceDD = UI.CreateMenuDropdown(f, "WhoDoesWhatSyncLogSourceDD", 125)
     sourceDD:SetPoint("TOPLEFT", MARGIN - 15, -(f.titleBarHeight + 1))
-    UIDropDownMenu_SetWidth(sourceDD, 125)
-    WhoDoesWhat:StyleDropdown(sourceDD, true)
     UIDropDownMenu_Initialize(sourceDD, function(_, level)
         for _, key in ipairs({ "wdw", "pp" }) do
             local selected = key
@@ -223,11 +209,8 @@ local function EnsureLogFrame()
     end)
     f.sourceDD = sourceDD
 
-    local displayDD = CreateFrame("Frame", "WhoDoesWhatSyncLogDisplayDD", f,
-        "UIDropDownMenuTemplate")
+    local displayDD = UI.CreateMenuDropdown(f, "WhoDoesWhatSyncLogDisplayDD", 145)
     displayDD:SetPoint("LEFT", sourceDD, "RIGHT", -25, 0)
-    UIDropDownMenu_SetWidth(displayDD, 145)
-    WhoDoesWhat:StyleDropdown(displayDD, true)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
         for _, option in ipairs(DISPLAY_OPTIONS[source]) do
             local selected = option.key
@@ -242,11 +225,8 @@ local function EnsureLogFrame()
     f.displayDD = displayDD
 
     -- Rebuilt on every open: who has spoken changes as the raid fills up.
-    local senderDD = CreateFrame("Frame", "WhoDoesWhatSyncLogSenderDD", f,
-        "UIDropDownMenuTemplate")
+    local senderDD = UI.CreateMenuDropdown(f, "WhoDoesWhatSyncLogSenderDD", 110)
     senderDD:SetPoint("LEFT", displayDD, "RIGHT", -25, 0)
-    UIDropDownMenu_SetWidth(senderDD, 110)
-    WhoDoesWhat:StyleDropdown(senderDD, true)
     UIDropDownMenu_Initialize(senderDD, function(_, level)
         local info = UIDropDownMenu_CreateInfo()
         info.text = "All senders"

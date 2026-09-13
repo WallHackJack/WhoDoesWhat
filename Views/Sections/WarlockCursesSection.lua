@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Warlocks section: three compact Improved Healthstone header icons followed
 -- by one fixed row per curse, rendered as
@@ -36,15 +37,14 @@ local function CollectWarlockWhispers()
     return A.CollectCurseWhispers()
 end
 
-local function HealthstoneSlotEnter(self)
+local function HealthstoneTooltip(self)
     local state = self.state
     local rank = self.rank
     local confirmedNames = self.confirmedNames or {}
     local unknownNames = state.healthstoneUnknownNames or {}
 
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("(" .. rank .. "/" .. HEALTHSTONE.maxRank .. ") "
-        .. HEALTHSTONE.name, 1, 1, 1)
+        .. HEALTHSTONE.name, unpack(UI.TOOLTIP_TITLE))
     GameTooltip:AddLine("Restores " .. HEALTHSTONE.lifeByTalentRank[rank] .. " life.",
         0.6, 0.6, 0.6, true)
     if state.healthstoneTotal == 0 then
@@ -62,7 +62,7 @@ local function HealthstoneSlotEnter(self)
         GameTooltip:AddLine("Unscanned: " .. table.concat(unknownNames, ", "),
             0.6, 0.6, 0.6, true)
     end
-    GameTooltip:Show()
+    return true
 end
 
 local function AddHealthstoneHeaderIcons(f, chrome)
@@ -71,10 +71,8 @@ local function AddHealthstoneHeaderIcons(f, chrome)
         local rank = HEALTHSTONE_RANKS[i]
         local slot = CreateFrame("Frame", nil, chrome.box)
         slot:SetFrameLevel(chrome.box:GetFrameLevel() + 1)
-        slot:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-        slot:EnableMouse(true)
-        slot:SetScript("OnEnter", HealthstoneSlotEnter)
-        slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        slot:SetSize(UI.HEADER_BTN_SIZE, UI.HEADER_BTN_SIZE)
+        UI.AddTooltip(slot, HealthstoneTooltip)
         slot.rank = rank
         slot.state = f.curseSection
 
@@ -97,9 +95,9 @@ local function AddAssignmentRow(f, box, y, def)
     local state = f.curseSection
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetSize(box:GetWidth() - K.BOX_PAD * 2, K.ROW_H)
-    row:SetPoint("TOPLEFT", K.BOX_PAD, -y)
-    K.AddRowBackground(row, #state.rows + 1)
+    row:SetSize(box:GetWidth() - UI.BOX_PAD * 2, UI.ROW_H)
+    row:SetPoint("TOPLEFT", UI.BOX_PAD, -y)
+    UI.AddRowBackground(box, row, #state.rows + 1)
 
     local icon = row:CreateTexture(nil, "ARTWORK")
     icon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
@@ -112,20 +110,14 @@ local function AddAssignmentRow(f, box, y, def)
     label:SetText(shortLabel:gsub("^Curse of ", ""))
 
     -- Ability tooltip when hovering the spell icon only (textures can't take
-    -- mouse events, so a small invisible frame sits over it). Anchored with
-    -- the tooltip's bottom-left just above the icon.
+    -- mouse events, so a small invisible frame sits over it).
     local iconHover = CreateFrame("Frame", nil, row)
     iconHover:SetAllPoints(icon)
-    iconHover:EnableMouse(true)
-    iconHover:SetScript("OnEnter", function(self)
-        if def.spellId then
-            GameTooltip:SetOwner(self, "ANCHOR_NONE")
-            GameTooltip:SetPoint("BOTTOMLEFT", icon, "TOPLEFT", 0, 6)
-            GameTooltip:SetHyperlink("spell:" .. def.spellId)
-            GameTooltip:Show()
-        end
+    UI.AddTooltip(iconHover, function(_, tooltip)
+        if not def.spellId then return end
+        tooltip:SetHyperlink("spell:" .. def.spellId)
+        return true
     end)
-    iconHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local mailBtn = K.CreateMailButton(row, function()
         local name = GetAssignment(def.id)
@@ -137,10 +129,8 @@ local function AddAssignmentRow(f, box, y, def)
 
     -- UIDropDownMenu carries ~15px of transparent padding each side; overhang
     -- toward the mail button so the visible box sits a few px left of it.
-    local dropdown = CreateFrame("Frame", "WhoDoesWhatAssignDropDown_" .. def.id, row, "UIDropDownMenuTemplate")
+    local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatAssignDropDown_" .. def.id, K.DROPDOWN_WIDTH)
     dropdown:SetPoint("RIGHT", mailBtn, "LEFT", 12, -2)
-    UIDropDownMenu_SetWidth(dropdown, K.DROPDOWN_WIDTH)
-    K.LeftAlignDropdown(dropdown)
     -- The initialize function re-runs every time the menu opens, so the
     -- member list is always fresh.
     UIDropDownMenu_Initialize(dropdown, function(_, level)
@@ -153,7 +143,7 @@ local function AddAssignmentRow(f, box, y, def)
             function(name) SetAssignment(def.id, name) end, def.Annotate)
     end)
 
-    local warn = K.CreateWarningIcon(row)
+    local warn = UI.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", dropdown, "LEFT", 12, 2)
 
     -- Read-only stand-in for the dropdown: the assigned name as plain text
@@ -168,7 +158,7 @@ local function AddAssignmentRow(f, box, y, def)
         frame = row, def = def, dropdown = dropdown, warnIcon = warn, mailBtn = mailBtn,
         roText = roText, icon = icon, label = label,
     }
-    return y + K.ROW_H
+    return y + UI.ROW_H
 end
 
 local function Refresh(f)
@@ -234,9 +224,9 @@ local function Refresh(f)
     for _, row in ipairs(state.rows) do row.frame:SetShown(not showEmpty) end
     state.emptyHint:SetShown(showEmpty)
     state.box:SetHeight(showEmpty
-        and (K.BOX_PAD + K.SECTION_TITLE_H + K.DYN_EMPTY_H + K.BOX_PAD)
+        and (UI.BOX_PAD + UI.SECTION_TITLE_H + UI.EMPTY_ROWS_H + UI.BOX_PAD)
         or state.fullHeight)
-    K.UpdateContentHeight(f)
+    K.LayoutColumns(f)
 
     -- Auto rewrites the whole section, so hide it without edit permission.
     -- Calc only opens a read-only window and stays live for everyone.
@@ -249,7 +239,7 @@ local function Refresh(f)
             or nil
     end
 
-    K.LayoutHeaderChain(state.headerChain)
+    UI.LayoutHeaderChain(state.box)
 end
 
 local function Build(f, content)
@@ -268,7 +258,7 @@ local function Build(f, content)
         or "Put Curse of the Elements on an Affliction warlock and Curse of"
             .. " Recklessness on another warlock. Each curse is gated by its"
             .. " Settings toggle; a disabled one keeps its current pick."
-    local autoBtn = K.AddHeaderTextButton(box, chrome.mailBtn, "Auto", "Auto-assign",
+    local autoBtn = UI.CreateTextButton(box, "Auto", "Auto-assign",
         autoTooltip,
         function()
             A.AutoAssignWarlockCurses()
@@ -281,7 +271,7 @@ local function Build(f, content)
     local calculatorCurses = IS_CLASSIC_ERA
         and "Curse of the Elements, Curse of Shadow, and Curse of Recklessness"
         or "Curse of the Elements and Curse of Recklessness"
-    local calcBtn = K.AddHeaderTextButton(box, autoBtn, "Calc", "Curse Value Calculator",
+    local calcBtn = UI.CreateTextButton(box, "Calc", "Curse Value Calculator",
         "Estimate how much raid damage " .. calculatorCurses
         .. " provided (or could have provided), pulling the fight data from Details!.", function()
             WhoDoesWhat:OpenCurseCalculatorView()
@@ -294,19 +284,19 @@ local function Build(f, content)
         mailBtn = chrome.mailBtn,
         autoBtn = autoBtn,
         buttons = { autoBtn, calcBtn },
-        emptyHint = K.CreateEmptyHint(box),
+        emptyHint = UI.CreateEmptyHint(box),
         rows = {},
     }
     f.curseSection.emptyHint:SetText("No Warlock assignments yet.")
     f.curseSection.emptyHint:Hide()
     AddHealthstoneHeaderIcons(f, chrome)
 
-    local innerY = K.BOX_PAD + K.SECTION_TITLE_H
+    local innerY = UI.BOX_PAD + UI.SECTION_TITLE_H
     for _, def in ipairs(SECTION.rows) do
         innerY = AddAssignmentRow(f, box, innerY, def)
     end
-    box:SetHeight(innerY + K.BOX_PAD)
-    f.curseSection.fullHeight = innerY + K.BOX_PAD
+    box:SetHeight(innerY + UI.BOX_PAD)
+    f.curseSection.fullHeight = innerY + UI.BOX_PAD
 end
 
 WhoDoesWhat.SectionViews.WarlockCurses = { Build = Build, Refresh = Refresh }

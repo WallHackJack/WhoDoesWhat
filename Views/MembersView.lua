@@ -1,5 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
-local K = WhoDoesWhat.SectionKit
+local UI = select(2, ...).UI
 
 -- Members window ("Members" button on the main view): every group member in one
 -- of four role grids, bucketed by their assigned role's tank/healer/dps
@@ -44,7 +44,7 @@ local OVERVIEW_H = 55 -- two-line summary strip between the title bar and grids
 local OVERVIEW_TOP_PAD = 15
 local OVERVIEW_ICON_SIZE = 18
 local MARGIN = 12
-local SCROLLBAR_W = 26
+local SCROLLBAR_W = UI.SCROLLBAR_W
 
 local GRID_GAP = 10
 -- Two lines: the bucket's own title keeps the first row to itself and the column
@@ -202,34 +202,24 @@ local function BucketedMembers(review)
     return buckets
 end
 
--- The row's warning icon. Unlike K.CreateWarningIcon it carries a LIST: one
+-- The row's warning icon, carrying a LIST rather than one sentence: one
 -- member can be several kinds of wrong at once (no group flag AND an unpromoted
 -- tank), and the whole point of collapsing three per-column icons into one
 -- gutter is that the tooltip now has to say all of it.
 local function CreateIssueIcon(row)
-    local warn = CreateFrame("Frame", nil, row)
-    warn:SetSize(ISSUE_COL_W - 2, ISSUE_COL_W - 2)
-    local tex = warn:CreateTexture(nil, "OVERLAY")
-    tex:SetAllPoints()
-    tex:SetTexture(WhoDoesWhat.WARNING_ICON)
-    warn:EnableMouse(true)
-    warn:SetScript("OnEnter", function(self)
+    return UI.CreateWarningIcon(row, ISSUE_COL_W - 2, function(self)
         local issues = self.issues
         if not (issues and #issues > 0) then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(#issues == 1 and "1 issue"
-            or (#issues .. " issues"), 1, 0.82, 0)
+            or (#issues .. " issues"), unpack(UI.TOOLTIP_TITLE))
         for index, text in ipairs(issues) do
             -- Blank line between them: several wrapped sentences run together
             -- read as one paragraph, and the count in the title then lies.
             if index > 1 then GameTooltip:AddLine(" ") end
             GameTooltip:AddLine(text, 1, 1, 1, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    warn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    warn:Hide()
-    return warn
 end
 
 -- The unit token for a group member, from the pass in ActionItems.lua. Nil for
@@ -279,17 +269,14 @@ end
 -- reader doesn't care which -- they care why this control won't answer -- so
 -- both arrive the same way.
 local function AddDropdownTooltip(dd, title, body)
-    dd:EnableMouse(true)
-    dd:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(title, 1, 1, 1)
+    UI.AddTooltip(dd, function(self)
+        GameTooltip:SetText(title, unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine(body, 0.8, 0.8, 0.8, true)
         if self.blockedReason then
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    dd:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
 -- Stand-in for a member the roster pass didn't cover; see RefreshRoster.
@@ -365,12 +352,8 @@ local function CreateRow(f, section, index)
     row.addonIcon = addonIcon
 
     -- Group role: writes Blizzard's flag directly.
-    local groupDD = CreateFrame("Frame",
-        "WhoDoesWhatMembersGroupDD_" .. section.key .. index, row,
-        "UIDropDownMenuTemplate")
+    local groupDD = UI.CreateMenuDropdown(row, "WhoDoesWhatMembersGroupDD_" .. section.key .. index, GROUP_DD_W - 30)
     groupDD:SetPoint("LEFT", row, "LEFT", GROUP_X - DD_INSET, -2)
-    UIDropDownMenu_SetWidth(groupDD, GROUP_DD_W - 30)
-    K.LeftAlignDropdown(groupDD)
     UIDropDownMenu_Initialize(groupDD, function(_, level)
         local data, m = row.data, row.member
         if not (data and m) then return end
@@ -392,11 +375,8 @@ local function CreateRow(f, section, index)
     row.groupDD = groupDD
 
     -- WhoDoesWhat role: writes the board, which pushes the flag to match.
-    local dropdown = CreateFrame("Frame",
-        "WhoDoesWhatMembersRoleDD_" .. section.key .. index, row, "UIDropDownMenuTemplate")
+    local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatMembersRoleDD_" .. section.key .. index, WDW_DD_W - 30)
     dropdown:SetPoint("LEFT", row, "LEFT", WDW_X - DD_INSET, -2)
-    UIDropDownMenu_SetWidth(dropdown, WDW_DD_W - 30)
-    K.LeftAlignDropdown(dropdown)
     UIDropDownMenu_Initialize(dropdown, function(_, level)
         local m, data = row.member, row.data
         if not m then return end
@@ -421,7 +401,7 @@ local function CreateRow(f, section, index)
 
         -- Non-raider (the classless "sitting out" pseudo-role), below a
         -- divider like the unit menu -- it isn't one of the class's specs.
-        K.AddDropdownDivider(level)
+        UI.AddDropdownDivider(level)
         local nr = WhoDoesWhat.NonRaiderRole
         local nrInfo = UIDropDownMenu_CreateInfo()
         nrInfo.text = RoleText(nr, WhoDoesWhat.NonRaiderClass)
@@ -464,9 +444,8 @@ local function CreateRow(f, section, index)
     talentHover:SetPoint("LEFT", row, "LEFT", TALENT_X, 0)
     talentHover:SetSize(TALENT_PAD + TALENT_TEXT_W, ROW_H)
     talentHover:EnableMouse(true)
-    talentHover:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Talents", 1, 1, 1)
+    UI.AddTooltip(talentHover, function(self)
+        GameTooltip:SetText("Talents", unpack(UI.TOOLTIP_TITLE))
         local snapshot = self.snapshot
         if not snapshot then
             GameTooltip:AddLine("Nobody has been close enough to inspect them "
@@ -484,9 +463,8 @@ local function CreateRow(f, section, index)
                     0.8, 0.8, 0.8, true)
             end
         end
-        GameTooltip:Show()
+        return true
     end)
-    talentHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.talentHover = talentHover
 
     -- Go and look again. Not a fix and not gated on permissions -- an inspect
@@ -496,24 +474,21 @@ local function CreateRow(f, section, index)
     rescanBtn:SetSize(RESCAN_BTN_W, ROW_H - 8)
     rescanBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     rescanBtn:SetText("Rescan")
-    rescanBtn:SetMotionScriptsWhileDisabled(true)
     rescanBtn:SetScript("OnClick", function()
         local m = row.member
         if not m then return end
         WhoDoesWhat:RescanPlayerTalents(UnitOf(row), m.name)
     end)
-    rescanBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Rescan talents", 1, 1, 1)
+    UI.AddTooltip(rescanBtn, function(self)
+        GameTooltip:SetText("Rescan talents", unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine("Queue a fresh inspect. They have to be in range "
             .. "-- out of range, their last-known talents stand.",
             0.8, 0.8, 0.8, true)
         if self.blockedReason then
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    rescanBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.rescanBtn = rescanBtn
 
     state.rows[index] = row
@@ -618,27 +593,16 @@ end
 -- window to it. Empty grids are hidden (RefreshRoster), so they contribute
 -- nothing. The trailing GRID_GAP after the last grid doubles as bottom padding,
 -- exactly as the main view's SECTION_GAP does. Only once the content passes
--- MAX_FRAME_H does the window stop growing and the scrollbar appear -- the
--- ScrollFrame hides it on its own while the range is zero (scrollBarHideable).
+-- MAX_FRAME_H does the window stop growing and the scrollbar appear.
 local function UpdateContentHeight(f)
     local h = 0
     for _, section in ipairs(SECTIONS) do
         local box = f.sections[section.key].box
         if box:IsShown() then h = h + box:GetHeight() + GRID_GAP end
     end
-    f.content:SetHeight(math.max(h, 1))
-    f.scroll:UpdateScrollChildRect()
-
     local desired = f.scrollTop + h + MARGIN
     f:SetHeight(math.max(MIN_FRAME_H, math.min(desired, MAX_FRAME_H)))
-    -- scrollBarHideable only reacts to a *change* in scroll range, which leaves
-    -- the bar up on the first paint. We already know whether it's needed. The
-    -- track can't ride the bar's OnShow/OnHide: the first repaint runs while the
-    -- window is still hidden, where hiding an already-invisible bar fires
-    -- neither -- so it's driven from the same answer.
-    local needsBar = desired > MAX_FRAME_H
-    if f.scrollBar then f.scrollBar:SetShown(needsBar) end
-    if f.scrollTrack then f.scrollTrack:SetShown(needsBar) end
+    UI.SetScrollHeight(f.scroll, h)
 end
 
 -- Map the current group onto the pooled rows, retitle each grid with its count,
@@ -651,7 +615,7 @@ function RefreshRoster(f)
     end
     pendingRepaint = false
 
-    f.titleText:SetText(IsInRaid() and "Raid Members" or "Group Members")
+    f:SetTitle(IsInRaid() and "Raid Members" or "Group Members")
 
     -- One pass over the roster answers every row: role, flag, talents,
     -- permissions and everything wrong with them (ActionItems.lua).
@@ -716,14 +680,8 @@ end
 local function EnsureMembersFrame()
     if membersFrame then return membersFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMembersFrame",
+    local f = UI.CreateWindow("WhoDoesWhatMembersFrame",
         FRAME_W, MIN_FRAME_H, "Group Members")
-
-    -- Centred title, unlike the shared left-aligned chrome: this window's title
-    -- is a two-word label rather than a sentence, and it sits over a centred
-    -- overview strip.
-    f.titleText:ClearAllPoints()
-    f.titleText:SetPoint("CENTER", f.titleBarTexture, "CENTER", 0, 0)
 
     -- Overview strip: fixed chrome above the scroll area, so it stays put while
     -- the grids scroll under it.
@@ -746,38 +704,10 @@ local function EnsureMembersFrame()
 
     f.scrollTop = f.titleBarHeight + OVERVIEW_H + 8 -- chrome above the scroll area
 
-    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMembersScroll", f, "UIPanelScrollFrameTemplate")
+    local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMembersScroll", true)
     scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
     scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
-    -- Let the template drop the bar entirely while everything fits; the gutter
-    -- stays reserved either way, so the columns don't shift when it appears.
-    scroll.scrollBarHideable = true
-
-    local scrollBar = _G[scroll:GetName() .. "ScrollBar"]
-    f.scrollBar = scrollBar
-    if scrollBar then
-        -- AceGUI's textured slider backdrop, one frame level behind the native
-        -- scrollbar so the template's arrows and thumb stay on top (same as the
-        -- main view). It follows the bar in and out of view.
-        local scrollTrack = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
-        scrollTrack:SetAllPoints(scrollBar)
-        scrollTrack:SetFrameLevel(math.max(scroll:GetFrameLevel(),
-            scrollBar:GetFrameLevel() - 1))
-        scrollTrack:SetBackdrop({
-            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-            tile = true, tileSize = 8, edgeSize = 8,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        f.scrollTrack = scrollTrack
-    end
-
-    local content = CreateFrame("Frame", nil, scroll)
-    -- Pin the scroll child explicitly or nothing renders until the window
-    -- moves (same fix as the main view).
-    content:SetPoint("TOPLEFT")
     content:SetWidth(CONTENT_W)
-    scroll:SetScrollChild(content)
     f.content = content
     f.scroll = scroll
 

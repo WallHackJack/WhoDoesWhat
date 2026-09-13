@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 local Assign = WhoDoesWhat.Assign
 
 -- The Warrior Shout Bar: a small movable strip of one icon per warrior shout
@@ -562,12 +563,12 @@ local function ShowShoutTooltip(btn)
     -- The bar has no title strip to hang these off any more, so every button
     -- carries them.
     GameTooltip:AddLine(" ")
-    WhoDoesWhat:AddTooltipHint(GameTooltip, "Left-Click:", "Shout")
+    UI.AddTooltipHint(GameTooltip, "Left-Click:", "Shout")
     if btn.isSoloIcon then
-        WhoDoesWhat:AddTooltipHint(GameTooltip, "Right-Click:", "Swap shout")
+        UI.AddTooltipHint(GameTooltip, "Right-Click:", "Swap shout")
     end
-    WhoDoesWhat:AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-    WhoDoesWhat:AddTooltipHint(GameTooltip, "Shift-Right-Click:",
+    UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+    UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:",
         "Shout Bar Settings")
     GameTooltip:Show()
 end

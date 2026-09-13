@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 local K = WhoDoesWhat.SectionKit
 
 -- Addon settings window. Checkbox state persists in db.profile.settings except
@@ -61,9 +62,6 @@ local function CreateStatusArrow(parent, direction)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     button:SetSize(24, 24)
     button:SetText("")
-    if button.SetMotionScriptsWhileDisabled then
-        button:SetMotionScriptsWhileDisabled(true)
-    end
     local arrow = button:CreateTexture(nil, "OVERLAY")
     arrow:SetSize(12, 12)
     arrow:SetPoint("CENTER", 0, STATUS_ARROW_NUDGE[direction])
@@ -193,49 +191,17 @@ local function SetStatusBuffOption(f, key, option, value)
     WhoDoesWhat:RefreshStatusBarsView()
 end
 
-local function AddTooltip(region, title, text)
-    region:EnableMouse(true)
-    local previousEnter = region:GetScript("OnEnter")
-    local previousLeave = region:GetScript("OnLeave")
-    region:SetScript("OnEnter", function(self, ...)
-        if previousEnter then previousEnter(self, ...) end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(title, 1, 1, 1)
-        GameTooltip:AddLine(text, 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    region:SetScript("OnLeave", function(self, ...)
-        if previousLeave then previousLeave(self, ...) end
-        GameTooltip:Hide()
-    end)
-end
-
--- The label, the arrow button, and the box between them. The box is the part
--- of a dropdown people actually point at -- it is where the current value is
--- written -- and it used to be the one part with no tooltip on it. Enabling
--- the mouse on the dropdown frame is safe: its arrow is a child button and
--- still takes the clicks.
-local function AddDropdownTooltip(dd, label, title, text)
-    AddTooltip(label, title, text)
-    AddTooltip(dd, title, text)
-    local button = _G[dd:GetName() .. "Button"]
-    if button then AddTooltip(button, title, text) end
-end
-
+-- The label lives on the page rather than on the box: the pages fade a
+-- checkbox and its label separately, and a label parented to the box would
+-- take both fades. The hit rect runs the width of the column, so the label and
+-- the air after it toggle the box too.
 local function AddCompactCheckboxRow(f, x, y, labelText, tooltip, apply)
-    local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    check:SetSize(24, 24)
+    local check = UI.CreateCheckbox(f, labelText, labelText, tooltip,
+        function(self) apply(self:GetChecked() and true or false) end,
+        { size = 24, font = "GameFontHighlight", gap = 2, labelParent = f })
     check:SetPoint("TOPLEFT", x, -y)
     check:SetHitRectInsets(0, -(CONTENT_W - 30 - (x - CONTENT_X)), 0, 0)
-    check:SetMotionScriptsWhileDisabled(true)
-    check:SetScript("OnClick", function(self)
-        apply(self:GetChecked() and true or false)
-    end)
-    local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-    label:SetText(labelText)
-    AddTooltip(check, labelText, tooltip)
-    return check, y + 28, label
+    return check, y + 28, check.label
 end
 
 local MINIMAP_NAME = "WhoDoesWhat"
@@ -262,10 +228,10 @@ end
 
 local function MinimapTooltip(tooltip)
     tooltip:AddLine("WhoDoesWhat", 1, 1, 1)
-    WhoDoesWhat:AddTooltipHint(tooltip, "Left-Click:", "Assignments")
-    WhoDoesWhat:AddTooltipHint(tooltip, "Right-Click:", "Buffing Grid")
-    WhoDoesWhat:AddTooltipHint(tooltip, "Shift-Left-Click:", "Members")
-    WhoDoesWhat:AddTooltipHint(tooltip, "Shift-Right-Click:", "Settings")
+    UI.AddTooltipHint(tooltip, "Left-Click:", "Assignments")
+    UI.AddTooltipHint(tooltip, "Right-Click:", "Buffing Grid")
+    UI.AddTooltipHint(tooltip, "Shift-Left-Click:", "Members")
+    UI.AddTooltipHint(tooltip, "Shift-Right-Click:", "Settings")
 end
 
 -- LibDBIcon, and nothing of our own on top of it. That is the whole point.
@@ -729,12 +695,9 @@ local function AddHighlightControls(parent, x, y, spec)
     styleLabel:SetPoint("TOPLEFT", x + 4, -(y + 4))
     styleLabel:SetText(spec.styleLabel or "Highlight style:")
 
-    local dd = CreateFrame("Frame", spec.name, parent,
-        "UIDropDownMenuTemplate")
-    dd:SetPoint("LEFT", styleLabel, "RIGHT", -6, -2)
     -- Wide enough for the longest of the wing styles ("Pulsing wings (right)").
-    UIDropDownMenu_SetWidth(dd, 135)
-    WhoDoesWhat:StyleDropdown(dd, true)
+    local dd = UI.CreateMenuDropdown(parent, spec.name, 135)
+    dd:SetPoint("LEFT", styleLabel, "RIGHT", -6, -2)
 
     -- Built like a status row rather than as one flat frame: the sample's own
     -- art lives on a child frame, and the box sits a few levels above the page,
@@ -788,7 +751,7 @@ local function AddHighlightControls(parent, x, y, spec)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
+    UI.AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
 
     -- The swatches go under the dropdown so the sample box beside it shows a
     -- colour change as it is dragged.
@@ -807,8 +770,8 @@ local function AddHighlightControls(parent, x, y, spec)
         swatch.color:SetAllPoints()
         swatch.entry = entry
         swatches[#swatches + 1] = swatch
-        AddTooltip(label, entry.label, entry.tooltip)
-        AddTooltip(swatch, entry.label,
+        UI.AddTooltip(label, entry.label, entry.tooltip)
+        UI.AddTooltip(swatch, entry.label,
             "Left-click for the WoW color picker; right-click to reset.")
         rowY = rowY + 24
     end
@@ -856,80 +819,18 @@ end
 -- A whole number with two ways in: a slider to drag, and a box beside it to
 -- type an exact value into. `spec` is { name, label, tooltip, min, max },
 -- `Get` reads the saved number, `Set` writes one back, `OnChange` repaints.
---
--- The box is deliberately left alone while it is being typed in. Rewriting
--- what somebody is halfway through entering -- clamping a "5" that was going
--- to be "50", or refusing the keystroke outright -- fights them for their own
--- cursor, so nothing is read out of it until Enter or the focus leaving, and
--- anything that isn't a number in range at that point simply puts the saved
--- value back.
 local function AddSliderWithInput(parent, x, y, spec, Get, Set, OnChange)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", x + 4, -y)
     label:SetText(spec.label)
 
-    local slider = CreateFrame("Slider", spec.name, parent,
-        "OptionsSliderTemplate")
+    local slider, edit, Refresh = UI.CreateSliderWithInput(parent, spec, Get, Set, OnChange)
     slider:SetPoint("TOPLEFT", x + 8, -(y + 22))
-    slider:SetWidth(spec.width or 150)
-    slider:SetMinMaxValues(spec.min, spec.max)
-    slider:SetValueStep(1)
-    if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
-    local name = slider:GetName()
-    if name then
-        if _G[name .. "Low"] then _G[name .. "Low"]:SetText(spec.min) end
-        if _G[name .. "High"] then _G[name .. "High"]:SetText(spec.max) end
-        if _G[name .. "Text"] then _G[name .. "Text"]:SetText("") end
-    end
 
-    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-    edit:SetSize(40, 20)
-    edit:SetPoint("LEFT", slider, "RIGHT", 18, 0)
-    edit:SetAutoFocus(false)
-    edit:SetMaxLetters(4)
-    edit:SetJustifyH("CENTER")
+    UI.AddTooltip(label, spec.label, spec.tooltip)
+    UI.AddTooltip(edit, spec.label, spec.tooltip)
 
-    -- Both widgets show the same number, and writing it into either one fires
-    -- that one's own change script -- so the write is fenced off rather than
-    -- allowed to come back round as a fresh edit.
-    local painting = false
-    local function Paint(value)
-        painting = true
-        slider:SetValue(value)
-        edit:SetText(tostring(value))
-        edit:SetCursorPosition(0)
-        painting = false
-    end
-
-    local function Commit(value)
-        value = math.floor(math.max(spec.min,
-            math.min(spec.max, value)) + 0.5)
-        Set(value)
-        Paint(value)
-        OnChange()
-    end
-
-    slider:SetScript("OnValueChanged", function(_, value)
-        if painting then return end
-        Commit(value)
-    end)
-
-    local function ReadBox()
-        local typed = tonumber(edit:GetText())
-        if typed then Commit(typed) else Paint(Get()) end
-        edit:ClearFocus()
-    end
-    edit:SetScript("OnEnterPressed", ReadBox)
-    edit:SetScript("OnEditFocusLost", ReadBox)
-    edit:SetScript("OnEscapePressed", function()
-        Paint(Get())
-        edit:ClearFocus()
-    end)
-
-    AddTooltip(label, spec.label, spec.tooltip)
-    AddTooltip(edit, spec.label, spec.tooltip)
-
-    return function() Paint(Get()) end, y + 52
+    return Refresh, y + 52
 end
 
 local function OpenBarColorPicker(owner, f)
@@ -983,7 +884,7 @@ end
 
 local function EnsureBuffOptionsFrame(owner, key)
     if buffOptionsFrame then return buffOptionsFrame end
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatBuffTrackingOptionsFrame",
+    local f = UI.CreateWindow("WhoDoesWhatBuffTrackingOptionsFrame",
         BUFF_OPTIONS_W, 230, "")
     -- UIDropDownMenu_Initialize runs its callback immediately, before this
     -- constructor returns, so the selected key must already be available.
@@ -992,7 +893,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     f:SetToplevel(false)
     f:SetFrameLevel(owner:GetFrameLevel() + 20)
     f:HookScript("OnHide", CancelActiveColorPicker)
-    f.titleBarTexture:Hide()
+    f.titleBar:Hide()
     f.titleText:Hide()
     f.titleBarHeight = 0
     f:ClearAllPoints()
@@ -1016,11 +917,8 @@ local function EnsureBuffOptionsFrame(owner, key)
     local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     scopeLabel:SetPoint("TOPLEFT", 10, -46)
     scopeLabel:SetText("Party type")
-    local scopeDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingScopeDD", f,
-        "UIDropDownMenuTemplate")
+    local scopeDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingScopeDD", 72)
     scopeDD:SetPoint("LEFT", scopeLabel, "RIGHT", -7, -2)
-    UIDropDownMenu_SetWidth(scopeDD, 72)
-    WhoDoesWhat:StyleDropdown(scopeDD, true)
     UIDropDownMenu_Initialize(scopeDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).scope
         for _, scope in ipairs({ "always", "raid", "party" }) do
@@ -1037,17 +935,14 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.scopeDD = scopeDD
     f.scopeLabel = scopeLabel
-    AddDropdownTooltip(scopeDD, scopeLabel, "Party type",
+    UI.AddDropdownTooltip(scopeDD, scopeLabel, "Party type",
         "Limit this check to raids, parties, or all group types.")
 
     local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     displayLabel:SetPoint("TOPLEFT", 190, -46)
     displayLabel:SetText("Text Mode")
-    local displayDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingDisplayDD", f,
-        "UIDropDownMenuTemplate")
+    local displayDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingDisplayDD", 98)
     displayDD:SetPoint("LEFT", displayLabel, "RIGHT", -7, -2)
-    UIDropDownMenu_SetWidth(displayDD, 98)
-    WhoDoesWhat:StyleDropdown(displayDD, true)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).display
         for _, display in ipairs({
@@ -1066,17 +961,14 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.displayDD = displayDD
     f.displayLabel = displayLabel
-    AddDropdownTooltip(displayDD, displayLabel, "Text Mode",
+    UI.AddDropdownTooltip(displayDD, displayLabel, "Text Mode",
         "Choose the text shown on the bar: percent, counts, or a fraction.")
 
     local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     classLabel:SetPoint("TOPLEFT", 10, -77)
     classLabel:SetText("Requires Class:")
-    local classDD = CreateFrame("Frame", "WhoDoesWhatBuffTrackingClassDD", f,
-        "UIDropDownMenuTemplate")
+    local classDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingClassDD", 90)
     classDD:SetPoint("LEFT", classLabel, "RIGHT", -7, -2)
-    UIDropDownMenu_SetWidth(classDD, 90)
-    WhoDoesWhat:StyleDropdown(classDD, true)
     UIDropDownMenu_Initialize(classDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).requiredClass
         local none = UIDropDownMenu_CreateInfo()
@@ -1101,7 +993,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.classDD = classDD
     f.classLabel = classLabel
-    AddDropdownTooltip(classDD, classLabel, "Requires class",
+    UI.AddDropdownTooltip(classDD, classLabel, "Requires class",
         "The check is unavailable unless a member of this class is present.")
 
     local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1123,9 +1015,9 @@ local function EnsureBuffOptionsFrame(owner, key)
             OpenBarColorPicker(owner, f)
         end
     end)
-    AddTooltip(colorLabel, "Bar color",
+    UI.AddTooltip(colorLabel, "Bar color",
         "Choose the filled status-bar color. Right-click the swatch to reset it.")
-    AddTooltip(colorSwatch, "Bar color",
+    UI.AddTooltip(colorSwatch, "Bar color",
         "Left-click for the WoW color picker; right-click to reset.")
     f.colorSwatch = colorSwatch
     f.colorLabel = colorLabel
@@ -1163,18 +1055,14 @@ local function EnsureBuffOptionsFrame(owner, key)
             RefreshBuffOptionsFrame()
         end
     end)
-    AddTooltip(colorHex, "Hex color",
+    UI.AddTooltip(colorHex, "Hex color",
         "Enter a six-digit RGB color, with or without #, then press Enter.")
     f.colorHex = colorHex
 
     local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
         "GameFontHighlightSmall")
     saturatedLabel:SetText("Fully Debuffed Style:")
-    local saturatedDD = CreateFrame("Frame",
-        "WhoDoesWhatBuffTrackingSaturatedStyleDD", f,
-        "UIDropDownMenuTemplate")
-    UIDropDownMenu_SetWidth(saturatedDD, 72)
-    WhoDoesWhat:StyleDropdown(saturatedDD, true)
+    local saturatedDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingSaturatedStyleDD", 72)
     UIDropDownMenu_Initialize(saturatedDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(
             f.buffKey).saturatedStyle
@@ -1193,7 +1081,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.saturatedLabel = saturatedLabel
     f.saturatedDD = saturatedDD
-    AddDropdownTooltip(saturatedDD, saturatedLabel,
+    UI.AddDropdownTooltip(saturatedDD, saturatedLabel,
         "Fully Debuffed Style",
         "Choose what the status bar does once every tracked target has the"
             .. " debuff: show a checkmark, show an X, or hide the bar.")
@@ -1263,22 +1151,16 @@ local function EnsureBuffOptionsFrame(owner, key)
     }
     for index, entry in ipairs(checkboxOptions) do
         local option, labelText, tooltip = entry[1], entry[2], entry[3]
-        local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-        check:SetSize(22, 22)
+        local check = UI.CreateCheckbox(f, labelText, labelText, tooltip,
+            function(self)
+                SetStatusBuffOption(owner, f.buffKey, option,
+                    self:GetChecked() and true or false)
+                RefreshBuffOptionsFrame()
+            end,
+            { size = 22, font = "GameFontHighlightSmall", gap = 1, labelParent = f })
         check:SetPoint("TOPLEFT", 7, -(104 + (index - 1) * 21))
         check:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
-        if check.SetMotionScriptsWhileDisabled then
-            check:SetMotionScriptsWhileDisabled(true)
-        end
-        check:SetScript("OnClick", function(self)
-            SetStatusBuffOption(owner, f.buffKey, option,
-                self:GetChecked() and true or false)
-            RefreshBuffOptionsFrame()
-        end)
-        local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("LEFT", check, "RIGHT", 1, 0)
-        label:SetText(labelText)
-        AddTooltip(check, labelText, tooltip)
+        local label = check.label
         f.optionChecks[option] = check
         f.optionLabels[option] = label
         f.normalOptionRegions[#f.normalOptionRegions + 1] = check
@@ -1395,7 +1277,7 @@ end
 local function EnsureSettingsFrame()
     if settingsFrame then return settingsFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
+    local f = UI.CreateWindow("WhoDoesWhatSettingsFrame", FRAME_W, FRAME_H, "WhoDoesWhat - Settings")
     local y0 = f.titleBarHeight + 20
     local pages = {}
     local buttons = {}
@@ -1485,11 +1367,8 @@ local function EnsureSettingsFrame()
         bandRightFaded = "Right band, faded",
     }
     f.raidStyleLabels = raidStyleLabels
-    local raidStyleDD = CreateFrame("Frame", "WhoDoesWhatRaidFrameStyleDD",
-        generalPage, "UIDropDownMenuTemplate")
+    local raidStyleDD = UI.CreateMenuDropdown(generalPage, "WhoDoesWhatRaidFrameStyleDD", 120)
     raidStyleDD:SetPoint("LEFT", raidStyleLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(raidStyleDD, 120)
-    WhoDoesWhat:StyleDropdown(raidStyleDD, true)
     UIDropDownMenu_Initialize(raidStyleDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.raidFrameRoleIconStyle
             or "corner"
@@ -1565,7 +1444,7 @@ local function EnsureSettingsFrame()
         WhoDoesWhat:ResetStatusBarSettings()
         f.RefreshStatusPage()
     end)
-    AddTooltip(resetButton, "Reset Status Bars",
+    UI.AddTooltip(resetButton, "Reset Status Bars",
         "Put every option on this page back to its default and move the"
             .. " window to the middle of the screen. Per-check options on the"
             .. " Buff Tracking page are left alone.")
@@ -1583,11 +1462,8 @@ local function EnsureSettingsFrame()
     local anchorLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     anchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     anchorLabel:SetText("Anchor point:")
-    local anchorDD = CreateFrame("Frame", "WhoDoesWhatStatusBarsAnchorDD", statusPage,
-        "UIDropDownMenuTemplate")
+    local anchorDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsAnchorDD", 110)
     anchorDD:SetPoint("LEFT", anchorLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(anchorDD, 110)
-    WhoDoesWhat:StyleDropdown(anchorDD, true)
     UIDropDownMenu_Initialize(anchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
         for _, anchor in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
@@ -1601,7 +1477,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(anchorDD, anchorLabel, "Anchor point",
+    UI.AddDropdownTooltip(anchorDD, anchorLabel, "Anchor point",
         "The window grows away from this corner as rows or width change.")
     f.overviewAnchorDD = anchorDD
     f.overviewAnchorLabels = anchorLabels
@@ -1610,12 +1486,8 @@ local function EnsureSettingsFrame()
     local defaultDisplayLabel = statusPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     defaultDisplayLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     defaultDisplayLabel:SetText("Default text-mode:")
-    local defaultDisplayDD = CreateFrame("Frame",
-        "WhoDoesWhatStatusBarsDefaultDisplayDD", statusPage,
-        "UIDropDownMenuTemplate")
+    local defaultDisplayDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsDefaultDisplayDD", 110)
     defaultDisplayDD:SetPoint("LEFT", defaultDisplayLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(defaultDisplayDD, 110)
-    WhoDoesWhat:StyleDropdown(defaultDisplayDD, true)
     UIDropDownMenu_Initialize(defaultDisplayDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewDefaultDisplay
             or "percent"
@@ -1633,7 +1505,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel, "Default text-mode",
+    UI.AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel, "Default text-mode",
         "Used by paladin bars and any Buff Tracking row set to Default.")
     f.overviewDefaultDisplayDD = defaultDisplayDD
     yL = yL + 32
@@ -1642,12 +1514,8 @@ local function EnsureSettingsFrame()
         "GameFontHighlight")
     tooltipAnchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     tooltipAnchorLabel:SetText("Tooltip side:")
-    local tooltipAnchorDD = CreateFrame("Frame",
-        "WhoDoesWhatStatusBarsTooltipAnchorDD", statusPage,
-        "UIDropDownMenuTemplate")
+    local tooltipAnchorDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsTooltipAnchorDD", 110)
     tooltipAnchorDD:SetPoint("LEFT", tooltipAnchorLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(tooltipAnchorDD, 110)
-    WhoDoesWhat:StyleDropdown(tooltipAnchorDD, true)
     UIDropDownMenu_Initialize(tooltipAnchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor
             or "LEFT"
@@ -1664,7 +1532,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(tooltipAnchorDD, tooltipAnchorLabel, "Tooltip side",
+    UI.AddDropdownTooltip(tooltipAnchorDD, tooltipAnchorLabel, "Tooltip side",
         "Where a status bar's tooltip opens. Left and right follow the hovered"
             .. " bar; above and below clear the whole window.")
     f.overviewTooltipAnchorDD = tooltipAnchorDD
@@ -1674,12 +1542,8 @@ local function EnsureSettingsFrame()
         "GameFontHighlight")
     tooltipNamesLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     tooltipNamesLabel:SetText("Tooltip names:")
-    local tooltipNamesDD = CreateFrame("Frame",
-        "WhoDoesWhatStatusBarsTooltipNamesDD", statusPage,
-        "UIDropDownMenuTemplate")
+    local tooltipNamesDD = UI.CreateMenuDropdown(statusPage, "WhoDoesWhatStatusBarsTooltipNamesDD", 110)
     tooltipNamesDD:SetPoint("LEFT", tooltipNamesLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(tooltipNamesDD, 110)
-    WhoDoesWhat:StyleDropdown(tooltipNamesDD, true)
     UIDropDownMenu_Initialize(tooltipNamesDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipNames
             or DEFAULT_TOOLTIP_NAMES
@@ -1695,7 +1559,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(tooltipNamesDD, tooltipNamesLabel, "Tooltip names",
+    UI.AddDropdownTooltip(tooltipNamesDD, tooltipNamesLabel, "Tooltip names",
         "How many raiders a status bar's tooltip names before the rest"
             .. " collapse into \"... and N more\". Applies to every bar,"
             .. " including the paladin ones.")
@@ -1766,14 +1630,14 @@ local function EnsureSettingsFrame()
     local statusBuffHeading
     yL, statusBuffHeading = AddHeading(statusBuffPage, CONTENT_X, yL,
         "Buff Tracking", 0.96, 0.55, 0.73)
-    AddTooltip(statusBuffHeading, "Buff Tracking",
+    UI.AddTooltip(statusBuffHeading, "Buff Tracking",
         "Use arrows to order Bars; disabled rows move below the divider. Use the cog for display and target options.")
     local resetBuffs = CreateFrame("Button", nil, statusBuffPage, "UIPanelButtonTemplate")
     resetBuffs:SetSize(100, 22)
     resetBuffs:SetPoint("TOPRIGHT", statusBuffPage, "TOPRIGHT", -16, -(y0 - 2))
     resetBuffs:SetText("Reset Defaults")
     resetBuffs:SetScript("OnClick", function() ResetBuffTrackingPage(f) end)
-    AddTooltip(resetBuffs, "Reset Buff Tracking",
+    UI.AddTooltip(resetBuffs, "Reset Buff Tracking",
         "Restore the default order, visibility, colors, and per-row options.")
     yL = yL + 6
 
@@ -1793,7 +1657,7 @@ local function EnsureSettingsFrame()
             ["Buff Grid"] = "Show this check as a Buffing Grid column.",
             Options = "Open the settings specific to this row.",
         }
-        AddTooltip(text, header[1], tips[header[1]])
+        UI.AddTooltip(text, header[1], tips[header[1]])
     end
     yL = yL + 28
     f.statusBuffListTop = yL
@@ -1818,7 +1682,7 @@ local function EnsureSettingsFrame()
     dividerRight:SetTexture(137057)
     dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
     dividerRight:SetVertexColor(0.45, 0.45, 0.45)
-    AddTooltip(divider, "Hidden from Status Bars",
+    UI.AddTooltip(divider, "Hidden from Status Bars",
         "Move a row above this divider to show it in WDW Status again.")
     f.statusBuffDivider = divider
     f.statusBuffRows = {}
@@ -1836,11 +1700,11 @@ local function EnsureSettingsFrame()
         row.up = CreateStatusArrow(row, "Up")
         row.up:SetPoint("LEFT", 0, 0)
         row.up:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, -1) end)
-        AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
+        UI.AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
         row.down = CreateStatusArrow(row, "Down")
         row.down:SetPoint("LEFT", row.up, "RIGHT", 2, 0)
         row.down:SetScript("OnClick", function() MoveStatusBuff(f, rowKey, 1) end)
-        AddTooltip(row.down, "Move down",
+        UI.AddTooltip(row.down, "Move down",
             "Move this row later, or disable it when it is last.")
 
         local index = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1866,25 +1730,20 @@ local function EnsureSettingsFrame()
         name:SetJustifyH("LEFT")
         name:SetWordWrap(false)
         name:SetText(definition.name)
-        AddTooltip(row, definition.name, definition.description)
+        UI.AddTooltip(row, definition.name, definition.description)
 
-        row.bar = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-        row.bar:SetSize(24, 24)
+        row.bar = UI.CreateCheckbox(row, nil, "Show in Bars",
+            "Show this row in WDW Status. Turning it off moves it below the divider.",
+            function(self)
+                SetStatusBuffBarEnabled(f, rowKey, self:GetChecked() and true or false)
+            end, { size = 24 })
         row.bar:SetPoint("CENTER", row, "LEFT", 272, 0)
-        row.bar:SetScript("OnClick", function(self)
-            SetStatusBuffBarEnabled(f, rowKey,
-                self:GetChecked() and true or false)
-        end)
-        AddTooltip(row.bar, "Show in Bars",
-            "Show this row in WDW Status. Turning it off moves it below the divider.")
-        row.grid = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-        row.grid:SetSize(24, 24)
+        row.grid = UI.CreateCheckbox(row, nil, "Show in Buff Grid",
+            "Show this check as a column in the Buffing Grid.",
+            function(self)
+                SetStatusBuffOption(f, rowKey, "grid", self:GetChecked() and true or false)
+            end, { size = 24 })
         row.grid:SetPoint("CENTER", row, "LEFT", 329, 0)
-        row.grid:SetScript("OnClick", function(self)
-            SetStatusBuffOption(f, rowKey, "grid", self:GetChecked() and true or false)
-        end)
-        AddTooltip(row.grid, "Show in Buff Grid",
-            "Show this check as a column in the Buffing Grid.")
         local options = CreateFrame("Button", nil, row)
         options:SetSize(24, 24)
         options:SetPoint("CENTER", row, "LEFT", 387, 0)
@@ -1902,14 +1761,7 @@ local function EnsureSettingsFrame()
         options:SetHighlightTexture(
             "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
         options:SetScript("OnClick", function() OpenBuffOptions(f, rowKey) end)
-        options:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(definition.name .. " options", 1, 1, 1)
-            GameTooltip:AddLine("Open this row's settings.",
-                0.8, 0.8, 0.8, true)
-            GameTooltip:Show()
-        end)
-        options:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI.AddTooltip(options, definition.name .. " options", "Open this row's settings.")
         row.options = options
     end
     RefreshStatusBuffRows(f)
@@ -1930,7 +1782,7 @@ local function EnsureSettingsFrame()
         WhoDoesWhat:ResetPaladinBarSettings()
         f.RefreshPaladinPage()
     end)
-    AddTooltip(paladinReset, "Reset Paladin Bar",
+    UI.AddTooltip(paladinReset, "Reset Paladin Bar",
         "Put every option on this page back to its default and move the bar"
             .. " to where a fresh install finds it. Test mode on the Developer"
             .. " page is left alone.")
@@ -1993,10 +1845,8 @@ local function EnsureSettingsFrame()
         local label = paladinPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         label:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + dy))
         label:SetText(text)
-        local dd = CreateFrame("Frame", name, paladinPage, "UIDropDownMenuTemplate")
+        local dd = UI.CreateMenuDropdown(paladinPage, name, width)
         dd:SetPoint("LEFT", label, "RIGHT", -6, -2)
-        UIDropDownMenu_SetWidth(dd, width)
-        WhoDoesWhat:StyleDropdown(dd, true)
         return dd
     end
 
@@ -2188,11 +2038,8 @@ local function EnsureSettingsFrame()
     local shoutShowLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     shoutShowLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 4))
     shoutShowLabel:SetText("Show shout bar:")
-    local shoutShowDD = CreateFrame("Frame", "WhoDoesWhatShoutBarShowDD", warriorPage,
-        "UIDropDownMenuTemplate")
+    local shoutShowDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarShowDD", 120)
     shoutShowDD:SetPoint("LEFT", shoutShowLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(shoutShowDD, 120)
-    WhoDoesWhat:StyleDropdown(shoutShowDD, true)
     UIDropDownMenu_Initialize(shoutShowDD, function(_, level)
         local saved = WhoDoesWhat:GetShoutBarMode()
         for _, mode in ipairs(WhoDoesWhat.ShoutBarModes) do
@@ -2212,7 +2059,7 @@ local function EnsureSettingsFrame()
     -- Category names in yellow so the four answers are scannable, and Always
     -- in red because it is a testing setting: a shout bar in a group with no
     -- warrior is glowing at something nobody present can cast.
-    AddDropdownTooltip(shoutShowDD, shoutShowLabel, "Show shout bar",
+    UI.AddDropdownTooltip(shoutShowDD, shoutShowLabel, "Show shout bar",
         "|cffffd100Warriors only:|r Only visible if YOU are a warrior"
         .. "\n\n|cffffd100With a warrior:|r Only visible with a warrior in"
         .. " your group"
@@ -2224,11 +2071,8 @@ local function EnsureSettingsFrame()
     local shoutAnchorLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     shoutAnchorLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 34))
     shoutAnchorLabel:SetText("Anchor:")
-    local shoutAnchorDD = CreateFrame("Frame", "WhoDoesWhatShoutBarAnchorDD",
-        warriorPage, "UIDropDownMenuTemplate")
+    local shoutAnchorDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarAnchorDD", 90)
     shoutAnchorDD:SetPoint("LEFT", shoutAnchorLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(shoutAnchorDD, 90)
-    WhoDoesWhat:StyleDropdown(shoutAnchorDD, true)
     UIDropDownMenu_Initialize(shoutAnchorDD, function(_, level)
         local saved = WhoDoesWhat:GetShoutBarAnchor()
         for _, anchor in ipairs(WhoDoesWhat.ShoutBarAnchors) do
@@ -2242,7 +2086,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(shoutAnchorDD, shoutAnchorLabel, "Anchor",
+    UI.AddDropdownTooltip(shoutAnchorDD, shoutAnchorLabel, "Anchor",
         "Which edge of the bar stays put when a shout icon comes or goes."
         .. " Center spreads it both ways.")
     f.shoutAnchorDD = shoutAnchorDD
@@ -2250,11 +2094,8 @@ local function EnsureSettingsFrame()
     local shoutTimerLabel = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     shoutTimerLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yL + 64))
     shoutTimerLabel:SetText("Countdown at:")
-    local shoutTimerDD = CreateFrame("Frame", "WhoDoesWhatShoutBarTimerDD",
-        warriorPage, "UIDropDownMenuTemplate")
+    local shoutTimerDD = UI.CreateMenuDropdown(warriorPage, "WhoDoesWhatShoutBarTimerDD", 70)
     shoutTimerDD:SetPoint("LEFT", shoutTimerLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(shoutTimerDD, 70)
-    WhoDoesWhat:StyleDropdown(shoutTimerDD, true)
     UIDropDownMenu_Initialize(shoutTimerDD, function(_, level)
         local saved = WhoDoesWhat:GetShoutBarTimerSeconds()
         for _, seconds in ipairs(WhoDoesWhat.ShoutBarTimerSeconds) do
@@ -2270,7 +2111,7 @@ local function EnsureSettingsFrame()
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(shoutTimerDD, shoutTimerLabel, "Countdown at",
+    UI.AddDropdownTooltip(shoutTimerDD, shoutTimerLabel, "Countdown at",
         "Puts a countdown over the icon when the first person is about to lose"
         .. " the shout. Off hides it entirely.")
     f.shoutTimerDD = shoutTimerDD
@@ -2476,10 +2317,8 @@ local function EnsureSettingsFrame()
     local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     palLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
     palLabel:SetText("Fake paladins:")
-    local palDD = CreateFrame("Frame", "WhoDoesWhatFakePaladinCountDD", testingPage, "UIDropDownMenuTemplate")
+    local palDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatFakePaladinCountDD", 40)
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
-    UIDropDownMenu_SetWidth(palDD, 40)
-    WhoDoesWhat:StyleDropdown(palDD, true)
     UIDropDownMenu_Initialize(palDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.fakeRaidPaladinCount or 3
         for n = 1, 4 do
@@ -2509,10 +2348,8 @@ local function EnsureSettingsFrame()
     local testLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     testLabel:SetPoint("TOPLEFT", CONTENT_X + 4, -(yR + 6))
     testLabel:SetText("Test as paladin:")
-    local testDD = CreateFrame("Frame", "WhoDoesWhatBuffingTestPaladinDD", testingPage, "UIDropDownMenuTemplate")
+    local testDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatBuffingTestPaladinDD", 120)
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(testDD, 120)
-    WhoDoesWhat:StyleDropdown(testDD, true)
     UIDropDownMenu_Initialize(testDD, function(_, level)
         RefreshBuffingTestPaladinDropdown(f)
         local saved = WhoDoesWhat.db.profile.settings.buffingBarTestPaladin

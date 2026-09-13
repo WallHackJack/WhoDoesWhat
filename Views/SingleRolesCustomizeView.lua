@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 local customizeFrame = nil
 
@@ -250,13 +251,7 @@ local function CreateIconCell(picker, index)
     highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
     highlight:SetBlendMode("ADD")
 
-    cell:SetScript("OnEnter", function(self)
-        if not self.label then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.label, 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(cell, function(self) return self.label end)
 
     picker.cells[index] = cell
     return cell
@@ -431,7 +426,7 @@ end
 local function EnsureCustomizeFrame()
     if customizeFrame then return customizeFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatCustomizeFrame", FRAME_W, FRAME_H, "")
+    local f = UI.CreateWindow("WhoDoesWhatCustomizeFrame", FRAME_W, FRAME_H, "")
     local top = f.titleBarHeight + 14
 
     -- The icon grid is a child, so it would otherwise survive Escape and the
@@ -463,14 +458,8 @@ local function EnsureCustomizeFrame()
     iconHighlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
     iconHighlight:SetBlendMode("ADD")
     iconBtn:SetScript("OnClick", function() ToggleIconPicker(f) end)
-    iconBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Role icon", 1, 1, 1)
-        GameTooltip:AddLine("Click to pick a different one. Nothing picked means"
-            .. " the class icon.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(iconBtn, "Role icon",
+        "Click to pick a different one. Nothing picked means the class icon.")
     iconBtn:Hide()
     f.iconBtn = iconBtn
 
@@ -483,10 +472,8 @@ local function EnsureCustomizeFrame()
     -- role's class can't change after creation). Selecting a class previews it
     -- in the header icons. UIDropDownMenu has ~15px of transparent left
     -- padding; pull it toward the icon.
-    local classDropdown = CreateFrame("Frame", "WhoDoesWhatClassDropDown", f, "UIDropDownMenuTemplate")
+    local classDropdown = UI.CreateMenuDropdown(f, "WhoDoesWhatClassDropDown", 110)
     classDropdown:SetPoint("LEFT", classIcon, "RIGHT", -2, 12)
-    UIDropDownMenu_SetWidth(classDropdown, 110)
-    WhoDoesWhat:StyleDropdown(classDropdown, true)
     UIDropDownMenu_Initialize(classDropdown, function(_, level)
         for _, classInfo in ipairs(WhoDoesWhat.Classes) do
             local info = UIDropDownMenu_CreateInfo()
@@ -540,10 +527,8 @@ local function EnsureCustomizeFrame()
     -- Anchored off the class icon rather than the name above it: in create mode
     -- className is hidden but keeps whatever size its last text gave it, which
     -- would drift this row between opens. The icon never moves or resizes.
-    local roleDropdown = CreateFrame("Frame", "WhoDoesWhatRoleDropDown", f, "UIDropDownMenuTemplate")
+    local roleDropdown = UI.CreateMenuDropdown(f, "WhoDoesWhatRoleDropDown", 80)
     roleDropdown:SetPoint("TOPLEFT", classIcon, "BOTTOMRIGHT", -2, 4)
-    UIDropDownMenu_SetWidth(roleDropdown, 80)
-    WhoDoesWhat:StyleDropdown(roleDropdown, true)
     UIDropDownMenu_Initialize(roleDropdown, function(_, level)
         for _, key in ipairs({ "dps", "tank", "healer" }) do
             local info = UIDropDownMenu_CreateInfo()
@@ -637,23 +622,17 @@ local function EnsureCustomizeFrame()
         row.label = label
 
         -- Ability tooltip when hovering the buff icon only (textures can't
-        -- take mouse events, so a small invisible frame sits over it),
-        -- anchored with its bottom-left just above the icon (same style as
-        -- the main assignments view). buffKey is read at hover time since
-        -- RenderBuffRows reshuffles the rows.
+        -- take mouse events, so a small invisible frame sits over it), same
+        -- style as the main assignments view. buffKey is read at hover time
+        -- since RenderBuffRows reshuffles the rows.
         local iconHover = CreateFrame("Frame", nil, row)
         iconHover:SetAllPoints(icon)
-        iconHover:EnableMouse(true)
-        iconHover:SetScript("OnEnter", function()
+        UI.AddTooltip(iconHover, function(_, tooltip)
             local buff = row.buffKey and WhoDoesWhat.PaladinBuffs[row.buffKey]
-            if buff and buff.spellId then
-                GameTooltip:SetOwner(row, "ANCHOR_NONE")
-                GameTooltip:SetPoint("BOTTOMLEFT", row.icon, "TOPLEFT", 0, 6)
-                GameTooltip:SetHyperlink("spell:" .. buff.spellId)
-                GameTooltip:Show()
-            end
+            if not (buff and buff.spellId) then return end
+            tooltip:SetHyperlink("spell:" .. buff.spellId)
+            return true
         end)
-        iconHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
         f.buffRows[i] = row
     end
@@ -756,14 +735,14 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
     f.classDropdown:Hide()
 
     if raidMode then
-        f.titleText:SetText(f.identityEditable and "Editing Shared Custom Role"
+        f:SetTitle(f.identityEditable and "Editing Shared Custom Role"
             or ("Overriding " .. (isCategory and "Category" or "Role")))
     elseif role.isCustom then
-        f.titleText:SetText("Editing Custom Role")
+        f:SetTitle("Editing Custom Role")
     elseif isCategory then
-        f.titleText:SetText("Category Defaults (" .. #raw.allSubRoles .. " roles)")
+        f:SetTitle("Category Defaults (" .. #raw.allSubRoles .. " roles)")
     else
-        f.titleText:SetText("Role Defaults")
+        f:SetTitle("Role Defaults")
     end
 
     -- Big class icon + class-colored class name
@@ -868,7 +847,7 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     f.currentRoleId = nil
     f.selectedClass = nil
 
-    f.titleText:SetText("New Custom Role")
+    f:SetTitle("New Custom Role")
     f.classIcon:SetTexture(QUESTION_MARK_ICON)
     -- The icon slot is live from the start: with no class picked the grid still
     -- offers the group-role icons, and the class's own are added to it as soon

@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 local K = WhoDoesWhat.SectionKit
 
 -- Movable compact status-bars view of paladin and core raid-buff coverage:
@@ -540,10 +541,10 @@ local function StatusBarsClick(self, button)
     end
 end
 
--- Shared with the Paladin Bar and the Shout Bar (WdwFrame.lua): the gold
+-- Shared with the Paladin Bar and the Shout Bar (WallhackUiKit.lua): the gold
 -- shortcut hints are drawn a point below the body font everywhere.
 local function AddHintLine(shortcut, action)
-    WhoDoesWhat:AddTooltipHint(GameTooltip, shortcut, action)
+    UI.AddTooltipHint(GameTooltip, shortcut, action)
 end
 
 -- Same double-line shortcut layout the minimap button uses, grouped by

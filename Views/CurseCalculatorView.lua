@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Curse value calculator. Pulls a fight from Details! and estimates how much
 -- raid damage each client flavor's raid curses provided (or could provide).
@@ -208,15 +209,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function MakeCheck(parent, x, y, text, onToggle)
-    local c = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    c:SetSize(22, 22)
-    c:SetPoint("TOPLEFT", x, -y)
-    local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    lbl:SetPoint("LEFT", c, "RIGHT", 2, 0)
-    lbl:SetText(text)
-    c:SetScript("OnClick", function(self)
+    local c = UI.CreateCheckbox(parent, text, nil, nil, function(self)
         onToggle(self:GetChecked() and true or false)
-    end)
+    end, { size = 22, font = "GameFontHighlightSmall", gap = 2, labelParent = parent })
+    c:SetPoint("TOPLEFT", x, -y)
     return c
 end
 
@@ -448,7 +444,7 @@ end
 local function EnsureCalcFrame()
     if calcFrame then return calcFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatCurseCalcFrame", FRAME_W, FRAME_H,
+    local f = UI.CreateWindow("WhoDoesWhatCurseCalcFrame", FRAME_W, FRAME_H,
         "WhoDoesWhat - Curse Value Calculator")
     f.state = {
         bossArmor = BOSS_ARMORS[1],
@@ -464,10 +460,8 @@ local function EnsureCalcFrame()
     pickLabel:SetPoint("TOPLEFT", MARGIN, -top)
     pickLabel:SetText("Fight:")
 
-    f.fightDD = CreateFrame("Frame", "WhoDoesWhatCurseCalcFightDD", f, "UIDropDownMenuTemplate")
+    f.fightDD = UI.CreateMenuDropdown(f, "WhoDoesWhatCurseCalcFightDD", 320)
     f.fightDD:SetPoint("LEFT", pickLabel, "RIGHT", -6, -2)
-    UIDropDownMenu_SetWidth(f.fightDD, 320)
-    WhoDoesWhat:StyleDropdown(f.fightDD, true)
 
     -- Fight header + damage breakdown (two aligned columns)
     local y = top + 30
@@ -497,10 +491,8 @@ local function EnsureCalcFrame()
     armorLabel:SetPoint("TOPLEFT", MARGIN, -iy)
     armorLabel:SetText("Boss base armor:")
 
-    f.armorDD = CreateFrame("Frame", "WhoDoesWhatCurseCalcArmorDD", f, "UIDropDownMenuTemplate")
+    f.armorDD = UI.CreateMenuDropdown(f, "WhoDoesWhatCurseCalcArmorDD", 70)
     f.armorDD:SetPoint("LEFT", armorLabel, "RIGHT", -10, -2)
-    UIDropDownMenu_SetWidth(f.armorDD, 70)
-    WhoDoesWhat:StyleDropdown(f.armorDD, true)
     UIDropDownMenu_Initialize(f.armorDD, function(_, level)
         for _, v in ipairs(BOSS_ARMORS) do
             local info = UIDropDownMenu_CreateInfo()
@@ -592,13 +584,8 @@ local function EnsureCalcFrame()
         or "Average extra armor reduction per physical raider from trinkets, enchants"
             .. " (Executioner), and gear (Swarmguard, Madness, armor-pen trinkets). Not"
             .. " auto-detected; leave 0 if you do not want to approximate it."
-    f.penEdit:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Extra armor penetration", 1, 1, 1)
-        GameTooltip:AddLine(self.tooltip, 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    f.penEdit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(f.penEdit, "Extra armor penetration",
+        function(self) return self.tooltip end)
 
     -- Divider above results
     local ry = iy + 172

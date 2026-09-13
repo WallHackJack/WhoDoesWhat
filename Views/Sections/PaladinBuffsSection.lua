@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Paladin Buffs section. Blessings come from the synchronized raid's selected
 -- WDW/PallyPower source, and this section shows the result as one pooled
@@ -61,13 +62,13 @@ local UnhandledDisabledPaladins = A.UnhandledDisabledPaladins
 local PaladinBuffSlots = A.PaladinBuffSlots
 local ShortAssignmentName = A.ShortAssignmentName
 
-local PALLY_ROW_H = K.ROW_H
+local PALLY_ROW_H = UI.ROW_H
 local PALLY_STATUS_GAP = 6
 local PALLY_MAX_BUFFS = 3
 local PALLY_BUFF_ICON = K.ROW_ICON_SIZE
 local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
 local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
-local RULE_ROW_H = K.ROW_H
+local RULE_ROW_H = UI.ROW_H
 local RULE_HEADER_H = 30
 local AUTO_RULE_H = 18
 
@@ -539,7 +540,7 @@ local function AddScopedTargets(level, kind, buffKey)
                 level)
         end
     end
-    K.AddDropdownDivider(level)
+    UI.AddDropdownDivider(level)
     for _, ci in ipairs(WhoDoesWhat.Classes) do
         local info = Target("|cff" .. ci.colorHex .. "All " .. ci.name .. "s|r",
             "class", ci.name)
@@ -641,22 +642,16 @@ local function CreateRuleRow(f, index)
     local state = f.pallySection
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
-    row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, RULE_ROW_H)
-    K.AddRowBackground(row, index)
+    row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, RULE_ROW_H)
+    UI.AddRowBackground(state.box, row, index)
 
     -- Hovering the row explains the rule (RuleTooltip); the [x] and the (!)
     -- are children and keep their own, more specific tooltips.
-    row:EnableMouse(true)
-    row:SetScript("OnEnter", function(self)
-        if not self.tooltipTitle then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.tooltipTitle, 1, 0.82, 0)
-        GameTooltip:AddLine(self.tooltipText, 0.9, 0.9, 0.9, true)
-        GameTooltip:Show()
-    end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(row, function(self)
+        return self.tooltipTitle, self.tooltipText
+    end, nil, nil, true)
 
-    local delBtn = K.CreateCloseButton(row)
+    local delBtn = UI.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
@@ -668,21 +663,15 @@ local function CreateRuleRow(f, index)
         WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshBoardViews()
     end)
-    delBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Remove this rule", 1, 1, 1)
-        GameTooltip:AddLine("Rules can't be edited in place - remove this one"
-            .. " and add it again.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(delBtn, "Remove this rule",
+        "Rules can't be edited in place - remove this one and add it again.")
     row.delBtn = delBtn
 
     -- Warning (!) between the text and [x]: an assign rule whose paladin can't
     -- cast the blessing, or whose `only` no longer matches what they're
     -- running (RuleWarningText). Anchored off [x] so it holds its column
     -- while hidden.
-    local warn = K.CreateWarningIcon(row)
+    local warn = UI.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", delBtn, "LEFT", -4, -2)
     row.warnIcon = warn
 
@@ -704,14 +693,11 @@ end
 -- Summary rows: name column + condensed buff icons + live-status mail
 -- ---------------------------------------------------------------------------
 
-local function PallyBuffSlotEnter(self)
+local function PallyBuffSlotTooltip(self)
     if not self.buffKey then return end
-    local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
-    GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT", 12, 12)
-    GameTooltip:SetText(buff.name_long, 1, 1, 1)
-    GameTooltip:AddLine("Casting on " .. self.buffCount
-        .. (self.buffCount == 1 and " raider" or " raiders"), 0.8, 0.8, 0.8)
-    GameTooltip:Show()
+    return WhoDoesWhat.PaladinBuffs[self.buffKey].name_long,
+        "Casting on " .. self.buffCount
+            .. (self.buffCount == 1 and " raider" or " raiders")
 end
 
 local function CoverageTextColor(correct, total)
@@ -748,12 +734,12 @@ end
 local function CreatePallyRow(state, index)
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
-    row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, PALLY_ROW_H)
-    row:SetPoint("TOPLEFT", K.BOX_PAD,
-        -(K.BOX_PAD + K.SECTION_TITLE_H + PALLY_ROW_H
+    row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, PALLY_ROW_H)
+    row:SetPoint("TOPLEFT", UI.BOX_PAD,
+        -(UI.BOX_PAD + UI.SECTION_TITLE_H + PALLY_ROW_H
             + PALLY_STATUS_GAP
             + (index - 1) * PALLY_ROW_H))
-    K.AddRowBackground(row, index)
+    UI.AddRowBackground(state.box, row, index)
 
     local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     name:SetPoint("LEFT", 4, 0)
@@ -779,9 +765,7 @@ local function CreatePallyRow(state, index)
         icon:SetSize(PALLY_BUFF_ICON, PALLY_BUFF_ICON)
         icon:SetPoint("LEFT", 0, 0)
         slot.icon = icon
-        slot:EnableMouse(true)
-        slot:SetScript("OnEnter", PallyBuffSlotEnter)
-        slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI.AddTooltip(slot, PallyBuffSlotTooltip)
         slot:Hide()
         row.slots[i] = slot
     end
@@ -812,7 +796,7 @@ local function CreatePallyRow(state, index)
 
     -- (!) for a paladin running neither WDW nor PallyPower: their column of
     -- the plan is being computed for someone who has no way to read it.
-    local warn = K.CreateWarningIcon(row)
+    local warn = UI.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", coverageIcon, "LEFT", -2, -1)
     row.warnIcon = warn
 
@@ -912,17 +896,17 @@ function Refresh(f) -- forward declared above
         state.rows[i].paladinName = nil
     end
 
-    local ppRowTop = K.BOX_PAD + K.SECTION_TITLE_H
+    local ppRowTop = UI.BOX_PAD + UI.SECTION_TITLE_H
     state.emptyHint:ClearAllPoints()
-    state.emptyHint:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD + 4,
+    state.emptyHint:SetPoint("TOPLEFT", state.box, "TOPLEFT", UI.BOX_PAD + 4,
         -(ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + 4))
     state.emptyHint:SetShown(#summary == 0)
-    local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or K.DYN_EMPTY_H
+    local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or UI.EMPTY_ROWS_H
 
     -- PallyPower leads the body as a compact, right-aligned status row.
     state.ppArea:ClearAllPoints()
-    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", K.BOX_PAD, -ppRowTop)
-    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD, -ppRowTop)
+    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", UI.BOX_PAD, -ppRowTop)
+    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -UI.BOX_PAD, -ppRowTop)
 
     local ppState, ppText, ppDiffCount
     if #awaiting == 0 then
@@ -1001,10 +985,10 @@ function Refresh(f) -- forward declared above
     local showRules = source ~= "pallypower"
     local ruleHeaderTop = ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + 4
     state.ruleTitle:ClearAllPoints()
-    state.ruleTitle:SetPoint("LEFT", state.box, "TOPLEFT", K.BOX_PAD + 2,
-        -(ruleHeaderTop + K.MAIL_BTN_SIZE / 2 + 3))
+    state.ruleTitle:SetPoint("LEFT", state.box, "TOPLEFT", UI.BOX_PAD + 2,
+        -(ruleHeaderTop + UI.HEADER_BTN_SIZE / 2 + 3))
     state.clearRulesBtn:ClearAllPoints()
-    state.clearRulesBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -K.BOX_PAD,
+    state.clearRulesBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -UI.BOX_PAD,
         -(ruleHeaderTop + 3))
     state.ruleBtn:ClearAllPoints()
     state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
@@ -1023,8 +1007,8 @@ function Refresh(f) -- forward declared above
         state.ruleWarn.tooltipText = DisabledPaladinTooltip(unhandled)
     end
     state.ruleDivider:ClearAllPoints()
-    state.ruleDivider:SetPoint("TOPLEFT", K.BOX_PAD, -(ruleHeaderTop + 28))
-    state.ruleDivider:SetPoint("TOPRIGHT", -K.BOX_PAD, -(ruleHeaderTop + 28))
+    state.ruleDivider:SetPoint("TOPLEFT", UI.BOX_PAD, -(ruleHeaderTop + 28))
+    state.ruleDivider:SetPoint("TOPRIGHT", -UI.BOX_PAD, -(ruleHeaderTop + 28))
     state.ruleDivider:SetShown(showRules)
 
     local rulesTop = ruleHeaderTop + RULE_HEADER_H
@@ -1033,7 +1017,7 @@ function Refresh(f) -- forward declared above
     -- user's rules so a missing Salvation in a battleground isn't a mystery.
     local autoSalv = showRules and PvpSalvationIgnored()
     state.autoRuleText:ClearAllPoints()
-    state.autoRuleText:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 2))
+    state.autoRuleText:SetPoint("TOPLEFT", UI.BOX_PAD + 4, -(rulesTop + 2))
     state.autoRuleText:SetShown(autoSalv)
     local autoH = autoSalv and AUTO_RULE_H or 0
     rulesTop = rulesTop + autoH
@@ -1041,7 +1025,7 @@ function Refresh(f) -- forward declared above
     for i, rule in ipairs(rules) do
         local row = state.ruleRows[i] or CreateRuleRow(f, i)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", K.BOX_PAD, -(rulesTop + (i - 1) * RULE_ROW_H))
+        row:SetPoint("TOPLEFT", UI.BOX_PAD, -(rulesTop + (i - 1) * RULE_ROW_H))
         row:SetShown(showRules)
         row.text:SetText(RuleBuffText(rule) .. " " .. RuleDetailText(rule))
         row.tooltipTitle, row.tooltipText = RuleTooltip(rule)
@@ -1055,14 +1039,14 @@ function Refresh(f) -- forward declared above
     end
 
     state.rulesEmptyHint:ClearAllPoints()
-    state.rulesEmptyHint:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(rulesTop + 4))
+    state.rulesEmptyHint:SetPoint("TOPLEFT", UI.BOX_PAD + 4, -(rulesTop + 4))
     state.rulesEmptyHint:SetShown(showRules and #rules == 0 and not autoSalv)
     local rulesH = (#rules > 0) and (#rules * RULE_ROW_H)
-        or (autoSalv and 2 or K.DYN_EMPTY_H)
+        or (autoSalv and 2 or UI.EMPTY_ROWS_H)
 
-    state.box:SetHeight(showRules and (rulesTop + rulesH + K.BOX_PAD)
-        or (ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + K.BOX_PAD))
-    K.UpdateContentHeight(f)
+    state.box:SetHeight(showRules and (rulesTop + rulesH + UI.BOX_PAD)
+        or (ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + UI.BOX_PAD))
+    K.LayoutColumns(f)
 
     -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
     -- gray title. Developer Mode keeps everything live, same as it
@@ -1081,16 +1065,16 @@ function Refresh(f) -- forward declared above
         btn.disabledReason = reason
     end
     state.clearRulesBtn:SetEnabled(enabled and #rules > 0)
+    state.clearRulesBtn.disabledReason = reason or "No buffing rules to clear."
 
-    K.LayoutHeaderChain(state.headerChain)
+    UI.LayoutHeaderChain(state.box)
 end
 
-local function ShowPallyBuffSourceTooltip(owner)
+local function PallyBuffSourceTooltip()
     local selected = GetPallyBuffSource()
     local wdwColor = selected == "wdw" and "|cffffffff" or "|cff909090"
     local ppColor = selected == "pallypower" and "|cffffffff" or "|cff909090"
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Pally Buff Source", 1, 0.82, 0)
+    GameTooltip:SetText("Pally Buff Source", unpack(UI.TOOLTIP_TITLE))
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("|cffffd100WDW:|r " .. wdwColor
         .. "WhoDoesWhat's auto-assignments are the source of truth for this raid."
@@ -1106,15 +1090,12 @@ local function ShowPallyBuffSourceTooltip(owner)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("This affects WDW Status Bars, WDW buffing buttons, and"
         .. " the buff progress shown above.", 0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
+    return true
 end
 
 local function CreatePallyBuffSourceDropdown(parent)
-    local sourceDD = CreateFrame("Frame", "WhoDoesWhatPallyBuffSourceDD", parent,
-        "UIDropDownMenuTemplate")
+    local sourceDD = UI.CreateMenuDropdown(parent, "WhoDoesWhatPallyBuffSourceDD", 90)
     sourceDD:SetPoint("LEFT", parent, "LEFT", -15, -3)
-    UIDropDownMenu_SetWidth(sourceDD, 90)
-    K.LeftAlignDropdown(sourceDD)
     UIDropDownMenu_Initialize(sourceDD, function(_, level)
         local saved = GetPallyBuffSource()
         for _, option in ipairs(PALLY_BUFF_SOURCES) do
@@ -1132,15 +1113,7 @@ local function CreatePallyBuffSourceDropdown(parent)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    sourceDD:EnableMouse(true)
-    sourceDD:SetScript("OnEnter", function() ShowPallyBuffSourceTooltip(sourceDD) end)
-    sourceDD:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    local sourceButton = _G[sourceDD:GetName() .. "Button"]
-    if sourceButton then
-        sourceButton:HookScript("OnEnter",
-            function() ShowPallyBuffSourceTooltip(sourceDD) end)
-        sourceButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    end
+    UI.AddDropdownTooltip(sourceDD, nil, PallyBuffSourceTooltip)
     return sourceDD
 end
 
@@ -1148,22 +1121,17 @@ local function CreatePallyPowerArea(box)
     local area = CreateFrame("Frame", nil, box)
     area:SetHeight(PALLY_ROW_H)
     area:SetFrameLevel(box:GetFrameLevel() + 1)
-    area:EnableMouse(true)
-    area:SetScript("OnEnter", function(self)
+    UI.AddTooltip(area, function(self)
         if not self.tooltipText then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.tooltipTitle or "Paladin Buffs", 1, 0.82, 0)
-        GameTooltip:AddLine(self.tooltipText, 0.9, 0.9, 0.9, true)
-        GameTooltip:Show()
+        return self.tooltipTitle or "Paladin Buffs", self.tooltipText
     end)
-    area:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local icon = area:CreateTexture(nil, "ARTWORK")
     icon:SetSize(16, 16)
 
     local status = area:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 
-    local apply = K.AddHeaderTextButton(area, area, "Fix",
+    local apply = UI.CreateTextButton(area, "Fix",
         "Send fixes to PallyPower",
         "Broadcast the optimized WDW blessing plan and update the local PP mirror.", function()
             WhoDoesWhat:SyncToPallyPower()
@@ -1171,7 +1139,7 @@ local function CreatePallyPowerArea(box)
             WhoDoesWhat:RefreshStatusBarsView()
         end)
 
-    local diff = K.AddHeaderTextButton(area, apply, "Diffs",
+    local diff = UI.CreateTextButton(area, "Diffs",
         "Show PallyPower differences",
         "Open the detailed comparison between WDW and PallyPower.", function()
             WhoDoesWhat:OpenPallyPowerDiffView()
@@ -1194,7 +1162,7 @@ local function Build(f, content)
 
     local sourceArea = CreateFrame("Frame", nil, box)
     sourceArea:SetFrameLevel(box:GetFrameLevel() + 1)
-    sourceArea:SetSize(145, K.MAIL_BTN_SIZE)
+    sourceArea:SetSize(145, UI.HEADER_BTN_SIZE)
     local sourceLabel = sourceArea:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sourceLabel:SetPoint("LEFT", sourceArea, "LEFT", 0, 0)
     sourceLabel:SetText("Mode:")
@@ -1210,7 +1178,7 @@ local function Build(f, content)
     ruleDivider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
     ruleDivider:SetHeight(1)
 
-    local clearRulesBtn = K.CreateCloseButton(box, nil, 0.25)
+    local clearRulesBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearRulesBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
         wipe(GetBuffRules())
@@ -1218,30 +1186,18 @@ local function Build(f, content)
         WhoDoesWhat:RefreshMainAssignmentsView()
         WhoDoesWhat:RefreshBoardViews()
     end)
-    clearRulesBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self:IsEnabled() then
-            GameTooltip:SetText("Clear buffing rules", 1, 1, 1)
-            GameTooltip:AddLine("Remove every buffing rule.", 0.8, 0.8, 0.8, true)
-        elseif self.disabledReason then
-            GameTooltip:SetText(self.disabledReason, 0.6, 0.6, 0.6)
-        else
-            GameTooltip:SetText("No buffing rules to clear", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    clearRulesBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(clearRulesBtn, "Clear buffing rules", "Remove every buffing rule.")
 
     local ruleBtn
-    ruleBtn = K.AddHeaderTextButton(box, clearRulesBtn, "Add (+)", "Add a buffing rule",
+    ruleBtn = UI.CreateTextButton(box, "Add (+)", "Add a buffing rule",
         "Add a rule to influence paladin buff assignments.", function()
             if not WhoDoesWhat:RequireEditPermission() then return end
             OpenAddRuleMenu(ruleBtn)
         end)
 
-    local ruleWarn = K.CreateWarningIcon(box)
+    local ruleWarn = UI.CreateWarningIcon(box)
 
-    local hint = K.CreateEmptyHint(box)
+    local hint = UI.CreateEmptyHint(box)
     hint:SetText("No paladins in the group.")
 
     local rulesEmptyHint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")

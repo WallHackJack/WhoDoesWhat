@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Main /wdw window: two scrollable columns of boxed assignment sections.
 --
@@ -37,7 +38,7 @@ local mainFrame = nil
 local MAX_FRAME_H = 550
 local MIN_FRAME_H = 130
 local MARGIN = 12
-local SCROLLBAR_W = 26
+local SCROLLBAR_W = UI.SCROLLBAR_W
 local BUTTON_ROW_H = 22
 local TOOLBAR_PAD = 6
 local TOOLBAR_H = BUTTON_ROW_H + TOOLBAR_PAD * 2
@@ -221,11 +222,10 @@ local function ApplyViewMode(f)
             box:SetShown(full or box == keep)
         end
     end
-    K.LayoutColumnBoxes(f)
-    K.UpdateContentHeight(f)
+    K.LayoutColumns(f)
 
     -- Auto-fit the window to the content: short in Paladin-only view, taller
-    -- (up to MAX, then it scrolls) for the full board. UpdateContentHeight
+    -- (up to MAX, then it scrolls) for the full board. LayoutColumns
     -- already trailed a SECTION_GAP after the last box, so that doubles as the
     -- bottom margin.
     local desired = f.scrollTop + f.content:GetHeight() + MARGIN
@@ -304,7 +304,6 @@ end
 local function UpdateVersionWarning(f)
     if not f.versionWarn then return end
     local current = Sync:GetReportedAddonVersion()
-    f.titleText:SetText("WhoDoesWhat (v" .. current .. ")")
     local newer = Sync:GetNewerAddonVersions()
     if #newer == 0 then
         f.versionWarn.tooltipText = nil
@@ -340,18 +339,8 @@ local function RefreshAll(f)
 end
 
 local function CreateToolbarButton(f, text, width, title, body, onClick)
-    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local btn = UI.CreateTextButton(f, text, title, body, onClick)
     btn:SetSize(width, BUTTON_ROW_H)
-    btn:SetText(text)
-    btn:SetMotionScriptsWhileDisabled(true)
-    btn:SetScript("OnClick", onClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(title, 1, 1, 1)
-        GameTooltip:AddLine(self.disabledReason or body, 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return btn
 end
 
@@ -362,14 +351,10 @@ end
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H,
-        "WhoDoesWhat (v" .. Sync:GetReportedAddonVersion() .. ")")
+    local f = UI.CreateWindow("WhoDoesWhatMainFrame", FRAME_W, MAX_FRAME_H,
+        "WhoDoesWhat", { version = true })
     f.closeButton:SetHitRectInsets(4, 4, 4, 4)
-    -- Center the title in the bar (the shared chrome left-aligns it); anchored
-    -- to the window's top so it re-centers when the width changes per view mode.
-    f.titleText:ClearAllPoints()
-    f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
-    local versionWarn = K.CreateWarningIcon(f)
+    local versionWarn = UI.CreateWarningIcon(f)
     versionWarn:SetPoint("LEFT", f.titleText, "RIGHT", 4, 0)
     f.versionWarn = versionWarn
     local top = f.titleBarHeight + 10
@@ -430,13 +415,7 @@ local function EnsureMainFrame()
     settingsBtn:SetPushedTexture(OPTIONS_BUTTON .. "Down.tga")
     settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
     settingsBtn:SetScript("OnClick", function() WhoDoesWhat:OpenAddonSettingsView() end)
-    settingsBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Settings", 1, 1, 1)
-        GameTooltip:AddLine("Open WhoDoesWhat settings.", 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    settingsBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(settingsBtn, "Settings", "Open WhoDoesWhat settings.")
 
     -- Bigger opens the full board; Smaller collapses to Paladin Buffs only.
     local viewToggleBtn = CreateFrame("Button", nil, f)
@@ -450,23 +429,17 @@ local function EnsureMainFrame()
         WhoDoesWhat:LogUiBuilding("Paladin-only view " .. (s.paladinOnlyView and "enabled." or "disabled."))
         RefreshAll(f)
     end)
-    viewToggleBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(self.tooltipTitle, 1, 1, 1)
-        GameTooltip:AddLine(self.tooltipText, 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
+    UI.AddTooltip(viewToggleBtn, function(self)
+        return self.tooltipTitle, self.tooltipText
     end)
-    viewToggleBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.viewToggleBtn = viewToggleBtn
 
     -- Editing-permission strip: the raid leader sees the picker, other raid
     -- members a read-only note, and
     -- outside raids both hide (UpdatePermissionControls decides each refresh).
-    local permDD = CreateFrame("Frame", "WhoDoesWhatPermissionsDD", f, "UIDropDownMenuTemplate")
+    local permDD = UI.CreateMenuDropdown(f, "WhoDoesWhatPermissionsDD", 170)
     permDD:SetPoint("LEFT", f, "TOPLEFT", MARGIN - 15,
         -(top + TOOLBAR_H / 2 + 2)) -- template overhangs ~15px left
-    UIDropDownMenu_SetWidth(permDD, 170)
-    K.LeftAlignDropdown(permDD)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
     permDD:Hide()
     f.permDD = permDD
@@ -479,37 +452,14 @@ local function EnsureMainFrame()
     local scrollTop = top + TOOLBAR_H + 8
     f.scrollTop = scrollTop -- chrome above the scroll area; ApplyViewMode sizes to it
 
-    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatMainScroll", f, "UIPanelScrollFrameTemplate")
+    -- The content keeps the full two-column width even while Paladin-only view
+    -- narrows the viewport around the left column.
+    local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMainScroll", true)
     scroll:SetPoint("TOPLEFT", MARGIN, -scrollTop)
-    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), MARGIN)
-    local scrollBar = _G[scroll:GetName() .. "ScrollBar"]
-    if scrollBar then
-        -- AceGUI's textured slider backdrop, placed one frame level behind the
-        -- native scrollbar so the template's arrows and thumb stay on top.
-        local scrollTrack = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
-        scrollTrack:SetAllPoints(scrollBar)
-        scrollTrack:SetFrameLevel(math.max(scroll:GetFrameLevel(),
-            scrollBar:GetFrameLevel() - 1))
-        scrollTrack:SetBackdrop({
-            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-            tile = true, tileSize = 8, edgeSize = 8,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-    end
-
-    local content = CreateFrame("Frame", nil, scroll)
-    -- A scroll child with no anchor point has an indeterminate rect until
-    -- something forces a re-layout -- the "nothing renders until the window
-    -- is moved" bug. Pin it explicitly.
-    content:SetPoint("TOPLEFT")
+    scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + UI.SCROLLBAR_W), MARGIN)
     content:SetWidth(CONTENT_W)
-    scroll:SetScrollChild(content)
     f.content = content
     f.scroll = scroll
-    -- Hide the bar whenever content fits; the gutter remains reserved so the
-    -- template never spills outside the window when it appears.
-    scroll.scrollBarHideable = 1
 
     WhoDoesWhat:LogUiBuilding("Building main assignments content.")
 

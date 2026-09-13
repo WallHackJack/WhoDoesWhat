@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- CC Assignments section: user-grown rows added with the header's "Add (+)"
 -- and removed with each row's [x] (or the header X clear-all, behind a
@@ -75,17 +76,15 @@ end
 -- up by index at click time.
 local function CreateRow(f, index)
     local state = f.ccSection
-    local row = K.CreateSectionRow(state.box, index)
+    local row = UI.CreateSectionRow(state.box, index)
     row.entryIndex = index
     local function Entry() return GetEntries(SECTION)[row.entryIndex] end
 
     -- UIDropDownMenu carries ~15px of transparent padding each side, so the
     -- frame hangs left of the row to land its visible box at the same x=4
     -- other sections start on. Everything to the right anchors off it.
-    local playerDD = CreateFrame("Frame", "WhoDoesWhatccPlayerDD" .. index, row, "UIDropDownMenuTemplate")
+    local playerDD = UI.CreateMenuDropdown(row, "WhoDoesWhatccPlayerDD" .. index, K.DYN_PLAYER_DD_WIDTH)
     playerDD:SetPoint("LEFT", row, "LEFT", -11, -2)
-    UIDropDownMenu_SetWidth(playerDD, K.DYN_PLAYER_DD_WIDTH)
-    K.LeftAlignDropdown(playerDD)
     UIDropDownMenu_Initialize(playerDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -108,10 +107,8 @@ local function CreateRow(f, index)
 
     -- Spell picker. The list is class-ordered, so a divider on each class
     -- change keeps a long list scannable.
-    local spellDD = CreateFrame("Frame", "WhoDoesWhatccSpellDD" .. index, row, "UIDropDownMenuTemplate")
+    local spellDD = UI.CreateMenuDropdown(row, "WhoDoesWhatccSpellDD" .. index, K.DYN_SPELL_DD_WIDTH)
     spellDD:SetPoint("LEFT", playerDD, "RIGHT", -30, 0)
-    UIDropDownMenu_SetWidth(spellDD, K.DYN_SPELL_DD_WIDTH)
-    K.LeftAlignDropdown(spellDD)
     UIDropDownMenu_Initialize(spellDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -133,7 +130,7 @@ local function CreateRow(f, index)
         local lastClass
         for _, spell in ipairs(spells) do
             if lastClass and spell.class ~= lastClass then
-                K.AddDropdownDivider(level)
+                UI.AddDropdownDivider(level)
             end
             lastClass = spell.class
             local info = UIDropDownMenu_CreateInfo()
@@ -150,10 +147,8 @@ local function CreateRow(f, index)
 
     -- Single-marker radio dropdown: the eight markers plus Custom. No
     -- "Everything else" here -- CC lands on one target.
-    local markerDD = CreateFrame("Frame", "WhoDoesWhatccMarkerDD" .. index, row, "UIDropDownMenuTemplate")
+    local markerDD = UI.CreateMenuDropdown(row, "WhoDoesWhatccMarkerDD" .. index, K.MARKER_DD_WIDTH)
     markerDD:SetPoint("LEFT", spellDD, "RIGHT", -30, 0)
-    UIDropDownMenu_SetWidth(markerDD, K.MARKER_DD_WIDTH)
-    K.LeftAlignDropdown(markerDD)
     UIDropDownMenu_Initialize(markerDD, function(_, level)
         local entry = Entry()
         if not entry then return end
@@ -170,7 +165,7 @@ local function CreateRow(f, index)
             UIDropDownMenu_AddButton(info, level)
         end
 
-        K.AddDropdownDivider(level)
+        UI.AddDropdownDivider(level)
 
         local info = UIDropDownMenu_CreateInfo()
         info.text = "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom..."
@@ -186,19 +181,14 @@ local function CreateRow(f, index)
 
     -- Right-hand controls, left to right: (!) [mail] [x]. The delete X sits at
     -- the far right (its own column, matching the rule rows' X).
-    local delBtn = K.CreateCloseButton(row)
+    local delBtn = UI.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
         table.remove(GetEntries(SECTION), row.entryIndex)
         WhoDoesWhat:LogOperation(SECTION.title .. ": " .. SECTION.noun .. " removed.")
         Refresh(f)
     end)
-    delBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Remove this assignment", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AddTooltip(delBtn, "Remove this assignment")
     row.delBtn = delBtn
 
     row.mailBtn = K.CreateMailButton(row, function()
@@ -214,7 +204,7 @@ local function CreateRow(f, index)
     -- Warning (!) left of the buttons. Anchored off the mail button rather than
     -- the row, so it holds its column while hidden and nothing shifts as
     -- warnings come and go.
-    local warn = K.CreateWarningIcon(row)
+    local warn = UI.CreateWarningIcon(row)
     warn:SetPoint("RIGHT", row.mailBtn, "LEFT", -4, -2)
     row.warnIcon = warn
 
@@ -326,12 +316,12 @@ function Refresh(f) -- forward declared above
     state.plusBtn:SetShown(editable)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(#entries > 0)
-    K.LayoutHeaderChain(state.headerChain)
+    UI.LayoutHeaderChain(state.box)
 
-    local rowsH = (#visible > 0) and (#visible * K.ROW_H) or K.DYN_EMPTY_H
-    state.box:SetHeight(K.BOX_PAD + K.SECTION_TITLE_H + rowsH + K.BOX_PAD)
+    local rowsH = (#visible > 0) and (#visible * UI.ROW_H) or UI.EMPTY_ROWS_H
+    state.box:SetHeight(UI.BOX_PAD + UI.SECTION_TITLE_H + rowsH + UI.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
-    K.UpdateContentHeight(f)
+    K.LayoutColumns(f)
 end
 
 local function Build(f, content)
@@ -346,8 +336,7 @@ local function Build(f, content)
     -- (and saying so) while there's nothing to clear.
     -- Slightly smaller glyph than the row X's (grow 0.25 vs 0.3) -- same 22px
     -- frame, so it still lines up with the mail column.
-    local clearBtn = K.CreateCloseButton(box, nil, 0.25)
-    clearBtn:SetPoint("RIGHT", chrome.mailBtn, "LEFT", -2, 0)
+    local clearBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
         StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
         StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
@@ -357,18 +346,9 @@ local function Build(f, content)
                 Refresh(f)
             end)
     end)
-    clearBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self:IsEnabled() then
-            GameTooltip:SetText("Clear this section", 1, 1, 1)
-            GameTooltip:AddLine("Remove every " .. SECTION.noun .. " (asks first).",
-                0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:SetText("Nothing to clear", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    clearBtn.disabledReason = "Nothing to clear."
+    UI.AddTooltip(clearBtn, "Clear this section",
+        "Remove every " .. SECTION.noun .. " (asks first).")
     -- Insert at the front of the chain (rightmost) so the clear-all X sits at
     -- the far right with the mail button to its left -- matching the rows'
     -- [mail][x] order below.
@@ -376,7 +356,7 @@ local function Build(f, content)
 
     -- "Add (+)" appends an empty row, starting on the first marker no
     -- sibling row is using yet.
-    local plusBtn = K.AddHeaderTextButton(box, clearBtn, "Add (+)",
+    local plusBtn = UI.CreateTextButton(box, "Add (+)",
         "Add a " .. SECTION.noun,
         "Append an empty " .. SECTION.noun .. " row.", function()
             local entries = GetEntries(SECTION)
@@ -386,7 +366,7 @@ local function Build(f, content)
         end) -- hidden without edit permission
     K.ChainHeaderButton(chrome, plusBtn)
 
-    local hint = K.CreateEmptyHint(box)
+    local hint = UI.CreateEmptyHint(box)
 
     f.ccSection = {
         box = box,

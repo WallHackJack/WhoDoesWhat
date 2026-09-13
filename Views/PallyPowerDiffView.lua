@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Side-by-side paladin-buff grids for the players whose current PallyPower
 -- coverage differs from WhoDoesWhat's suggested plan. Above each grid's
@@ -18,7 +19,7 @@ local COMPACT_H = 54
 local MARGIN = 10
 local BOTTOM_STRIP = 30
 local WARNING_H = 34
-local SCROLLBAR_W = 26
+local SCROLLBAR_W = UI.SCROLLBAR_W
 local SCROLLBAR_GAP = 8
 local GRID_GAP = 6
 local PLAYER_COL_W = 116
@@ -195,10 +196,7 @@ local function CreatePaladinHeader(content, side, index)
         if self.paladinMember and not self.paladinMember.isTestFallback then
             WhoDoesWhat:ShowRaiderTooltip(self, self.paladin)
         else
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(self.paladin, 1, 1, 1)
-            GameTooltip:AddLine("Simulated Paladin", 0.8, 0.8, 0.8)
-            GameTooltip:Show()
+            UI.ShowTooltip(self, self.paladin, "Simulated Paladin")
         end
     end)
     header:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
@@ -227,11 +225,8 @@ local function CreateComparisonRow(content, side, index)
         name:SetJustifyH("LEFT")
         row.name = name
 
-        local dropdown = CreateFrame("Frame",
-            "WhoDoesWhatPpDiffRoleDD" .. index, row, "UIDropDownMenuTemplate")
+        local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatPpDiffRoleDD" .. index, ROLE_COL_W - 14)
         dropdown:SetPoint("LEFT", row, "LEFT", PLAYER_COL_W - 16, -2)
-        UIDropDownMenu_SetWidth(dropdown, ROLE_COL_W - 14)
-        K.LeftAlignDropdown(dropdown)
         UIDropDownMenu_Initialize(dropdown, function(_, level)
             local member, data, frame = row.member, row.data, row.ownerFrame
             if not member or not member.classInfo then return end
@@ -273,9 +268,8 @@ local function CreatePlanCell(row, index)
     empty:SetPoint("CENTER")
     empty:Hide()
     cell.empty = empty
-    cell:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.paladin, 1, 1, 1)
+    UI.AddTooltip(cell, function(self)
+        GameTooltip:SetText(self.paladin, unpack(UI.TOOLTIP_TITLE))
         if self.buffKey then
             GameTooltip:AddLine(self.sourceLabel .. ": "
                 .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
@@ -294,9 +288,8 @@ local function CreatePlanCell(row, index)
                 or { 1, 0.82, 0 }
             GameTooltip:AddLine(self.alertMessage, color[1], color[2], color[3], true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.cells[index] = cell
     return cell
 end
@@ -305,7 +298,6 @@ local function CreateFixButton(content, index)
     local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     button:SetSize(FIX_W, 20)
     button:SetText("Fix")
-    button:SetMotionScriptsWhileDisabled(true)
     button:SetScript("OnClick", function(self)
         if not self.member or self.isDemo then return end
         if WhoDoesWhat:FixPlayerBuffsInPallyPower(self.member.planName) then
@@ -313,10 +305,9 @@ local function CreateFixButton(content, index)
         end
         RenderDiffs(self.ownerFrame)
     end)
-    button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    UI.AddTooltip(button, function(self)
         GameTooltip:SetText("Fix " .. (self.member and self.member.displayName or "row"),
-            1, 1, 1)
+            unpack(UI.TOOLTIP_TITLE))
         if self.isDemo then
             GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
         elseif self.member and self.member.needsRole then
@@ -332,9 +323,8 @@ local function CreateFixButton(content, index)
             GameTooltip:AddLine("Send only this player's WDW blessing plan to PallyPower.",
                 0.8, 0.8, 0.8, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     content.fixButtons[index] = button
     return button
 end
@@ -408,15 +398,11 @@ local function BuffSpread(plan, paladinName)
     return spread
 end
 
-local function SummarySlotEnter(self)
+local function SummarySlotTooltip(self)
     if not self.buffKey then return end
-    local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText(buff.name_long, 1, 1, 1)
-    GameTooltip:AddLine(self.sourceLabel .. ": " .. self.paladin .. " blesses "
-        .. self.buffCount .. (self.buffCount == 1 and " raider" or " raiders")
-        .. ".", 0.8, 0.8, 0.8, true)
-    GameTooltip:Show()
+    return WhoDoesWhat.PaladinBuffs[self.buffKey].name_long,
+        self.sourceLabel .. ": " .. self.paladin .. " blesses " .. self.buffCount
+            .. (self.buffCount == 1 and " raider" or " raiders") .. "."
 end
 
 local function CreateSummaryRow(f, index)
@@ -448,9 +434,7 @@ local function CreateSummaryRow(f, index)
             icon:SetSize(SUMMARY_ICON, SUMMARY_ICON)
             icon:SetPoint("LEFT")
             slot.icon = icon
-            slot:EnableMouse(true)
-            slot:SetScript("OnEnter", SummarySlotEnter)
-            slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            UI.AddTooltip(slot, SummarySlotTooltip)
             slot:Hide()
             slots[i] = slot
         end
@@ -761,10 +745,8 @@ local function RenderGrid(f, data)
         f.content.fixButtons[index].member = nil
     end
 
-    f.content:SetHeight(bodyHeight)
     f.scroll:SetVerticalScroll(0)
-    f.scroll:UpdateScrollChildRect()
-    K.UpdatePaladinGridScroll(f.scroll, bodyHeight)
+    UI.SetScrollHeight(f.scroll, bodyHeight)
 end
 
 RenderDiffs = function(f)
@@ -802,16 +784,13 @@ end
 local function EnsureFrame()
     if diffFrame then return diffFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatPallyPowerDiffFrame",
+    local f = UI.CreateWindow("WhoDoesWhatPallyPowerDiffFrame",
         COMPACT_W, COMPACT_H, "Paladin Assignment Differences")
-    f.titleText:ClearAllPoints()
-    f.titleText:SetPoint("CENTER", f, "TOP", 0, -(f.titleBarHeight / 2 + 5))
 
     local sendBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     sendBtn:SetSize(130, 22)
     sendBtn:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
     sendBtn:SetText("Fix All (0)")
-    sendBtn:SetMotionScriptsWhileDisabled(true)
     sendBtn:SetScript("OnClick", function()
         if f.demoData then return end
         StaticPopup_Hide("WHODOESWHAT_FIX_ALL_PALLYPOWER")
@@ -824,9 +803,8 @@ local function EnsureFrame()
                 end
             end)
     end)
-    sendBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Fix all PallyPower assignments", 1, 1, 1)
+    UI.AddTooltip(sendBtn, function(self)
+        GameTooltip:SetText("Fix all PallyPower assignments", unpack(UI.TOOLTIP_TITLE))
         if f.demoData then
             GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
         elseif self.noneFixable then
@@ -844,9 +822,8 @@ local function EnsureFrame()
                 .. " PallyPower clients and update WDW's local mirror.",
                 0.8, 0.8, 0.8, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    sendBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.sendBtn = sendBtn
 
     local secondary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -872,8 +849,8 @@ local function EnsureFrame()
     f.warning = warning
 
     local header = CreateFrame("Frame", nil, f)
-    local scroll, content = K.CreatePaladinGridScroll(f,
-        "WhoDoesWhatPallyPowerDiffScroll")
+    local scroll, content = UI.CreateScroll(f,
+        "WhoDoesWhatPallyPowerDiffScroll", true)
     f.header = header
     f.scroll = scroll
     f.content = content

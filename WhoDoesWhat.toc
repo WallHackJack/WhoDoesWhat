@@ -35,6 +35,8 @@ Libs\LibClassicInspector\LibClassicInspector.lua
 Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 
 # --- Main ---
+# WallhackUiKit.lua first: it needs nothing, and every view builds on ns.UI.
+WallhackUiKit.lua
 Core.lua
 Releases.lua
 Profiling.lua
@@ -50,7 +52,6 @@ ActionItems.lua
 FakeRaid.lua
 Sync.lua
 PallyPowerBridge.lua
-WdwFrame.lua
 UnitMenuExtensions.lua
 UnitTooltipExtensions.lua
 ItemTooltipExtensions.lua

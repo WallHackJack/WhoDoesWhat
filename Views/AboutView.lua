@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- About, contact, and release notes. WoW cannot open arbitrary web links, so
 -- link buttons place their value in one copy-ready field instead.
@@ -9,7 +10,7 @@ local FRAME_W = 500
 local FRAME_H = 430
 local MARGIN = 14
 -- Same gutter the main window and Members reserve for their scrollbars.
-local SCROLLBAR_W = 26
+local SCROLLBAR_W = UI.SCROLLBAR_W
 -- Padding between the notes well's edge and the text inside it.
 local WELL_PAD = 8
 -- The notes column: the box spans the window inside its margins, the well sits
@@ -64,17 +65,17 @@ local function SelectRelease(f, release)
         lines[#lines + 1] = "|cffd8d8d8- " .. note .. "|r"
     end
     f.releaseNotes:SetText(table.concat(lines, "\n\n"))
-    -- The scroll child is only ever as tall as the notes it holds, so the
-    -- template can drop the bar entirely on a short release. A new release
-    -- starts at its first line rather than wherever the last one was left.
-    f.releaseContent:SetHeight(f.releaseNotes:GetStringHeight() + 4)
+    -- The scroll child is only ever as tall as the notes it holds, so the bar
+    -- drops away entirely on a short release. A new release starts at its
+    -- first line rather than wherever the last one was left.
+    UI.SetScrollHeight(f.releaseScroll, f.releaseNotes:GetStringHeight() + 4)
     f.releaseScroll:SetVerticalScroll(0)
 end
 
 local function EnsureAboutFrame()
     if aboutFrame then return aboutFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatAboutFrame", FRAME_W,
+    local f = UI.CreateWindow("WhoDoesWhatAboutFrame", FRAME_W,
         FRAME_H, "WhoDoesWhat - About & Updates")
     local y = f.titleBarHeight + 16
 
@@ -172,11 +173,8 @@ local function EnsureAboutFrame()
     versionLabel:SetPoint("LEFT", updatesTitle, "RIGHT", 18, 0)
     versionLabel:SetText("Version:")
 
-    local releaseDD = CreateFrame("Frame", "WhoDoesWhatAboutReleaseDD", updatesBox,
-        "UIDropDownMenuTemplate")
+    local releaseDD = UI.CreateMenuDropdown(updatesBox, "WhoDoesWhatAboutReleaseDD", 82)
     releaseDD:SetPoint("LEFT", versionLabel, "RIGHT", -11, -2)
-    UIDropDownMenu_SetWidth(releaseDD, 82)
-    WhoDoesWhat:StyleDropdown(releaseDD, true)
     UIDropDownMenu_Initialize(releaseDD, function(_, level)
         for _, release in ipairs(RELEASES) do
             local selected = release
@@ -204,40 +202,11 @@ local function EnsureAboutFrame()
     notesWell:SetPoint("BOTTOMRIGHT", -12, 10)
     SetPanelBackdrop(notesWell, true)
 
-    local scroll = CreateFrame("ScrollFrame", "WhoDoesWhatAboutNotesScroll",
-        notesWell, "UIPanelScrollFrameTemplate")
+    local scroll, content = UI.CreateScroll(notesWell, "WhoDoesWhatAboutNotesScroll", true)
     scroll:SetPoint("TOPLEFT", WELL_PAD, -WELL_PAD)
     scroll:SetPoint("BOTTOMRIGHT", -(WELL_PAD + SCROLLBAR_W), WELL_PAD)
-    scroll.scrollBarHideable = true
-    f.releaseScroll = scroll
-
-    -- The template's scrollbar is arrows and a thumb over nothing, so on a dark
-    -- well there is no track to see the thumb travel along. AceGUI's slider art
-    -- supplies one, a frame level behind the bar so the arrows stay on top, and
-    -- it follows the bar in and out of view.
-    local scrollBar = _G[scroll:GetName() .. "ScrollBar"]
-    if scrollBar then
-        local track = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
-        track:SetAllPoints(scrollBar)
-        track:SetFrameLevel(math.max(scroll:GetFrameLevel(),
-            scrollBar:GetFrameLevel() - 1))
-        track:SetBackdrop({
-            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-            tile = true, tileSize = 8, edgeSize = 8,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        scrollBar:HookScript("OnShow", function() track:Show() end)
-        scrollBar:HookScript("OnHide", function() track:Hide() end)
-        track:SetShown(scrollBar:IsShown())
-    end
-
-    local content = CreateFrame("Frame", nil, scroll)
-    -- Pin the scroll child explicitly or nothing renders until the window
-    -- moves (same fix as the main view).
-    content:SetPoint("TOPLEFT")
     content:SetWidth(NOTES_W)
-    scroll:SetScrollChild(content)
+    f.releaseScroll = scroll
     f.releaseContent = content
 
     local releaseNotes = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

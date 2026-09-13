@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 local AceGUI = LibStub("AceGUI-3.0")
 
 -- The Roles window: every role WDW knows, by class, plus your own custom ones.
@@ -40,7 +41,7 @@ local PAD_END_OF_CLASS = 8 -- gap after a class before the next divider
 -- Frame geometry
 local FRAME_W = 380
 local FRAME_H = 500
-local TITLEBAR_H = 22
+local TITLEBAR_H = UI.TITLEBAR_H
 local MARGIN = 10
 local OPTIONS_TOP = TITLEBAR_H + MARGIN -- y (from top) where the options box sits
 local OPTIONS_H = 32
@@ -170,7 +171,7 @@ end
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
-    local f = WhoDoesWhat:CreateWindowFrame("WhoDoesWhatFrame", FRAME_W, FRAME_H, "WDW - Roles")
+    local f = UI.CreateWindow("WhoDoesWhatFrame", FRAME_W, FRAME_H, "WDW - Roles")
 
     -- Persistent lighter options box (child of our frame, never pooled)
     local optionsBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
@@ -188,20 +189,13 @@ local function EnsureMainFrame()
 
     -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
     -- never releases the widget mid-callback).
-    local check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    check:SetSize(22, 22)
-    check:SetPoint("LEFT", optionsBox, "LEFT", 8, 0)
-
-    local checkLabel = check:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    checkLabel:SetPoint("LEFT", check, "RIGHT", 2, 0)
-    checkLabel:SetText("Expand Roles")
-
-    check:SetScript("OnClick", function(self)
+    local check = UI.CreateCheckbox(f, "Expand Roles", nil, nil, function(self)
         local value = self:GetChecked() and true or false
         WhoDoesWhat.db.profile.expandRoles = value
         WhoDoesWhat:LogUiBuilding("Expand Roles toggled to " .. tostring(value) .. "; rebuilding roles.")
         WhoDoesWhat:RebuildAllRolesView()
-    end)
+    end, { size = 22, font = "GameFontHighlight", gap = 2 })
+    check:SetPoint("LEFT", optionsBox, "LEFT", 8, 0)
     f.expandCheck = check
 
     -- Create Role, right-aligned in the same strip. Its tooltip is written for
@@ -217,9 +211,8 @@ local function EnsureMainFrame()
     createBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenCustomizerForNewRole()
     end)
-    createBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Create a custom role", 1, 1, 1)
+    UI.AddTooltip(createBtn, function(self)
+        GameTooltip:SetText("Create a custom role", unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine("A role is the job a raider is doing -- Frost Mage,"
             .. " Protection Warrior, Holy Priest. WhoDoesWhat uses it to work"
             .. " out which paladin blessings they should get and whether they"
@@ -229,9 +222,8 @@ local function EnsureMainFrame()
             .. " Make your own when a raider's job needs its own name or its own"
             .. " blessings -- an off-tank, a decurser, a kite duty.",
             0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
+        return true
     end)
-    createBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.createButton = createBtn
 
     -- "Reset all" used to live here, when this window owned per-profile buff

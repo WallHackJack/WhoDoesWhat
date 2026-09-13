@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Custom Roles section: every role this raid has changed, and the only place a
 -- blessing order deviates from the defaults.
@@ -38,9 +39,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 local K = WhoDoesWhat.SectionKit
 
-local ROW_H = K.ROW_H
-
-local GEAR_ICON = "Interface\\Buttons\\UI-OptionsButton"
+local ROW_H = UI.ROW_H
 
 local Refresh -- forward declaration; CreateCustomRoleRow is defined above it
 
@@ -254,7 +253,7 @@ local function InitAddCustomRoleMenu(_, level)
             info.disabled = true
             UIDropDownMenu_AddButton(info, level)
         end
-        K.AddDropdownDivider(level)
+        UI.AddDropdownDivider(level)
 
         -- Built-in roles can't be edited in place, so retuning one for the raid
         -- is putting an override of it on this list.
@@ -294,38 +293,16 @@ local function OpenAddCustomRoleMenu(button)
     ToggleDropDownMenu(1, nil, addCustomRoleMenu, button, 0, 0)
 end
 
--- A gear button. Used for both "edit this role" on a row and "edit your role
--- library" in the header strip, so the two read as the same kind of action and
--- sit in the same column down the right edge of the box.
-local function CreateGearButton(parent, tooltipTitle, tooltipText, OnClick)
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    btn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-    btn:SetText("")
-    local icon = btn:CreateTexture(nil, "OVERLAY")
-    icon:SetSize(14, 14)
-    icon:SetPoint("CENTER", 0, 0)
-    icon:SetTexture(GEAR_ICON)
-    btn:SetScript("OnClick", OnClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(tooltipTitle, 1, 1, 1)
-        GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
-end
-
 -- Build pooled custom-role row #index. Position comes from Refresh; the buttons
 -- look their role up by index at click time.
 local function CreateCustomRoleRow(f, index)
     local state = f.customRolesSection
     local row = CreateFrame("Frame", nil, state.box)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
-    row:SetSize(state.box:GetWidth() - K.BOX_PAD * 2, ROW_H)
-    K.AddRowBackground(row, index)
+    row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, ROW_H)
+    UI.AddRowBackground(state.box, row, index)
 
-    local delBtn = K.CreateCloseButton(row)
+    local delBtn = UI.CreateCloseButton(row)
     delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     delBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
@@ -339,25 +316,20 @@ local function CreateCustomRoleRow(f, index)
             WhoDoesWhat:RefreshBoardViews()
         end)
     end)
-    delBtn:SetScript("OnEnter", function(self)
+    UI.AddTooltip(delBtn, "Remove from the raid", function()
         local def = GetRaidCustomRoles()[index]
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Remove from the raid", 1, 1, 1)
         if def and not WhoDoesWhat:IsRaidCustomRoleDef(def) then
-            GameTooltip:AddLine("Put this role back on its default blessing"
-                .. " order. It is a built-in role, so nobody loses their"
-                .. " assignment.", 0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:AddLine("Everyone stops seeing this role, and anyone"
-                .. " assigned to it goes back to no role. Your own copy in the"
-                .. " Roles window is not deleted.", 0.8, 0.8, 0.8, true)
+            return "Put this role back on its default blessing order. It is a"
+                .. " built-in role, so nobody loses their assignment."
         end
-        GameTooltip:Show()
+        return "Everyone stops seeing this role, and anyone assigned to it goes"
+            .. " back to no role. Your own copy in the Roles window is not deleted."
     end)
-    delBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.delBtn = delBtn
 
-    local editBtn = CreateGearButton(row, "Edit this role",
+    -- A gear, both here and for the role library in the header strip, so the
+    -- two read as the same kind of action and share a column down the right.
+    local editBtn = UI.CreateGearButton(row, "Edit this role",
         "Change the blessing order the whole raid uses for it -- plus the name,"
         .. " icon and group role when it is a custom role of your own.",
         function()
@@ -395,13 +367,13 @@ function Refresh(f) -- forward declared above
     state.addBtn:SetShown(editable)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(#customRoles > 0)
-    K.LayoutHeaderChain(state.headerChain)
+    UI.LayoutHeaderChain(state.box)
 
-    local rowsTop = K.BOX_PAD + K.SECTION_TITLE_H
+    local rowsTop = UI.BOX_PAD + UI.SECTION_TITLE_H
     for i, def in ipairs(customRoles) do
         local row = state.customRows[i] or CreateCustomRoleRow(f, i)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", K.BOX_PAD, -(rowsTop + (i - 1) * ROW_H))
+        row:SetPoint("TOPLEFT", UI.BOX_PAD, -(rowsTop + (i - 1) * ROW_H))
         row:Show()
         local display = RoleDisplay(def)
         row.text:SetText(WhoDoesWhat:RoleIconMarkup(display.icon, K.ROW_ICON_SIZE)
@@ -424,10 +396,10 @@ function Refresh(f) -- forward declared above
 
     -- CreateEmptyHint already anchors itself at the top of the rows area.
     state.emptyHint:SetShown(#customRoles == 0)
-    local rowsH = (#customRoles > 0) and (#customRoles * ROW_H) or K.DYN_EMPTY_H
+    local rowsH = (#customRoles > 0) and (#customRoles * ROW_H) or UI.EMPTY_ROWS_H
 
-    state.box:SetHeight(rowsTop + rowsH + K.BOX_PAD)
-    K.UpdateContentHeight(f)
+    state.box:SetHeight(rowsTop + rowsH + UI.BOX_PAD)
+    K.LayoutColumns(f)
 end
 
 local function Build(f, content)
@@ -437,7 +409,7 @@ local function Build(f, content)
     })
     local box = chrome.box
 
-    local clearBtn = K.CreateCloseButton(box, nil, 0.25)
+    local clearBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
         -- One count across the whole list rather than a name each: the prompt
@@ -467,34 +439,24 @@ local function Build(f, content)
             WhoDoesWhat:RefreshBoardViews()
         end)
     end)
-    clearBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self:IsEnabled() then
-            GameTooltip:SetText("Clear the list", 1, 1, 1)
-            GameTooltip:AddLine("Put every default role back on its defaults and"
-                .. " take every custom role off the raid, clearing anyone"
-                .. " assigned to one. Your own copies are not deleted.",
-                0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:SetText("Nothing to clear", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    clearBtn.disabledReason = "Nothing to clear."
+    UI.AddTooltip(clearBtn, "Clear the list",
+        "Put every default role back on its defaults and take every custom role"
+        .. " off the raid, clearing anyone assigned to one. Your own copies are"
+        .. " not deleted.")
     K.ChainHeaderButton(chrome, clearBtn)
 
     -- Chained between Add (+) and the clear-all X, which puts it in the same
     -- column as the rows' own gears: one gear per role below, and above them the
     -- gear for the library those roles are published from.
-    local rolesBtn = CreateGearButton(box, "Roles",
+    local rolesBtn = UI.CreateGearButton(box, "Roles",
         "Every role WDW knows, plus your own custom ones. Built-in roles are a"
         .. " read-only reference there -- change one by overriding it here.",
         function() WhoDoesWhat:OpenAllRolesView() end)
-    rolesBtn:SetPoint("RIGHT", clearBtn, "LEFT", -2, 0) -- placeholder; see LayoutHeaderChain
     K.ChainHeaderButton(chrome, rolesBtn)
 
     local addBtn
-    addBtn = K.AddHeaderTextButton(box, rolesBtn, "Add (+)", "Add a role",
+    addBtn = UI.CreateTextButton(box, "Add (+)", "Add a role",
         "Share one of your custom roles with the raid, or override a built-in"
         .. " role or category to retune its blessing order.", function()
             if not WhoDoesWhat:RequireEditPermission() then return end
@@ -502,7 +464,7 @@ local function Build(f, content)
         end)
     K.ChainHeaderButton(chrome, addBtn)
 
-    local emptyHint = K.CreateEmptyHint(box)
+    local emptyHint = UI.CreateEmptyHint(box)
     emptyHint:SetText("Every role is on its defaults")
 
     f.customRolesSection = {

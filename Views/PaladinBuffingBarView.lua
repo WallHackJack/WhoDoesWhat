@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
@@ -1105,10 +1106,9 @@ local function CreatePallyPowerButton()
     count:SetTextColor(0.65, 0.65, 0.65)
     btn.count = count
 
-    btn:SetScript("OnEnter", function(self)
+    UI.AddTooltip(btn, function(self)
         local unassigned = self.unassignedCount or 0
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("PallyPower Blessings", 1, 1, 1)
+        GameTooltip:SetText("PallyPower Blessings", unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine(unassigned .. " active raid class"
             .. (unassigned == 1 and " has" or "es have")
             .. " no blessing assignment for this paladin."
@@ -1120,9 +1120,8 @@ local function CreatePallyPowerButton()
             GameTooltip:AddLine("PallyPower is not installed; assignments are"
                 .. " coming from observed PallyPower traffic.", 1, 0.82, 0, true)
         end
-        GameTooltip:Show()
+        return true
     end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     AttachAltDrag(btn)
     btn:SetScript("OnClick", function()
         if not (_G.PallyPower
@@ -1604,11 +1603,10 @@ local function CreateAuraOption(menu, index)
     -- the spellbook (resistance amounts, mana drain, the lot). ConfigureAuraMenu
     -- resolves the rank actually known; SetSpellByID is missing on some Classic
     -- builds, where the spell hyperlink gets the same tooltip.
-    option:SetScript("OnEnter", function(self)
+    UI.AddTooltip(option, function(self)
         if not self.aura then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if not self.spellId then
-            GameTooltip:SetText(self.aura.name, 1, 1, 1)
+            GameTooltip:SetText(self.aura.name, unpack(UI.TOOLTIP_TITLE))
         elseif GameTooltip.SetSpellByID then
             GameTooltip:SetSpellByID(self.spellId)
         else
@@ -1617,9 +1615,8 @@ local function CreateAuraOption(menu, index)
         if menu.owner.activeName == self.aura.name then
             GameTooltip:AddLine("Running.", 0.3, 1, 0.3)
         end
-        GameTooltip:Show()
+        return true
     end)
-    option:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- The pick lands inside AURA_OPTION_SNIPPET and the cast in the button's
     -- own macro; insecure code only persists it and repaints, exactly as the
     -- old right-click rotation did.
@@ -1944,7 +1941,7 @@ local function EnsureBar()
                 0.6, 0.6, 0.6, true)
         end
         GameTooltip:AddLine(" ")
-        WhoDoesWhat:AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
         -- The switch, and then a gap: it belongs with the move as something
         -- that acts on the bar itself, not with the two that open a window.
         -- It names the RESULT of the click rather than the mechanism, and
@@ -1955,13 +1952,13 @@ local function EnsureBar()
             if standingDown then
                 label, r, g, b = "Enable WhoDoesWhat", 0.3, 1, 0.3
             end
-            WhoDoesWhat:AddTooltipHint(GameTooltip, "Alt-Right-Click:", label,
+            UI.AddTooltipHint(GameTooltip, "Alt-Right-Click:", label,
                 r, g, b)
             GameTooltip:AddLine(" ")
         end
-        WhoDoesWhat:AddTooltipHint(GameTooltip, "Shift-Left-Click:",
+        UI.AddTooltipHint(GameTooltip, "Shift-Left-Click:",
             "Buffing Grid")
-        WhoDoesWhat:AddTooltipHint(GameTooltip, "Shift-Right-Click:",
+        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:",
             "Paladin Bar Settings")
     end
     title:SetScript("OnEnter", ShowBarTooltip)

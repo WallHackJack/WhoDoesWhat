@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local UI = select(2, ...).UI
 
 -- Shared widget kit for the main window's assignment sections. Every section
 -- (Views/Sections/*.lua) builds its chrome and rows from these primitives so
@@ -33,20 +34,9 @@ WhoDoesWhat.SectionKit = K
 
 K.COL_LEFT, K.COL_RIGHT = 1, 2
 
-K.SECTION_GAP = 10 -- vertical gap between section boxes
-K.SECTION_TITLE_H = 22 -- box interior reserved for the title strip
-K.BOX_PAD = 8 -- section box inner margin
-K.ROW_H = 24
 K.ROW_ICON_SIZE = 20
 K.DROPDOWN_ICON_SIZE = 14
 K.DROPDOWN_WIDTH = 100 -- player picker; sized for a name, not a sentence
-K.WARNING_ICON_SIZE = 18
-K.MAIL_BTN_SIZE = 22
-K.DYN_EMPTY_H = 20 -- rows-area height while a section's row list is empty
--- How far the header button strip's top sits below the box top. The section
--- title centers on this strip too (see CreateSectionChrome), so both move
--- together -- tweak here to nudge the whole header row up/down.
-K.HEADER_STRIP_TOP = 5
 
 K.DYN_PLAYER_DD_WIDTH = 100
 K.DYN_SPELL_DD_WIDTH = 110
@@ -64,7 +54,6 @@ K.NAME_LABEL_W = 120
 K.MARKER_DD_WIDTH = 44
 K.MARKER_DD_WIDE = 95
 
-K.WARNING_ICON = WhoDoesWhat.WARNING_ICON
 K.MAIL_ICON = "Interface\\Icons\\INV_Letter_15"
 K.CUSTOM_TARGET_ICON = 134400 -- INV_Misc_QuestionMark, our "custom" marker
 K.PALADIN_GRID_COL_W = 26
@@ -76,10 +65,6 @@ for _, classInfo in ipairs(WhoDoesWhat.Classes) do
     classColors[classInfo.name] = classInfo.colorRGB
 end
 local paladinColor = classColors.Paladin
-
-local function TowardWhite(value, amount)
-    return value + (1 - value) * amount
-end
 
 local function PaladinName(paladin)
     return type(paladin) == "table" and paladin.name or paladin
@@ -127,49 +112,6 @@ function K.CreateLocalPaladinStripe(parent)
     stripe:SetColorTexture(0.72, 0.72, 0.72, 0.14)
     stripe:Hide()
     return stripe
-end
-
--- A paladin grid can keep its column headings outside this surface while its
--- rows scroll. The scrollbar and track are hidden when every row fits.
-function K.CreatePaladinGridScroll(parent, globalName)
-    local scroll = CreateFrame("ScrollFrame", globalName, parent,
-        "UIPanelScrollFrameTemplate")
-    local content = CreateFrame("Frame", nil, scroll)
-    content:SetPoint("TOPLEFT")
-    content:SetSize(1, 1)
-    scroll:SetScrollChild(content)
-    scroll.scrollBarHideable = 1
-
-    local scrollName = scroll:GetName()
-    local scrollBar = scrollName and _G[scrollName .. "ScrollBar"]
-    if scrollBar then
-        local track = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
-        track:SetAllPoints(scrollBar)
-        track:SetFrameLevel(math.max(scroll:GetFrameLevel(),
-            scrollBar:GetFrameLevel() - 1))
-        track:SetBackdrop({
-            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-            tile = true, tileSize = 8, edgeSize = 8,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        scroll.wdwScrollBar = scrollBar
-        scroll.wdwScrollTrack = track
-    end
-    scroll:HookScript("OnSizeChanged", function(self)
-        if self.wdwContentHeight then
-            K.UpdatePaladinGridScroll(self, self.wdwContentHeight)
-        end
-    end)
-    return scroll, content
-end
-
-function K.UpdatePaladinGridScroll(scroll, contentHeight)
-    scroll.wdwContentHeight = contentHeight
-    local needed = contentHeight > scroll:GetHeight() + 0.5
-    if scroll.wdwScrollBar then scroll.wdwScrollBar:SetShown(needed) end
-    if scroll.wdwScrollTrack then scroll.wdwScrollTrack:SetShown(needed) end
-    if not needed then scroll:SetVerticalScroll(0) end
 end
 
 function K.CreatePaladinGridHeader(parent)
@@ -234,26 +176,6 @@ end
 -- Dropdown helpers
 -- ---------------------------------------------------------------------------
 
--- UIDropDownMenuTemplate right-aligns its collapsed label by default, which
--- leaves player/spell names (and the marker icon) floating against the arrow
--- with dead space on the left. Left-align and extend the label 5px toward that
--- edge, then nudge it down 1px -- the template sits it a hair high in the box.
-function K.LeftAlignDropdown(dd)
-    WhoDoesWhat:StyleDropdown(dd, true)
-end
-
-function K.AddDropdownDivider(level)
-    if UIDropDownMenu_AddSeparator then
-        UIDropDownMenu_AddSeparator(level)
-        return
-    end
-    local info = UIDropDownMenu_CreateInfo()
-    info.text = ""
-    info.disabled = true
-    info.notCheckable = true
-    UIDropDownMenu_AddButton(info, level)
-end
-
 -- Shared player-list portion of an assignment dropdown: eligible members
 -- (class-filtered unless class is nil / Developer Mode), IsPreferred members
 -- floated above a divider, an empty-state line, and a "None" clearer.
@@ -296,7 +218,7 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
 
     if noneFirst then
         AddNone()
-        if #members > 0 then K.AddDropdownDivider(level) end
+        if #members > 0 then UI.AddDropdownDivider(level) end
     end
 
     if #members == 0 then
@@ -318,7 +240,7 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
         info.func = function() OnPick(name) end
         UIDropDownMenu_AddButton(info, level)
         if i == dividerAfter then
-            K.AddDropdownDivider(level)
+            UI.AddDropdownDivider(level)
         end
     end
 
@@ -363,28 +285,6 @@ function K.GetPallyPowerState(paladinCount)
         .. " out of sync", count
 end
 
--- Warning (!) icon; the refresh passes set .tooltipText and show/hide it.
--- Hover explains the problem. Starts hidden.
-function K.CreateWarningIcon(row)
-    local warn = CreateFrame("Frame", nil, row)
-    warn:SetSize(K.WARNING_ICON_SIZE, K.WARNING_ICON_SIZE)
-    local tex = warn:CreateTexture(nil, "OVERLAY")
-    tex:SetAllPoints()
-    tex:SetTexture(K.WARNING_ICON)
-    warn:EnableMouse(true)
-    warn:SetScript("OnEnter", function(self)
-        if self.tooltipText then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Warning", 1, 0.82, 0)
-            GameTooltip:AddLine(self.tooltipText, 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    warn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    warn:Hide()
-    return warn
-end
-
 -- Small red mail button: whispers the assigned player their job. GetWhisper
 -- returns (playerName, whisperText, displayText, bare), or nothing while
 -- unassigned; the refresh passes disable/desaturate it accordingly.
@@ -393,127 +293,36 @@ end
 -- {skull} tokens, which only expand into icons on the receiving end.
 -- bare omits the generic "Your assignment:" lead after the addon tag.
 function K.CreateMailButton(row, GetWhisper)
-    local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    btn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-    btn:SetText("")
-    btn:SetMotionScriptsWhileDisabled(true) -- tooltip works while disabled
-    local icon = btn:CreateTexture(nil, "OVERLAY")
-    icon:SetSize(14, 14)
-    icon:SetPoint("CENTER", 0, 0)
-    icon:SetTexture(K.MAIL_ICON)
-    btn.icon = icon
-    btn:SetScript("OnClick", function()
+    -- Spell out what will be sent: one player can hold several rows, and every
+    -- one of their buttons whispers the same full list.
+    local function Tooltip()
+        local name, job, display = GetWhisper()
+        if name then return "Whisper " .. name, display or job end
+        return "Whisper assignment", "No one assigned to whisper."
+    end
+    return UI.CreateIconButton(row, K.MAIL_ICON, Tooltip, nil, function()
         local name, job, display, bare = GetWhisper()
         if not name then return end
         SendChatMessage("[WhoDoesWhat] " .. (bare and "" or "Your assignment: ")
             .. job .. ".", "WHISPER", nil, name)
         WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
     end)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local name, job, display = GetWhisper()
-        if name then
-            -- Spell out what will be sent: one player can hold several rows,
-            -- and every one of their buttons whispers the same full list.
-            GameTooltip:SetText("Whisper " .. name, 1, 1, 1)
-            GameTooltip:AddLine(display or job, 0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:SetText("No one assigned to whisper", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
-end
-
--- Opaque alternating fill; the parent section supplies its neutral or
--- class-tinted palette so adjacent rows meet without divider lines.
-function K.AddRowBackground(row, index)
-    local colors = row:GetParent().rowColors
-    local color = colors[index % 2 == 1 and 1 or 2]
-    local background = row:CreateTexture(nil, "BACKGROUND")
-    background:SetAllPoints()
-    background:SetColorTexture(color.r, color.g, color.b, 1)
-    return background
-end
-
--- One pooled section row at the standard grid position: full box width, ROW_H
--- tall, row #index sitting under the title strip. The section fills in the
--- widgets over the shared alternating background.
-function K.CreateSectionRow(box, index)
-    local row = CreateFrame("Frame", nil, box)
-    row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetSize(box:GetWidth() - K.BOX_PAD * 2, K.ROW_H)
-    row:SetPoint("TOPLEFT", K.BOX_PAD, -(K.BOX_PAD + K.SECTION_TITLE_H + (index - 1) * K.ROW_H))
-    K.AddRowBackground(row, index)
-    return row
-end
-
--- Gray hint FontString in the rows area, for a section with nothing to show.
-function K.CreateEmptyHint(box)
-    local hint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("TOPLEFT", K.BOX_PAD + 4, -(K.BOX_PAD + K.SECTION_TITLE_H + 4))
-    hint:SetTextColor(0.55, 0.55, 0.55)
-    return hint
 end
 
 -- ---------------------------------------------------------------------------
 -- Section chrome: the box shell + the right-aligned header button strip
 -- ---------------------------------------------------------------------------
 
--- Boxed section shell: lighter inset backdrop (same style as the All Roles
--- options box) with a gold title. Anchor-chained below the
--- previous box *in its own column*, so height changes ripple down that column
--- and leave the other one alone.
+-- Boxed section shell in its column. A class tint mixes a little of the
+-- class colour into the panel; the kit derives the row stripes from it.
 local function CreateSectionBox(f, content, titleText, column, tintClass)
     local col = f.columns[column]
-    local box = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    -- Explicit level: same-level siblings render in unstable order (the box
-    -- backdrop can draw over the rows until a move re-sorts the frames).
-    box:SetFrameLevel(content:GetFrameLevel() + 1)
-    box:SetWidth(col.width)
-    local prev = col.boxes[#col.boxes]
-    if prev then
-        box:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -K.SECTION_GAP)
-    else
-        box:SetPoint("TOPLEFT", content, "TOPLEFT", col.x, 0)
-    end
-    box:SetBackdrop({
-        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    local panelR, panelG, panelB = 0.16, 0.16, 0.18
     local tint = tintClass and classColors[tintClass]
-    if tint then
-        panelR = 0.08 + tint.r * 0.18
-        panelG = 0.08 + tint.g * 0.18
-        panelB = 0.08 + tint.b * 0.18
-    end
-    box:SetBackdropColor(panelR, panelG, panelB, 1)
-    box:SetBackdropBorderColor(0.4, 0.4, 0.4)
-    box.rowColors = {
-        { r = TowardWhite(panelR, 0.09), g = TowardWhite(panelG, 0.09),
-            b = TowardWhite(panelB, 0.09) },
-        { r = TowardWhite(panelR, 0.04), g = TowardWhite(panelG, 0.04),
-            b = TowardWhite(panelB, 0.04) },
+    local color = tint and {
+        0.08 + tint.r * 0.18, 0.08 + tint.g * 0.18, 0.08 + tint.b * 0.18,
     }
-
-    local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    local titleFont, titleSize = title:GetFont()
-    if titleFont and titleSize then
-        title:SetFont(titleFont, titleSize + 2, "OUTLINE")
-    end
-    title:SetTextColor(0.95, 0.95, 0.95)
-    -- Anchor by LEFT (vertically centers the FontString) onto the header
-    -- button strip's midline -- buttons sit at top -HEADER_STRIP_TOP, height
-    -- MAIL_BTN_SIZE -- so the title text and the header buttons share a line.
-    title:SetPoint("LEFT", box, "TOPLEFT", K.BOX_PAD + 2,
-        -(K.HEADER_STRIP_TOP + K.MAIL_BTN_SIZE / 2))
-    title:SetText(titleText)
-    box.title = title -- sections gray it when they disable themselves
-
+    local box = UI.CreateSectionBox(content, titleText, color)
+    box:SetWidth(col.width)
     col.boxes[#col.boxes + 1] = box
     return box
 end
@@ -535,21 +344,19 @@ local function AddHeaderMailButton(f, box, sectionTitle, Collect)
         return out
     end
 
-    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    btn:SetFrameLevel(box:GetFrameLevel() + 1)
-    -- Same size as the rows' buttons, so the header's mail/X land in the
-    -- same columns as the rows' mail/x below them.
-    btn:SetSize(K.MAIL_BTN_SIZE, K.MAIL_BTN_SIZE)
-    btn:SetPoint("TOPRIGHT", -K.BOX_PAD, -K.HEADER_STRIP_TOP)
-    btn:SetText("")
-    btn:SetMotionScriptsWhileDisabled(true) -- tooltip works while disabled
-    local icon = btn:CreateTexture(nil, "OVERLAY")
-    icon:SetSize(14, 14)
-    icon:SetPoint("CENTER", 0, 0)
-    icon:SetTexture(K.MAIL_ICON)
-    btn.icon = icon
+    local function Tooltip()
+        local list = CollectOthers()
+        if #list == 0 then
+            return "Whisper everyone their assignment", "No one assigned to whisper."
+        end
+        local names = {}
+        for _, w in ipairs(list) do
+            names[#names + 1] = PlayerText(w.name)
+        end
+        return "Whisper everyone their assignment", table.concat(names, ", ")
+    end
 
-    btn:SetScript("OnClick", function()
+    local btn = UI.CreateIconButton(box, K.MAIL_ICON, Tooltip, nil, function()
         local sent = MassWhisper(CollectOthers())
         if sent > 0 then
             WhoDoesWhat:LogOperation(sectionTitle .. ": whispered " .. sent
@@ -558,22 +365,6 @@ local function AddHeaderMailButton(f, box, sectionTitle, Collect)
             WhoDoesWhat:Print(sectionTitle .. ": no one assigned to whisper.")
         end
     end)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local list = CollectOthers()
-        if #list > 0 then
-            local names = {}
-            for _, w in ipairs(list) do
-                names[#names + 1] = PlayerText(w.name)
-            end
-            GameTooltip:SetText("Whisper everyone their assignment", 1, 1, 1)
-            GameTooltip:AddLine(table.concat(names, ", "), 0.8, 0.8, 0.8, true)
-        else
-            GameTooltip:SetText("No one assigned to whisper", 0.6, 0.6, 0.6)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     f.headerMail[#f.headerMail + 1] = { btn = btn, Collect = CollectOthers }
     return btn
@@ -604,98 +395,19 @@ function K.UpdateHeaderMailButtons(f)
     end
 end
 
--- Small text button in a section's title strip (Auto, Add (+), ...),
--- provisionally chained left of anchorTo -- LayoutHeaderChain re-anchors on
--- every refresh. The tooltip swaps its body for btn.disabledReason while the
--- button is disabled, so a dead button explains itself.
-function K.AddHeaderTextButton(box, anchorTo, text, tooltipTitle, tooltipText, OnClick)
-    local btn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    btn:SetFrameLevel(box:GetFrameLevel() + 1)
-    btn:SetHeight(K.MAIL_BTN_SIZE) -- same strip height as the mail/X buttons
-    btn:SetPoint("RIGHT", anchorTo, "LEFT", -2, 0)
-    btn:SetText(text)
-    -- Width from the label: a fixed 40px crams four-letter labels against
-    -- the template's side bevels.
-    btn:SetWidth(math.max(44, btn:GetTextWidth() + 18))
-    btn:SetMotionScriptsWhileDisabled(true)
-    btn:SetScript("OnClick", OnClick)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(tooltipTitle, 1, 1, 1)
-        if not self:IsEnabled() and self.disabledReason then
-            GameTooltip:AddLine(self.disabledReason, 1, 0.4, 0.4, true)
-        else
-            GameTooltip:AddLine(tooltipText, 0.8, 0.8, 0.8, true)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    return btn
-end
-
--- The window's round red close button (UIPanelCloseButton -- same as the title
--- bar's), for the small delete / clear-all "x" controls so they match the
--- window's close button. The caller wires the click and tooltip scripts.
--- MotionScriptsWhileDisabled keeps the tooltip alive for the clear-all's
--- disabled ("nothing to clear") state.
---
--- The frame stays MAIL_BTN_SIZE so header and row X's line up with the mail
--- column. UIPanelCloseButton's texture is mostly transparent padding around a
--- small X, so we grow the textures past the frame -- the visible X fills the
--- button's footprint (a bolder X, little apparent left/right padding) without
--- changing the layout size.
-function K.CreateCloseButton(parent, size, growFactor)
-    local s = size or K.MAIL_BTN_SIZE
-    local btn = CreateFrame("Button", nil, parent, "UIPanelCloseButton")
-    btn:SetFrameLevel(parent:GetFrameLevel() + 1)
-    btn:SetSize(s, s)
-    btn:SetMotionScriptsWhileDisabled(true)
-    local grow = s * (growFactor or 0.3)
-    for _, tex in ipairs({ btn:GetNormalTexture(), btn:GetPushedTexture(),
-        btn:GetHighlightTexture(), btn:GetDisabledTexture() }) do
-        if tex then
-            tex:ClearAllPoints()
-            tex:SetPoint("TOPLEFT", -grow, grow)
-            tex:SetPoint("BOTTOMRIGHT", grow, -grow)
-        end
-    end
-    return btn
-end
-
--- Re-anchor a section's header buttons right-to-left, skipping hidden ones,
--- so the rightmost VISIBLE button hugs the box corner -- the mail button
--- (and edit-only buttons like Add/X/Reset) hide in read-only mode and would
--- otherwise leave a hole at the right edge. Chains are stored rightmost-
--- first; run after every visibility change.
-function K.LayoutHeaderChain(chain)
-    local prev
-    for _, btn in ipairs(chain) do
-        if btn:IsShown() then
-            btn:ClearAllPoints()
-            if prev then
-                -- -2 matches the rows' x/mail gap, so the columns line up.
-                btn:SetPoint("RIGHT", prev, "LEFT", -2, 0)
-            else
-                btn:SetPoint("TOPRIGHT", btn:GetParent(), "TOPRIGHT", -K.BOX_PAD, -K.HEADER_STRIP_TOP)
-            end
-            prev = btn
-        end
-    end
-end
-
 -- Build a section's standard chrome in one call: the box shell plus the
--- header strip, with the section's extra buttons injected right-aligned.
+-- header strip.
 --   opts.title       box title
 --   opts.column      K.COL_LEFT / K.COL_RIGHT
 --   opts.tintClass   optional class name for a subtle panel/row tint
 --   opts.mailCollect optional whisper collector; adds the header mail button
--- Returns { box, mailBtn, headerChain }. headerChain starts with the mail
--- button (rightmost); sections append their own buttons with ChainHeaderButton
--- in right-to-left order and call LayoutHeaderChain on refresh.
+-- Returns { box, mailBtn, headerChain }. headerChain is the box's own chain and
+-- starts with the mail button (rightmost); sections add their own buttons in
+-- right-to-left order and call UI.LayoutHeaderChain(box) on refresh.
 function K.CreateSectionChrome(f, content, opts)
     WhoDoesWhat:LogUiBuilding("Building assignment section: " .. opts.title)
     local box = CreateSectionBox(f, content, opts.title, opts.column, opts.tintClass)
-    local chrome = { box = box, headerChain = {} }
+    local chrome = { box = box, headerChain = box.headerChain }
     if opts.mailCollect then
         chrome.mailBtn = AddHeaderMailButton(f, box, opts.title, opts.mailCollect)
         chrome.headerChain[1] = chrome.mailBtn
@@ -709,46 +421,19 @@ function K.ChainHeaderButton(chrome, btn)
 end
 
 -- ---------------------------------------------------------------------------
--- Scroll-height bookkeeping + shared confirm popups
+-- Column layout + shared confirm popups
 -- ---------------------------------------------------------------------------
 
--- Recompute the scroll child's height from the taller column (section boxes
--- grow and shrink with their rows) and refresh the scroll range. Hidden boxes
--- (the Paladin-only view hides all but one) don't count toward the height.
-function K.UpdateContentHeight(f)
+-- Re-anchor each column's VISIBLE section boxes top-to-bottom, so a hidden box
+-- (Paladin-only view) leaves no gap, and size the scroll child to the taller
+-- column. Section boxes grow and shrink with their rows, so every section runs
+-- this after settling its own height.
+function K.LayoutColumns(f)
     local tallest = 0
     for _, col in ipairs(f.columns) do
-        local h = 0
-        for _, box in ipairs(col.boxes) do
-            if box:IsShown() then
-                h = h + box:GetHeight() + K.SECTION_GAP
-            end
-        end
-        tallest = math.max(tallest, h)
+        tallest = math.max(tallest, UI.StackSections(f.content, col.boxes, col.x))
     end
-    f.content:SetHeight(math.max(tallest, 1))
-    f.scroll:UpdateScrollChildRect()
-end
-
--- Re-anchor each column's VISIBLE section boxes top-to-bottom, chaining each to
--- the previous visible box's bottom so a hidden box (Paladin-only view) leaves
--- no gap. Idempotent -- in the full view it reproduces CreateSectionBox's own
--- anchor chain. Run whenever box visibility might have changed.
-function K.LayoutColumnBoxes(f)
-    for _, col in ipairs(f.columns) do
-        local prev
-        for _, box in ipairs(col.boxes) do
-            if box:IsShown() then
-                box:ClearAllPoints()
-                if prev then
-                    box:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -K.SECTION_GAP)
-                else
-                    box:SetPoint("TOPLEFT", f.content, "TOPLEFT", col.x, 0)
-                end
-                prev = box
-            end
-        end
-    end
+    UI.SetScrollHeight(f.scroll, tallest)
 end
 
 -- Clear-a-whole-section confirm. The `data` passed to StaticPopup_Show is the
