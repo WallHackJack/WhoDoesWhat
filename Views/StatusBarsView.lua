@@ -394,11 +394,34 @@ local function SendAnnounce(lines)
     end
 end
 
+-- The row as of right now rather than as of its last repaint. The backstop
+-- sweep can be a few seconds behind, and a whisper telling somebody to eat
+-- after they already have is worse than no whisper, so the group is rescanned
+-- on the click. Paladin rows recompute from live state inside the whisper and
+-- announce builders, so the rescan alone is enough for them; a core check
+-- carries its own counts, which are rebuilt here.
+local function FreshRow(row)
+    WhoDoesWhat.BuffTracking:RefreshAll()
+    if not row.buffKey then return row end
+    local _, _, coverages = WhoDoesWhat.Assign.ComputeCoreRaidBuffCoverage()
+    for _, coverage in ipairs(coverages) do
+        if coverage.key == row.buffKey then
+            return {
+                buffKey = row.buffKey,
+                flagged = coverage.flagged,
+                correct = coverage.correct,
+                total = coverage.total,
+            }
+        end
+    end
+    return row
+end
+
 local function AnnounceRow(row)
     -- State rows (PallyPower, Action Items) have an optionsKey but no
     -- coverage, so they fall out here along with the debuffs.
     if not row or not row.canAnnounce then return end
-    SendAnnounce(AnnounceLines(row))
+    SendAnnounce(AnnounceLines(FreshRow(row)))
 end
 
 -- ---------------------------------------------------------------------------
@@ -429,13 +452,16 @@ local function RowWhispers(row)
     if not definition then return {} end
     local options = WhoDoesWhat:GetStatusBarCheckOptions(row.buffKey)
 
+    -- Per person, which of them is on the list: the hunter themselves, their
+    -- pet (TBC pets eat too), or both -- so one whisper can say which.
     local missing, seen = {}, {}
     for _, entry in ipairs(row.flagged or {}) do
         local name = WhisperTarget(entry)
         if not seen[name] then
-            seen[name] = true
+            seen[name] = {}
             missing[#missing + 1] = name
         end
+        seen[name][entry.isPet and "pet" or "self"] = true
     end
     if #missing == 0 then return {} end
 
@@ -443,8 +469,15 @@ local function RowWhispers(row)
     if definition.selfSupplied then
         for _, name in ipairs(missing) do
             if CanWhisper(name) then
-                out[#out + 1] = { name = name, bare = true,
-                    msg = "Check your " .. definition.name .. "!" }
+                local who = seen[name]
+                local msg = "Check your " .. definition.name .. "!"
+                if who.self and who.pet then
+                    msg = "Check your " .. definition.name .. " (and your pet's "
+                        .. definition.name:lower() .. "!)"
+                elseif who.pet then
+                    msg = "Check your pet's " .. definition.name .. "!"
+                end
+                out[#out + 1] = { name = name, bare = true, msg = msg }
             end
         end
         return out
@@ -466,7 +499,7 @@ end
 
 local function WhisperRow(row)
     if not row or not row.canAnnounce then return end
-    local whispers = RowWhispers(row)
+    local whispers = RowWhispers(FreshRow(row))
     if #whispers == 0 then return end
     WhoDoesWhat.Assign.MassWhisper(whispers)
 end

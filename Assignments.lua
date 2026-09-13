@@ -696,10 +696,10 @@ local function MassWhisper(list)
     for i, w in ipairs(list) do
         local name, msg = w.name, w.msg
         -- A message that punctuated itself keeps its own ending: "Check your
-        -- Food Buff!" should not arrive as "...!.".
+        -- Food Buff!" should not arrive as "...!.", nor "(...!)" as "(...!).".
         local text = "[WhoDoesWhat] "
             .. (w.bare and "" or "Your assignment: ") .. msg
-            .. (msg:match("[%.!%?]$") and "" or ".")
+            .. (msg:match("[%.!%?]%)?$") and "" or ".")
         C_Timer.After((i - 1) * MAIL_STAGGER, function()
             SendChatMessage(text, "WHISPER", nil, name)
         end)
