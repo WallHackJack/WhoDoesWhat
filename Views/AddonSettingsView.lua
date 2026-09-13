@@ -371,22 +371,6 @@ local function DefaultStatusBarColor(definition)
     return { r = 0.96, g = 0.55, b = 0.73 }
 end
 
-local function ColorHex(color)
-    local function Byte(value)
-        return math.floor(math.max(0, math.min(1, value)) * 255 + 0.5)
-    end
-    return string.format("#%02X%02X%02X",
-        Byte(color.r), Byte(color.g), Byte(color.b))
-end
-
-local function ParseColorHex(text)
-    local hex = text and text:match("^#?(%x%x%x%x%x%x)$")
-    if not hex then return nil end
-    return tonumber(hex:sub(1, 2), 16) / 255,
-        tonumber(hex:sub(3, 4), 16) / 255,
-        tonumber(hex:sub(5, 6), 16) / 255
-end
-
 local function CreateMiniDivider(parent, text)
     -- Width comes from where it is placed: it spans the options panel.
     local divider = CreateFrame("Frame", nil, parent)
@@ -486,10 +470,7 @@ local function RefreshBuffOptionsFrame()
     UIDropDownMenu_SetText(f.saturatedDD,
         STATUS_SATURATED_LABELS[options.saturatedStyle]
             or STATUS_SATURATED_LABELS.check)
-    local color = options.barColor or DefaultStatusBarColor(definition)
-    f.colorSwatch.color:SetColorTexture(color.r, color.g, color.b, 1)
-    f.colorHex.buffKey = f.buffKey
-    if not f.colorHex:HasFocus() then f.colorHex:SetText(ColorHex(color)) end
+    f.colorField:Refresh()
     for option, check in pairs(f.optionChecks) do
         check:SetChecked(options[option])
     end
@@ -532,8 +513,8 @@ local function RefreshBuffOptionsFrame()
     y = PlaceDropdown(f.displayLabel, f.displayDD, y)
     f.colorLabel:ClearAllPoints()
     f.colorLabel:SetPoint("TOPLEFT", OPTIONS_LABEL_X, -(y + 4))
-    f.colorSwatch:ClearAllPoints()
-    f.colorSwatch:SetPoint("LEFT", f.colorLabel, "LEFT",
+    f.colorField:ClearAllPoints()
+    f.colorField:SetPoint("LEFT", f.colorLabel, "LEFT",
         OPTIONS_FIELD_X - OPTIONS_LABEL_X, 0)
     y = y + 24
 
@@ -588,29 +569,8 @@ end
 -- Option widgets three pages share
 -- ---------------------------------------------------------------------------
 
--- The WoW picker, opened over one profile setting. `Get` hands back the saved
--- {r,g,b} (or nil, meaning the profile default), `Set` writes one back or nil
--- to hand it to the default again, and `OnChange` runs after either -- the
--- picker calls it on every drag, so whatever it repaints has to be cheap.
-local function OpenSettingColorPicker(parent, Get, Set, OnChange)
-    UI.CancelColorPicker()
-    local saved = Get()
-    local original = saved and { r = saved.r, g = saved.g, b = saved.b } or nil
-    UI.OpenColorPicker({
-        color = saved, above = parent,
-        OnChange = function(r, g, b)
-            Set({ r = r, g = g, b = b })
-            OnChange()
-        end,
-        OnCancel = function()
-            Set(original)
-            OnChange()
-        end,
-    })
-end
-
 -- The highlight-style dropdown, the box beside it showing that style running,
--- and one colour swatch per state the caller has. Three pages want exactly
+-- and one colour field per state the caller has. Three pages want exactly
 -- these controls over three different sets of settings, so the settings are
 -- what varies:
 --   spec.name       a unique frame name for the dropdown
@@ -693,64 +653,49 @@ local function AddHighlightControls(parent, x, y, spec)
     end)
     UI.AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
 
-    -- The swatches go under the dropdown so the sample box beside it shows a
-    -- colour change as it is dragged.
-    local swatches = {}
+    -- The colours go under the dropdown so the sample box beside it shows a
+    -- colour change as it is dragged. Labels first, so every field can start
+    -- at one x clear of the longest of them.
+    local fields = {}
     local rowY = y + 32
-    for _, entry in ipairs(spec.colors) do
+    local labels, labelW = {}, 0
+    for index, entry in ipairs(spec.colors) do
         local label = parent:CreateFontString(nil, "OVERLAY",
             "GameFontHighlight")
-        label:SetPoint("TOPLEFT", x + 4, -(rowY + 4))
+        label:SetPoint("TOPLEFT", x + 4, -(rowY + (index - 1) * 24 + 4))
         label:SetText(entry.label)
-        local swatch = CreateFrame("Button", nil, parent)
-        swatch:SetSize(22, 11)
-        swatch:SetPoint("LEFT", label, "RIGHT", 6, 0)
-        swatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        swatch.color = swatch:CreateTexture(nil, "ARTWORK")
-        swatch.color:SetAllPoints()
-        swatch.entry = entry
-        swatches[#swatches + 1] = swatch
         UI.AddTooltip(label, entry.label, entry.tooltip)
-        UI.AddTooltip(swatch, entry.label,
-            "Left-click for the WoW color picker; right-click to reset.")
-        rowY = rowY + 24
+        labels[index] = label
+        labelW = math.max(labelW, label:GetStringWidth())
     end
 
-    local function PaintSwatches()
-        for _, swatch in ipairs(swatches) do
-            local c = EntryColor(swatch.entry)
-            swatch.color:SetColorTexture(c.r, c.g, c.b)
-        end
+    -- The picker's live preview: repaint the sample, then let whatever wears
+    -- these colours pick the change up on the way past.
+    local function ColorsChanged()
         ApplyPreview(SavedStyle())
-    end
-
-    -- The picker's live preview: paint the swatch and the sample, then let
-    -- whatever wears these colours pick the change up on the way past.
-    local function RefreshColors()
-        PaintSwatches()
         spec.OnChange()
     end
 
-    for _, swatch in ipairs(swatches) do
-        swatch:SetScript("OnClick", function(self, button)
-            if button == "RightButton" then
-                -- nil is not "no colour": the profile default takes over
-                -- again, which is what a reset means here.
-                self.entry.Set(nil)
-                RefreshColors()
-            else
-                OpenSettingColorPicker(parent, self.entry.Get,
-                    self.entry.Set, RefreshColors)
-            end
-        end)
+    for index, entry in ipairs(spec.colors) do
+        local field = UI.CreateColorField(parent, {
+            title = entry.label,
+            -- nil is not "no colour": the profile default takes over again,
+            -- which is what a reset means here.
+            Get = entry.Get, Set = entry.Set,
+            OnChange = ColorsChanged,
+        })
+        field:SetPoint("LEFT", labels[index], "LEFT", math.ceil(labelW) + 12, 0)
+        fields[index] = field
     end
+    rowY = rowY + #spec.colors * 24
 
     -- Every control here, read back out of the settings: the window opening,
     -- a page's Defaults button, or a different profile loading.
     local function Refresh()
         local styles = WhoDoesWhat:GetStatusBarHighlightStyles()
         UIDropDownMenu_SetText(dd, styles[SavedStyle()].label)
-        PaintSwatches()
+        for _, field in ipairs(fields) do field:Refresh() end
+        ApplyPreview(SavedStyle())
     end
 
     return Refresh, rowY + 4
@@ -771,37 +716,6 @@ local function AddSliderWithInput(parent, x, y, spec, Get, Set, OnChange)
     UI.AddTooltip(edit, spec.label, spec.tooltip)
 
     return Refresh, y + 52
-end
-
-local function OpenBarColorPicker(owner, f)
-    UI.CancelColorPicker()
-    local key = f.buffKey
-    local options = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey)
-    local definition = WhoDoesWhat.StatusBarChecks[f.buffKey]
-    local color = options.barColor or DefaultStatusBarColor(definition)
-    local original = options.barColor and {
-        r = options.barColor.r,
-        g = options.barColor.g,
-        b = options.barColor.b,
-    } or false
-    UI.OpenColorPicker({
-        color = color, above = f,
-        OnChange = function(r, g, b)
-            SetStatusBuffOption(owner, key, "barColor", { r = r, g = g, b = b })
-            RefreshBuffOptionsFrame()
-        end,
-        OnCancel = function()
-            SetStatusBuffOption(owner, key, "barColor", original)
-            RefreshBuffOptionsFrame()
-        end,
-        -- WDW Status shows this row's colour live only while it is picked.
-        OnClose = function()
-            WhoDoesWhat.statusBarColorPreviewKey = nil
-            WhoDoesWhat:RefreshStatusBarsView()
-        end,
-    })
-    WhoDoesWhat.statusBarColorPreviewKey = key
-    WhoDoesWhat:RefreshStatusBarsView()
 end
 
 -- Put one check's options back to its defaults. Whether it shows in Bars and in
@@ -1008,92 +922,30 @@ local function EnsureBuffOptionsFrame(owner, key)
     local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     colorLabel:SetPoint("TOPLEFT", 190, -77)
     colorLabel:SetText("Bar Color")
-    local colorSwatch = CreateFrame("Button", nil, f)
-    -- Built to read as a button: the height of the hex box beside it, a light
-    -- frame round a dark gap round the colour, a gold frame and a sheen on
-    -- hover, and the colour pressing in a pixel while held.
-    colorSwatch:SetSize(34, 18)
-    colorSwatch:SetPoint("LEFT", colorLabel, "RIGHT", 6, 0)
-    colorSwatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    local swatchFrame = colorSwatch:CreateTexture(nil, "BACKGROUND")
-    swatchFrame:SetAllPoints()
-    swatchFrame:SetColorTexture(0.55, 0.55, 0.55, 1)
-    local swatchGap = colorSwatch:CreateTexture(nil, "BORDER")
-    swatchGap:SetPoint("TOPLEFT", 1, -1)
-    swatchGap:SetPoint("BOTTOMRIGHT", -1, 1)
-    swatchGap:SetColorTexture(0, 0, 0, 1)
-    local color = colorSwatch:CreateTexture(nil, "ARTWORK")
-    local function PlaceColor(pressed)
-        local shift = pressed and 1 or 0
-        color:ClearAllPoints()
-        color:SetPoint("TOPLEFT", 2 + shift, -2 - shift)
-        color:SetPoint("BOTTOMRIGHT", -2 + shift, 2 - shift)
-    end
-    PlaceColor(false)
-    colorSwatch.color = color
-    local sheen = colorSwatch:CreateTexture(nil, "HIGHLIGHT")
-    sheen:SetPoint("TOPLEFT", color, "TOPLEFT")
-    sheen:SetPoint("BOTTOMRIGHT", color, "BOTTOMRIGHT")
-    sheen:SetColorTexture(1, 1, 1, 0.18)
-    colorSwatch:HookScript("OnEnter", function() swatchFrame:SetColorTexture(1, 0.82, 0, 1) end)
-    colorSwatch:HookScript("OnLeave", function()
-        swatchFrame:SetColorTexture(0.55, 0.55, 0.55, 1)
-        PlaceColor(false)
-    end)
-    colorSwatch:HookScript("OnMouseDown", function() PlaceColor(true) end)
-    colorSwatch:HookScript("OnMouseUp", function() PlaceColor(false) end)
-    colorSwatch:SetScript("OnClick", function(_, button)
-        if f.colorHex and f.colorHex:HasFocus() then f.colorHex:ClearFocus() end
-        if button == "RightButton" then
-            SetStatusBuffOption(owner, f.buffKey, "barColor", false)
-            RefreshBuffOptionsFrame()
-        else
-            OpenBarColorPicker(owner, f)
-        end
-    end)
+    local colorField = UI.CreateColorField(f, {
+        title = "Bar color",
+        Get = function() return WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).barColor end,
+        Set = function(color)
+            SetStatusBuffOption(owner, f.buffKey, "barColor", color or false)
+        end,
+        Default = function()
+            return DefaultStatusBarColor(WhoDoesWhat.StatusBarChecks[f.buffKey])
+        end,
+        OnChange = RefreshBuffOptionsFrame,
+        -- WDW Status shows this row's colour live only while it is picked.
+        OnOpen = function()
+            WhoDoesWhat.statusBarColorPreviewKey = f.buffKey
+            WhoDoesWhat:RefreshStatusBarsView()
+        end,
+        OnClose = function()
+            WhoDoesWhat.statusBarColorPreviewKey = nil
+            WhoDoesWhat:RefreshStatusBarsView()
+        end,
+    })
     UI.AddTooltip(colorLabel, "Bar color",
         "Choose the filled status-bar color. Right-click the swatch to reset it.")
-    UI.AddTooltip(colorSwatch, "Bar color",
-        "Left-click for the WoW color picker; right-click to reset.")
-    f.colorSwatch = colorSwatch
+    f.colorField = colorField
     f.colorLabel = colorLabel
-
-    local colorHex = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    colorHex:SetSize(64, 18)
-    colorHex:SetPoint("LEFT", colorSwatch, "RIGHT", 16, 0)
-    colorHex:SetAutoFocus(false)
-    colorHex:SetMaxLetters(7)
-    colorHex:SetText("#FFFFFF")
-    colorHex:SetScript("OnEditFocusGained", function(self)
-        UI.CancelColorPicker()
-        local options = WhoDoesWhat:GetStatusBarCheckOptions(self.buffKey)
-        local definition = WhoDoesWhat.StatusBarChecks[self.buffKey]
-        self:SetText(ColorHex(options.barColor
-            or DefaultStatusBarColor(definition)))
-        self:HighlightText()
-    end)
-    colorHex:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    colorHex:SetScript("OnEscapePressed", function(self)
-        self.reverting = true
-        self:ClearFocus()
-        RefreshBuffOptionsFrame()
-    end)
-    colorHex:SetScript("OnEditFocusLost", function(self)
-        if self.reverting then
-            self.reverting = nil
-            return
-        end
-        local r, g, b = ParseColorHex(self:GetText())
-        if r then
-            SetStatusBuffOption(owner, self.buffKey, "barColor",
-                { r = r, g = g, b = b })
-        else
-            RefreshBuffOptionsFrame()
-        end
-    end)
-    UI.AddTooltip(colorHex, "Hex color",
-        "Enter a six-digit RGB color, with or without #, then press Enter.")
-    f.colorHex = colorHex
 
     local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
         "GameFontHighlight")
@@ -1128,8 +980,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     f.targetsDivider = CreateMiniDivider(f, "Targets")
     f.optionChecks, f.optionLabels = {}, {}
     f.normalOptionRegions = {
-        displayLabel, displayDD, classLabel, classDD, colorLabel, colorSwatch,
-        colorHex,
+        displayLabel, displayDD, classLabel, classDD, colorLabel, colorField,
         saturatedLabel, saturatedDD, f.displayDivider, f.requirementDivider,
         f.completionDivider, f.targetsDivider,
     }

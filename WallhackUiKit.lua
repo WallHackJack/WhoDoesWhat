@@ -2457,6 +2457,151 @@ function UI.OpenColorPicker(opts)
     pickerSession = session
 end
 
+local function ColorToHex(color)
+    local function Byte(value)
+        return math.floor(math.max(0, math.min(1, value)) * 255 + 0.5)
+    end
+    return string.format("#%02X%02X%02X", Byte(color.r), Byte(color.g), Byte(color.b))
+end
+
+local function HexToColor(text)
+    local hex = text and text:match("^#?(%x%x%x%x%x%x)$")
+    if not hex then return nil end
+    return {
+        r = tonumber(hex:sub(1, 2), 16) / 255,
+        g = tonumber(hex:sub(3, 4), 16) / 255,
+        b = tonumber(hex:sub(5, 6), 16) / 255,
+    }
+end
+
+UI.COLOR_FIELD_H = 18
+
+-- A colour setting's whole control: a swatch that reads as a button and opens
+-- the picker, and a hex box after it to type one in. Left-click the swatch to
+-- pick, right-click to reset; the hex box takes six digits, with or without #,
+-- on Enter, and Escape puts back what was there.
+--
+-- opts:
+--   Get       function() -> the saved { r, g, b }, or nil while on the default
+--   Set       function(color) to write one; nil hands it back to the default
+--   Default   function() -> the colour shown while Get has none (white if absent)
+--   OnChange  function() after every write - the picker calls it on each drag,
+--             so keep what it repaints cheap
+--   OnOpen / OnClose   function() as the picker comes up and goes away
+--   title     the tooltip heading for both parts
+--   above     the frame the picker must sit over (default: parent)
+--
+-- Returns a frame to anchor, COLOR_FIELD_H tall and as wide as its two parts,
+-- with field:Refresh() to repaint it from Get.
+function UI.CreateColorField(parent, opts)
+    local field = CreateFrame("Frame", nil, parent)
+    field:SetHeight(UI.COLOR_FIELD_H)
+
+    local function Current()
+        return opts.Get() or (opts.Default and opts.Default()) or { r = 1, g = 1, b = 1 }
+    end
+
+    -- Built to read as a button: a light frame round a dark gap round the
+    -- colour, a gold frame and a sheen on hover, and the colour pressing in a
+    -- pixel while held.
+    local swatch = CreateFrame("Button", nil, field)
+    swatch:SetSize(34, UI.COLOR_FIELD_H)
+    swatch:SetPoint("LEFT")
+    swatch:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local frame = swatch:CreateTexture(nil, "BACKGROUND")
+    frame:SetAllPoints()
+    frame:SetColorTexture(0.55, 0.55, 0.55, 1)
+    local gap = swatch:CreateTexture(nil, "BORDER")
+    gap:SetPoint("TOPLEFT", 1, -1)
+    gap:SetPoint("BOTTOMRIGHT", -1, 1)
+    gap:SetColorTexture(0, 0, 0, 1)
+    local color = swatch:CreateTexture(nil, "ARTWORK")
+    local function PlaceColor(pressed)
+        local shift = pressed and 1 or 0
+        color:ClearAllPoints()
+        color:SetPoint("TOPLEFT", 2 + shift, -2 - shift)
+        color:SetPoint("BOTTOMRIGHT", -2 + shift, 2 - shift)
+    end
+    PlaceColor(false)
+    local sheen = swatch:CreateTexture(nil, "HIGHLIGHT")
+    sheen:SetAllPoints(color)
+    sheen:SetColorTexture(1, 1, 1, 0.18)
+    swatch:SetScript("OnEnter", function() frame:SetColorTexture(1, 0.82, 0, 1) end)
+    swatch:SetScript("OnLeave", function()
+        frame:SetColorTexture(0.55, 0.55, 0.55, 1)
+        PlaceColor(false)
+    end)
+    swatch:SetScript("OnMouseDown", function() PlaceColor(true) end)
+    swatch:SetScript("OnMouseUp", function() PlaceColor(false) end)
+    field.swatch = swatch
+
+    -- InputBoxTemplate's art hangs a few pixels left of the frame, so the gap
+    -- before it is wider than it looks.
+    local hex = CreateFrame("EditBox", nil, field, "InputBoxTemplate")
+    hex:SetSize(64, UI.COLOR_FIELD_H)
+    hex:SetPoint("LEFT", swatch, "RIGHT", 16, 0)
+    hex:SetAutoFocus(false)
+    hex:SetMaxLetters(7)
+    field.hex = hex
+    field:SetWidth(34 + 16 + 64)
+
+    function field:Refresh()
+        local c = Current()
+        color:SetColorTexture(c.r, c.g, c.b, 1)
+        if not hex:HasFocus() then hex:SetText(ColorToHex(c)) end
+    end
+
+    local function Write(value)
+        opts.Set(value)
+        field:Refresh()
+        if opts.OnChange then opts.OnChange() end
+    end
+
+    swatch:SetScript("OnClick", function(_, button)
+        if hex:HasFocus() then hex:ClearFocus() end
+        if button == "RightButton" then
+            UI.CancelColorPicker()
+            Write(nil)
+            return
+        end
+        -- Cancel first: an edit still open would restore its own colour after
+        -- this one read what to put back.
+        UI.CancelColorPicker()
+        local saved = opts.Get()
+        local original = saved and { r = saved.r, g = saved.g, b = saved.b } or nil
+        UI.OpenColorPicker({
+            color = Current(), above = opts.above or parent,
+            OnChange = function(r, g, b) Write({ r = r, g = g, b = b }) end,
+            OnCancel = function() Write(original) end,
+            OnClose = opts.OnClose,
+        })
+        if opts.OnOpen then opts.OnOpen() end
+    end)
+
+    hex:SetScript("OnEditFocusGained", function(self)
+        UI.CancelColorPicker()
+        self:SetText(ColorToHex(Current()))
+        self:HighlightText()
+    end)
+    hex:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    hex:SetScript("OnEscapePressed", function(self)
+        self.reverting = true
+        self:ClearFocus()
+    end)
+    hex:SetScript("OnEditFocusLost", function(self)
+        local typed = not self.reverting and HexToColor(self:GetText())
+        self.reverting = nil
+        if typed then Write(typed) else field:Refresh() end
+    end)
+
+    UI.AddTooltip(swatch, opts.title,
+        "Left-click for the WoW color picker; right-click to reset.")
+    UI.AddTooltip(hex, opts.title or "Hex color",
+        "Enter a six-digit RGB color, with or without #, then press Enter.")
+    field:Refresh()
+    return field
+end
+
 --------------------------------------------------------------------------------
 -- Blizzard widgets
 --------------------------------------------------------------------------------
