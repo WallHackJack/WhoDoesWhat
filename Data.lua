@@ -536,6 +536,8 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     className = "Druid",
     colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
+    -- Off the Buff Grid until turned on from the Buffs page.
+    defaultGrid = false,
     -- Like the other class buffs, less "Only for tanks": thorns on whoever is
     -- taking the hits is the usual ask, but not the only one.
     hiddenOptions = { negative = true, onlyManaUsers = true, hunterPets = true },
@@ -621,7 +623,11 @@ WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "dead"
 for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
     local definition = WhoDoesWhat.StatusBarChecks[key]
     if definition.defaultEnabled == nil then definition.defaultEnabled = true end
-    definition.defaultGrid = not definition.gridOptionDisabled
+    if definition.gridOptionDisabled then
+        definition.defaultGrid = false
+    elseif definition.defaultGrid == nil then
+        definition.defaultGrid = true
+    end
 end
 
 -- Which per-check options a check offers, in one place: the Buff Tracking
