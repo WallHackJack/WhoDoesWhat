@@ -128,7 +128,7 @@ local BLESSING_ID_WRATH = {
 -- globals. Era uses slot 9 for pets; TBC uses it for Shamans.
 local IS_WRATH = WOW_PROJECT_WRATH_CLASSIC
     and WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC
-local IS_ERA = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
+local IS_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local PP_MAX_CLASSES = IS_WRATH and 10 or 9
 local PP_CLASS_ID = {
     Warrior = 1, Rogue = 2, Priest = 3, Druid = 4, Paladin = 5,

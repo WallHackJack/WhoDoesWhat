@@ -730,8 +730,9 @@ end
 -- The talent behind each talent-affected buff. The 1-point talents *grant*
 -- their blessing (an untalented paladin can't cast Kings or Sanctuary at
 -- all); the multi-rank ones improve a baseline blessing. Salvation and Light
--- have no talent, so any paladin carries them equally well.
-local BuffTalents = {
+-- have no talent, so any paladin carries them equally well. Empty on a client
+-- where no talent affects a blessing: nothing is gated or weighed by rank.
+local BuffTalents = not WhoDoesWhat.ClientFeatures.buffTalents and {} or {
     kings     = { talent = "Blessing of Kings", maxRank = 1 },
     sanctuary = { talent = "Blessing of Sanctuary", maxRank = 1 },
     might     = { talent = "Improved Blessing of Might", maxRank = 5 },

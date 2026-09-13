@@ -22,7 +22,8 @@ local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local RoleIconMarkup = A.RoleIconMarkup
 local HEALTHSTONE = WhoDoesWhat.WarlockHealthstone
-local HEALTHSTONE_RANKS = { 2, 1, 0 }
+-- No header icons at all where the client has no Improved Healthstone.
+local HEALTHSTONE_RANKS = HEALTHSTONE and { 2, 1, 0 } or {}
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
 -- Our static-section def (title + row definitions), found by title so a

@@ -584,8 +584,11 @@ local function OwnCoreBuffRanks()
     return WhoDoesWhat.db.profile.coreBuffTalents[UnitName("player")]
 end
 
+-- No blessing talents to share on a client without buff talents.
+local BUFF_TALENTS = WhoDoesWhat.ClientFeatures.buffTalents
+
 local function StoreRanks(senderKey, ranks)
-    if type(ranks) ~= "table" then return end
+    if not BUFF_TALENTS or type(ranks) ~= "table" then return end
     local stored = {}
     for _, key in ipairs({ "might", "wisdom", "kings", "sanctuary" }) do
         stored[key] = tonumber(ranks[key]) or 0
@@ -598,7 +601,7 @@ end
 
 local function StoreHealthstoneRank(senderKey, rank)
     rank = tonumber(rank)
-    if not rank then return end
+    if not rank or not WhoDoesWhat.WarlockHealthstone then return end
     rank = math.floor(math.max(0, math.min(WhoDoesWhat.WarlockHealthstone.maxRank, rank)))
     WhoDoesWhat.db.profile.warlockHealthstoneTalents[senderKey] = rank
     LogSync("healthstone talent rank stored for", senderKey)
@@ -670,12 +673,13 @@ local function NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks
     if total == 0 or total > 100 then return nil end
 
     local fact = { class = class, talents = points }
-    if class == "PALADIN" and type(ranks) == "table" then
+    if class == "PALADIN" and BUFF_TALENTS and type(ranks) == "table" then
         fact.ranks = {}
         for key, maximum in pairs(PALADIN_RANK_MAX) do
             fact.ranks[key] = ClampedInteger(ranks[key], maximum) or 0
         end
-    elseif class == "WARLOCK" and healthstone ~= nil then
+    elseif class == "WARLOCK" and healthstone ~= nil
+        and WhoDoesWhat.WarlockHealthstone then
         fact.healthstone = ClampedInteger(healthstone,
             WhoDoesWhat.WarlockHealthstone.maxRank)
     elseif (class == "DRUID" or class == "PRIEST") and type(coreRanks) == "table" then

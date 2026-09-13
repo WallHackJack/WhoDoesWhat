@@ -7,12 +7,13 @@ local ICON_SIZE = 16
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local CHECK_HEIGHT = math.floor(ICON_SIZE * 0.8 + 0.5)
-local TALENT_LINES = {
+-- None where no talent affects a blessing; the tooltip keeps its addon lines.
+local TALENT_LINES = WhoDoesWhat.ClientFeatures.buffTalents and {
     { key = "kings", max = 1 },
     { key = "sanctuary", max = 1 },
     { key = "might", max = 5 },
     { key = "wisdom", max = 2 },
-}
+} or {}
 local tooltipOwner, tooltipName
 local originalBackdrop
 local paladinBackdrop
@@ -55,13 +56,19 @@ local function MemberClass(name)
     end
 end
 
+-- Warlocks only have something to say where Improved Healthstone exists.
+local function HasDetail(className)
+    return className == "Paladin"
+        or (className == "Warlock" and WhoDoesWhat.WarlockHealthstone ~= nil)
+end
+
 -- The detail lines alone, without the player header or the tooltip plumbing.
 -- Split out so Blizzard's unit tooltip can append the same summary under the
 -- role line (UnitTooltipExtensions.lua). Returns the class it wrote for, or
 -- nil when the raider has nothing worth saying.
 function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
     local className = name and MemberClass(name)
-    if className ~= "Paladin" and className ~= "Warlock" then return nil end
+    if not HasDetail(className) then return nil end
 
     if className == "Warlock" then
         local healthstone = self.WarlockHealthstone
@@ -102,7 +109,7 @@ function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
     for _, entry in ipairs(entries) do
         tooltip:AddLine(entry.text, 1, 1, 1)
     end
-    tooltip:AddLine(" ")
+    if entries[1] then tooltip:AddLine(" ") end
     -- Whether they also run PallyPower stops mattering once they run WDW: it
     -- assigns them either way, and reports them to PallyPower on their behalf.
     -- The line is for the paladin WDW can't reach -- can anything assign them?
@@ -117,7 +124,7 @@ end
 
 function WhoDoesWhat:ShowRaiderTooltip(owner, name)
     local className = name and MemberClass(name)
-    if className ~= "Paladin" and className ~= "Warlock" then return end
+    if not HasDetail(className) then return end
 
     tooltipOwner, tooltipName = owner, name
     GameTooltip:SetOwner(owner, "ANCHOR_CURSOR_RIGHT", 12, 12)

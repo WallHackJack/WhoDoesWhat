@@ -1528,8 +1528,12 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.unitTooltipDetailCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show class details in unit tooltips",
         "Also append the summary the roster views show on hover: a Paladin's "
-            .. "blessing talents and addon status, or a Warlock's Improved "
-            .. "Healthstone. Only Paladins and Warlocks add anything.",
+            .. (WhoDoesWhat.ClientFeatures.buffTalents
+                and "blessing talents and addon status" or "addon status")
+            .. (WhoDoesWhat.WarlockHealthstone
+                and ", or a Warlock's Improved Healthstone. Only Paladins and"
+                    .. " Warlocks add anything."
+                or ". Only Paladins add anything."),
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipDetail = value
         end)

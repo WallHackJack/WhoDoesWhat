@@ -183,6 +183,7 @@ end
 -- talent = can't cast it); the multi-rank ones improve a baseline blessing.
 -- Salvation and Light have no talent.
 local PALADIN_BUFF_TALENTS = WhoDoesWhat.ClientFeatures.paladinBuffTalents
+local BUFF_TALENTS = WhoDoesWhat.ClientFeatures.buffTalents
 -- Improved Healthstone (0-2): Demonology, first row, first column.
 local WARLOCK_HEALTHSTONE_TALENT = { tab = 2, tier = 1, column = 1 }
 
@@ -240,6 +241,7 @@ end
 -- we skip rather than overwrite good data with zeros. Runs on every inspect of
 -- a paladin, so a respec's re-scan overwrites the old numbers.
 function WhoDoesWhat:ScanPaladinBuffTalents(guid, playerKey, isInspect)
+    if not BUFF_TALENTS then return end
     if not (isInspect or guid == UnitGUID("player")) then return end
 
     local group = GetActiveTalentGroup(isInspect) or 1
@@ -254,11 +256,17 @@ end
 -- while their talents haven't been seen yet. A provisional PallyPower import
 -- also has _source="pallypower"; this native scan replaces the whole table,
 -- removing that tag and solidifying the result.
+--
+-- Where no talent affects a blessing every paladin is fully known already, so
+-- nobody waits on a scan and every blessing weighs the same for everyone.
+local NO_BUFF_TALENTS = {}
 function WhoDoesWhat:GetPaladinBuffTalents(playerName)
+    if not BUFF_TALENTS then return NO_BUFF_TALENTS end
     return self.db and self.db.profile.paladinBuffTalents[playerName] or nil
 end
 
 function WhoDoesWhat:ScanWarlockHealthstoneTalent(guid, playerKey, isInspect)
+    if not self.WarlockHealthstone then return end
     if not (isInspect or guid == UnitGUID("player")) then return end
 
     local group = GetActiveTalentGroup(isInspect) or 1
@@ -267,6 +275,7 @@ function WhoDoesWhat:ScanWarlockHealthstoneTalent(guid, playerKey, isInspect)
 end
 
 function WhoDoesWhat:GetWarlockHealthstoneTalent(playerName)
+    if not self.WarlockHealthstone then return nil end
     return self.db and self.db.profile.warlockHealthstoneTalents[playerName] or nil
 end
 
@@ -313,6 +322,7 @@ end
 -- answers is "could this priest supply Divine Spirit at all", which a raid
 -- with one disc-offspec shadow priest cannot answer from the active spec.
 function WhoDoesWhat:ScanCoreBuffTalents(guid, playerKey, class, isInspect)
+    if not BUFF_TALENTS then return end
     if not (isInspect or guid == UnitGUID("player")) then return end
 
     local active = GetActiveTalentGroup(isInspect) or 1
@@ -329,6 +339,7 @@ end
 -- cast the buff, which every caller of this one wants to read as "no rank".
 -- Callers that must tell those two apart use GetCoreBuffTalentSpecs.
 function WhoDoesWhat:GetCoreBuffTalent(playerName, buffKey)
+    if not BUFF_TALENTS then return nil end
     local ranks = self.db and self.db.profile.coreBuffTalents[playerName]
     return ranks and ranks[buffKey] or nil
 end
@@ -339,6 +350,7 @@ end
 --   false  -- scanned, and that spec cannot cast the buff at all
 --   number -- the improvement rank that spec supplies
 function WhoDoesWhat:GetCoreBuffTalentSpecs(playerName, buffKey)
+    if not BUFF_TALENTS then return nil, nil end
     local ranks = self.db and self.db.profile.coreBuffTalents[playerName]
     if not ranks then return nil, nil end
     return ranks[buffKey], ranks.offspec and ranks.offspec[buffKey]

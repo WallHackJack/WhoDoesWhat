@@ -13,7 +13,7 @@ local A = WhoDoesWhat.Assign
 
 local function AddHealthstoneLine(tooltip, itemId)
     local healthstone = WhoDoesWhat.WarlockHealthstone
-    local wantRank = itemId and healthstone.talentRankByItemId[itemId]
+    local wantRank = itemId and healthstone and healthstone.talentRankByItemId[itemId]
     if not wantRank or GetItemCount(itemId) > 0 then return end
 
     local names = {}

@@ -336,8 +336,10 @@ local function CreatePaladinCell(row, c)
             GameTooltip:SetText(self.paladin, 1, 1, 1)
             if self.gridSource == "wdw" then
                 GameTooltip:AddLine("Nothing for " .. raider .. ": every blessing"
-                    .. " they want at this paladin count is already covered, or needs"
-                    .. " a talent " .. self.paladin .. " doesn't have.",
+                    .. " they want at this paladin count is already covered"
+                    .. (WhoDoesWhat.ClientFeatures.buffTalents
+                        and (", or needs a talent " .. self.paladin .. " doesn't have.")
+                        or "."),
                     0.6, 0.6, 0.6, true)
             else
                 local source = self.gridSource == "addon"

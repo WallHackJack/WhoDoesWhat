@@ -612,6 +612,15 @@ if not features.isClassicEra then
     }
 end
 
+-- No talent improves any raid buff on this client, so no check carries one:
+-- every rank scan, provider list and "best available" option keys off it.
+if not features.buffTalents then
+    for _, definition in pairs(WhoDoesWhat.StatusBarChecks) do
+        definition.improvedTalent = nil
+        definition.requiredTalent = nil
+    end
+end
+
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "food"
 if not features.isClassicEra then
@@ -995,15 +1004,17 @@ if curseSpellIds.shadow then
     }
 end
 
+-- nil where the client has no Improved Healthstone; every healthstone feature
+-- (scan, sync, header icons, tooltips) checks this table first.
 local healthstoneClient = WhoDoesWhat.ClientFeatures.warlockHealthstone
-WhoDoesWhat.WarlockHealthstone = {
+WhoDoesWhat.WarlockHealthstone = healthstoneClient and {
     icon = "Interface\\Icons\\INV_Stone_04",
     talent = "Improved Healthstone",
     maxRank = 2,
     name = healthstoneClient.name,
     lifeByTalentRank = healthstoneClient.lifeByTalentRank,
     talentRankByItemId = healthstoneClient.talentRankByItemId,
-}
+} or nil
 
 -- TBC crowd-control spells offered by the CC Assignments section, listed in
 -- class order (the dropdown draws a divider on each class change). spellId is
@@ -1337,6 +1348,21 @@ table.insert(WhoDoesWhat.PaladinBuffDefaults, {
     order = { "kings", "sanctuary", "wisdom", "light", "might", "salv" },
     roles = { "paladin_prot_trash" },
 })
+
+-- Blessings this client doesn't have leave the metadata and every default
+-- order, so no picker, rule menu, grid row or plan ever offers them.
+for key in pairs(features.removedPaladinBuffs) do
+    WhoDoesWhat.PaladinBuffs[key] = nil
+    local orders = { WhoDoesWhat.CanonicalBuffOrder, WhoDoesWhat.HunterPetBuffOrder }
+    for _, defaults in ipairs(WhoDoesWhat.PaladinBuffDefaults) do
+        orders[#orders + 1] = defaults.order
+    end
+    for _, order in ipairs(orders) do
+        for i = #order, 1, -1 do
+            if order[i] == key then table.remove(order, i) end
+        end
+    end
+end
 
 -- The hunter-pet pseudo-role: never assignable and never customizable --
 -- every hunter's pet simply carries it. Assignments.lua derives one virtual
