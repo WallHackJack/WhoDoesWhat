@@ -5,8 +5,8 @@ local UI = select(2, ...).UI
 -- link buttons place their value in one copy-ready field instead.
 
 local FRAME_W = 500
-local FRAME_H = 430
 local MARGIN = 14
+local ABOUT_ICON_SIZE = 64
 -- Same gutter the main window and Members reserve for their scrollbars.
 local SCROLLBAR_W = UI.SCROLLBAR_W
 -- Padding between the notes well's edge and the text inside it.
@@ -51,16 +51,27 @@ local function SelectRelease(f, release)
     f.releaseScroll:SetVerticalScroll(0)
 end
 
--- Build the page into the About tab, at its own size, centred along the top.
+-- Build the page into the About tab: its own width, centred, and the full
+-- height of the tab. The Update Log panel is anchored to the bottom, so it takes
+-- whatever height the window gives it.
 function WhoDoesWhat:BuildAboutPage(page)
     local f = CreateFrame("Frame", nil, page)
-    f:SetSize(FRAME_W, FRAME_H)
+    f:SetWidth(FRAME_W)
     f:SetPoint("TOP", page, "TOP")
+    f:SetPoint("BOTTOM", page, "BOTTOM")
     f.titleBarHeight = 0
     local y = f.titleBarHeight + 16
 
+    -- The addon's icon heads the page, on the same left edge as the panels
+    -- below it; the name and version lines sit to its right. 64px is the
+    -- source art's own size, so it draws sharp rather than scaled.
+    local icon = f:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(ABOUT_ICON_SIZE, ABOUT_ICON_SIZE)
+    icon:SetPoint("TOPLEFT", MARGIN, -y)
+    icon:SetTexture(WhoDoesWhat.ADDON_ICON)
+
     local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    name:SetPoint("TOPLEFT", MARGIN, -y)
+    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
     name:SetText("WhoDoesWhat")
 
     local installed = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
