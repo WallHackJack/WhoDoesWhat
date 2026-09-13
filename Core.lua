@@ -504,10 +504,10 @@ local defaults = {
             -- (HIGHLIGHT_STYLES in StatusBarsView) drawn in the two colours
             -- below. "Missing" covers a class button with work still on it and
             -- a self-buff that is down; "expiring" is a self-buff inside its
-            -- warning window. Both are what the bar was already drawing.
-            buffingBarGlowStyle = "spin",
-            buffingBarGlowMissingColor = { r = 1, g = 0.05, b = 0.05 },
-            buffingBarGlowExpiringColor = { r = 1, g = 0.82, b = 0.2 },
+            -- warning window. Amber and blue.
+            buffingBarGlowStyle = "flash",
+            buffingBarGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
+            buffingBarGlowExpiringColor = { r = 0.157, g = 0.561, b = 1 },
             -- When the Warrior Shout Bar is on screen: "warriorOnly" (only
             -- while you are a warrior), "withWarrior" (whenever the group has
             -- one), "always", or "never". See Views/WarriorShoutBarView.lua.
@@ -541,11 +541,11 @@ local defaults = {
             shoutBarIconSize = 28,
             -- The shout bar's glow: one of the status bars' highlight styles
             -- (HIGHLIGHT_STYLES in StatusBarsView) drawn in the two colours
-            -- below -- red while the shout is on nobody, yellow once it is on
-            -- part of the party. Both are what the bar was already drawing.
-            shoutBarGlowStyle = "spin",
-            shoutBarGlowMissingColor = { r = 1, g = 0.05, b = 0.05 },
-            shoutBarGlowPartialColor = { r = 1, g = 0.82, b = 0.2 },
+            -- below -- amber while the shout is on nobody, blue once it is on
+            -- part of the party.
+            shoutBarGlowStyle = "flash",
+            shoutBarGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
+            shoutBarGlowPartialColor = { r = 0.157, g = 0.561, b = 1 },
             -- Movable per-paladin live blessing coverage window. On out of the
             -- box: it is the view that says what still needs doing, and a fresh
             -- install has no reason to hunt for it in the settings.
@@ -566,7 +566,7 @@ local defaults = {
             -- The colour every highlight style is drawn in. The picker writes
             -- {r,g,b} here; the Status Bars page's Defaults button puts this
             -- amber back.
-            statusBarHighlightColor = { r = 0.95, g = 0.71, b = 0 },
+            statusBarHighlightColor = { r = 0.949, g = 0.71, b = 0 },
             -- The narrowest the window can be dragged (RESIZE_MIN_W in
             -- StatusBarsView). Defaults and the page's Defaults button hand it
             -- back at its smallest, to be widened from there.

@@ -48,7 +48,7 @@ local bar = nil
 
 local INSET = 3    -- backdrop edge inset
 local PAD = 3      -- inner padding around the button row
-local BTN_GAP = 3
+local BTN_GAP = 5
 -- Icon size is a setting rather than a constant, so anything measured off it
 -- is asked for per repaint. The bounds are what the bar still reads as at
 -- either end: below 16 the count under the icon is unreadable, and past 64 a
@@ -66,16 +66,17 @@ end
 -- was drawn at. Kept in proportion so the number sits the same distance under
 -- a 48px icon as it does under a 28px one.
 local COUNT_H_RATIO = 10 / 28
+-- The count sits this far below its icon; the bar grows by the same to fit it.
+local COUNT_DROP = 3
 local function CountHeight(size)
-    return math.floor(size * COUNT_H_RATIO + 0.5)
+    return math.floor(size * COUNT_H_RATIO + 0.5) + COUNT_DROP
 end
 
--- Red when the shout is on nobody, yellow once it is on some of the party but
--- not all -- the same "started but unfinished" yellow the count under the icon
--- uses, so the glow and the number always agree. Both are settings now; these
--- are only reached if one has somehow gone missing from the profile.
-local MISSING_GLOW_COLOR = { r = 1, g = 0.05, b = 0.05 }
-local PARTIAL_GLOW_COLOR = { r = 1, g = 0.82, b = 0.2 }
+-- Amber when the shout is on nobody, blue once it is on some of the party but
+-- not all. Both are settings; these are only reached if one has somehow gone
+-- missing from the profile.
+local MISSING_GLOW_COLOR = { r = 0.949, g = 0.71, b = 0 }
+local PARTIAL_GLOW_COLOR = { r = 0.157, g = 0.561, b = 1 }
 
 function WhoDoesWhat:GetShoutBarGlowColor(which)
     local settings = self.db.profile.settings
@@ -87,7 +88,7 @@ end
 
 -- Named rather than left nil: an unset style would otherwise fall through to
 -- whatever the status bars are set to, and this bar's style is its own.
-local DEFAULT_GLOW_STYLE = "spin"
+local DEFAULT_GLOW_STYLE = "flash"
 
 function WhoDoesWhat:GetShoutBarGlowStyle()
     return self.db.profile.settings.shoutBarGlowStyle or DEFAULT_GLOW_STYLE
@@ -483,7 +484,7 @@ end
 -- is exactly what a shout going from nobody to part of the party does --
 -- restarts the effect rather than leaving it in the old colour.
 local function SetButtonGlow(btn, which)
-    WhoDoesWhat:ApplyStatusBarHighlight(btn, which ~= nil,
+    WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, which ~= nil,
         WhoDoesWhat:GetShoutBarGlowStyle(),
         which and WhoDoesWhat:GetShoutBarGlowColor(which) or nil)
 end
@@ -551,6 +552,8 @@ local function CreateShoutButton(index)
     local btn = CreateFrame("Button", nil, bar, "SecureActionButtonTemplate")
     btn:SetSize(WhoDoesWhat:GetShoutBarIconSize(),
         WhoDoesWhat:GetShoutBarIconSize())
+    -- Drawn on for the glow styles, so they sit under the icon (StatusBarsView).
+    WhoDoesWhat:CreateIconHighlightHost(btn)
     -- Secure action buttons obey ActionButtonUseKeyDown, so the edge they act
     -- on is the client's choice, not ours. Register both -- exactly what the
     -- paladin bar and PallyPower do. Registering only "AnyUp" looks tidier and
@@ -560,19 +563,22 @@ local function CreateShoutButton(index)
     btn:RegisterForClicks("AnyUp", "AnyDown")
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetPoint("TOPLEFT", 0, 0)
+    border:SetPoint("BOTTOMRIGHT", 0, 0)
     border:SetColorTexture(0, 0, 0, 0.9)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints()
+    -- A pixel inside the button all round, its border on the button's edge: the
+    -- glows drawn around that box then stay inside the bar.
+    icon:SetPoint("TOPLEFT", 1, -1)
+    icon:SetPoint("BOTTOMRIGHT", -1, 1)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     btn.icon = icon
 
     -- The covered/total count under the icon, in the same slot -- and the same
     -- "x/y" language -- the paladin bar's class buttons carry theirs in.
     local count = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+    count:SetPoint("TOP", btn, "BOTTOM", 0, -COUNT_DROP)
     btn.count = count
 
     -- The expiry countdown, over the icon rather than under it: it is about
@@ -618,14 +624,13 @@ local function CreateShoutButton(index)
 end
 
 -- Colour for a covered/total count: green only when the shout is on everybody,
--- yellow the moment it isn't, grey when nobody in the party wants it. The
--- paladin bar splits "none" off as its own red, but here the glow is already
--- saying that at a much higher volume -- what the number adds is the plain
--- binary of done versus not done.
+-- grey when nobody in the party wants it, and otherwise the glow's own colour
+-- -- missing on nobody, partial part-way -- so the number and the glow agree.
 local function CountColor(covered, total)
     if total == 0 then return 0.6, 0.6, 0.6 end
     if covered >= total then return 0.3, 1, 0.3 end
-    return 1, 0.82, 0.2
+    local c = WhoDoesWhat:GetShoutBarGlowColor(covered == 0 and "missing" or "partial")
+    return c.r, c.g, c.b
 end
 
 -- Point a button at a shout, including the secure attributes that make it
@@ -650,6 +655,10 @@ local function UpdateShoutTimer(btn)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     if warn > 0 and remaining and remaining > 0 and remaining < warn then
         btn.timer:SetFormattedText("%d", math.ceil(remaining))
+        -- The bar's second colour, as the Paladin Bar's countdown wears its
+        -- expiring one.
+        local c = WhoDoesWhat:GetShoutBarGlowColor("partial")
+        btn.timer:SetTextColor(c.r, c.g, c.b)
         btn.timer:Show()
     else
         btn.timer:Hide()
@@ -749,8 +758,9 @@ local function EnsureBar()
         tile = false, edgeSize = 16,
         insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
     })
-    bar:SetBackdropColor(0, 0, 0, 0.95)
-    bar:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local fill, edge = WhoDoesWhat.Theme.paladinBarFill, WhoDoesWhat.Theme.mainBorder
+    bar:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    bar:SetBackdropBorderColor(edge[1], edge[2], edge[3])
     bar.buttons = {}
     -- The bar parents secure buttons, so moving it mid-fight is forbidden --
     -- the drag simply doesn't start in combat. Save, then re-anchor off the
@@ -816,8 +826,10 @@ function WhoDoesWhat:RefreshWarriorShoutBar()
     local settings = self.db.profile.settings
     local hideBackground = settings.shoutBarHideBackground and true or false
     local hideNumbers = settings.shoutBarHideNumbers and true or false
-    bar:SetBackdropColor(0, 0, 0, hideBackground and 0 or 0.95)
-    bar:SetBackdropBorderColor(0.4, 0.4, 0.4, hideBackground and 0 or 1)
+    -- The Paladin Bar's navy and the main window's gold edge (Theme.lua).
+    local fill, edge = self.Theme.paladinBarFill, self.Theme.mainBorder
+    bar:SetBackdropColor(fill[1], fill[2], fill[3], hideBackground and 0 or fill[4])
+    bar:SetBackdropBorderColor(edge[1], edge[2], edge[3], hideBackground and 0 or 1)
 
     -- One icon shows whichever shout the warrior picked; two show both in
     -- their own order.

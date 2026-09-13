@@ -702,14 +702,28 @@ end
 --   spec.styleLabel the dropdown's caption
 --   spec.tooltip    what this bar's highlight is for, in one sentence
 --   spec.GetStyle / spec.SetStyle
---   spec.colors     { { label, tooltip, Get, Set }, ... }, first one leading:
---                   it is the colour the preview box is drawn in
+--   spec.colors     { { label, tooltip, key }, ... }, `key` naming the colour's
+--                   setting; the first one leads: it is the colour the preview
+--                   box is drawn in
 --   spec.OnChange   repaint whatever wears these
 -- Returns the page refresher and the y the next widget starts at.
 local function AddHighlightControls(parent, x, y, spec)
-    -- A colour setting reads back through the profile defaults, so a reset
-    -- hands the default straight back rather than leaving a hole. This is only
-    -- reached if a profile has somehow lost the default too, and it keeps a
+    -- A reset writes the profile default back rather than nil. The default is
+    -- a table, and AceDB copies a table default into the profile instead of
+    -- falling back to it, so a nil left there stays nil: the swatch went white
+    -- and each bar drew its own stale fallback colour.
+    for _, entry in ipairs(spec.colors) do
+        local key = entry.key
+        entry.Default = function()
+            return WhoDoesWhat.db.defaults.profile.settings[key]
+        end
+        entry.Get = function() return WhoDoesWhat.db.profile.settings[key] end
+        entry.Set = function(color)
+            WhoDoesWhat.db.profile.settings[key] = color or CopyTable(entry.Default())
+        end
+    end
+
+    -- Only reached if a profile has somehow lost the default too; it keeps a
     -- missing colour from taking the settings window down with it.
     local function EntryColor(entry)
         return entry.Get() or { r = 1, g = 1, b = 1 }
@@ -802,9 +816,8 @@ local function AddHighlightControls(parent, x, y, spec)
     for index, entry in ipairs(spec.colors) do
         local field = UI.CreateColorField(parent, {
             title = entry.label,
-            -- nil is not "no colour": the profile default takes over again,
-            -- which is what a reset means here.
             Get = entry.Get, Set = entry.Set,
+            Default = entry.Default,
             OnChange = ColorsChanged,
         })
         field:SetPoint("LEFT", labels[index], "LEFT", PAGE_FIELD_OFFSET, 0)
@@ -1791,12 +1804,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                     label = "Highlight color:",
                     tooltip = "The color every highlight style is drawn in."
                         .. " Right-click the swatch to reset it.",
-                    Get = function()
-                        return statusSettings.statusBarHighlightColor
-                    end,
-                    Set = function(color)
-                        statusSettings.statusBarHighlightColor = color
-                    end,
+                    key = "statusBarHighlightColor",
                 },
             },
             OnChange = function()
@@ -2183,24 +2191,14 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                         .. " it: a class with somebody still to buff, or a"
                         .. " self-buff that is down. Right-click the swatch to"
                         .. " reset it.",
-                    Get = function()
-                        return buffingSettings.buffingBarGlowMissingColor
-                    end,
-                    Set = function(color)
-                        buffingSettings.buffingBarGlowMissingColor = color
-                    end,
+                    key = "buffingBarGlowMissingColor",
                 },
                 {
                     label = "Expiring color:",
                     tooltip = "The color a self-buff button glows once it is"
                         .. " inside its warning window, with a countdown"
                         .. " running. Right-click the swatch to reset it.",
-                    Get = function()
-                        return buffingSettings.buffingBarGlowExpiringColor
-                    end,
-                    Set = function(color)
-                        buffingSettings.buffingBarGlowExpiringColor = color
-                    end,
+                    key = "buffingBarGlowExpiringColor",
                 },
             },
             OnChange = function()
@@ -2385,12 +2383,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                     tooltip = "The color a shout icon glows while nobody in"
                         .. " the party has that shout. Right-click the swatch"
                         .. " to reset it.",
-                    Get = function()
-                        return shoutSettings.shoutBarGlowMissingColor
-                    end,
-                    Set = function(color)
-                        shoutSettings.shoutBarGlowMissingColor = color
-                    end,
+                    key = "shoutBarGlowMissingColor",
                 },
                 {
                     label = "Partial color:",
@@ -2398,12 +2391,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                         .. " party has that shout but not all of it -- the"
                         .. " same state the count under the icon reads in"
                         .. " yellow for. Right-click the swatch to reset it.",
-                    Get = function()
-                        return shoutSettings.shoutBarGlowPartialColor
-                    end,
-                    Set = function(color)
-                        shoutSettings.shoutBarGlowPartialColor = color
-                    end,
+                    key = "shoutBarGlowPartialColor",
                 },
             },
             OnChange = function() WhoDoesWhat:RefreshWarriorShoutBar() end,

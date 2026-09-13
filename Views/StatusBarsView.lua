@@ -590,6 +590,8 @@ local PULSE_MIN_ALPHA = 0.2
 -- fade, so the row stays equally readable at both ends of the swing.
 local BOB_SECONDS = 0.7
 local BOB_PX = 5
+-- Wings beside a bar's square icon, as a share of the icon's bordered height.
+local WING_ICON_SCALE = 0.75
 -- Extra reach on each side of the two button-glow styles, so the halo clears
 -- the row by a pixel rather than sitting right on its edge.
 local GLOW_PAD = 1
@@ -599,7 +601,7 @@ local GLOW_PAD = 1
 -- which is what the spinning styles were already drawn in.
 -- Only reached if the setting is somehow missing -- the profile default in
 -- Core.lua is the real answer, and this is the same amber.
-local DEFAULT_HIGHLIGHT_COLOR = { r = 0.95, g = 0.71, b = 0 }
+local DEFAULT_HIGHLIGHT_COLOR = { r = 0.949, g = 0.71, b = 0 }
 
 function WhoDoesWhat:GetStatusBarHighlightColor()
     local c = WhoDoesWhat.db.profile.settings.statusBarHighlightColor
@@ -662,11 +664,17 @@ local function EnsurePlate(frame)
 
     plate = CreateFrame("Frame", nil, frame:GetParent())
     plate:SetPoint("TOPLEFT", frame, "TOPLEFT", -OUTLINE_TH, OUTLINE_TH)
-    -- Bottom-anchored to the bar's height rather than the row's: a row is a
-    -- pixel taller than the bar it draws, and squaring the plate off on the row
-    -- would leave a fatter band under the bar than over it.
-    plate:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT",
-        OUTLINE_TH, -(math.min(BAR_H, frame:GetHeight()) + OUTLINE_TH))
+    if frame.iconHost then
+        -- An icon host is exactly the box to ring, and it changes size with the
+        -- bar's icon size setting, so it is followed rather than measured.
+        plate:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", OUTLINE_TH, -OUTLINE_TH)
+    else
+        -- Bottom-anchored to the bar's height rather than the row's: a row is a
+        -- pixel taller than the bar it draws, and squaring the plate off on the
+        -- row would leave a fatter band under the bar than over it.
+        plate:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT",
+            OUTLINE_TH, -(math.min(BAR_H, frame:GetHeight()) + OUTLINE_TH))
+    end
 
     plate.fill = plate:CreateTexture(nil, "BACKGROUND")
     plate.fill:SetAllPoints()
@@ -753,7 +761,10 @@ local function StartWings(frame, motion, only, color)
     local overlay = EnsureWings(frame)
     -- Wings are square and track the row's height, which changes with the
     -- window's scale, so size them at start rather than once at creation.
-    local height = math.max(8, math.floor(frame:GetHeight() + 0.5))
+    local height = frame:GetHeight()
+    -- Beside a square icon the full height reads taller than the icon itself.
+    if frame.iconHost then height = height * WING_ICON_SCALE end
+    height = math.max(8, math.floor(height + 0.5))
     local r, g, b = ResolveColor(color)
     for side, wing in pairs(overlay.wings) do
         wing:SetShown(only == nil or only == side)
@@ -809,8 +820,13 @@ end
 -- a still glow switched to a pulsing one with nothing moving. Frame level 0
 -- puts the whole thing at the row's own level, under every child frame the row
 -- draws its icon and its text on.
+--
+-- The ants are a flipbook, and the frequency sets how often it steps (the
+-- library waits 0.0025 / frequency seconds a frame). Lower is calmer, and also
+-- cheaper: the update runs every frame either way, but steps the texture less.
+local GLOW_ANTS_FREQUENCY = 0.2
 local function StartButtonGlow(frame, animated, color)
-    LCG.ButtonGlow_Start(frame, HighlightColor(color), 0.35, 0)
+    LCG.ButtonGlow_Start(frame, HighlightColor(color), GLOW_ANTS_FREQUENCY, 0)
     local glow = frame._ButtonGlow
     if not glow then return end
     glow.ants:SetShown(animated)
@@ -846,7 +862,7 @@ local HIGHLIGHT_STYLES = {
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
     flash = {
-        label = "Pulsing glow",
+        label = "Spinning glow",
         Start = function(r, c) StartButtonGlow(r, true, c) end,
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
@@ -899,10 +915,48 @@ for _, kind in ipairs(WING_MOTIONS) do
 end
 table.insert(HIGHLIGHT_STYLE_ORDER, "none")
 -- Anything saved under a key that has since been dropped falls back to this.
-local DEFAULT_HIGHLIGHT_STYLE = "spin"
+local DEFAULT_HIGHLIGHT_STYLE = "flash"
 
 function WhoDoesWhat:GetStatusBarHighlightStyles()
     return HIGHLIGHT_STYLES, HIGHLIGHT_STYLE_ORDER, DEFAULT_HIGHLIGHT_STYLE
+end
+
+-- The styles are drawn for a status row, whose art lives on child frames above
+-- it: a glow parented to the row sits under that art, and a plate one level
+-- down sits under the row. A bar's square button draws its icon on itself, so
+-- the same glow lands over the icon, and the plate lands under the button's
+-- black edge, cut to a row's height.
+--
+-- The host is what a bar highlights instead: an empty sibling exactly over the
+-- button, whose icon and edge sit inside it, a level under the button, with a
+-- free level under that
+-- for the plate. The glows draw beneath the icon, the plate rings the edge, and
+-- the dashes and wings, which draw levels above whatever they are given, still
+-- come out on top. It mirrors the button's shown state. Call it when the button
+-- is made: raising a secure button's level is refused in combat.
+function WhoDoesWhat:CreateIconHighlightHost(btn)
+    local parent = btn:GetParent()
+    local base = parent:GetFrameLevel()
+    btn:SetFrameLevel(base + 3)
+    local host = CreateFrame("Frame", nil, parent)
+    host:SetAllPoints(btn)
+    host:SetFrameLevel(base + 2)
+    host.iconHost = true
+    -- Every style measures its frame as it starts, so a new icon size would
+    -- leave a running one drawn for the old: it is rebuilt at the new size.
+    host:SetScript("OnSizeChanged", function(self)
+        local style = self.glowStyle
+        if not style then return end
+        HIGHLIGHT_STYLES[style].Stop(self)
+        HIGHLIGHT_STYLES[style].Start(self, self.glowColor)
+    end)
+    local function Mirror() host:SetShown(btn:IsShown()) end
+    hooksecurefunc(btn, "Show", Mirror)
+    hooksecurefunc(btn, "Hide", Mirror)
+    hooksecurefunc(btn, "SetShown", Mirror)
+    Mirror()
+    btn.highlightHost = host
+    return host
 end
 
 -- Style and colour are both read at start and baked into the running effect,
@@ -929,11 +983,11 @@ function WhoDoesWhat:ApplyStatusBarHighlight(frame, shown, styleKey, color)
     if running and (not shown or running ~= styleKey
         or frame.glowColorStamp ~= stamp) then
         HIGHLIGHT_STYLES[running].Stop(frame)
-        frame.glowStyle, frame.glowColorStamp = nil, nil
+        frame.glowStyle, frame.glowColorStamp, frame.glowColor = nil, nil, nil
     end
     if shown and not frame.glowStyle then
         HIGHLIGHT_STYLES[styleKey].Start(frame, color)
-        frame.glowStyle, frame.glowColorStamp = styleKey, stamp
+        frame.glowStyle, frame.glowColorStamp, frame.glowColor = styleKey, stamp, color
     end
 end
 

@@ -44,7 +44,8 @@ local TITLE_H = 12     -- title strip height
 -- using them -- so one repaint can never draw half the bar at the old size.
 local BTN_SIZE = 28
 local COUNT_H = 10     -- room under a button for its count text (row layout)
-local BTN_GAP = 3
+local COUNT_DROP = 3   -- icon bottom to its count (row layout); the bar grows to fit
+local BTN_GAP = 4
 local MIN_BUTTONS_WIDE = 3
 -- Kept in proportion to the icon so the count sits the same distance under a
 -- 48px button as it does under a 28px one, and stays readable there.
@@ -93,8 +94,8 @@ local MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 -- gone missing from the profile. "Missing" is work outstanding -- a class with
 -- somebody still unbuffed, a self-buff that is down -- and "expiring" is a
 -- self-buff inside its warning window.
-local MISSING_GLOW_COLOR = { r = 1, g = 0.05, b = 0.05 }
-local EXPIRING_GLOW_COLOR = { r = 1, g = 0.82, b = 0.2 }
+local MISSING_GLOW_COLOR = { r = 0.949, g = 0.71, b = 0 }
+local EXPIRING_GLOW_COLOR = { r = 0.157, g = 0.561, b = 1 }
 local PP_GEAR_ICON = "Interface\\Icons\\Trade_Engineering"
 -- The gear is a complaint about configuration rather than about a blessing, so
 -- it stays its own grey and out of the two colours above.
@@ -112,7 +113,7 @@ end
 
 -- Named rather than left nil: an unset style would otherwise fall through to
 -- whatever the status bars are set to, and this bar's style is its own.
-local DEFAULT_GLOW_STYLE = "spin"
+local DEFAULT_GLOW_STYLE = "flash"
 
 function WhoDoesWhat:GetBuffingBarGlowStyle()
     return self.db.profile.settings.buffingBarGlowStyle or DEFAULT_GLOW_STYLE
@@ -445,7 +446,7 @@ local function SetButtonGlow(btn, on, which)
         end
         return
     end
-    WhoDoesWhat:ApplyStatusBarHighlight(btn, on and true or false,
+    WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost or btn, on and true or false,
         WhoDoesWhat:GetBuffingBarGlowStyle(),
         on and WhoDoesWhat:GetBuffingBarGlowColor(which) or nil)
 end
@@ -454,13 +455,14 @@ end
 -- Buttons
 -- ---------------------------------------------------------------------------
 
--- Colour for a covered/total count: green all, red none, yellow partial, gray
--- when there's nothing to cover.
+-- Colour for a covered/total count: green all, gray when there's nothing to
+-- cover, and otherwise the bar's own glow colours -- missing for none, expiring
+-- for part-way -- so the number and the glow never disagree.
 local function CountColor(covered, total)
     if total == 0 then return 0.6, 0.6, 0.6 end
     if covered >= total then return 0.3, 1, 0.3 end
-    if covered == 0 then return 1, 0.3, 0.3 end
-    return 1, 0.82, 0.2
+    local c = WhoDoesWhat:GetBuffingBarGlowColor(covered == 0 and "missing" or "expiring")
+    return c.r, c.g, c.b
 end
 
 local function CountUnassignedClassBuffs(paladin, buffPlan, members)
@@ -504,6 +506,8 @@ local function UpdateJobTimer(btn)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     if remaining and remaining > 0 and remaining < WarnSeconds() then
         btn.timer:SetText(FormatCountdown(remaining))
+        local c = WhoDoesWhat:GetBuffingBarGlowColor("expiring")
+        btn.timer:SetTextColor(c.r, c.g, c.b)
         btn.timer:Show()
     else
         btn.timer:Hide()
@@ -887,14 +891,19 @@ local function CreateButton(index)
     -- cast works with either client setting (PallyPower does the same).
     btn:RegisterForClicks("AnyUp", "AnyDown")
     btn:SetSize(BTN_SIZE, BTN_SIZE)
+    -- Drawn on for the glow styles, so they sit under the icon (StatusBarsView).
+    WhoDoesWhat:CreateIconHighlightHost(btn)
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetPoint("TOPLEFT", 0, 0)
+    border:SetPoint("BOTTOMRIGHT", 0, 0)
     border:SetColorTexture(0, 0, 0, 0.9)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints()
+    -- A pixel inside the button all round, its border on the button's edge: the
+    -- glows drawn around that box then stay inside the bar.
+    icon:SetPoint("TOPLEFT", 1, -1)
+    icon:SetPoint("BOTTOMRIGHT", -1, 1)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) -- trim the default icon border
     btn.icon = icon
 
@@ -903,7 +912,7 @@ local function CreateButton(index)
     -- 1px black frame matches the main icon's border; same icon-trim TexCoord.
     local petBadge = CreateFrame("Frame", nil, btn)
     petBadge:SetSize(BTN_SIZE * 0.44, BTN_SIZE * 0.44)
-    petBadge:SetPoint("BOTTOMRIGHT", -1, 1)
+    petBadge:SetPoint("BOTTOMRIGHT", -2, 2)
     local badgeBorder = petBadge:CreateTexture(nil, "OVERLAY", nil, 1)
     badgeBorder:SetPoint("TOPLEFT", -1, 1)
     badgeBorder:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -1029,14 +1038,19 @@ local function CreatePallyPowerButton()
     local btn = CreateFrame("Button", "WhoDoesWhatBuffingBarPallyPowerButton", bar)
     btn:RegisterForClicks("LeftButtonUp")
     btn:SetSize(BTN_SIZE, BTN_SIZE)
+    -- Drawn on for the glow styles, so they sit under the icon (StatusBarsView).
+    WhoDoesWhat:CreateIconHighlightHost(btn)
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetPoint("TOPLEFT", 0, 0)
+    border:SetPoint("BOTTOMRIGHT", 0, 0)
     border:SetColorTexture(0, 0, 0, 0.9)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints()
+    -- A pixel inside the button all round, its border on the button's edge: the
+    -- glows drawn around that box then stay inside the bar.
+    icon:SetPoint("TOPLEFT", 1, -1)
+    icon:SetPoint("BOTTOMRIGHT", -1, 1)
     icon:SetTexture(PP_GEAR_ICON)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     icon:SetDesaturated(true)
@@ -1383,14 +1397,19 @@ end
 local function CreateSelfBuffButton(name, template)
     local btn = CreateFrame("Button", name, bar, template)
     btn:SetSize(BTN_SIZE, BTN_SIZE)
+    -- Drawn on for the glow styles, so they sit under the icon (StatusBarsView).
+    WhoDoesWhat:CreateIconHighlightHost(btn)
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetPoint("TOPLEFT", 0, 0)
+    border:SetPoint("BOTTOMRIGHT", 0, 0)
     border:SetColorTexture(0, 0, 0, 0.9)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints()
+    -- A pixel inside the button all round, its border on the button's edge: the
+    -- glows drawn around that box then stay inside the bar.
+    icon:SetPoint("TOPLEFT", 1, -1)
+    icon:SetPoint("BOTTOMRIGHT", -1, 1)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     btn.icon = icon
 
@@ -1731,7 +1750,8 @@ local function UpdateRighteousFuryButton(btn)
         local minutes = math.floor(remaining / 60)
         btn.count:SetFormattedText("%d:%02d", minutes,
             math.floor(remaining - minutes * 60))
-        btn.count:SetTextColor(1, 0.82, 0.2)
+        local c = WhoDoesWhat:GetBuffingBarGlowColor("expiring")
+        btn.count:SetTextColor(c.r, c.g, c.b)
     else
         SetButtonGlow(btn, false)
         btn.count:SetText("")
@@ -2046,7 +2066,7 @@ local function AnchorCount(btn, keepInColumn)
         local face, _, flags = count:GetFont()
         count:SetFont(face or "Fonts\\FRIZQT__.TTF",
             math.max(7, math.floor(BTN_SIZE * COUNT_H_RATIO + 0.5)), flags)
-        count:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+        count:SetPoint("TOP", btn, "BOTTOM", 0, -COUNT_DROP)
         count:Show()
     elseif keepInColumn then
         -- Small enough for a "9:59" to sit inside the icon, outlined so it
@@ -2308,7 +2328,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         minW = math.max(minW, math.ceil(bar.titleText:GetStringWidth()
             + bar.sourceText:GetStringWidth()) + 16)
         bar:SetSize(INSET * 2 + PAD * 2 + math.max(leadW + classW, minW),
-            CONTENT_TOP + BTN_SIZE + COUNT_H + INSET + 1)
+            CONTENT_TOP + BTN_SIZE + COUNT_H + COUNT_DROP + INSET + 1)
     end
     if not bar.moving then LoadPosition() end
     WirePopoutMenus()
