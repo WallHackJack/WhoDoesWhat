@@ -39,12 +39,11 @@ local PAD_BELOW_HEADER = 4 -- gap under a class divider before its first role
 local PAD_BETWEEN_ROLES = 2 -- gap between role rows so icons don't touch
 local PAD_END_OF_CLASS = 8 -- gap after a class before the next divider
 
--- Page geometry: one column, centred on the page, holding the options strip
--- and the two class columns under it.
+-- Page geometry: one column, centred on the page, holding a short intro, the
+-- options strip under it and the two class columns under that.
 local COLUMN_W = 520
-local OPTIONS_TOP = 10 -- y (from the page top) where the options strip sits
+local INTRO_TOP = 10 -- y (from the page top) where the intro starts
 local OPTIONS_H = 24
-local CONTENT_TOP = OPTIONS_TOP + OPTIONS_H + 10 -- y where the class columns start
 
 
 -- Add a precise-height vertical spacer. A SimpleGroup normally re-sizes itself
@@ -180,7 +179,7 @@ local function BuildContent()
     group:SetLayout("Flow")
     group.frame:SetParent(rolesPage)
     group.frame:ClearAllPoints()
-    group.frame:SetPoint("TOP", rolesPage, "TOP", 0, -CONTENT_TOP)
+    group.frame:SetPoint("TOP", rolesPage.strip, "BOTTOM", 0, -10)
     group:SetWidth(COLUMN_W)
     group.frame:Show()
     contentGroup = group
@@ -218,14 +217,25 @@ local function BuildContent()
 end
 
 
--- Build the options strip onto the Roles settings page, once. The class list
--- is (re)built separately, each time the page comes up.
+-- Build the intro and options strip onto the Roles settings page, once. The
+-- class list is (re)built separately, each time the page comes up.
 function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
     rolesPage, rolesScroll = page, scroll
 
+    -- Styled like the intro at the top of the other settings pages.
+    local intro = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    intro:SetPoint("TOP", 0, -INTRO_TOP)
+    intro:SetWidth(COLUMN_W - 8)
+    intro:SetJustifyH("LEFT")
+    intro:SetTextColor(0.7, 0.7, 0.7)
+    intro:SetText("Every role WDW knows, by class, plus your own custom ones."
+        .. " Click a role to see its blessing order, or create your own when a"
+        .. " raider's job needs its own name or its own blessings.")
+
     local strip = CreateFrame("Frame", nil, page)
-    strip:SetPoint("TOP", 0, -OPTIONS_TOP)
+    strip:SetPoint("TOP", intro, "BOTTOM", 0, -12)
     strip:SetSize(COLUMN_W, OPTIONS_H)
+    page.strip = strip
 
     -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
     -- never releases the widget mid-callback).

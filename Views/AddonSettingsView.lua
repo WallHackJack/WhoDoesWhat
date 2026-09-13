@@ -30,7 +30,7 @@ local PAGE_DROPDOWN_ROW_H = 32
 -- Behind each section, inside the Settings tab's near-black.
 local PAGE_GREY = { 0.06, 0.06, 0.07, 1 }
 -- Around the header and those wells, inside the section tabs' border.
-local PANEL_SLATE = { 0.11, 0.11, 0.125, 1 }
+local PANEL_SLATE = { 0.095, 0.095, 0.11, 1 }
 -- The shared title and Reset Defaults strip above every section.
 local HEADER_H = 34
 local BUFF_OPTIONS_W = 242
@@ -624,6 +624,18 @@ end
 
 -- A label at the column's left and a dropdown whose box starts at the column's
 -- shared field x. Returns the label, the dropdown, and the y below the row.
+-- A short grey paragraph at the top of the column saying what the page's
+-- feature is. Returns the text and the y below it.
+local function AddPageIntro(parent, y, text)
+    local intro = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    intro:SetPoint("TOPLEFT", PAGE_X + 4, -y)
+    intro:SetWidth(PAGE_COLUMN_W - 8)
+    intro:SetJustifyH("LEFT")
+    intro:SetTextColor(0.7, 0.7, 0.7)
+    intro:SetText(text)
+    return intro, y + math.ceil(intro:GetStringHeight()) + 12
+end
+
 local function AddDropdownRow(parent, y, text, name)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", PAGE_X + 4, -(y + 4))
@@ -876,7 +888,10 @@ local function EnsureBuffOptionsFrame(owner, key)
     nameBar:SetFrameLevel(scroll:GetFrameLevel() + 20)
     local barFill = nameBar:CreateTexture(nil, "BACKGROUND")
     barFill:SetAllPoints()
-    barFill:SetColorTexture(0.12, 0.12, 0.135, 1)
+    -- The window's tab-panel blue, so the bar stands apart from the slate
+    -- around the section.
+    local blue = UI.TAB_PANEL_COLOR
+    barFill:SetColorTexture(blue[1], blue[2], blue[3], blue[4])
     local topEdge = CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, true)
     topEdge:SetPoint("TOPLEFT", nameBar, "BOTTOMLEFT")
     topEdge:SetPoint("TOPRIGHT", nameBar, "BOTTOMRIGHT")
@@ -1633,7 +1648,12 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     -- ---- Status Bars ----
     local statusPage = pages["Status Bars"]
-    yL = AddPageDivider(statusPage, y0, "Window")
+    local statusIntro
+    statusIntro, yL = AddPageIntro(statusPage, y0, "A compact window of bars"
+        .. " showing your raid's buffs, debuffs and assignments at a glance."
+        .. " Choose which bars show on the Buffs tab. Hover the window and check"
+        .. " the tooltips for additional info")
+    yL = AddPageDivider(statusPage, yL, "Window")
     local overviewLabel
     f.overviewCheck, yL, overviewLabel = AddCompactCheckboxRow(statusPage, PAGE_X, yL,
         "Enable Status Bars",
@@ -1782,7 +1802,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- Every widget on this page, read back out of the settings. Called when the
     -- window opens and again after the Defaults button has rewritten them.
     f.SetStatusControlsEnabled = PageControlSwitch(statusPage,
-        { f.overviewCheck, overviewLabel })
+        { statusIntro, f.overviewCheck, overviewLabel })
     f.RefreshStatusPage = function()
         local settings = WhoDoesWhat.db.profile.settings
         f.overviewCheck:SetChecked(settings.overviewEnabled)
@@ -1965,7 +1985,12 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     -- ---- Paladin ----
     local paladinPage = pages["Paladin Bar"]
-    yL = AddPageDivider(paladinPage, y0, "Bar")
+    local paladinIntro
+    paladinIntro, yL = AddPageIntro(paladinPage, y0, "A clickable bar of your"
+        .. " assigned blessings, a Nova-style alternative to PallyPower. Only"
+        .. " shown when you're a paladin. Hover the bar and check the tooltips"
+        .. " for additional info")
+    yL = AddPageDivider(paladinPage, yL, "Bar")
     local buffingBarLabel
     f.buffingBarCheck, yL, buffingBarLabel = AddCompactCheckboxRow(paladinPage, PAGE_X, yL, "Enable Paladin Buffing Bar",
         "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
@@ -2180,7 +2205,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- Every widget on this page, read back out of the settings. Called when the
     -- window opens and again after the Defaults button has rewritten them.
     f.SetPaladinControlsEnabled = PageControlSwitch(paladinPage,
-        { f.buffingBarCheck, buffingBarLabel })
+        { paladinIntro, f.buffingBarCheck, buffingBarLabel })
     f.RefreshPaladinPage = function()
         local settings = WhoDoesWhat.db.profile.settings
         f.buffingBarCheck:SetChecked(settings.buffingBarEnabled)
@@ -2197,16 +2222,11 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 
     -- ---- Warrior ----
     local warriorPage = pages["Warrior Bar"]
-    yL = y0
-    local shoutIntro = warriorPage:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    shoutIntro:SetPoint("TOPLEFT", PAGE_X + 4, -yL)
-    shoutIntro:SetWidth(PAGE_COLUMN_W - 8)
-    shoutIntro:SetJustifyH("LEFT")
-    shoutIntro:SetTextColor(0.7, 0.7, 0.7)
-    shoutIntro:SetText("An efficient warrior buffing bar for shouts. Includes"
-        .. " pets and ignores irrelevant party members based on WDW roles."
-        .. " Hover the bar and check the tooltips for additional info")
-    yL = yL + math.ceil(shoutIntro:GetStringHeight()) + 12
+    local shoutIntro
+    shoutIntro, yL = AddPageIntro(warriorPage, y0, "An efficient warrior"
+        .. " buffing bar for shouts. Includes pets and ignores irrelevant party"
+        .. " members based on WDW roles. Hover the bar and check the tooltips"
+        .. " for additional info")
 
     yL = AddPageDivider(warriorPage, yL, "Bar")
     local shoutShowLabel, shoutShowDD
