@@ -1306,6 +1306,31 @@ function WhoDoesWhat:PushPlayerBuffToPallyPower(playerName)
     return PushPlayerBuffs(self, playerName, false)
 end
 
+-- A role definition changed (a raid role's order saved, or an override
+-- removed). Everyone on that role gets new blessings, and the solve can move
+-- other raiders' coverage with them, so walk the whole group. Each push only
+-- sends its own delta against the live tables the previous one updated, so
+-- raiders whose blessings didn't move send nothing. Same gates as a role
+-- change: WDW buff source, and authority to assign other paladins. Roleless
+-- raiders are left where PallyPower has them, as Fix All does.
+function WhoDoesWhat:PushGroupBuffsToPallyPower()
+    local pushed = 0
+    for _, m in ipairs(self:GetGroupMembers(nil)) do
+        if not self:PallyPowerRowNeedsRole(m.name)
+            and PushPlayerBuffs(self, m.name, false) then
+            pushed = pushed + 1
+        end
+    end
+    for _, pet in ipairs(self.Assign.GetPetMembers()) do
+        if PushPlayerBuffs(self, pet.name, false) then pushed = pushed + 1 end
+    end
+    if pushed > 0 then
+        self:RefreshMainAssignmentsView()
+        self:RefreshBoardViews()
+    end
+    return pushed
+end
+
 function WhoDoesWhat:FixPlayerBuffsInPallyPower(playerName)
     return PushPlayerBuffs(self, playerName, true)
 end

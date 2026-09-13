@@ -1128,9 +1128,12 @@ function Sync:ApplyState(msg, senderKey)
     -- leader receives a board containing exactly one role change, relay that
     -- player's minimal blessing delta from the accepted authority instead.
     -- Capture the old roles before ApplySnapshot replaces the board.
-    local oldRoles
+    -- The same goes for an edited raid role definition: its raiders' blessings
+    -- moved even though nobody's assignment did.
+    local oldRoles, oldCustomRoles
     if UnitIsGroupLeader("player") then
         oldRoles = CopyTable(WhoDoesWhat.db.profile.assignments)
+        oldCustomRoles = Canon(WhoDoesWhat.db.profile.raidCustomRoles)
     end
 
     ApplySnapshot(msg.state)
@@ -1156,7 +1159,9 @@ function Sync:ApplyState(msg, senderKey)
                 changed, changedCount = name, changedCount + 1
             end
         end
-        if changedCount == 1 then
+        if Canon(WhoDoesWhat.db.profile.raidCustomRoles) ~= oldCustomRoles then
+            WhoDoesWhat:PushGroupBuffsToPallyPower()
+        elseif changedCount == 1 then
             WhoDoesWhat:PushPlayerBuffToPallyPower(changed)
         end
     end

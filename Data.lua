@@ -1899,6 +1899,8 @@ function WhoDoesWhat:UpdateRaidCustomRole(roleId, name, wowRole, icon, buffOrder
     def.order = { unpack(buffOrder) }
     def.allowed = math.max(0, math.min(allowedCount, #buffOrder))
     self:PopulateRolesAndCategories()
+    -- Before the repaint, so the drift check sees the post-send tables.
+    self:PushGroupBuffsToPallyPower()
     self:RefreshMainAssignmentsView()
     self:RefreshBoardViews()
     return true
@@ -1961,6 +1963,8 @@ function WhoDoesWhat:RemoveRaidCustomRole(roleId)
     for _, name in ipairs(assigned) do
         self:SetAssignedRole(name, nil, self:UnitForPlayer(name), true)
     end
+    -- An override coming off puts its raiders back on the default order.
+    self:PushGroupBuffsToPallyPower()
     self:LogOperation((isCustom and "Custom role '" or "Override of '")
         .. label .. "' removed from the raid"
         .. (#assigned > 0 and (", clearing " .. #assigned .. " assignment"
