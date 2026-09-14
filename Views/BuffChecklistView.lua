@@ -884,8 +884,14 @@ local function EnsureFrame()
     title:SetHeight(TITLE_H)
     title:SetPoint("TOPLEFT", INSET, -INSET)
     title:SetPoint("TOPRIGHT", -INSET, -INSET)
-    local titleBg = title:CreateTexture(nil, "ARTWORK")
-    titleBg:SetAllPoints()
+    -- The fill is the window's, not the strip's: a child frame draws above
+    -- its parent's backdrop, which laid the header over the gold edge. On
+    -- the window's BACKGROUND it sits over the fill and under the edge
+    -- (BORDER). Being off the strip, it's shown and hidden alongside it.
+    local titleBg = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
+    titleBg:SetAllPoints(title)
+    titleBg:Hide()
+    frame.titleBg = titleBg
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("CENTER")
@@ -1015,6 +1021,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
     local rows = math.ceil(#shown / columns)
     local header = settings.buffChecklistShowHeader and true or false
     f.title:SetShown(header)
+    f.titleBg:SetShown(header)
     local top = INSET + (header and (TITLE_H + 2) or PAD)
     local right = self:GetBuffChecklistAlign() == "RIGHT"
     for i, entry in ipairs(shown) do

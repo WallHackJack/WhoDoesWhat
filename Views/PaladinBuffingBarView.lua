@@ -1850,8 +1850,11 @@ local function EnsureBar()
     title:SetHeight(TITLE_H)
     title:SetPoint("TOPLEFT", INSET, -INSET)
     title:SetPoint("TOPRIGHT", -INSET, -INSET)
-    local titleBg = title:CreateTexture(nil, "ARTWORK")
-    titleBg:SetAllPoints()
+    -- The fill is the bar's, not the strip's: a child frame draws above its
+    -- parent's backdrop, which laid the header over the gold edge. On the
+    -- bar's BACKGROUND it sits over the fill and under the edge (BORDER).
+    local titleBg = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
+    titleBg:SetAllPoints(title)
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)

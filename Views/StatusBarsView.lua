@@ -1934,8 +1934,12 @@ local function EnsureView()
     title:SetPoint("TOPLEFT", INSET, -INSET)
     title:SetPoint("TOPRIGHT", -INSET, -INSET)
     view.title = title
-    local titleBg = title:CreateTexture(nil, "ARTWORK")
-    titleBg:SetAllPoints()
+    -- The fill is the window's, not the strip's: a child frame draws above
+    -- its parent's backdrop, which laid the header over the gold edge. On
+    -- the window's BACKGROUND it sits over the fill and under the edge
+    -- (BORDER).
+    local titleBg = view:CreateTexture(nil, "BACKGROUND", nil, 1)
+    titleBg:SetAllPoints(title)
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
