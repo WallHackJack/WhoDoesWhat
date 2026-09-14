@@ -497,14 +497,18 @@ end
 -- wants for its own settings.
 --
 -- Over a row the shift pair is the two ways to chase a buff -- quietly to the
--- people who can fix it, or out loud to the raid.
+-- people who can fix it, or out loud to the raid. The PallyPower row has
+-- nothing to announce, so its Shift-Right-Click opens PallyPower's own
+-- blessings window (`/pp blessings`) instead.
 local function StatusBarsClick(self, button)
     local key = self and self.optionsKey
     if button == "RightButton" then
         if IsAltKeyDown() then
             if key then WhoDoesWhat:OpenBuffTrackingOptions(key) end
         elseif IsShiftKeyDown() then
-            if key then
+            if key == "pallyPower" then
+                WhoDoesWhat:TogglePallyPowerBlessings()
+            elseif key then
                 AnnounceRow(self)
             else
                 WhoDoesWhat:OpenAddonSettingsView("Status Bars")
@@ -1513,6 +1517,10 @@ local function ShowRowTooltip(frame)
                 AddHintLine("Shift-Left-Click:", whisper)
             end
             AddHintLine("Shift-Right-Click:", "Announce")
+        elseif frame.optionsKey == "pallyPower"
+            and WhoDoesWhat:PallyPowerInstalled() then
+            GameTooltip:AddLine(" ")
+            AddHintLine("Shift-Right-Click:", "PallyPower Blessings")
         end
     end
     GameTooltip:Show()

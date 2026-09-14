@@ -95,6 +95,17 @@ function WhoDoesWhat:TogglePallyPower()
     self:UpdatePaladinBuffingBarVisibility()
 end
 
+-- What `/pp blessings` does, combat guard included: toggle PallyPower's own
+-- blessing assignments window.
+function WhoDoesWhat:TogglePallyPowerBlessings()
+    if not _G.PallyPowerBlessings_Toggle then return end
+    if UnitAffectingCombat("player") then
+        self:Print("PallyPower's blessings window cannot be opened during combat.")
+        return
+    end
+    PallyPowerBlessings_Toggle()
+end
+
 -- Ask PallyPower clients to identify themselves. Each paladin answers REQ
 -- with SELF + ASELF; CHAT_MSG_ADDON below records those replies for raider
 -- tooltips.
