@@ -9,8 +9,8 @@ local UI = select(2, ...).UI
 -- The row definitions (exclusivity, preferred roles, warnings) live in
 -- Assignments.lua (RowDefs / Sections); assignment writes go through
 -- SetAssignment, which enforces exclusiveWith and repaints. Header buttons:
--- mass-mail, Auto (fill both curses from the group's warlocks, gated by the
--- Settings toggles) and Calc (the Details!-backed Curse Value Calculator).
+-- mass-mail and Auto (fill both curses from the group's warlocks, gated by the
+-- Settings toggles). The Curse Value Calculator is its own main-window tab.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -230,7 +230,6 @@ local function Refresh(f)
     K.LayoutColumns(f)
 
     -- Auto rewrites the whole section, so hide it without edit permission.
-    -- Calc only opens a read-only window and stays live for everyone.
     state.autoBtn:SetShown(editable)
     state.box.title:SetTextColor(enabled and 0.95 or 0.5,
         enabled and 0.95 or 0.5, enabled and 0.95 or 0.5)
@@ -269,22 +268,12 @@ local function Build(f, content)
         end)
     K.ChainHeaderButton(chrome, autoBtn)
 
-    local calculatorCurses = IS_CLASSIC_ERA
-        and "Curse of the Elements, Curse of Shadow, and Curse of Recklessness"
-        or "Curse of the Elements and Curse of Recklessness"
-    local calcBtn = UI.CreateTextButton(box, "Calc", "Curse Value Calculator",
-        "Estimate how much raid damage " .. calculatorCurses
-        .. " provided (or could have provided), pulling the fight data from Details!.", function()
-            WhoDoesWhat:OpenCurseCalculatorView()
-        end)
-    K.ChainHeaderButton(chrome, calcBtn)
-
     f.curseSection = {
         box = box,
         headerChain = chrome.headerChain,
         mailBtn = chrome.mailBtn,
         autoBtn = autoBtn,
-        buttons = { autoBtn, calcBtn },
+        buttons = { autoBtn },
         emptyHint = UI.CreateEmptyHint(box),
         rows = {},
     }

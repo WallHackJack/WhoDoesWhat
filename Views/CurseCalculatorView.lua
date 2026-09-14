@@ -17,14 +17,17 @@ local UI = select(2, ...).UI
 -- (trinkets, Executioner, gear) isn't tracked, offered instead as an optional
 -- average the user fills in.
 
-local calcFrame = nil
-
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
-local FRAME_W = 520
-local FRAME_H = IS_CLASSIC_ERA and 650 or 560
+-- The page is a tab of the main window, wider than it is tall: the fight
+-- picker, breakdown and inputs fill the left, the results run down a column on
+-- the right, and the footnote spans the bottom.
+local LEFT_W = 520
 local MARGIN = 14
 local COL_R = 268 -- right input column x
+local RESULTS_X = LEFT_W + 16
+local RESULTS_W = 320
+local RESULT_GAP = 18
 
 -- Damage that lands through armor A is C/(A+C). Classic uses the level-60
 -- constant (400 + 85*60); TBC uses 467.5*70 - 22167.5.
@@ -391,7 +394,8 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Rebuild the fight dropdown from Details' stored segments (newest first) plus
--- the live one, and pick a sensible default (last completed fight).
+-- the live one. A fight the user picked stays picked while Details still holds
+-- it; otherwise pick a sensible default (last completed fight).
 local function RefreshFightList(f)
     local Details = GetDetails()
     if not Details then
@@ -403,8 +407,15 @@ local function RefreshFightList(f)
     local segments = Details.GetCombatSegments and Details:GetCombatSegments() or {}
     local current = Details.GetCurrentCombat and Details:GetCurrentCombat()
 
+    local picked = f.pickedCombat
+    local stillHeld = picked ~= nil and picked == current
+    for i = 1, math.min(#segments, 20) do
+        if segments[i] == picked then stillHeld = true end
+    end
+    if not stillHeld then f.pickedCombat = nil end
+
     -- Default: the most recent completed segment, else the current fight.
-    f.selectedCombat = segments[1] or current
+    f.selectedCombat = f.pickedCombat or segments[1] or current
 
     UIDropDownMenu_Initialize(f.fightDD, function(_, level)
         if current then
@@ -413,6 +424,7 @@ local function RefreshFightList(f)
             info.checked = (f.selectedCombat == current)
             info.func = function()
                 f.selectedCombat = current
+                f.pickedCombat = current
                 UIDropDownMenu_SetText(f.fightDD, CombatLabel(current))
                 Recompute(f)
             end
@@ -426,6 +438,7 @@ local function RefreshFightList(f)
             info.checked = (f.selectedCombat == seg)
             info.func = function()
                 f.selectedCombat = seg
+                f.pickedCombat = seg
                 UIDropDownMenu_SetText(f.fightDD, label)
                 Recompute(f)
             end
@@ -438,14 +451,14 @@ local function RefreshFightList(f)
 end
 
 -- ---------------------------------------------------------------------------
--- Window
+-- Page
 -- ---------------------------------------------------------------------------
 
-local function EnsureCalcFrame()
-    if calcFrame then return calcFrame end
-
-    local f = UI.CreateWindow("WhoDoesWhatCurseCalcFrame", FRAME_W, FRAME_H,
-        "WhoDoesWhat - Curse Value Calculator", WhoDoesWhat.Theme.window)
+-- Build the page into its main-window tab. Open to everyone: it only reads
+-- Details!, so there is nothing to lock it behind.
+function WhoDoesWhat:BuildCurseCalculatorPage(page)
+    local f = CreateFrame("Frame", nil, page)
+    f:SetAllPoints(page)
     f.state = {
         bossArmor = BOSS_ARMORS[1],
         sunder = true, expose = false,
@@ -453,7 +466,7 @@ local function EnsureCalcFrame()
         malediction = not IS_CLASSIC_ERA, igniteDoubleDip = true,
     }
 
-    local top = f.titleBarHeight + 12
+    local top = 12
 
     -- Fight picker
     local pickLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -467,7 +480,7 @@ local function EnsureCalcFrame()
     local y = top + 30
     f.fightHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.fightHeader:SetPoint("TOPLEFT", MARGIN, -y)
-    f.fightHeader:SetPoint("RIGHT", f, "RIGHT", -MARGIN, 0)
+    f.fightHeader:SetWidth(LEFT_W - MARGIN * 2)
     f.fightHeader:SetJustifyH("LEFT")
 
     f.sumLabels = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -587,47 +600,39 @@ local function EnsureCalcFrame()
     UI.AddTooltip(f.penEdit, "Extra armor penetration",
         function(self) return self.tooltip end)
 
-    -- Divider above results
-    local ry = iy + 172
-    local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
-    divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", MARGIN, -ry)
-    divider:SetPoint("TOPRIGHT", -MARGIN, -ry)
-
-    -- Results, side by side to mirror the inputs: CoR on the left, CoE right.
-    f.corResult = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.corResult:SetPoint("TOPLEFT", MARGIN, -(ry + 12))
-    f.corResult:SetWidth(COL_R - MARGIN - 10)
-    f.corResult:SetJustifyH("LEFT")
-    f.corResult:SetJustifyV("TOP")
-    f.corResult:SetSpacing(3)
-
-    f.coeResult = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.coeResult:SetPoint("TOPLEFT", COL_R, -(ry + 12))
-    f.coeResult:SetPoint("RIGHT", f, "RIGHT", -MARGIN, 0)
-    f.coeResult:SetJustifyH("LEFT")
-    f.coeResult:SetJustifyV("TOP")
-    f.coeResult:SetSpacing(3)
-
-    f.cosResult = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.cosResult:SetPoint("TOPLEFT", COL_R, -(ry + 104))
-    f.cosResult:SetPoint("RIGHT", f, "RIGHT", -MARGIN, 0)
-    f.cosResult:SetJustifyH("LEFT")
-    f.cosResult:SetJustifyV("TOP")
-    f.cosResult:SetSpacing(3)
-    f.cosResult:SetShown(IS_CLASSIC_ERA)
-
     f.footnote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.footnote:SetPoint("BOTTOMLEFT", MARGIN, MARGIN)
     f.footnote:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
     f.footnote:SetJustifyH("LEFT")
 
-    -- Arms-warrior line, centered just above the footnote.
-    f.armsResult = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.armsResult:SetPoint("BOTTOM", f.footnote, "TOP", 0, 10)
-    f.armsResult:SetJustifyH("CENTER")
-    f.armsResult:SetSpacing(3)
+    -- Divider between the inputs and the results column, down to the footnote.
+    local divider = f:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
+    divider:SetWidth(1)
+    divider:SetPoint("TOPLEFT", LEFT_W, -top)
+    divider:SetPoint("BOTTOMLEFT", f.footnote, "TOPLEFT", LEFT_W - MARGIN, 10)
+
+    -- Results, stacked down the right column in the inputs' reading order:
+    -- CoR, CoE, then CoS (Classic) or the Arms-warrior line (TBC). Each block
+    -- sizes to its text, so the next one follows it down.
+    local function ResultString(anchor)
+        local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        if anchor then
+            fs:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -RESULT_GAP)
+        else
+            fs:SetPoint("TOPLEFT", RESULTS_X, -top)
+        end
+        fs:SetWidth(RESULTS_W)
+        fs:SetJustifyH("LEFT")
+        fs:SetJustifyV("TOP")
+        fs:SetSpacing(3)
+        return fs
+    end
+    f.corResult = ResultString()
+    f.coeResult = ResultString(f.corResult)
+    f.cosResult = ResultString(f.coeResult)
+    f.cosResult:SetShown(IS_CLASSIC_ERA)
+    f.armsResult = ResultString(f.coeResult)
     f.armsResult:SetShown(not IS_CLASSIC_ERA)
 
     -- Reflect the default checkbox states.
@@ -642,24 +647,12 @@ local function EnsureCalcFrame()
         f.maledictionCheck:SetChecked(f.state.malediction)
     end
 
-    calcFrame = f
+    -- Rebuild the fight list every time the page comes up, so fights logged
+    -- since last time show up.
+    f:SetScript("OnShow", function(self)
+        RefreshFightList(self)
+        Recompute(self)
+    end)
+
     return f
-end
-
--- Toggle the calculator open/closed. Rebuilds the fight list each open so
--- fights logged since last time show up.
-function WhoDoesWhat:OpenCurseCalculatorView()
-    local f = EnsureCalcFrame()
-
-    if f:IsShown() then
-        self:LogUiBuilding("Curse Calculator open, closing it.")
-        f:Hide()
-        return
-    end
-
-    self:LogUiBuilding("Opening Curse Calculator...")
-    RefreshFightList(f)
-    Recompute(f)
-    f:Show()
-    f:Raise()
 end
