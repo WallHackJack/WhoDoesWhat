@@ -394,8 +394,15 @@ WhoDoesWhat.WeaponEnchantItems = {
 -- item id, TBC only: Classic Era has no elixir categories to fill. A flask
 -- fills both slots, so it is offered in both lists and its aura satisfies
 -- both. Curated for the same reason as the weapon list -- the item data
--- doesn't say battle or guardian. The checklist resolves each item's use-spell
--- at runtime and matches your auras against that, so no spell ids live here.
+-- doesn't say battle or guardian. The checklist and the elixir status bars
+-- resolve each item's use-spell at runtime and match auras against that, so
+-- no spell ids live here.
+--
+-- Categories checked against Wowhead's TBC tooltips ("Battle Elixir.",
+-- "Guardian Elixir.", "Counts as both"). Left out on purpose: the low-level
+-- ones, utility elixirs that fill a slot with nothing a raid wants (Water
+-- Walking, Flask of Petrification), and the Blade's Edge
+-- Unstable Flasks.
 if not features.isClassicEra then
     -- Pet food that leaves a hunter's pet Well Fed (Kibler's Bits, Sporeling
     -- Snack), for the pet section's food picker. Kept off the player's own
@@ -403,16 +410,41 @@ if not features.isClassicEra then
     WhoDoesWhat.PetBuffFoodItems = { 33874, 27656 }
     WhoDoesWhat.ElixirItems = {
         battle = {
+            -- Major Agility, Mastery, Major Strength, Healing Power, Adept's,
+            -- Major Firepower, Major Shadow Power, Major Frost Power,
+            -- Onslaught, Fel Strength, Bloodberry (Sunwell Plateau only)
             22831, 28104, 22824, 22825, 28103, 22833, 22835, 22827, 28102,
-            31679, 9224, 13452, 9206, 13454, 9155, 13453, 21546, 9264, 17708,
+            31679, 34537,
+            -- Demonslaying, Mongoose, Giants, Greater Arcane, Arcane, Brute
+            -- Force, Greater Firepower, Shadow Power, Frost Power, Greater
+            -- Agility, Agility
+            9224, 13452, 9206, 13454, 9155, 13453, 21546, 9264, 17708,
             9187, 8949,
+            -- Winterfall Firewater, R.O.I.D.S., Ground Scorpok Assay, Juju
+            -- Power, Juju Might
+            12820, 8410, 8412, 12451, 12460,
         },
         guardian = {
-            32067, 22840, 22834, 32062, 32068, 32063, 9088, 20004, 20007,
-            13445, 8951, 9179, 13447, 3825,
+            -- Draenic Wisdom, Major Mageblood, Major Defense, Major Fortitude,
+            -- Ironskin, Earthen, Empowerment
+            32067, 22840, 22834, 32062, 32068, 32063, 22848,
+            -- Gift of Arthas, Major Troll's Blood, Mageblood, Superior
+            -- Defense, Greater Defense, Greater Intellect, Sages, Fortitude
+            9088, 20004, 20007, 13445, 8951, 9179, 13447, 3825,
+            -- Spirit, Sheen and Swiftness of Zanza, Lung Juice Cocktail,
+            -- Cerebral Cortex Compound, Gizzard Gum, Juju Guile, Juju Ember,
+            -- Juju Chill
+            20079, 20080, 20081, 8411, 8423, 8424, 12458, 12455, 12457,
         },
         flask = {
+            -- Relentless Assault, Blinding Light, Mighty Restoration, Pure
+            -- Death, Fortification, Chromatic Wonder
             22854, 22861, 22853, 22866, 22851, 33208,
+            -- Shattrath: Relentless Assault, Blinding Light, Mighty
+            -- Restoration, Pure Death, Fortification, Supreme Power (TK, SSC,
+            -- Hyjal, BT and Sunwell only)
+            32901, 35717, 32899, 35716, 32898, 32900,
+            -- Supreme Power, Distilled Wisdom, Titans, Chromatic Resistance
             13512, 13511, 13510, 13513,
         },
     }
@@ -690,6 +722,35 @@ if not features.isClassicEra then
         },
     }
 end
+-- The two elixir slots, TBC only like ElixirItems. Matched by spell id rather
+-- than aura name (see `elixirCategory` in BuffTracking): elixir auras collide
+-- by name with scrolls, and a flask has to fill both rows at once. Like food,
+-- nobody drinks one for you.
+if WhoDoesWhat.ElixirItems then
+    local ELIXIR_HIDDEN_OPTIONS = {
+        onlyManaUsers = true, onlyTanks = true, hunterPets = true,
+    }
+    WhoDoesWhat.StatusBarChecks.battleElixir = {
+        name = "Battle Elixir",
+        description = "Shows who has a battle elixir or a flask up.",
+        icon = 134813,
+        elixirCategory = "battle",
+        colorRGB = { r = 0.6, g = 0.92, b = 0.2 }, -- lime
+        selfSupplied = true,
+        defaultGrid = false,
+        hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
+    }
+    WhoDoesWhat.StatusBarChecks.guardianElixir = {
+        name = "Guardian Elixir",
+        description = "Shows who has a guardian elixir or a flask up.",
+        icon = 134823,
+        elixirCategory = "guardian",
+        colorRGB = { r = 1, g = 0.45, b = 0.75 }, -- pink
+        selfSupplied = true,
+        defaultGrid = false,
+        hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
+    }
+end
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.drumsUsed = {
         name = "Tinnitus (drums)",
@@ -718,6 +779,10 @@ end
 
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "food"
+if WhoDoesWhat.ElixirItems then
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "battleElixir"
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "guardianElixir"
+end
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "sated"
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "drumsUsed"

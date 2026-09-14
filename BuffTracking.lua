@@ -62,10 +62,44 @@ local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 -- X" (the same name minus the "Greater " prefix), so a raider on either form
 -- reads as covered. The prefix strip is English -- fine for the Anniversary
 -- client; a localized build would need the normal-rank ids instead.
-local nameToKey, debuffNameToKey
+--
+-- The elixir checks (`elixirCategory`) match by spell id instead, as a list of
+-- keys: elixir auras collide by name (Elixir of Agility's and every Scroll of
+-- Agility's are all "Agility"), and one flask fills both the battle and the
+-- guardian row. Each listed item's use-spell is its aura. An item the client
+-- hasn't loaded yet has no spell to give, so it is asked for and the map is
+-- rebuilt when it arrives (GET_ITEM_INFO_RECEIVED below).
+local nameToKey, debuffNameToKey, spellIdToKeys
+local pendingElixirItems = {}
+local function AddElixirSpells(key, ids)
+    for _, id in ipairs(ids or {}) do
+        local _, spellId = GetItemSpell(id)
+        if spellId then
+            local keys = spellIdToKeys[spellId] or {}
+            keys[#keys + 1] = key
+            spellIdToKeys[spellId] = keys
+            pendingElixirItems[id] = nil
+        else
+            pendingElixirItems[id] = true
+            if C_Item and C_Item.RequestLoadItemDataByID then
+                C_Item.RequestLoadItemDataByID(id)
+            end
+        end
+    end
+end
+
 local function BuildNameMap()
     nameToKey = {}
     debuffNameToKey = {}
+    spellIdToKeys = {}
+    for key, check in pairs(WhoDoesWhat.StatusBarChecks) do
+        if check.elixirCategory then
+            AddElixirSpells(key, WhoDoesWhat.ElixirItems[check.elixirCategory])
+            AddElixirSpells(key, WhoDoesWhat.ElixirItems.flask)
+        end
+    end
+    -- Nil when there is nothing to match, so the scan skips the lookup.
+    if not next(spellIdToKeys) then spellIdToKeys = nil end
     for key, buff in pairs(WhoDoesWhat.PaladinBuffs) do
         local greaterName = GetSpellInfo(buff.spellId)
         if greaterName then
@@ -184,8 +218,10 @@ end
 -- read, then two function calls for EVERY aura on the unit. Most auras in a
 -- 40-man match nothing we track, so the lookup now happens inline and only a
 -- match costs a call.
-local function ScanAuraList(unit, harmful, map, buffs, sources, expirations,
-                            previous)
+--
+-- `spellMap` (spell id -> keys) is the elixir checks' map, nil for debuffs.
+local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
+                            expirations, previous)
     if not map then return end
     local GetByIndex = harmful and GetDebuffDataByIndex or GetBuffDataByIndex
     local i = 1
@@ -198,17 +234,32 @@ local function ScanAuraList(unit, harmful, map, buffs, sources, expirations,
                 StoreAura(key, aura.sourceUnit, aura.expirationTime,
                     buffs, sources, expirations, previous)
             end
+            local keys = spellMap and aura.spellId and spellMap[aura.spellId]
+            if keys then
+                for _, spellKey in ipairs(keys) do
+                    StoreAura(spellKey, aura.sourceUnit, aura.expirationTime,
+                        buffs, sources, expirations, previous)
+                end
+            end
             i = i + 1
         end
     else
         local Indexed = harmful and UnitDebuff or UnitBuff
         while true do
-            local auraName, _, _, _, _, expirationTime, sourceUnit = Indexed(unit, i)
+            local auraName, _, _, _, _, expirationTime, sourceUnit, _, _, spellId =
+                Indexed(unit, i)
             if not auraName then break end
             local key = map[auraName]
             if key then
                 StoreAura(key, sourceUnit, expirationTime,
                     buffs, sources, expirations, previous)
+            end
+            local keys = spellMap and spellId and spellMap[spellId]
+            if keys then
+                for _, spellKey in ipairs(keys) do
+                    StoreAura(spellKey, sourceUnit, expirationTime,
+                        buffs, sources, expirations, previous)
+                end
             end
             i = i + 1
         end
@@ -235,13 +286,14 @@ end
 local function ScanUnit(unit, name)
     local previous = state[name]
     local buffs, sources, expirations = {}, {}, {}
-    ScanAuraList(unit, false, nameToKey, buffs, sources, expirations, previous)
+    ScanAuraList(unit, false, nameToKey, spellIdToKeys, buffs, sources,
+        expirations, previous)
     -- Skipped outright when no harmful check is configured: with an empty map
     -- the debuff walk can only ever read every debuff on the unit and discard
     -- all of them.
     if next(debuffNameToKey) then
-        ScanAuraList(unit, true, debuffNameToKey, buffs, sources, expirations,
-            previous)
+        ScanAuraList(unit, true, debuffNameToKey, nil, buffs, sources,
+            expirations, previous)
     end
     if UnitIsDeadOrGhost(unit) then buffs.dead = true end
     local connected = UnitIsConnected(unit) ~= false
@@ -427,13 +479,18 @@ driver:RegisterEvent("GROUP_ROSTER_UPDATE")
 driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("UNIT_AURA")
 driver:RegisterEvent("UNIT_HEALTH")
+driver:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 -- Instrumented per EVENT rather than per scan: in a 40-man these fire
 -- constantly (UNIT_HEALTH on every health tick of every raider), so the cost
 -- that matters is count x cheap, not any single slow call. The two are
 -- separate sections because they do very different amounts of work --
 -- UNIT_AURA walks every aura on the unit, UNIT_HEALTH just checks death.
 driver:SetScript("OnEvent", function(_, event, unit)
-    if event == "UNIT_AURA" and unit == "pet" then
+    if event == "GET_ITEM_INFO_RECEIVED" then
+        -- `unit` is an item id here. One the elixir map was waiting on means
+        -- a rebuild; the next scan picks it up.
+        if pendingElixirItems[unit] then nameToKey = nil end
+    elseif event == "UNIT_AURA" and unit == "pet" then
         -- Your own pet, scanned now rather than on the sweep: feeding it or
         -- buffing it is something you are watching for (the Buff Checklist's
         -- pet section), and waiting up to a full cycle read as the click not

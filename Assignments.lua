@@ -2127,7 +2127,9 @@ local function BuildBuffChecklist(forPet)
     for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
         local buff = WhoDoesWhat.StatusBarChecks[key]
         local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
-        if (buff.className or buff.selfSupplied)
+        -- The elixir checks stay off: the checklist draws its own elixir
+        -- slots, with pickers.
+        if (buff.className or buff.selfSupplied) and not buff.elixirCategory
             and not buff.customOptions and not buff.customCoverage
             and not options.negative and (options.bar or options.grid)
             and (not forPet or options.hunterPets)
