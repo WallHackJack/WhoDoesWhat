@@ -10,7 +10,7 @@ local Assign = WhoDoesWhat.Assign
 -- smaller warrior version of the same question, which is "is my shout up".
 --
 -- A shout reaches the caster's party and no further, so every number on this
--- bar is scoped to the local player's subgroup (PartyNames below) -- the
+-- bar is scoped to the local player's subgroup (Assign.PartyNames) -- the
 -- coverage counts and the warrior count alike. A raid-wide count would report
 -- a gap in group 5 that nothing this warrior does can close.
 --
@@ -159,33 +159,9 @@ local CONTENT_TOP = INSET + PAD
 
 -- A shout reaches the caster's PARTY, not the raid, so every count on this bar
 -- is scoped to the local player's subgroup: who is missing it, who wants it,
--- and how many warriors are around to divide the shouts between.
---
--- Returns a name lookup, or nil meaning "nothing to narrow" -- a party or solo,
--- where the group already is the party. Raid subgroups come off
--- GetRaidRosterInfo's third return, and its names already follow our keying
--- (same note as Sync.lua). The local player is found with UnitIsUnit rather
--- than by matching that name, which sidesteps the realm-suffix question
--- entirely.
-local function PartyNames()
-    if not IsInRaid() then return nil end
-    local rows, mine = {}, nil
-    for i = 1, GetNumGroupMembers() do
-        local name, _, subgroup = GetRaidRosterInfo(i)
-        if name then
-            rows[#rows + 1] = { name = name, subgroup = subgroup }
-            if UnitIsUnit("raid" .. i, "player") then mine = subgroup end
-        end
-    end
-    -- No subgroup for ourselves means the roster is mid-change; count nobody
-    -- out rather than reporting an empty party.
-    if not mine then return nil end
-    local names = {}
-    for _, row in ipairs(rows) do
-        if row.subgroup == mine then names[row.name] = true end
-    end
-    return names
-end
+-- and how many warriors are around to divide the shouts between. See
+-- PartyNames in Assignments.lua, which the Buff Checklist shares.
+local PartyNames = Assign.PartyNames
 
 -- Is this roster member in the shout's radius? A hunter pet is wherever its
 -- owner is, so it is asked about by owner.

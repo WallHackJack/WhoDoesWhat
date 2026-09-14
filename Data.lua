@@ -335,6 +335,54 @@ for _, shout in ipairs(WhoDoesWhat.WarriorShouts) do
 end
 WhoDoesWhat.WarriorShouts = knownShouts
 
+-- Temporary weapon enchant items the Buff Checklist's weapon picker offers,
+-- by item id. Curated rather than detected: the item database files oils,
+-- stones and poisons under different classes, and the obvious generic bucket
+-- (Item Enhancement) also holds permanent armor kits. Only ids found in your
+-- bags are ever listed, so one this client doesn't have is simply never seen.
+WhoDoesWhat.WeaponEnchantItems = {
+    -- Wizard and mana oils
+    20744, 20746, 20750, 20749, 22522, 23123,
+    20745, 20747, 20748, 22521,
+    -- Sharpening stones
+    2862, 2863, 2871, 7964, 12404, 18262, 23122, 23528, 23529,
+    -- Weightstones
+    3239, 3240, 3241, 7965, 12643, 28420, 28421,
+    -- Sunwell weapon coatings
+    34538, 34539,
+    -- Rogue poisons: Instant, Deadly, Wound, Crippling, Mind-numbing, Anesthetic
+    6947, 6949, 6950, 8926, 8927, 8928, 21927,
+    2892, 2893, 8984, 8985, 20844, 22053, 22054,
+    10918, 10920, 10921, 10922, 22055,
+    3775, 3776,
+    5237, 6951, 9186,
+    21835,
+}
+
+-- Battle and guardian elixirs for the Buff Checklist's two elixir pickers, by
+-- item id, TBC only: Classic Era has no elixir categories to fill. A flask
+-- fills both slots, so it is offered in both lists and its aura satisfies
+-- both. Curated for the same reason as the weapon list -- the item data
+-- doesn't say battle or guardian. The checklist resolves each item's use-spell
+-- at runtime and matches your auras against that, so no spell ids live here.
+if not features.isClassicEra then
+    WhoDoesWhat.ElixirItems = {
+        battle = {
+            22831, 28104, 22824, 22825, 28103, 22833, 22835, 22827, 28102,
+            31679, 9224, 13452, 9206, 13454, 9155, 13453, 21546, 9264, 17708,
+            9187, 8949,
+        },
+        guardian = {
+            32067, 22840, 22834, 32062, 32068, 32063, 9088, 20004, 20007,
+            13445, 8951, 9179, 13447, 3825,
+        },
+        flask = {
+            22854, 22861, 22853, 22866, 22851, 33208,
+            13512, 13511, 13510, 13513,
+        },
+    }
+end
+
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
 -- rank-independent and include both the single-target and group versions.
 -- Core coverage is players-only unless a check explicitly includes hunter
@@ -400,6 +448,8 @@ WhoDoesWhat.CoreRaidBuffs = {
     shadowProtection = {
         name = "Shadow",
         gridName = "Shadow Protection",
+        -- The raid callout spells it out: "Shadow 18/25" reads as anything.
+        announceName = "Prayer of Shadow Protection",
         description = "Increases Shadow resistance.",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },

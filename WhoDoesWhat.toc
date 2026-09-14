@@ -78,6 +78,7 @@ Views\MembersView.lua
 Views\BuffingGridView.lua
 Views\PaladinBuffingBarView.lua
 Views\WarriorShoutBarView.lua
+Views\BuffChecklistView.lua
 Views\StatusBarsView.lua
 Views\PallyPowerLogView.lua
 Views\PallyPowerDiffView.lua

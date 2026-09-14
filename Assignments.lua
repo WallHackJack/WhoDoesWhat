@@ -168,6 +168,34 @@ local function HasMemberOfClass(className)
     return false
 end
 
+-- The local player's raid subgroup as a name lookup, or nil meaning "nothing
+-- to narrow" -- a party or solo, where the group already is the party. For
+-- anything that reaches a party and no further: a warrior's shouts.
+--
+-- Raid subgroups come off GetRaidRosterInfo's third return, and its names
+-- already follow our keying (same note as Sync.lua). The local player is found
+-- with UnitIsUnit rather than by matching that name, which sidesteps the
+-- realm-suffix question entirely.
+local function PartyNames()
+    if not IsInRaid() then return nil end
+    local rows, mine = {}, nil
+    for i = 1, GetNumGroupMembers() do
+        local name, _, subgroup = GetRaidRosterInfo(i)
+        if name then
+            rows[#rows + 1] = { name = name, subgroup = subgroup }
+            if UnitIsUnit("raid" .. i, "player") then mine = subgroup end
+        end
+    end
+    -- No subgroup for ourselves means the roster is mid-change; count nobody
+    -- out rather than reporting an empty party.
+    if not mine then return nil end
+    local names = {}
+    for _, row in ipairs(rows) do
+        if row.subgroup == mine then names[row.name] = true end
+    end
+    return names
+end
+
 -- One virtual pet per hunter in the group (a non-raider hunter's pet sits
 -- out with them -- the class-filtered roster already drops both). Pets are
 -- not assignable and never stored: they exist purely for the paladin-buff
@@ -2023,6 +2051,131 @@ local function ComputeCoreRaidBuffCoverage()
     return correct, total, rows
 end
 
+-- The Buff Checklist's list: every buff the LOCAL player is supposed to be
+-- wearing right now, in the order blessings, class buffs and food, shouts.
+-- Each entry:
+--   { id, key, name, icon,
+--     has       true / false / nil (unknown, never flags),
+--     missing   true when it wants fixing: absent, or present but weaker than
+--               the raid can give, or cast from outside the raid,
+--     note      why a present buff still counts as missing, for the tooltip,
+--     remaining seconds left on it, or nil,
+--     askName   who a request whispers (assigned paladin, best caster); nil
+--               for a shout, which is asked of the party,
+--     selfSupplied  food: nobody to ask, you eat it yourself }
+--
+-- Every rule is borrowed rather than restated, so the checklist and the raid
+-- views never disagree about you:
+--   blessings    whatever the active plan (WDW or PallyPower) gives you.
+--   class buffs  the Buff Tracking page's per-check options -- a check that is
+--   and food     off on both the bars and the grid is off here too, and so is
+--                a class buff nobody present can cast.
+--   shouts       Battle Shout when your role wants it and your party has a
+--                warrior; Commanding Shout once it has two. A lone warrior
+--                who is you covers whichever shout your Shout Bar picked.
+local function GetPlayerBuffChecklist()
+    local me = UnitName("player")
+    local member = me and FindMember(me)
+    local entries = {}
+    if not member or WhoDoesWhat:IsNonRaider(me) then return entries end
+    local disconnected = DisconnectedGroupTargets()
+
+    local paladinOptions = WhoDoesWhat:GetStatusBarCheckOptions("paladinBuffs")
+    if paladinOptions and (paladinOptions.bar or paladinOptions.grid) then
+        local cells = GetActivePaladinBuffPlan().grid[me]
+        for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
+            for paladin, planned in pairs(cells or {}) do
+                local buff = WhoDoesWhat.PaladinBuffs[key]
+                if planned == key and buff then
+                    local has = WhoDoesWhat:HasBuff(me, key)
+                    entries[#entries + 1] = {
+                        id = "blessing:" .. key, key = key,
+                        name = "Blessing of " .. buff.name_long,
+                        icon = buff.icon, has = has, missing = has == false,
+                        remaining = WhoDoesWhat:GetBuffTimeRemaining(me, key),
+                        askName = paladin ~= me and paladin or nil,
+                    }
+                end
+            end
+        end
+    end
+
+    local anyContext = AnyBuffContext()
+    for _, key in ipairs(WhoDoesWhat:GetStatusBarCheckOrder()) do
+        local buff = WhoDoesWhat.StatusBarChecks[key]
+        local options = WhoDoesWhat:GetStatusBarCheckOptions(key)
+        if (buff.className or buff.selfSupplied)
+            and not buff.customOptions and not buff.customCoverage
+            and not options.negative and (options.bar or options.grid)
+            and (not options.requiredClass or HasMemberOfClass(options.requiredClass))
+            and not (buff.requiredTalent and options.requiredClass == buff.className
+                and not CoreBuffProviderReach(buff, key, disconnected))
+            and IsEligibleCoreBuffTarget(member, buff, options, disconnected) then
+            local has = WhoDoesWhat:HasBuff(me, key)
+            local missing, note = has == false, nil
+            if has == true then
+                local bestRank = options.bestAvailable
+                    and not (options.anyInCombat and anyContext)
+                    and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
+                if bestRank and bestRank > 0 then
+                    local _, _, rank = WhoDoesWhat:GetImprovedBuffState(me, key)
+                    if not (rank and rank >= bestRank) then
+                        missing, note = true, "A better-talented caster is here."
+                    end
+                end
+                if options.flagOutsideRaid
+                    and WhoDoesWhat:IsBuffFromOutsideRaid(me, key) then
+                    missing, note = true, "Cast from outside the raid; the pull strips it."
+                end
+            end
+            -- The best caster who can cast it as they stand; an offspec or
+            -- disconnected one is not who a request should land on.
+            local askName
+            for _, provider in ipairs(ComputeCoreBuffProviders(key, disconnected)) do
+                if provider.available and not provider.offspec then
+                    askName = provider.name
+                    break
+                end
+            end
+            entries[#entries + 1] = {
+                id = "buff:" .. key, key = key, name = buff.gridName or buff.name,
+                icon = buff.icon, has = has, missing = missing, note = note,
+                remaining = WhoDoesWhat:GetBuffTimeRemaining(me, key),
+                askName = askName ~= me and askName or nil,
+                selfSupplied = buff.selfSupplied,
+            }
+        end
+    end
+
+    local party = PartyNames()
+    local warriors, iAmWarrior = 0, false
+    for _, name in ipairs(MembersOfClass("Warrior")) do
+        if not party or party[name] then
+            warriors = warriors + 1
+            if name == me then iAmWarrior = true end
+        end
+    end
+    local shouts = {}
+    if warriors >= 2 then
+        shouts = WhoDoesWhat.WarriorShouts
+    elseif warriors == 1 then
+        shouts = { iAmWarrior and WhoDoesWhat:GetSoloShout()
+            or WhoDoesWhat.WarriorShouts[1] }
+    end
+    for _, shout in ipairs(shouts) do
+        if shout.everyone or WhoDoesWhat:WantsBattleShout(member) then
+            local has = WhoDoesWhat:HasBuff(me, shout.key)
+            entries[#entries + 1] = {
+                id = "shout:" .. shout.key, key = shout.key, name = shout.name,
+                icon = shout.icon, has = has, missing = has == false,
+                remaining = WhoDoesWhat:GetBuffTimeRemaining(me, shout.key),
+                isShout = true,
+            }
+        end
+    end
+    return entries
+end
+
 -- The plan aggregated per paladin: how many raiders each paladin blesses
 -- with each buff. Returns an array of
 --   { name, total, buffs = { { key, count }, ... } }
@@ -2631,6 +2784,7 @@ WhoDoesWhat.Assign = {
     FindMember = FindMember,
     MembersOfClass = MembersOfClass,
     HasMemberOfClass = HasMemberOfClass,
+    PartyNames = PartyNames,
     GetClassInfoByToken = GetClassInfoByToken,
     GetPetMembers = GetPetMembers,
     PlayerText = PlayerText,
@@ -2685,6 +2839,7 @@ WhoDoesWhat.Assign = {
     GetPaladinBuffWhisper = GetPaladinBuffWhisper,
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
     ComputeCoreBuffProviders = ComputeCoreBuffProviders,
+    GetPlayerBuffChecklist = GetPlayerBuffChecklist,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

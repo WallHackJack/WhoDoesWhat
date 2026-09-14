@@ -1367,6 +1367,10 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             description = "Puts every option on this page back and re-centres the"
                 .. " shout bar -- for the settings you are editing now only.",
             reset = WithReload(function() WhoDoesWhat:ResetShoutBarSettings() end) },
+        { label = "Checklist", title = "Buff Checklist",
+            description = "Puts every option on this page back and re-centres the"
+                .. " checklist.",
+            reset = WithReload(function() WhoDoesWhat:ResetBuffChecklistSettings() end) },
         { label = "Developer", title = "Developer Options", right = true,
             description = "Turns Developer Mode, the Logs tab and every logging"
                 .. " option off.",
@@ -2439,6 +2443,115 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     end
     f.SetShoutWarriorRowsShown(true)
 
+    -- ---- Checklist ----
+    local checklistPage = pages.Checklist
+    local checklistIntro
+    checklistIntro, yL = AddPageIntro(checklistPage, y0, "A grid of the buffs"
+        .. " your character should have: the blessings the plan gives you, the"
+        .. " class buffs and food Buff Tracking checks, your party's shouts, and"
+        .. " your weapon enchants. Shift-click a missing buff to ask for it;"
+        .. " click food or a weapon to pick an item, then right-click to use it.")
+    local checklistSettings = function() return WhoDoesWhat.db.profile.settings end
+
+    yL = AddPageDivider(checklistPage, yL, "Checklist")
+    local checklistEnableLabel
+    f.checklistEnableCheck, yL, checklistEnableLabel = AddCompactCheckboxRow(
+        checklistPage, PAGE_X, yL, "Enable Buff Checklist",
+        "Shows the checklist whenever there is a buff you should have.",
+        function(value)
+            checklistSettings().buffChecklistEnabled = value
+            WhoDoesWhat:RefreshBuffChecklist()
+            f.SetChecklistControlsEnabled(value)
+        end)
+    f.SetChecklistControlsEnabled = PageControlSwitch(checklistPage,
+        { checklistIntro, f.checklistEnableCheck, checklistEnableLabel })
+
+    local checklistAlignLabel, checklistAlignDD
+    checklistAlignLabel, checklistAlignDD, yL = AddDropdownRow(checklistPage, yL,
+        "Align:", "WhoDoesWhatBuffChecklistAlignDD")
+    UIDropDownMenu_Initialize(checklistAlignDD, function(_, level)
+        local saved = WhoDoesWhat:GetBuffChecklistAlign()
+        for _, align in ipairs(WhoDoesWhat.BuffChecklistAligns) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = align.label
+            info.checked = saved == align.key
+            info.func = function()
+                WhoDoesWhat:SetBuffChecklistAlign(align.key)
+                UIDropDownMenu_SetText(checklistAlignDD, align.label)
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UI.AddDropdownTooltip(checklistAlignDD, checklistAlignLabel, "Align",
+        "Which side of the checklist stays put as buffs come and go, and which"
+        .. " side a short last row lines up against.")
+    f.checklistAlignDD = checklistAlignDD
+
+    local columnRange = WhoDoesWhat.BUFF_CHECKLIST_COLUMNS
+    f.RefreshChecklistColumns, yL = AddSliderWithInput(checklistPage, PAGE_X, yL, {
+            name = "WhoDoesWhatBuffChecklistColumnsSlider",
+            label = "Columns:",
+            tooltip = "How many icons a row holds before the grid wraps onto"
+                .. " the next one.",
+            min = columnRange.min,
+            max = columnRange.max,
+        },
+        function() return WhoDoesWhat:GetBuffChecklistColumns() end,
+        function(value) checklistSettings().buffChecklistColumns = value end,
+        function() WhoDoesWhat:RefreshBuffChecklist() end)
+
+    local checklistIconRange = WhoDoesWhat.BUFF_CHECKLIST_ICON_SIZE
+    f.RefreshChecklistIconSize, yL = AddSliderWithInput(checklistPage, PAGE_X, yL, {
+            name = "WhoDoesWhatBuffChecklistIconSizeSlider",
+            label = "Buff icon size:",
+            tooltip = "How big each buff icon is drawn, in pixels.",
+            min = checklistIconRange.min,
+            max = checklistIconRange.max,
+        },
+        function() return WhoDoesWhat:GetBuffChecklistIconSize() end,
+        function(value) checklistSettings().buffChecklistIconSize = value end,
+        function() WhoDoesWhat:RefreshBuffChecklist() end)
+
+    f.checklistHeaderCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Show header",
+        "Puts a \"Buff Checklist\" title strip across the top. Alt-drag it to"
+        .. " move the checklist, like the icons.",
+        function(value)
+            checklistSettings().buffChecklistShowHeader = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
+    f.checklistHideHaveCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Hide buffs I have",
+        "Shows only what you are missing or about to lose. With everything up"
+        .. " the checklist hides, so place it before turning this on.",
+        function(value)
+            checklistSettings().buffChecklistHideHave = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
+    -- Classic Era has no battle/guardian elixir split, so no row for it.
+    if WhoDoesWhat.ElixirItems then
+        f.checklistElixirsCheck, yL = AddCompactCheckboxRow(checklistPage,
+            PAGE_X, yL, "Track elixirs",
+            "Adds a Battle Elixir and a Guardian Elixir icon. Click one to pick"
+            .. " what to drink; a flask fills both. This character only.",
+            function(value)
+                WhoDoesWhat.db.char.buffChecklistElixirs = value
+                WhoDoesWhat:RefreshBuffChecklist()
+            end)
+    end
+
+    f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Track weapon enchants",
+        "Adds an icon per weapon you wield for its oil, stone or poison. Click"
+        .. " one to pick what goes on it, or to keep it bare for Windfury."
+        .. " This character only.",
+        function(value)
+            WhoDoesWhat.db.char.buffChecklistWeapons = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
     -- ---- Developer ----
     local developerPage = pages.Developer
     local yR = y0
@@ -2660,6 +2773,18 @@ function LoadSettings(f)
     f.RefreshShoutIconSize()
     f.RefreshShoutHighlight()
     f.SetShoutControlsEnabled(shout.enabled and true or false)
+    f.checklistEnableCheck:SetChecked(settings.buffChecklistEnabled)
+    f.checklistHideHaveCheck:SetChecked(settings.buffChecklistHideHave)
+    f.checklistHeaderCheck:SetChecked(settings.buffChecklistShowHeader)
+    f.checklistWeaponsCheck:SetChecked(self.db.char.buffChecklistWeapons)
+    if f.checklistElixirsCheck then
+        f.checklistElixirsCheck:SetChecked(self.db.char.buffChecklistElixirs)
+    end
+    UIDropDownMenu_SetText(f.checklistAlignDD,
+        self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
+    f.RefreshChecklistColumns()
+    f.RefreshChecklistIconSize()
+    f.SetChecklistControlsEnabled(settings.buffChecklistEnabled and true or false)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
 --@do-not-package@

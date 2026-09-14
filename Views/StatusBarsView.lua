@@ -323,8 +323,8 @@ local function AnnounceLines(row)
         -- "25/25 Applied" where the old bare name list came out empty and sent
         -- nothing at all.
         if #names == 0 then return lines end
-        local line = CoverageSummary(definition and definition.name
-            or row.buffKey, row.correct or 0, row.total or 0)
+        local line = CoverageSummary(definition and (definition.announceName
+            or definition.name) or row.buffKey, row.correct or 0, row.total or 0)
         -- Named as what they are: after a forwards-counting fraction, a bare
         -- list behind a colon could as easily be read as the ones who have it.
         if #names <= MAX_NAMED_MISSING then

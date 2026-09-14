@@ -33,6 +33,7 @@ function WhoDoesWhat:RefreshBoardViews()
     self:RefreshRaiderTooltip()
     self:RefreshPaladinBuffingBar()
     self:RefreshWarriorShoutBar()
+    self:RefreshBuffChecklist()
     self:RefreshPallyPowerDiffView()
     self:RefreshStatusBarsView()
     -- Not a window of ours, but the same trigger: the spec icons we draw on

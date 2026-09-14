@@ -336,6 +336,17 @@ end
 -- SavedVariables line in WhoDoesWhat.toc), bar the shout bar's, which is per
 -- account.
 local defaults = {
+    -- Per character: what one character carries and wields says nothing about
+    -- the next. The Buff Checklist's picks -- mainHand / offHand as an item id,
+    -- "none" (keep the weapon bare for Windfury) or nil (nothing picked), and
+    -- food as an item id or nil -- and whether it tracks weapon enchants.
+    char = {
+        buffChecklistItems = {},
+        buffChecklistWeapons = true,
+        -- The battle / guardian elixir icons (TBC only); their picks share
+        -- buffChecklistItems as battleElixir / guardianElixir.
+        buffChecklistElixirs = true,
+    },
     global = {
         shoutBar = {
             warrior = ShoutBarDefaults(true),
@@ -570,6 +581,20 @@ local defaults = {
             buffingBarGlowStyle = "flash",
             buffingBarGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
             buffingBarGlowExpiringColor = { r = 0.157, g = 0.561, b = 1 },
+            -- The Buff Checklist: a movable grid of the buffs the local player
+            -- should be wearing (Views/BuffChecklistView.lua). Off until turned
+            -- on from its settings page. Columns is how many icons a row holds
+            -- before the grid wraps; hide-have drops buffs already on you.
+            -- Align picks the corner that holds still and the side a short
+            -- last row hugs. The position is nil until it is first Alt-dragged.
+            buffChecklistEnabled = false,
+            buffChecklistColumns = 6,
+            buffChecklistIconSize = 28,
+            buffChecklistHideHave = false,
+            buffChecklistAlign = "LEFT",
+            -- The "Buff Checklist" title strip across the top of the grid.
+            buffChecklistShowHeader = true,
+            buffChecklistPos = nil,
             -- Movable per-paladin live blessing coverage window. On out of the
             -- box: it is the view that says what still needs doing, and a fresh
             -- install has no reason to hunt for it in the settings.
