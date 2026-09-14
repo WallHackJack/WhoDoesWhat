@@ -55,7 +55,7 @@ WhoDoesWhat.Classes = {
         roles = {
             { name = "Beast Mastery", icon = 132164, id = "hunter_bm", wowRole = "dps" },
             { name = "Survival", icon = 132215, id = "hunter_surv", wowRole = "dps" },
-            { name = "Marksmanship", icon = 132243, id = "hunter_mm", wowRole = "dps" },
+            { name = "Marksmanship", icon = 132222, id = "hunter_mm", wowRole = "dps" }, -- Ability_Marksmanship
             -- A hunter who stands in melee. Spec-wise it is the three above
             -- (same Beast Mastery icon, same blessing order); what it says is
             -- where they stand, which is the one thing the raid can't read off
