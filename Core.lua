@@ -608,6 +608,9 @@ local defaults = {
             buffChecklistGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
             buffChecklistGlowExpiringColor = { r = 0.157, g = 0.561, b = 1 },
             buffChecklistAlign = "RIGHT",
+            -- Where the checklist's pop-out menus open against their icon
+            -- (BuffChecklistPopoutDirections).
+            buffChecklistPopoutDirection = "BELOWLEFT",
             -- The "Buff Checklist" title strip across the top of the grid.
             buffChecklistShowHeader = true,
             buffChecklistPos = nil,

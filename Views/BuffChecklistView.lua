@@ -34,15 +34,19 @@ local Assign = WhoDoesWhat.Assign
 -- secure buttons. That brings the Shout Bar's combat discipline with it: a
 -- secure button cannot be created, shown, hidden, moved or re-pointed mid-
 -- fight, so in combat this file repaints icons, glows and countdowns only, and
--- PLAYER_REGEN_ENABLED settles the layout. The picker itself only writes a
--- saved choice, so it is an ordinary frame and works any time.
+-- PLAYER_REGEN_ENABLED settles the layout. The item pickers' rows use items on
+-- right-click too, so they are secure as well: one per slot, laid out ahead of
+-- time out of combat and opened by a secure snippet, so they work mid-fight.
 --
 -- Wraps into rows at the configured column count. With "Hide buffs I have" on
 -- the grid shrinks to what is still missing or expiring, and with nothing left
 -- to show the window hides altogether.
 
 local frame = nil
-local picker = nil
+-- Defined in the picker section, used by the button section after it.
+local ItemUseAction
+-- Defined in the swap menu section, needed by the pickers before it.
+local EnsureSwapMenu
 -- Set by the loader at the bottom of the file: a refresh a moment from now.
 local RequestChecklistRefresh = nil
 local swapMenu = nil
@@ -82,8 +86,15 @@ local DEFAULT_GLOW_STYLE = "flash"
 local MISSING_GLOW_COLOR = { r = 0.949, g = 0.71, b = 0 }
 local EXPIRING_GLOW_COLOR = { r = 0.157, g = 0.561, b = 1 }
 
+-- The wing styles aren't offered here (the grid has no room beside its
+-- icons), so one saved before that was the case falls back to the default.
 function WhoDoesWhat:GetBuffChecklistGlowStyle()
-    return self.db.profile.settings.buffChecklistGlowStyle or DEFAULT_GLOW_STYLE
+    local saved = self.db.profile.settings.buffChecklistGlowStyle
+    local styles = self:GetStatusBarHighlightStyles()
+    if not saved or not styles[saved] or styles[saved].wings then
+        return DEFAULT_GLOW_STYLE
+    end
+    return saved
 end
 
 function WhoDoesWhat:GetBuffChecklistGlowColor(which)
@@ -158,6 +169,38 @@ function WhoDoesWhat:SetBuffChecklistAlign(align)
         LoadPosition()
     end
     self:RefreshBuffChecklist()
+end
+
+-- Where the pop-out menus (the item picker and the aura/aspect menu) open
+-- against the icon that opened them. The four straight directions centre on
+-- the icon; the diagonals meet it corner to corner, which is what keeps a menu
+-- off the rest of the grid when the checklist sits against a screen edge.
+-- x and y say which way the small gap goes.
+local POPOUT_GAP = 2
+WhoDoesWhat.BuffChecklistPopoutDirections = {
+    { key = "ABOVE", label = "Above", point = "BOTTOM", rel = "TOP", x = 0, y = 1 },
+    { key = "BELOW", label = "Below", point = "TOP", rel = "BOTTOM", x = 0, y = -1 },
+    { key = "LEFT", label = "Left", point = "RIGHT", rel = "LEFT", x = -1, y = 0 },
+    { key = "RIGHT", label = "Right", point = "LEFT", rel = "RIGHT", x = 1, y = 0 },
+    { key = "ABOVELEFT", label = "Above Left", point = "BOTTOMRIGHT", rel = "TOPLEFT",
+      x = -1, y = 1 },
+    { key = "ABOVERIGHT", label = "Above Right", point = "BOTTOMLEFT", rel = "TOPRIGHT",
+      x = 1, y = 1 },
+    { key = "BELOWLEFT", label = "Below Left", point = "TOPRIGHT", rel = "BOTTOMLEFT",
+      x = -1, y = -1 },
+    { key = "BELOWRIGHT", label = "Below Right", point = "TOPLEFT", rel = "BOTTOMRIGHT",
+      x = 1, y = -1 },
+}
+local DEFAULT_POPOUT_DIRECTION = "BELOWLEFT"
+
+function WhoDoesWhat:GetBuffChecklistPopoutDirection()
+    local saved = self.db.profile.settings.buffChecklistPopoutDirection
+    local fallback
+    for _, direction in ipairs(self.BuffChecklistPopoutDirections) do
+        if direction.key == saved then return direction end
+        if direction.key == DEFAULT_POPOUT_DIRECTION then fallback = direction end
+    end
+    return fallback
 end
 
 -- ---------------------------------------------------------------------------
@@ -312,19 +355,21 @@ local function OwnBuffs(unit)
     unit = unit or "player"
     local list, byName = {}, {}
     for i = 1, 40 do
-        local name, icon, expirationTime, spellId
+        local name, icon, duration, expirationTime, spellId
         if GetBuffDataByIndex then
             local aura = GetBuffDataByIndex(unit, i)
             if not aura then break end
-            name, icon, expirationTime, spellId =
-                aura.name, aura.icon, aura.expirationTime, aura.spellId
+            name, icon, duration, expirationTime, spellId = aura.name, aura.icon,
+                aura.duration, aura.expirationTime, aura.spellId
         else
             local _
-            name, icon, _, _, _, expirationTime, _, _, _, spellId = UnitBuff(unit, i)
+            name, icon, _, _, duration, expirationTime, _, _, _, spellId =
+                UnitBuff(unit, i)
             if not name then break end
         end
         local buff = {
             name = name, icon = icon, spellId = spellId,
+            duration = duration, expirationTime = expirationTime,
             remaining = expirationTime and expirationTime > 0
                 and expirationTime - GetTime() or nil,
         }
@@ -381,26 +426,42 @@ for _, id in ipairs(WhoDoesWhat.PetBuffFoodItems or {}) do petFoodItems[id] = tr
 -- Distinct item ids in your bags a picker offers, by name. `kind` is "food",
 -- "petFood", an elixir slot key, or a weapon slot key for the weapon enchant
 -- list.
-local function BagChoices(kind)
-    local seen, out = {}, {}
+--
+-- The bags themselves are walked once and kept (bagItems) until they change:
+-- every picker is refilled on every refresh, and walking every slot once per
+-- picker per refresh was the costly part. BAG_UPDATE_DELAYED clears it.
+local bagItems = nil
+local function BagItems()
+    if bagItems then return bagItems end
+    bagItems = {}
+    local seen = {}
     for bag = 0, NUM_BAG_SLOTS do
         for slot = 1, GetContainerNumSlots(bag) or 0 do
             local id = GetContainerItemID(bag, slot)
             if id and not seen[id] then
                 seen[id] = true
-                local wanted
-                if kind == "petFood" then
-                    wanted = petFoodItems[id]
-                elseif kind == "food" then
-                    wanted = not petFoodItems[id] and IsBuffFood(id, bag, slot)
-                elseif consumableChoices[kind] then
-                    wanted = consumableChoices[kind][id]
-                else
-                    wanted = weaponItems[id] and GetItemSpell(id) ~= nil
-                end
-                if wanted then out[#out + 1] = id end
+                bagItems[#bagItems + 1] = { id = id, bag = bag, slot = slot }
             end
         end
+    end
+    return bagItems
+end
+
+local function BagChoices(kind)
+    local out = {}
+    for _, item in ipairs(BagItems()) do
+        local id = item.id
+        local wanted
+        if kind == "petFood" then
+            wanted = petFoodItems[id]
+        elseif kind == "food" then
+            wanted = not petFoodItems[id] and IsBuffFood(id, item.bag, item.slot)
+        elseif consumableChoices[kind] then
+            wanted = consumableChoices[kind][id]
+        else
+            wanted = weaponItems[id] and GetItemSpell(id) ~= nil
+        end
+        if wanted then out[#out + 1] = id end
     end
     table.sort(out, function(a, b) return ItemName(a) < ItemName(b) end)
     return out
@@ -472,6 +533,11 @@ local function SortEntries(list)
     end)
 end
 
+-- The aura you sit in while eating (the base Food spell's name, so every food
+-- shares it), and how long it takes to become Well Fed on TBC.
+local FOOD_AURA_NAME = GetSpellInfo(433) or "Food"
+local EAT_SECONDS = 10
+
 -- Whether this druid has Omen of Clarity; nil until asked.
 local omenTalented = nil
 
@@ -522,6 +588,20 @@ local function CollectEntries()
 
     local buffs, buffsByName = OwnBuffs()
     local _, class = UnitClass("player")
+
+    -- Sitting eating: the food entry counts down to the moment Well Fed lands,
+    -- EAT_SECONDS after the eating aura started (not the aura's own 30
+    -- seconds -- you are Well Fed long before you are done chewing). Read off
+    -- when the "Food" aura began, like NovaConsumesHelper's eating timer.
+    local eating = buffsByName[FOOD_AURA_NAME]
+    if eating and eating.duration and eating.duration > 0 and eating.expirationTime then
+        local wellFedAt = eating.expirationTime - eating.duration + EAT_SECONDS
+        for _, entry in ipairs(entries) do
+            if entry.key == "food" and wellFedAt > GetTime() then
+                entry.eatingUntil = wellFedAt
+            end
+        end
+    end
 
     -- Aura (paladin) or aspect (hunter): shows what is running, glows while
     -- that isn't the one you picked. Nothing picked yet adopts what is up.
@@ -646,7 +726,17 @@ local function CollectEntries()
                 entry.has = enchanted
                 local ms = state[2]
                 entry.remaining = enchanted and ms and ms > 0 and ms / 1000 or nil
-                ApplyPick(entry, pick)
+                local imbueKey = type(pick) == "string" and pick:match("^imbue:(.+)$")
+                if imbueKey then
+                    -- A shaman's own imbue: right-click casts it (useSpell).
+                    for _, imbue in ipairs(WhoDoesWhat.ShamanImbues or {}) do
+                        if imbue.key == imbueKey then
+                            entry.useSpell, entry.icon = imbue.name, imbue.icon
+                        end
+                    end
+                elseif type(pick) == "number" then
+                    ApplyPick(entry, pick)
+                end
             end
             entry.missing = not entry.has
             entries[#entries + 1] = entry
@@ -701,8 +791,56 @@ end
 -- ---------------------------------------------------------------------------
 
 local PICKER_W = 230
-local PICKER_HEADER_H = 20
 local PICKER_ROW_H = 20
+
+-- Both pop-outs (this picker and the aura/aspect menu below) wear the main
+-- window's dress: gold edge, its blue title strip as a header, the Paladin
+-- Bar's near-black navy inside.
+local POPOUT_HEADER_H = 18
+local POPOUT_HINT = "Right-click to use"
+-- Alternating rows, a faint lift over the dark fill.
+local POPOUT_ROW_COLORS = { { 1, 1, 1, 0.025 }, { 1, 1, 1, 0.07 } }
+
+local function StylePopout(f)
+    f:SetFrameStrata("DIALOG")
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 16,
+        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
+    })
+    local fill, edge = WhoDoesWhat.Theme.paladinBarFill, WhoDoesWhat.Theme.mainBorder
+    f:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    f:SetBackdropBorderColor(edge[1], edge[2], edge[3])
+    -- On the frame's BACKGROUND, over the fill and under the gold edge, like
+    -- the window headers.
+    local header = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    header:SetPoint("TOPLEFT", INSET, -INSET)
+    header:SetPoint("TOPRIGHT", -INSET, -INSET)
+    header:SetHeight(POPOUT_HEADER_H)
+    header:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("LEFT", header, "LEFT", 6, 0)
+    local gold = WhoDoesWhat.Theme.gold
+    title:SetTextColor(gold[1], gold[2], gold[3])
+    f.title = title
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hint:SetPoint("RIGHT", header, "RIGHT", -6, 0)
+    hint:SetTextColor(0.62, 0.66, 0.75)
+    f.hint = hint
+end
+
+-- How right-click uses an item for this entry: a macro for a weapon (an oil is
+-- used, then aimed at the slot -- "/use item" + "/use 16"), a plain item use
+-- otherwise. A pet scroll adds unit2 = "pet" on top of this (entry.useUnit).
+function ItemUseAction(entry, itemID)
+    if entry.slot then
+        return "macro", string.format("/use item:%d\n/use %d", itemID, entry.slot)
+    end
+    return "item", "item:" .. itemID
+end
 
 local PICKER_TITLES = {
     food = "Food", mainHand = "Main Hand", offHand = "Off Hand",
@@ -720,29 +858,75 @@ local PICKER_EMPTY = {
     enchant = "No oils, stones or poisons in your bags.",
 }
 
-local function HidePicker()
-    if picker then picker:Hide() end
+-- One picker per slot kind ("food", "mainHand", "battleElixir", ...), each a
+-- secure frame of secure rows: a right-click on a row uses what it picks, and
+-- that is protected. They work in combat the way the Paladin Bar's menus do --
+-- everything a picker holds is laid out ahead of time, out of combat, on every
+-- refresh (FillPickers), and a fight only ever shows, hides and repaints them.
+-- Opening one is the grid button's secure OnClick snippet (the swap menu's
+-- toggle, below), which also closes every other pop-out. A bag change mid-fight
+-- updates the counts but can't add or drop a row until the fight ends. Not in
+-- UISpecialFrames: Escape would try to hide a protected frame mid-fight.
+local pickers = {}
+local pickerCount = 0
+
+local function AnyPickerShown()
+    for _, p in pairs(pickers) do
+        if p:IsShown() then return true end
+    end
+    return false
 end
 
-local function PickValue(value)
-    local owner = picker.owner
-    Picks()[picker.kind] = value or nil
-    picker:Hide()
-    WhoDoesWhat:RefreshBuffChecklist()
-    if owner and GameTooltip:GetOwner() == owner then GameTooltip:Hide() end
+-- Out of combat only: they are protected frames.
+local function HidePickers()
+    if InCombatLockdown() then return end
+    for _, p in pairs(pickers) do p:Hide() end
 end
 
-local function PickerRow(index)
-    local row = picker.rows[index]
+-- A shaman's own weapon imbues, offered in the weapon pickers beside the oils.
+local function KnownImbues()
+    local _, class = UnitClass("player")
+    local out = {}
+    if class ~= "SHAMAN" then return out end
+    for _, imbue in ipairs(WhoDoesWhat.ShamanImbues or {}) do
+        if GetSpellInfo(imbue.name) then out[#out + 1] = imbue end
+    end
+    return out
+end
+
+-- Post body on each row: close the picker once the click (and any use) has
+-- gone out. The hint row picks nothing, so it leaves the picker up.
+local PICKER_ROW_POST_SNIPPET = [==[
+    if not down then owner:Hide() end
+]==]
+
+-- A wrapped OnClick only runs its post body when the pre body hands back a
+-- message (its second return; the first, nil, leaves the button alone). The
+-- hint row picks nothing, so it sends none and the picker stays up. The close
+-- waits for the release: hiding on the press would take the row away before a
+-- client that acts on key-up ever used anything.
+local PICKER_ROW_PRE_SNIPPET = [==[
+    if self:GetAttribute("choosable") then return nil, "close" end
+]==]
+
+local function PickerRow(p, index)
+    local row = p.rows[index]
     if row then return row end
-    row = CreateFrame("Button", nil, picker)
+    row = CreateFrame("Button", p:GetName() .. "Row" .. index, p,
+        "SecureActionButtonTemplate")
     row:SetHeight(PICKER_ROW_H)
-    local y = -(INSET + PICKER_HEADER_H + (index - 1) * PICKER_ROW_H)
-    row:SetPoint("TOPLEFT", INSET + 2, y)
-    row:SetPoint("TOPRIGHT", -(INSET + 2), y)
+    row:RegisterForClicks("AnyUp", "AnyDown")
+    local y = -(INSET + POPOUT_HEADER_H + 1 + (index - 1) * PICKER_ROW_H)
+    row:SetPoint("TOPLEFT", INSET, y)
+    row:SetPoint("TOPRIGHT", -INSET, y)
     row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 
-    local selected = row:CreateTexture(nil, "BACKGROUND")
+    local stripe = row:CreateTexture(nil, "BACKGROUND")
+    stripe:SetAllPoints()
+    local color = POPOUT_ROW_COLORS[index % 2 == 1 and 1 or 2]
+    stripe:SetColorTexture(color[1], color[2], color[3], color[4])
+
+    local selected = row:CreateTexture(nil, "BACKGROUND", nil, 1)
     selected:SetAllPoints()
     selected:SetColorTexture(1, 0.82, 0, 0.18)
     row.selected = selected
@@ -764,134 +948,202 @@ local function PickerRow(index)
     text:SetWordWrap(false)
     row.text = text
 
-    row:SetScript("OnClick", function(self)
-        if self.choosable then PickValue(self.value) end
+    -- The use is the row's own secure action; this remembers the pick, and a
+    -- right-click on "No enchant" strips the weapon as the icon would.
+    row:SetScript("PostClick", function(self, mouseButton, down)
+        if down or not self.spec then return end
+        Picks()[p.kind] = self.spec.value
+        -- Belt and braces on the post body: out of combat, where hiding the
+        -- picker is ours to do, it closes whatever the snippet got.
+        if not InCombatLockdown() then p:Hide() end
+        local entry = p.entry
+        if mouseButton == "RightButton" and self.spec.value == "none" and entry
+            and entry.hand and entry.enchanted and not entry.windfury then
+            CancelItemTempEnchantment(entry.hand)
+        end
+        GameTooltip:Hide()
+        WhoDoesWhat:RefreshBuffChecklist()
+        if mouseButton == "RightButton" and RequestChecklistRefresh then
+            RequestChecklistRefresh(0.3)
+        end
     end)
     row:SetScript("OnEnter", function(self)
-        if not self.itemID then return end
+        local spec = self.spec
+        if not spec or not (spec.itemID or spec.spell) then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetItemByID(self.itemID)
+        if spec.itemID then
+            GameTooltip:SetItemByID(spec.itemID)
+        elseif GameTooltip.SetSpellByID then
+            GameTooltip:SetSpellByID(select(7, GetSpellInfo(spec.spell.name))
+                or spec.spell.spellId)
+        else
+            GameTooltip:SetText(spec.spell.name, 1, 1, 1)
+        end
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    picker.rows[index] = row
+    SecureHandlerWrapScript(row, "OnClick", p, PICKER_ROW_PRE_SNIPPET,
+        PICKER_ROW_POST_SNIPPET)
+    p.rows[index] = row
     return row
 end
 
-local function EnsurePicker()
-    if picker then return picker end
-    picker = CreateFrame("Frame", "WhoDoesWhatBuffChecklistPicker", UIParent,
-        "BackdropTemplate")
-    picker:SetFrameStrata("DIALOG")
-    picker:SetClampedToScreen(true)
-    picker:EnableMouse(true)
-    picker:SetWidth(PICKER_W)
-    picker:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = false, edgeSize = 16,
-        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
-    })
-    picker:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
-    picker:SetBackdropBorderColor(0.4, 0.4, 0.4)
-
-    local title = picker:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", INSET + 5, -(INSET + 4))
-    picker.title = title
-    local hint = picker:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("TOPRIGHT", -(INSET + 5), -(INSET + 5))
-    hint:SetTextColor(0.4, 0.7, 1)
-    hint:SetText("Right-click the icon to use")
-    picker.rows = {}
-    picker:Hide()
-    -- Escape closes it, like any other pop-up.
-    tinsert(UISpecialFrames, picker:GetName())
-    return picker
+-- Out of combat only. Each picker is registered on the swap menu, which the
+-- grid's snippet reaches as `owner`, so that snippet can close them all.
+local function EnsurePicker(kind)
+    local p = pickers[kind]
+    if p then return p end
+    local header = EnsureSwapMenu()
+    p = CreateFrame("Frame", "WhoDoesWhatBuffChecklistPicker_" .. kind, frame,
+        "SecureHandlerShowHideTemplate, BackdropTemplate")
+    StylePopout(p)
+    p:SetWidth(PICKER_W)
+    p.title:SetText(PICKER_TITLES[kind] or kind)
+    p.hint:SetText(POPOUT_HINT)
+    p.kind = kind
+    p.rows = {}
+    p:Hide()
+    pickerCount = pickerCount + 1
+    SecureHandlerSetFrameRef(header, "picker" .. pickerCount, p)
+    header:SetAttribute("pickerCount", pickerCount)
+    pickers[kind] = p
+    return p
 end
 
--- Fill the picker for `btn`'s entry and put it under the button. Re-run by the
--- refresh while it is open, so the bag counts stay honest.
-local function FillPicker(btn)
-    local entry = btn.entry
+-- What a slot's picker lists: for a weapon, "No enchant" and (for a shaman)
+-- the imbues first; then whatever of that kind is in your bags, and the pick
+-- itself if you have run out of it, so it can still be seen and changed.
+local function PickerSpecs(entry)
     local kind = entry.pick
     local current = Picks()[kind]
-    local rows = {}
+    local specs = {}
     if entry.slot then
-        rows[#rows + 1] = { value = false, text = "Any enchant (nothing to apply)",
-            icon = 134400 } -- INV_Misc_QuestionMark
-        rows[#rows + 1] = { value = "none", text = "No enchant (for Windfury)",
+        specs[#specs + 1] = { value = "none", text = "No enchant (for Windfury)",
             icon = WINDFURY_ICON }
-    else
-        rows[#rows + 1] = { value = false, text = "Nothing picked", icon = 134400 }
+        for _, imbue in ipairs(KnownImbues()) do
+            specs[#specs + 1] = { value = "imbue:" .. imbue.key, spell = imbue,
+                text = imbue.name, icon = imbue.icon }
+        end
     end
     local listed = {}
     local choices = BagChoices(kind)
     for _, id in ipairs(choices) do
         listed[id] = true
-        rows[#rows + 1] = { value = id, itemID = id }
+        specs[#specs + 1] = { value = id, itemID = id }
     end
-    -- A pick you have run out of stays on the list, so it can be seen and
-    -- changed.
     if type(current) == "number" and not listed[current] then
-        rows[#rows + 1] = { value = current, itemID = current }
+        specs[#specs + 1] = { value = current, itemID = current }
     end
-    local empty = #choices == 0
+    return specs, #choices == 0
+end
 
-    picker.title:SetText(PICKER_TITLES[kind])
-    local shown = #rows + (empty and 1 or 0)
-    for i, spec in ipairs(rows) do
-        local row = PickerRow(i)
-        row.value, row.itemID, row.choosable = spec.value, spec.itemID, true
-        if spec.itemID then
-            local count = GetItemCount(spec.itemID)
-            row.icon:SetTexture(GetItemIcon(spec.itemID))
-            row.text:SetText(ItemName(spec.itemID))
-            row.count:SetText(count)
-            if count > 0 then
-                row.count:SetTextColor(1, 0.82, 0)
-            else
-                row.count:SetTextColor(1, 0.3, 0.3)
+-- The part of a picker that can change any time, combat included: bag counts
+-- and which row is the pick.
+local function PaintPicker(p)
+    local current = Picks()[p.kind]
+    for _, row in ipairs(p.rows) do
+        local spec = row:IsShown() and row.spec
+        if spec then
+            if spec.itemID then
+                local count = GetItemCount(spec.itemID)
+                row.count:SetText(count)
+                if count > 0 then
+                    row.count:SetTextColor(1, 0.82, 0)
+                else
+                    row.count:SetTextColor(1, 0.3, 0.3)
+                end
+                row.icon:SetDesaturated(count == 0)
             end
-            row.icon:SetDesaturated(count == 0)
-        else
-            row.icon:SetTexture(spec.icon)
-            row.icon:SetDesaturated(false)
-            row.text:SetText(spec.text)
-            row.count:SetText("")
+            row.selected:SetShown(current == spec.value)
         end
-        row.selected:SetShown((current or false) == spec.value)
-        row:Show()
-    end
-    if empty then
-        local row = PickerRow(#rows + 1)
-        row.value, row.itemID, row.choosable = nil, nil, false
-        row.icon:SetTexture(nil)
-        row.text:SetText("|cff999999" .. PICKER_EMPTY[entry.pickNoun] .. "|r")
-        row.count:SetText("")
-        row.selected:Hide()
-        row:Show()
-    end
-    for i = shown + 1, #picker.rows do picker.rows[i]:Hide() end
-    picker:SetHeight(INSET * 2 + PICKER_HEADER_H + shown * PICKER_ROW_H + 2)
-
-    picker.owner, picker.kind = btn, kind
-    picker:ClearAllPoints()
-    if WhoDoesWhat:GetBuffChecklistAlign() == "RIGHT" then
-        picker:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -2)
-    else
-        picker:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
     end
 end
 
-local function TogglePicker(btn)
-    EnsurePicker()
-    if picker:IsShown() and picker.owner == btn then
-        picker:Hide()
-        return
+-- Lay a slot's picker out and bake each row's right-click. Out of combat
+-- only, and a no-op unless what it lists has changed.
+local function FillPicker(entry)
+    local p = EnsurePicker(entry.pick)
+    p.entry = entry
+    local specs, empty = PickerSpecs(entry)
+    local parts = { tostring(entry.useUnit), tostring(empty) }
+    for _, spec in ipairs(specs) do
+        spec.usable = spec.spell ~= nil
+            or (spec.itemID ~= nil and GetItemCount(spec.itemID) > 0)
+        parts[#parts + 1] = tostring(spec.value) .. (spec.usable and "+" or "-")
     end
-    GameTooltip:Hide()
-    FillPicker(btn)
-    picker:Show()
+    local stamp = table.concat(parts, ",")
+    if p.stamp ~= stamp then
+        p.stamp = stamp
+        for i, spec in ipairs(specs) do
+            local row = PickerRow(p, i)
+            row.spec = spec
+            row:SetAttribute("choosable", true)
+            local kind, value
+            if spec.spell then
+                kind, value = "spell", spec.spell.name
+            elseif spec.itemID and spec.usable then
+                kind, value = ItemUseAction(entry, spec.itemID)
+            end
+            row:SetAttribute("type2", kind)
+            row:SetAttribute("macrotext2", kind == "macro" and value or nil)
+            row:SetAttribute("item2", kind == "item" and value or nil)
+            row:SetAttribute("spell2", kind == "spell" and value or nil)
+            row:SetAttribute("unit2", kind == "item" and entry.useUnit or nil)
+            if spec.itemID then
+                row.icon:SetTexture(GetItemIcon(spec.itemID))
+                row.text:SetText(ItemName(spec.itemID))
+            else
+                row.icon:SetTexture(spec.icon)
+                row.icon:SetDesaturated(false)
+                row.text:SetText(spec.text)
+                row.count:SetText("")
+            end
+            row:Show()
+        end
+        local shown = #specs
+        if empty then
+            shown = shown + 1
+            local row = PickerRow(p, shown)
+            row.spec = nil
+            row:SetAttribute("choosable", nil)
+            row:SetAttribute("type2", nil)
+            row.icon:SetTexture(nil)
+            row.text:SetText("|cff999999" .. PICKER_EMPTY[entry.pickNoun] .. "|r")
+            row.count:SetText("")
+            row.selected:Hide()
+            row:Show()
+        end
+        for i = shown + 1, #p.rows do
+            p.rows[i].spec = nil
+            p.rows[i]:Hide()
+        end
+        p:SetHeight(INSET * 2 + POPOUT_HEADER_H + 1 + shown * PICKER_ROW_H + 2)
+    end
+    PaintPicker(p)
+end
+
+-- Every slot on the grid gets its picker brought up to date. Out of combat;
+-- in a fight the refresh only repaints them. A picker whose slot has gone, or
+-- whose icon now shows a different slot, is closed.
+local function FillPickers(lists)
+    local present = {}
+    for _, list in ipairs(lists) do
+        for _, entry in ipairs(list) do
+            if entry.pick then
+                present[entry.pick] = true
+                FillPicker(entry)
+            end
+        end
+    end
+    for kind, p in pairs(pickers) do
+        if p:IsShown() then
+            local _, anchor = p:GetPoint(1)
+            if not present[kind] or not (anchor and anchor.entry
+                and anchor.entry.pick == kind) then
+                p:Hide()
+            end
+        end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -904,7 +1156,8 @@ local function IsExpiring(entry)
 end
 
 local function CanUse(entry)
-    return entry.useItem ~= nil and (entry.useCount or 0) > 0
+    return entry.useSpell ~= nil
+        or (entry.useItem ~= nil and (entry.useCount or 0) > 0)
 end
 
 local function AddTimeLeftLine(btn, prefix)
@@ -919,7 +1172,7 @@ end
 
 local function ShowTooltip(btn)
     local entry = btn.entry
-    if not entry or (picker and picker:IsShown())
+    if not entry or AnyPickerShown()
         or (swapMenu and swapMenu:IsShown()) then
         return
     end
@@ -951,6 +1204,10 @@ local function ShowTooltip(btn)
         end
     elseif entry.has == nil then
         GameTooltip:AddLine("Not scanned yet.", 0.6, 0.6, 0.6)
+    elseif entry.eatingUntil and entry.eatingUntil > GetTime() then
+        local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+        GameTooltip:AddLine(string.format("Eating: Well Fed in %ds.",
+            math.ceil(entry.eatingUntil - GetTime())), c.r, c.g, c.b)
     elseif entry.has == false then
         GameTooltip:AddLine("Missing.", 1, 0.3, 0.3)
     else
@@ -973,7 +1230,9 @@ local function ShowTooltip(btn)
 
     local noun = entry.pickNoun
     if entry.pick and not entry.bare then
-        if entry.useItem then
+        if entry.useSpell then
+            GameTooltip:AddLine("Using " .. entry.useSpell .. ".", 0.8, 0.8, 0.8)
+        elseif entry.useItem then
             local name = ItemName(entry.useItem)
             if CanUse(entry) then
                 GameTooltip:AddLine("Using " .. name .. " (" .. entry.useCount
@@ -1003,8 +1262,9 @@ local function ShowTooltip(btn)
                 UI.AddTooltipHint(GameTooltip, "Right-Click:", "Remove enchant")
             end
         elseif CanUse(entry) then
-            UI.AddTooltipHint(GameTooltip, "Right-Click:",
-                entry.useVerb .. " " .. ItemName(entry.useItem))
+            UI.AddTooltipHint(GameTooltip, "Right-Click:", entry.useSpell
+                and ("Cast " .. entry.useSpell)
+                or (entry.useVerb .. " " .. ItemName(entry.useItem)))
         end
     end
     local ask = not entry.selfSupplied and (entry.isShout and "Ask your party"
@@ -1041,30 +1301,53 @@ end
 -- Bar's aura picker, whose notes explain the template order and the post body.
 local SWAP_OPTION_SIZE = 28
 local SWAP_COLUMNS = 7
-local SWAP_HEADER_H = 16
 local SWAP_PAD = 5
 
--- Pre body on every grid button's OnClick. `owner` is the menu. Only a button
--- flagged "swapper" (set out of combat) toggles it, on the release, and a
--- held Shift or Alt means settings or dragging instead.
+-- Pre body on every grid button's OnClick, and the one place any pop-out opens
+-- or closes -- here, in the secure snippet, because none of them can be shown
+-- or hidden from ordinary code in combat. `owner` is the swap menu.
+--
+-- The button's attributes (set out of combat, ConfigureUse) say what it opens:
+-- a "swapper" opens the swap menu on left-click; a "picks" button opens its
+-- own picker (the "picker" frame ref) on left-click, and on right-click too
+-- while there is nothing to use ("pickOnRight"). Every click closes every
+-- pop-out first, so opening one closes the rest, and clicking the same icon
+-- again closes its own. A held Shift or Alt means settings or dragging.
 local SWAP_TOGGLE_SNIPPET = [==[
-    if down or button ~= "LeftButton" or not self:GetAttribute("swapper") then return end
-    if IsShiftKeyDown() or IsAltKeyDown() then return end
-    if owner:IsShown() then
-        owner:Hide()
-        return
+    if down or IsShiftKeyDown() or IsAltKeyDown() then return end
+    local target
+    if self:GetAttribute("swapper") then
+        if button == "LeftButton" then target = owner end
+    elseif self:GetAttribute("picks") then
+        if button == "LeftButton"
+            or (button == "RightButton" and self:GetAttribute("pickOnRight")) then
+            target = self:GetFrameRef("picker")
+        end
     end
-    owner:ClearAllPoints()
-    owner:SetPoint(self:GetAttribute("swapPoint"), self,
-        self:GetAttribute("swapRelPoint"), 0, -2)
-    owner:Show()
-    owner:RegisterAutoHide(1)
-    owner:AddToAutoHide(self)
+    local wasShown = target and target:IsShown()
+    owner:Hide()
+    for i = 1, owner:GetAttribute("pickerCount") or 0 do
+        local p = owner:GetFrameRef("picker" .. i)
+        if p then p:Hide() end
+    end
+    if not target or wasShown then return end
+    target:ClearAllPoints()
+    target:SetPoint(self:GetAttribute("swapPoint"), self,
+        self:GetAttribute("swapRelPoint"), self:GetAttribute("swapX"),
+        self:GetAttribute("swapY"))
+    target:Show()
+    target:RegisterAutoHide(1.5)
+    target:AddToAutoHide(self)
 ]==]
 
 -- Post body on each option: close once the cast has gone out.
 local SWAP_OPTION_POST_SNIPPET = [==[
-    if down == false then owner:Hide() end
+    if not down then owner:Hide() end
+]==]
+-- The pre body only exists to send the message that lets the post body run
+-- (see PICKER_ROW_PRE_SNIPPET).
+local SWAP_OPTION_PRE_SNIPPET = [==[
+    return nil, "close"
 ]==]
 
 local function CreateSwapOption(index)
@@ -1107,30 +1390,20 @@ local function CreateSwapOption(index)
         if not InCombatLockdown() then swapMenu:Hide() end
         WhoDoesWhat:RefreshBuffChecklist()
     end)
-    SecureHandlerWrapScript(option, "OnClick", swapMenu, "", SWAP_OPTION_POST_SNIPPET)
+    SecureHandlerWrapScript(option, "OnClick", swapMenu, SWAP_OPTION_PRE_SNIPPET,
+        SWAP_OPTION_POST_SNIPPET)
     swapMenu.options[index] = option
     return option
 end
 
-local function EnsureSwapMenu()
+-- Also the header every pop-out hangs its secure refs off: the grid's snippet
+-- runs with this as `owner`, and each picker registers here (EnsurePicker).
+function EnsureSwapMenu()
     if swapMenu then return swapMenu end
     swapMenu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistSwapMenu", frame,
         "SecureHandlerShowHideTemplate, BackdropTemplate")
-    swapMenu:SetFrameStrata("DIALOG")
-    swapMenu:SetClampedToScreen(true)
-    swapMenu:EnableMouse(true)
-    swapMenu:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = false, edgeSize = 16,
-        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
-    })
-    swapMenu:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
-    swapMenu:SetBackdropBorderColor(0.4, 0.4, 0.4)
-    local hint = swapMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("TOPLEFT", INSET + SWAP_PAD, -(INSET + 3))
-    hint:SetTextColor(0.4, 0.7, 1)
-    swapMenu.hint = hint
+    StylePopout(swapMenu)
+    swapMenu.hint:SetText("Click to cast")
     swapMenu.options = {}
     swapMenu:Hide()
     return swapMenu
@@ -1147,7 +1420,7 @@ local function ConfigureSwapMenu(entry)
     if swapMenu.stamp == stamp then return end
     swapMenu.stamp = stamp
     swapMenu.kind = entry.swap.key
-    swapMenu.hint:SetText("Click to cast an " .. entry.swap.noun)
+    swapMenu.title:SetText(entry.swap.name .. "s")
     local count = #entry.swapOptions
     for i, spell in ipairs(entry.swapOptions) do
         local option = swapMenu.options[i] or CreateSwapOption(i)
@@ -1157,7 +1430,7 @@ local function ConfigureSwapMenu(entry)
         local col, row = (i - 1) % SWAP_COLUMNS, math.floor((i - 1) / SWAP_COLUMNS)
         option:ClearAllPoints()
         option:SetPoint("TOPLEFT", INSET + SWAP_PAD + col * (SWAP_OPTION_SIZE + GAP),
-            -(INSET + SWAP_HEADER_H + row * (SWAP_OPTION_SIZE + GAP)))
+            -(INSET + POPOUT_HEADER_H + SWAP_PAD + row * (SWAP_OPTION_SIZE + GAP)))
         option:Show()
     end
     for i = count + 1, #swapMenu.options do
@@ -1167,9 +1440,10 @@ local function ConfigureSwapMenu(entry)
     local columns = math.min(count, SWAP_COLUMNS)
     local rows = math.ceil(count / SWAP_COLUMNS)
     swapMenu:SetSize(math.max(INSET * 2 + SWAP_PAD * 2 + columns * SWAP_OPTION_SIZE
-            + (columns - 1) * GAP, math.ceil(swapMenu.hint:GetStringWidth())
-            + INSET * 2 + SWAP_PAD * 2),
-        INSET * 2 + SWAP_HEADER_H + rows * SWAP_OPTION_SIZE + (rows - 1) * GAP + SWAP_PAD)
+            + (columns - 1) * GAP, math.ceil(swapMenu.title:GetStringWidth()
+            + swapMenu.hint:GetStringWidth()) + INSET * 2 + 24),
+        INSET * 2 + POPOUT_HEADER_H + SWAP_PAD * 2 + rows * SWAP_OPTION_SIZE
+            + (rows - 1) * GAP)
 end
 
 -- Repaint the menu's icons: full colour on what is running, a gold border on
@@ -1202,18 +1476,16 @@ local function ConfigureUse(btn, entry)
         kind, value = "spell", entry.castSpell
     elseif entry.swap then
         if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
+    elseif entry.useSpell then
+        kind, value = "spell", entry.useSpell
     elseif CanUse(entry) then
-        if entry.slot then
-            kind = "macro"
-            value = string.format("/use item:%d\n/use %d", entry.useItem, entry.slot)
-        else
-            kind, value = "item", "item:" .. entry.useItem
-        end
+        kind, value = ItemUseAction(entry, entry.useItem)
     end
-    local right = WhoDoesWhat:GetBuffChecklistAlign() == "RIGHT"
+    local direction = WhoDoesWhat:GetBuffChecklistPopoutDirection()
     local stamp = (kind and (kind .. value) or "") .. (entry.swap and "|swap" or "")
+        .. (entry.pick and ("|pick:" .. entry.pick) or "")
         .. (entry.useUnit and ("|" .. entry.useUnit) or "")
-        .. (right and "|R" or "")
+        .. "|" .. direction.key
     if btn.useStamp == stamp then return end
     btn.useStamp = stamp
     btn:SetAttribute("type2", kind)
@@ -1222,8 +1494,21 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("spell2", kind == "spell" and value or nil)
     btn:SetAttribute("unit2", kind and entry.useUnit or nil)
     btn:SetAttribute("swapper", entry.swap and true or nil)
-    btn:SetAttribute("swapPoint", right and "TOPRIGHT" or "TOPLEFT")
-    btn:SetAttribute("swapRelPoint", right and "BOTTOMRIGHT" or "BOTTOMLEFT")
+    -- A slot with a picker: the snippet opens it on left-click, and on
+    -- right-click while there is nothing to use (a bare weapon's right-click
+    -- strips its enchant instead). Its contents are filled at the end of the
+    -- same refresh (FillPickers).
+    btn:SetAttribute("picks", entry.pick and true or nil)
+    btn:SetAttribute("pickOnRight",
+        (entry.pick and not entry.bare and not CanUse(entry)) and true or nil)
+    if entry.pick then
+        SecureHandlerSetFrameRef(btn, "picker", EnsurePicker(entry.pick))
+    end
+    -- Where the swap menu opens, read by SWAP_TOGGLE_SNIPPET.
+    btn:SetAttribute("swapPoint", direction.point)
+    btn:SetAttribute("swapRelPoint", direction.rel)
+    btn:SetAttribute("swapX", direction.x * POPOUT_GAP)
+    btn:SetAttribute("swapY", direction.y * POPOUT_GAP)
 end
 
 local function CreateButton(index)
@@ -1280,17 +1565,14 @@ local function CreateButton(index)
                 if entry.enchanted and not entry.windfury then
                     CancelItemTempEnchantment(entry.hand)
                 end
-            elseif entry.pick and not CanUse(entry) then
-                -- Nothing to use yet: offer the choice instead.
-                TogglePicker(self)
             end
         elseif IsShiftKeyDown() then
             if not entry.selfSupplied and (entry.missing or IsExpiring(entry)) then
                 AskFor(entry)
             end
-        elseif entry.pick then
-            TogglePicker(self)
         end
+        -- Pickers open and close in the secure snippet (SWAP_TOGGLE_SNIPPET).
+        if entry.pick then GameTooltip:Hide() end
     end)
     btn:Hide()
     frame.buttons[index] = btn
@@ -1301,6 +1583,18 @@ end
 -- with it. Split out so the tick can run it between repaints.
 local function UpdateTimerAndGlow(btn)
     local entry = btn.entry
+    -- Eating: a 10-to-0 countdown in the expiring colour, glowing the same,
+    -- until Well Fed lands (the aura change repaints it away).
+    local eatLeft = entry.eatingUntil and (entry.eatingUntil - GetTime())
+    if eatLeft and eatLeft > 0 then
+        local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+        btn.timer:SetFormattedText("%d", math.ceil(eatLeft))
+        btn.timer:SetTextColor(c.r, c.g, c.b)
+        btn.timer:Show()
+        WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, true,
+            WhoDoesWhat:GetBuffChecklistGlowStyle(), c)
+        return
+    end
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     local expiring = entry.has == true and remaining ~= nil and remaining > 0
         and remaining < WarnSeconds()
@@ -1415,7 +1709,7 @@ local function EnsureFrame()
     frame.title = title
     UI.MakeMovable(frame, {
         noCombat = true,
-        OnStart = HidePicker,
+        OnStart = HidePickers,
         OnStop = function()
             SavePosition()
             LoadPosition()
@@ -1533,7 +1827,7 @@ local pendingReveal = nil
 
 -- Out of combat only: it hides secure buttons and the frame parenting them.
 local function HideFrame()
-    HidePicker()
+    HidePickers()
     if not frame then return end
     for _, btn in ipairs(frame.buttons) do
         WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, false,
@@ -1572,6 +1866,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
         if divider and divider:IsShown() and pet ~= nil then
             PaintDivider(pet, collapsed)
         end
+        for _, p in pairs(pickers) do PaintPicker(p) end
         return
     end
 
@@ -1700,22 +1995,15 @@ function WhoDoesWhat:RefreshBuffChecklist()
     f:Show()
     if not f.moving then LoadPosition() end
 
-    -- An open picker follows its icon: gone with it, or refilled so the bag
-    -- counts and the highlighted pick are current.
-    if picker and picker:IsShown() then
-        local owner = picker.owner
-        if owner and owner:IsShown() and owner.entry
-            and owner.entry.pick == picker.kind then
-            FillPicker(owner)
-        else
-            picker:Hide()
-        end
-    end
+    -- Now the icons carry their slots, an open picker whose icon moved on can
+    -- be told apart and closed.
+    FillPickers({ entries, pet or {} })
 end
 
 local RESET_SETTINGS = {
     "buffChecklistEnabled", "buffChecklistColumns", "buffChecklistIconSize",
     "buffChecklistHideHave", "buffChecklistAlign", "buffChecklistShowHeader",
+    "buffChecklistPopoutDirection",
     "buffChecklistHideOthersHave", "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
     "buffChecklistGlowMissingColor", "buffChecklistGlowExpiringColor",
 }
@@ -1771,6 +2059,9 @@ RequestChecklistRefresh = RefreshSoon
 local lastPetDead = nil
 loader:SetScript("OnEvent", function(_, event)
     if event == "SPELLS_CHANGED" then omenTalented = nil end
+    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_ENTERING_WORLD" then
+        bagItems = nil
+    end
     if event == "UNIT_HEALTH" then
         -- Only a death or a revive matters here, not every tick of damage.
         local dead = UnitIsDead("pet") and true or false

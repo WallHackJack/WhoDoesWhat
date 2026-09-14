@@ -321,6 +321,23 @@ for _, aspect in ipairs(WhoDoesWhat.HunterAspects) do
 end
 WhoDoesWhat.HunterAspects = knownAspects
 
+-- A shaman's weapon imbues, offered in the Buff Checklist's weapon pickers
+-- beside the oils and stones. Base-rank ids, cast rank-less by name like the
+-- auras above; the view keeps only the ones in your spellbook.
+WhoDoesWhat.ShamanImbues = {
+    { key = "windfury",    spellId = 8232 },
+    { key = "flametongue", spellId = 8024 },
+    { key = "frostbrand",  spellId = 8033 },
+    { key = "rockbiter",   spellId = 8017 },
+}
+local knownImbues = {}
+for _, imbue in ipairs(WhoDoesWhat.ShamanImbues) do
+    imbue.name = GetSpellInfo(imbue.spellId)
+    imbue.icon = GetSpellTexture(imbue.spellId)
+    if imbue.name then knownImbues[#knownImbues + 1] = imbue end
+end
+WhoDoesWhat.ShamanImbues = knownImbues
+
 -- Omen of Clarity: a druid self-buff the talent of the same name grants
 -- (Restoration, tier 3, column 3), so the checklist asks the talent tree.
 WhoDoesWhat.OmenOfClarity = {

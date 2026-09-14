@@ -651,6 +651,7 @@ end
 --   spec.styleLabel the dropdown's caption
 --   spec.tooltip    what this bar's highlight is for, in one sentence
 --   spec.GetStyle / spec.SetStyle
+--   spec.noWings    leave the wing styles out of the dropdown
 --   spec.colors     { { label, tooltip, key }, ... }, `key` naming the colour's
 --                   setting; the first one leads: it is the colour the preview
 --                   box is drawn in
@@ -710,10 +711,16 @@ local function AddHighlightControls(parent, x, y, spec)
     previewFill:SetWidth(34)
     previewFill:SetColorTexture(0.96, 0.55, 0.73, 0.8)
 
+    -- spec.noWings drops the wing styles (they draw beside the frame, which a
+    -- packed icon grid has no room for), including a saved one.
+    local function Offered(styles, key)
+        return styles[key] and not (spec.noWings and styles[key].wings)
+    end
+
     local function SavedStyle()
         local styles, _, default = WhoDoesWhat:GetStatusBarHighlightStyles()
         local saved = spec.GetStyle()
-        if not styles[saved] then saved = default end
+        if not Offered(styles, saved) then saved = default end
         return saved, styles
     end
 
@@ -730,16 +737,18 @@ local function AddHighlightControls(parent, x, y, spec)
         local saved = SavedStyle()
         for _, key in ipairs(order) do
             local styleKey = key
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = styles[styleKey].label
-            info.checked = saved == styleKey
-            info.func = function()
-                spec.SetStyle(styleKey)
-                UIDropDownMenu_SetText(dd, styles[styleKey].label)
-                ApplyPreview(styleKey)
-                spec.OnChange()
+            if Offered(styles, styleKey) then
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = styles[styleKey].label
+                info.checked = saved == styleKey
+                info.func = function()
+                    spec.SetStyle(styleKey)
+                    UIDropDownMenu_SetText(dd, styles[styleKey].label)
+                    ApplyPreview(styleKey)
+                    spec.OnChange()
+                end
+                UIDropDownMenu_AddButton(info, level)
             end
-            UIDropDownMenu_AddButton(info, level)
         end
     end)
     UI.AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
@@ -2586,6 +2595,29 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         .. " the grid starts from the top-right corner and fills leftwards.")
     f.checklistAlignDD = checklistAlignDD
 
+    local checklistPopoutLabel, checklistPopoutDD
+    checklistPopoutLabel, checklistPopoutDD, yL = AddDropdownRow(checklistPage, yL,
+        "Menus open:", "WhoDoesWhatBuffChecklistPopoutDD")
+    UIDropDownMenu_Initialize(checklistPopoutDD, function(_, level)
+        local saved = WhoDoesWhat:GetBuffChecklistPopoutDirection()
+        for _, direction in ipairs(WhoDoesWhat.BuffChecklistPopoutDirections) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = direction.label
+            info.checked = saved == direction
+            info.func = function()
+                checklistSettings().buffChecklistPopoutDirection = direction.key
+                UIDropDownMenu_SetText(checklistPopoutDD, direction.label)
+                WhoDoesWhat:RefreshBuffChecklist()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UI.AddDropdownTooltip(checklistPopoutDD, checklistPopoutLabel, "Menus open",
+        "Which way the item picker and the aura or aspect menu open from the"
+        .. " icon you click. The diagonals meet the icon corner to corner, which"
+        .. " keeps a menu clear of the rest of the checklist.")
+    f.checklistPopoutDD = checklistPopoutDD
+
     local columnRange = WhoDoesWhat.BUFF_CHECKLIST_COLUMNS
     f.RefreshChecklistColumns, yL = AddSliderWithInput(checklistPage, PAGE_X, yL, {
             name = "WhoDoesWhatBuffChecklistColumnsSlider",
@@ -2706,6 +2738,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.RefreshChecklistHighlight, yL = AddHighlightControls(checklistPage,
         PAGE_X, yL, {
             name = "WhoDoesWhatBuffChecklistHighlightDD",
+            -- Icons packed edge to edge leave no room for wings beside them.
+            noWings = true,
             tooltip = "The animation a checklist icon wears while that buff"
                 .. " is missing or about to drop -- the box to the right shows"
                 .. " it running.",
@@ -2968,6 +3002,8 @@ function LoadSettings(f)
     f.checklistScrollsCheck:SetChecked(self.db.char.buffChecklistScrolls)
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
+    UIDropDownMenu_SetText(f.checklistPopoutDD,
+        self:GetBuffChecklistPopoutDirection().label)
     f.RefreshChecklistColumns()
     f.RefreshChecklistIconSize()
     f.SetChecklistControlsEnabled(settings.buffChecklistEnabled and true or false)

@@ -917,6 +917,9 @@ for _, kind in ipairs(WING_MOTIONS) do
         local key = kind.key .. (side.key or "")
         HIGHLIGHT_STYLES[key] = {
             label = kind.label .. (side.label or ""),
+            -- Drawn out beside the frame, so a surface without room to either
+            -- side of each icon (the Buff Checklist's grid) can leave these out.
+            wings = true,
             Start = function(r, c)
                 StartWings(r, kind.motion, side.side, c)
             end,
