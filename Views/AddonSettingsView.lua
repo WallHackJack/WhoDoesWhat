@@ -2336,6 +2336,16 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:RefreshWarriorShoutBar()
         end)
 
+    f.shoutHideWhenSelfBuffedCheck, yL = AddCompactCheckboxRow(warriorPage,
+        PAGE_X, yL, "Hide when I have it",
+        "Hides each icon while its shout is on you, even if others in your"
+        .. " party are still missing it. Hidden icons can't be clicked or"
+        .. " dragged, so place the bar before turning this on.",
+        function(value)
+            shoutStore().hideWhenSelfBuffed = value
+            WhoDoesWhat:RefreshWarriorShoutBar()
+        end)
+
     -- Warrior Settings only: someone asking for a shout has no use for trimming
     -- who counts. Everything under it rides a frame of its own, so hiding the
     -- row slides the rest up rather than leaving a hole.
@@ -2643,6 +2653,7 @@ function LoadSettings(f)
     f.shoutHideBackgroundCheck:SetChecked(shout.hideBackground)
     f.shoutHideNumbersCheck:SetChecked(shout.hideNumbers)
     f.shoutHideWhenBuffedCheck:SetChecked(shout.hideWhenBuffed)
+    f.shoutHideWhenSelfBuffedCheck:SetChecked(shout.hideWhenSelfBuffed)
     f.shoutIgnoreRangeCheck:SetChecked(shout.ignoreOutOfRange)
     local editingWarrior = self:GetShoutBarSettingsKey() == "warrior"
     f.SetShoutWarriorRowsShown(editingWarrior)

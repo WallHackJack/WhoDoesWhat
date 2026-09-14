@@ -714,7 +714,14 @@ end
 -- countdown running on it. Asked per button, so a Battle Shout that is fully
 -- up goes quiet while a Commanding Shout somebody is missing stays put.
 local function ButtonIsIdle(btn)
-    if not WhoDoesWhat:GetShoutBarSettings().hideWhenBuffed then
+    local settings = WhoDoesWhat:GetShoutBarSettings()
+    -- "Hide when I have it" wins outright: nobody else's gap and no countdown
+    -- brings the icon back while the shout is on you.
+    if settings.hideWhenSelfBuffed
+        and WhoDoesWhat:HasBuff(UnitName("player"), btn.shout.key) == true then
+        return true
+    end
+    if not settings.hideWhenBuffed then
         return false
     end
     -- An "Always" countdown is running whenever the shout is up at all, so it

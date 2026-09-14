@@ -315,6 +315,11 @@ local function ShoutBarDefaults(warrior)
         -- the moment it goes missing or a countdown starts. On for a
         -- non-warrior: the bar only needs to be seen when there is asking to do.
         hideWhenBuffed = not warrior,
+        -- Fade each icon out while its shout is on YOU, whoever else is still
+        -- missing it. On for a non-warrior, whose only use for the bar is
+        -- asking for a shout they lack; off for a warrior, who shouts for the
+        -- whole party whether or not they have it themselves.
+        hideWhenSelfBuffed = not warrior,
         -- How big a shout icon is, in pixels. The bar is exactly as wide as
         -- its icons, so this sizes the whole strip.
         iconSize = 28,
