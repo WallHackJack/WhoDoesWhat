@@ -17,17 +17,32 @@ local UI = select(2, ...).UI
 -- (trinkets, Executioner, gear) isn't tracked, offered instead as an optional
 -- average the user fills in.
 
+local K = WhoDoesWhat.SectionKit
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
+local CURSES = WhoDoesWhat.WarlockCurses
 
--- The page is a tab of the main window, wider than it is tall: the fight
--- picker, breakdown and inputs fill the left, the results run down a column on
--- the right, and the footnote spans the bottom.
+-- The page is the Calculator tab of the main window, wider than it is tall,
+-- laid out in section boxes on the page's dark ground:
+--
+--   Fight: picker, target, damage breakdown  | Curse of Recklessness
+--   Boss Armor                               | Curse of the Elements
+--                                            | Curse of Shadow / Blood Frenzy
+--   footnote across the bottom
+--
+-- Each curse's own options sit at the top of its result box. Curse of
+-- Recklessness is also an armor reduction, so its toggle appears in Boss Armor
+-- as well; the two are one setting.
+local GAP = 10
 local LEFT_W = 520
-local MARGIN = 14
-local COL_R = 268 -- right input column x
-local RESULTS_X = LEFT_W + 16
-local RESULTS_W = 320
-local RESULT_GAP = 18
+local TARGET_STRIP_H = 24  -- Fight box: target and duration, above the rows
+local BOX_ICON = 18
+local LABEL_X = 6          -- a row's label and value from its edges
+local INDENT = 14          -- per breakdown depth
+-- Midline of a box's title strip, where its title, icon, tag and any header
+-- dropdown all centre.
+local STRIP_MID = UI.HEADER_STRIP_TOP + UI.HEADER_BTN_SIZE / 2
+-- UIDropDownMenu carries ~16px of transparent padding past its visible box.
+local DD_OVERHANG = 16
 
 -- Damage that lands through armor A is C/(A+C). Classic uses the level-60
 -- constant (400 + 85*60); TBC uses 467.5*70 - 22167.5.
@@ -55,12 +70,51 @@ local COE_MASK = IS_CLASSIC_ERA and (0x4 + 0x10) or (0x4 + 0x10 + 0x20 + 0x40)
 local COS_MASK = 0x20 + 0x40
 local IGNITE_SPELL_ID = 12654
 
--- Breakdown colors: CoR orange, CoE warlock-purple, total green, and a muted
--- grey for the rows the curses don't touch (bleeds, nature/holy).
-local C_COR = "ff8000"
-local C_COE = "9482c9"
-local C_TOTAL = "40ff40"
-local C_MUTED = "999999"
+local BLOOD_FRENZY_ICON = "Interface\\Icons\\Ability_Warrior_BloodFrenzy"
+
+-- Text colours: CoR orange, CoE a lifted warlock-purple (the class colour
+-- itself reads dim on the tinted stripes), the Arms warrior's class tan, total
+-- green, and a light grey for damage the curses don't touch. Values the curses
+-- provided read green; values they could have provided read gold.
+local C_COR = { 1, 0.5, 0 }
+local C_COE = { 0.68, 0.61, 0.9 }
+local C_ARMS = { 0.78, 0.61, 0.43 }
+local C_TOTAL = { 0.25, 1, 0.25 }
+local C_MUTED = { 0.74, 0.74, 0.74 }
+local C_WHITE = { 1, 1, 1 }
+local C_PROVIDED = C_TOTAL
+local C_MISSED = WhoDoesWhat.Theme.gold
+local MUTED_ESCAPE = "|cffbdbdbd"
+
+-- The rows' text: GameFontHighlight with a thin outline, which is as close to
+-- bold as the game font gets and keeps the numbers crisp on striped rows.
+local ROW_FONT = CreateFont("WhoDoesWhatCalcRowFont")
+do
+    local path, size = GameFontHighlight:GetFont()
+    ROW_FONT:SetFont(path, size, "OUTLINE")
+    ROW_FONT:SetTextColor(1, 1, 1)
+end
+
+-- The Fight box's breakdown, one striped row per damage pool, indented under
+-- the pool it splits. `key` is the BossPoolsFromCombat stat it shows.
+local BREAKDOWN = {
+    { key = "total", label = "Total damage to target", color = C_TOTAL },
+    { key = "physAll", label = "Physical", depth = 1 },
+    { key = "physNonBleed", label = "Armor-mitigated (CoR)", depth = 2, color = C_COR },
+    { key = "bleeds", label = "Bleeds, which ignore armor", depth = 2, color = C_MUTED },
+    { key = "magicAll", label = "Magic", depth = 1 },
+}
+if IS_CLASSIC_ERA then
+    BREAKDOWN[#BREAKDOWN + 1] =
+        { key = "coeRelevant", label = "Fire and Frost (CoE)", depth = 2, color = C_COE }
+    BREAKDOWN[#BREAKDOWN + 1] =
+        { key = "cosRelevant", label = "Shadow and Arcane (CoS)", depth = 2, color = C_COE }
+else
+    BREAKDOWN[#BREAKDOWN + 1] = { key = "coeRelevant",
+        label = "Fire, Frost, Shadow and Arcane (CoE)", depth = 2, color = C_COE }
+end
+BREAKDOWN[#BREAKDOWN + 1] =
+    { key = "magicOther", label = "Nature and Holy", depth = 2, color = C_MUTED }
 
 -- Physical-school abilities that ignore armor (bleeds) -- they must not count
 -- toward the CoR pool. Keyed by spell id; TBC ranks of the usual offenders.
@@ -99,11 +153,6 @@ local function Commafy(n)
     local s = tostring(n)
     local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
     return (out:gsub("^,", ""))
-end
-
--- Wrap text in a |cff..|r color escape.
-local function Color(hex, text)
-    return "|cff" .. hex .. text .. "|r"
 end
 
 -- Readable label for a Details combat: encounter name (or a segment number)
@@ -211,41 +260,103 @@ end
 -- Widgets
 -- ---------------------------------------------------------------------------
 
-local function MakeCheck(parent, x, y, text, onToggle)
-    local c = UI.CreateCheckbox(parent, text, nil, nil, function(self)
+-- A section box on the page. opts: `tintClass` or `tintColor` ({ r, g, b })
+-- tints it the way the Raid board tints its class sections, `icon` sits before
+-- the title, `titleColor` recolours the title. Every box gets `box.tag`, a
+-- small note right-aligned on its title strip.
+local function CreateBox(f, title, opts)
+    opts = opts or {}
+    local color, border
+    if opts.tintColor then
+        color, border = K.ColorTint(unpack(opts.tintColor))
+    else
+        color, border = K.ClassTint(opts.tintClass)
+    end
+    local box = UI.CreateSectionBox(f, title, color, border)
+    if opts.icon then
+        local icon = box:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(BOX_ICON, BOX_ICON)
+        icon:SetPoint("LEFT", box, "TOPLEFT", UI.BOX_PAD + 2, -STRIP_MID)
+        icon:SetTexture(opts.icon)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        box.title:ClearAllPoints()
+        box.title:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+    end
+    if opts.titleColor then box.title:SetTextColor(unpack(opts.titleColor)) end
+    box.tag = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    box.tag:SetPoint("RIGHT", box, "TOPRIGHT", -(UI.BOX_PAD + LABEL_X), -STRIP_MID)
+    return box
+end
+
+-- A box's height with `rows` rows under its title and any reserved strip.
+local function BoxHeight(box, rows)
+    return UI.BOX_PAD + UI.SECTION_TITLE_H + (box.rowsInset or 0)
+        + rows * UI.ROW_H + UI.BOX_PAD
+end
+
+-- A striped row: a label on the left, a value on the right.
+local function AddValueRow(box, index, depth)
+    local row = UI.CreateSectionRow(box, index)
+    row.label = row:CreateFontString(nil, "OVERLAY")
+    row.label:SetFontObject(ROW_FONT)
+    row.label:SetPoint("LEFT", LABEL_X + (depth or 0) * INDENT, 0)
+    row.value = row:CreateFontString(nil, "OVERLAY")
+    row.value:SetFontObject(ROW_FONT)
+    row.value:SetPoint("RIGHT", -LABEL_X, 0)
+    row.value:SetJustifyH("RIGHT")
+    return row
+end
+
+-- A striped row the whole left of which toggles its checkbox, with an optional
+-- muted note on the right saying what the option is worth.
+local function AddCheckRow(box, index, text, note, tooltip, onToggle)
+    local row = UI.CreateSectionRow(box, index)
+    local check = UI.AddRowCheckbox(row, text, text, tooltip, function(self)
         onToggle(self:GetChecked() and true or false)
-    end, { size = 22, font = "GameFontHighlightSmall", gap = 2, labelParent = parent })
-    c:SetPoint("TOPLEFT", x, -y)
-    return c
+    end)
+    check.label:SetFontObject(ROW_FONT)
+    local noteText = row:CreateFontString(nil, "OVERLAY")
+    noteText:SetFontObject(ROW_FONT)
+    noteText:SetPoint("RIGHT", -LABEL_X, 0)
+    noteText:SetTextColor(unpack(C_MUTED))
+    noteText:SetText(note or "")
+    return check
 end
 
 -- ---------------------------------------------------------------------------
 -- Recompute + render
 -- ---------------------------------------------------------------------------
 
--- Blank every readout with a one-line status in the header slot.
+-- Fill one result box: the tag on its title strip, and each row from `lines`,
+-- a list of { label, value, valueColor }. No lines blanks the box.
+local function SetResult(result, tag, lines)
+    result.box.tag:SetText(tag or "")
+    for i, row in ipairs(result.rows) do
+        local line = lines and lines[i]
+        row.label:SetText(line and line[1] or "")
+        row.value:SetText(line and line[2] or "")
+        row.value:SetTextColor(unpack(line and line[3] or C_WHITE))
+    end
+end
+
+-- Blank every readout, with a one-line status where the target goes.
 local function ShowStatus(f, text)
-    f.fightHeader:SetText(text)
-    f.sumLabels:SetText("")
-    f.sumValues:SetText("")
-    f.coeResult:SetText("")
-    f.cosResult:SetText("")
-    f.corResult:SetText("")
-    f.armsResult:SetText("")
-    f.footnote:SetText("")
+    f.target:SetText(text)
+    f.duration:SetText("")
+    for _, row in ipairs(f.breakdownRows) do row.value:SetText("") end
+    for _, result in pairs(f.results) do SetResult(result) end
 end
 
 local function Recompute(f)
     local Details = GetDetails()
     if not Details then
-        ShowStatus(f, "|cffff5555Details! is not installed or not enabled.|r"
-            .. "\nInstall the Details! Damage Meter addon to use this calculator.")
+        ShowStatus(f, "|cffff5555Install or enable Details! to use the calculator.|r")
         return
     end
 
     local combat = f.selectedCombat
     if not combat then
-        ShowStatus(f, "|cffaaaaaaSelect a fight above.|r")
+        ShowStatus(f, "|cffaaaaaaPick a fight.|r")
         return
     end
 
@@ -258,85 +369,55 @@ local function Recompute(f)
     local coePool, physPool = stats.coeRelevant, stats.physNonBleed
 
     local duration = (combat.GetCombatTime and combat:GetCombatTime()) or 0
-    f.fightHeader:SetText(string.format(
-        "Target: |cffffd100%s|r    Duration: %d:%02d",
-        boss, math.floor(duration / 60), duration % 60))
-
-    -- Damage breakdown, rendered as two aligned columns (labels left, values
-    -- right) so the numbers line up under one another.
-    local sumLabels = {
-        Color(C_TOTAL, "Total damage to target"),
-        "   Physical",
-        "      " .. Color(C_COR, "Armor-mitigated  -> CoR"),
-        "      " .. Color(C_MUTED, "Bleeds (ignore armor)"),
-        "   Magic",
-    }
-    local sumValues = {
-        Color(C_TOTAL, Commafy(stats.total)),
-        Commafy(stats.physAll),
-        Color(C_COR, Commafy(stats.physNonBleed)),
-        Color(C_MUTED, Commafy(stats.bleeds)),
-        Commafy(stats.magicAll),
-    }
-    if IS_CLASSIC_ERA then
-        sumLabels[#sumLabels + 1] = "      " .. Color(C_COE, "Fire/Frost  -> CoE")
-        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.coeRelevant))
-        sumLabels[#sumLabels + 1] = "      " .. Color(C_COE, "Shadow/Arcane  -> CoS")
-        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.cosRelevant))
-    else
-        sumLabels[#sumLabels + 1] = "      "
-            .. Color(C_COE, "Fire/Frost/Shadow/Arcane  -> CoE")
-        sumValues[#sumValues + 1] = Color(C_COE, Commafy(stats.coeRelevant))
+    f.target:SetText("Target: |cffffffff" .. boss .. "|r")
+    f.duration:SetText(string.format("Duration: |cffffffff%d:%02d|r",
+        math.floor(duration / 60), duration % 60))
+    for _, row in ipairs(f.breakdownRows) do
+        row.value:SetText(Commafy(stats[row.key]))
     end
-    sumLabels[#sumLabels + 1] = "      " .. Color(C_MUTED, "Other (Nature/Holy)")
-    sumValues[#sumValues + 1] = Color(C_MUTED, Commafy(stats.magicOther))
-    f.sumLabels:SetText(table.concat(sumLabels, "\n"))
-    f.sumValues:SetText(table.concat(sumValues, "\n"))
 
-    local function PerSec(total)
+    -- A value with its per-second rate after it, in grey.
+    local function WithDps(total)
         if duration > 0 then
-            return "  (" .. Commafy(total / duration) .. " DPS)"
+            return Commafy(total) .. "  " .. MUTED_ESCAPE .. "(" .. Commafy(total / duration)
+                .. " DPS)|r"
         end
-        return ""
+        return Commafy(total)
     end
 
-    local function MagicCurseText(name, pool, rate, applied, specialPool, specialMultiplier)
+    -- A flat damage-taken bonus on one pool (the magic curses, Blood Frenzy).
+    -- `noun` names the effect in the row labels.
+    local function PercentBonus(result, noun, pool, rate, applied, specialPool, specialMultiplier)
         local normalPool = pool - (specialPool or 0)
         local multiplier = 1 + rate
-        local before, withCurse, value
+        local tag = "+" .. math.floor(rate * 100 + 0.5) .. "%"
         if applied then
-            before = normalPool / multiplier
+            local before = normalPool / multiplier
                 + (specialPool or 0) / (specialMultiplier or multiplier)
-            value = pool - before
-            return string.format(
-                "|cff9482c9%s|r (+%d%%, applied)\n"
-                .. "  Damage with curse:   |cffffffff%s|r\n"
-                .. "  Damage before curse: |cffffffff%s|r\n"
-                .. "  Provided: |cff00ff00%s|r%s",
-                name, math.floor(rate * 100 + 0.5), Commafy(pool), Commafy(before),
-                Commafy(value), PerSec(value))
+            SetResult(result, tag, {
+                { "Damage with " .. noun, Commafy(pool) },
+                { "Damage before " .. noun, Commafy(before) },
+                { "Provided", WithDps(pool - before), C_PROVIDED },
+            })
+        else
+            local withBonus = normalPool * multiplier
+                + (specialPool or 0) * (specialMultiplier or multiplier)
+            SetResult(result, tag, {
+                { "Damage now", Commafy(pool) },
+                { "Damage with " .. noun, Commafy(withBonus) },
+                { "Could have provided", WithDps(withBonus - pool), C_MISSED },
+            })
         end
-        withCurse = normalPool * multiplier
-            + (specialPool or 0) * (specialMultiplier or multiplier)
-        value = withCurse - pool
-        return string.format(
-            "|cff9482c9%s|r (+%d%%, NOT applied)\n"
-            .. "  Damage now:        |cffffffff%s|r\n"
-            .. "  Damage with curse: |cffffffff%s|r\n"
-            .. "  Could have provided: |cffffff00%s|r%s",
-            name, math.floor(rate * 100 + 0.5), Commafy(pool), Commafy(withCurse),
-            Commafy(value), PerSec(value))
     end
 
     -- Curse of the Elements ---------------------------------------------------
     local coeRate = f.state.malediction and COE_MALEDICTION or COE_BASE
     local ignitePool = IS_CLASSIC_ERA and f.state.igniteDoubleDip and stats.ignite or 0
-    f.coeResult:SetText(MagicCurseText("Curse of the Elements", coePool, coeRate,
-        f.state.coe, ignitePool, ignitePool > 0 and 1.21 or nil))
+    PercentBonus(f.results.coe, "curse", coePool, coeRate, f.state.coe,
+        ignitePool, ignitePool > 0 and 1.21 or nil)
 
     if IS_CLASSIC_ERA then
-        f.cosResult:SetText(MagicCurseText("Curse of Shadow", stats.cosRelevant,
-            COE_BASE, f.state.cos))
+        PercentBonus(f.results.cos, "curse", stats.cosRelevant, COE_BASE, f.state.cos)
     end
 
     -- Curse of Recklessness ---------------------------------------------------
@@ -346,6 +427,7 @@ local function Recompute(f)
     local base = f.state.bossArmor
     local C = ARMOR_C
     local nonCorReduction = armorDebuff + ff + pen
+    local corTag = "-" .. Commafy(COR_ARMOR) .. " armor"
 
     if f.state.cor then
         -- Reconstruct both states independently so a debuff set that already
@@ -353,40 +435,28 @@ local function Recompute(f)
         local aWithout = math.max(base - nonCorReduction, 0)
         local aWith = math.max(aWithout - COR_ARMOR, 0)
         local before = physPool * (aWith + C) / (aWithout + C)
-        local provided = physPool - before
-        f.corResult:SetText(string.format(
-            "|cffff8000Curse of Recklessness|r (applied)\n"
-            .. "  Damage with CoR:   |cffffffff%s|r\n"
-            .. "  Damage before CoR: |cffffffff%s|r\n"
-            .. "  Provided: |cff00ff00%s|r%s",
-            Commafy(physPool), Commafy(before), Commafy(provided), PerSec(provided)))
+        SetResult(f.results.cor, corTag, {
+            { "Damage with curse", Commafy(physPool) },
+            { "Damage before curse", Commafy(before) },
+            { "Provided", WithDps(physPool - before), C_PROVIDED },
+        })
     else
         -- No CoR was up; recorded physical is the without-CoR number.
         local aNow = math.max(base - nonCorReduction, 0)
         local aWithCor = math.max(aNow - COR_ARMOR, 0)
         local withCor = physPool * (aNow + C) / (aWithCor + C)
-        local provided = withCor - physPool
-        f.corResult:SetText(string.format(
-            "|cffff8000Curse of Recklessness|r (NOT applied)\n"
-            .. "  Damage now:      |cffffffff%s|r\n"
-            .. "  Damage with CoR: |cffffffff%s|r\n"
-            .. "  Could have provided: |cffffff00%s|r%s",
-            Commafy(physPool), Commafy(withCor), Commafy(provided), PerSec(provided)))
+        SetResult(f.results.cor, corTag, {
+            { "Damage now", Commafy(physPool) },
+            { "Damage with curse", Commafy(withCor) },
+            { "Could have provided", WithDps(withCor - physPool), C_MISSED },
+        })
     end
 
-    if IS_CLASSIC_ERA then
-        f.armsResult:SetText("")
-    else
-        local armsValue = stats.physAll * BLOOD_FRENZY
-        f.armsResult:SetText(string.format(
-            "|cffc79c6eAn Arms warrior|r could have provided |cffffff00%s|r damage%s\n"
-            .. "|cff808080Blood Frenzy: +4%% to all physical, bleeds included|r",
-            Commafy(armsValue), PerSec(armsValue)))
+    if not IS_CLASSIC_ERA then
+        -- All physical damage, bleeds included.
+        PercentBonus(f.results.arms, "Blood Frenzy", stats.physAll, BLOOD_FRENZY,
+            f.state.bloodFrenzy)
     end
-
-    f.footnote:SetText("Assumes 100% curse uptime; resistance reduction is not valued. CoR is an"
-        .. " estimate: ticked debuffs and average armor pen are flat reductions, and known"
-        .. " bleeds are excluded. Zero extra pen is conservative unless armor is already zero.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -461,51 +531,64 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     f:SetAllPoints(page)
     f.state = {
         bossArmor = BOSS_ARMORS[1],
-        sunder = true, expose = false,
+        sunder = true, expose = false, ff = true,
         cor = true, coe = true, cos = true,
         malediction = not IS_CLASSIC_ERA, igniteDoubleDip = true,
+        bloodFrenzy = false,
     }
+    f.results = {}
 
-    local top = 12
+    -- Fight: the picker on the title strip, the target and duration under it,
+    -- then the damage breakdown ------------------------------------------------
+    local fight = CreateBox(f, "Fight")
+    fight:SetPoint("TOPLEFT")
+    fight:SetWidth(LEFT_W)
+    UI.ReserveSectionStrip(fight, TARGET_STRIP_H)
 
-    -- Fight picker
-    local pickLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    pickLabel:SetPoint("TOPLEFT", MARGIN, -top)
-    pickLabel:SetText("Fight:")
+    f.fightDD = UI.CreateMenuDropdown(fight, "WhoDoesWhatCurseCalcFightDD", 300)
+    f.fightDD:SetPoint("RIGHT", fight, "TOPRIGHT", DD_OVERHANG - UI.BOX_PAD, -STRIP_MID - 2)
 
-    f.fightDD = UI.CreateMenuDropdown(f, "WhoDoesWhatCurseCalcFightDD", 320)
-    f.fightDD:SetPoint("LEFT", pickLabel, "RIGHT", -6, -2)
+    local targetY = -(UI.BOX_PAD + UI.SECTION_TITLE_H + TARGET_STRIP_H / 2)
+    f.target = fight:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.target:SetPoint("LEFT", fight, "TOPLEFT", UI.BOX_PAD + LABEL_X, targetY)
+    f.target:SetWidth(LEFT_W - 160)
+    f.target:SetJustifyH("LEFT")
+    f.target:SetWordWrap(false)
 
-    -- Fight header + damage breakdown (two aligned columns)
-    local y = top + 30
-    f.fightHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.fightHeader:SetPoint("TOPLEFT", MARGIN, -y)
-    f.fightHeader:SetWidth(LEFT_W - MARGIN * 2)
-    f.fightHeader:SetJustifyH("LEFT")
+    f.duration = fight:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.duration:SetPoint("RIGHT", fight, "TOPRIGHT", -(UI.BOX_PAD + LABEL_X), targetY)
 
-    f.sumLabels = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.sumLabels:SetPoint("TOPLEFT", MARGIN, -(y + 22))
-    f.sumLabels:SetJustifyH("LEFT")
-    f.sumLabels:SetJustifyV("TOP")
-    f.sumLabels:SetSpacing(4)
+    f.breakdownRows = {}
+    for i, def in ipairs(BREAKDOWN) do
+        local row = AddValueRow(fight, i, def.depth)
+        local color = def.color or C_WHITE
+        row.key = def.key
+        row.label:SetText(def.label)
+        row.label:SetTextColor(unpack(color))
+        row.value:SetTextColor(unpack(color))
+        f.breakdownRows[i] = row
+    end
+    fight:SetHeight(BoxHeight(fight, #BREAKDOWN))
 
-    f.sumValues = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.sumValues:SetPoint("TOPLEFT", 270, -(y + 22))
-    f.sumValues:SetWidth(120) -- right edge ~x=390, close to the labels
-    f.sumValues:SetJustifyH("RIGHT")
-    f.sumValues:SetJustifyV("TOP")
-    f.sumValues:SetSpacing(4)
+    -- Boss Armor: the armor CoR's estimate is reconstructed from -------------
+    local armor = CreateBox(f, "Boss Armor")
+    armor:SetPoint("TOPLEFT", fight, "BOTTOMLEFT", 0, -GAP)
+    armor:SetWidth(LEFT_W)
+    armor:SetHeight(BoxHeight(armor, 6))
 
-    -- Inputs -----------------------------------------------------------------
-    local iy = y + (IS_CLASSIC_ERA and 158 or 138)
+    -- The one Curse of Recklessness setting, shown by a toggle here and one in
+    -- its result box; either keeps the other in step.
+    local corChecks = {}
+    local function SetCor(on)
+        f.state.cor = on
+        for _, check in ipairs(corChecks) do check:SetChecked(on) end
+        Recompute(f)
+    end
 
-    -- Left column: boss armor + armor debuffs
-    local armorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    armorLabel:SetPoint("TOPLEFT", MARGIN, -iy)
-    armorLabel:SetText("Boss base armor:")
-
-    f.armorDD = UI.CreateMenuDropdown(f, "WhoDoesWhatCurseCalcArmorDD", 70)
-    f.armorDD:SetPoint("LEFT", armorLabel, "RIGHT", -10, -2)
+    local baseRow = AddValueRow(armor, 1)
+    baseRow.label:SetText("Base armor")
+    f.armorDD = UI.CreateMenuDropdown(baseRow, "WhoDoesWhatCurseCalcArmorDD", 60)
+    f.armorDD:SetPoint("RIGHT", baseRow, "RIGHT", DD_OVERHANG - LABEL_X + 6, -2)
     UIDropDownMenu_Initialize(f.armorDD, function(_, level)
         for _, v in ipairs(BOSS_ARMORS) do
             local info = UIDropDownMenu_CreateInfo()
@@ -523,64 +606,34 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
 
     -- Sunder / Expose are mutually exclusive (at most one), so each unticks the
     -- other. Unticking the checked one leaves neither -> no armor debuff.
-    f.sunderCheck = MakeCheck(f, MARGIN, iy + 32,
-        "Sunder Armor (" .. SUNDER .. ")", function(on)
-        f.state.sunder = on
-        if on then f.state.expose = false; f.exposeCheck:SetChecked(false) end
-        Recompute(f)
-    end)
-    f.exposeCheck = MakeCheck(f, MARGIN, iy + 58,
-        "Improved Expose Armor (" .. EXPOSE .. ")", function(on)
-        f.state.expose = on
-        if on then f.state.sunder = false; f.sunderCheck:SetChecked(false) end
-        Recompute(f)
-    end)
-    f.ffCheck = MakeCheck(f, MARGIN, iy + 84,
-        "Faerie Fire (" .. FAERIE_FIRE .. ")", function(on)
-        f.state.ff = on
-        Recompute(f)
-    end)
-    f.state.ff = true
-    f.ffCheck:SetChecked(true)
+    f.sunderCheck = AddCheckRow(armor, 2, "Sunder Armor", "-" .. Commafy(SUNDER),
+        "Five stacks of Sunder Armor on the boss. Replaces Improved Expose Armor.",
+        function(on)
+            f.state.sunder = on
+            if on then f.state.expose = false; f.exposeCheck:SetChecked(false) end
+            Recompute(f)
+        end)
+    f.exposeCheck = AddCheckRow(armor, 3, "Improved Expose Armor", "-" .. Commafy(EXPOSE),
+        "Improved Expose Armor on the boss. Replaces Sunder Armor.",
+        function(on)
+            f.state.expose = on
+            if on then f.state.sunder = false; f.sunderCheck:SetChecked(false) end
+            Recompute(f)
+        end)
+    f.ffCheck = AddCheckRow(armor, 4, "Faerie Fire", "-" .. Commafy(FAERIE_FIRE),
+        "Faerie Fire on the boss.",
+        function(on)
+            f.state.ff = on
+            Recompute(f)
+        end)
+    corChecks[#corChecks + 1] = AddCheckRow(armor, 5, CURSES.reck.name_long,
+        "-" .. Commafy(COR_ARMOR), "Curse of Recklessness was up on the boss.", SetCor)
 
-    -- Left column continues: CoR was up, then the armor-pen field. Everything
-    -- armor-related lives on the left; CoE settings sit on the right.
-    f.corCheck = MakeCheck(f, MARGIN, iy + 110, "Curse of Recklessness applied", function(on)
-        f.state.cor = on
-        Recompute(f)
-    end)
-
-    local penLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    penLabel:SetPoint("TOPLEFT", MARGIN, -(iy + 142))
-    penLabel:SetText("Avg extra armor pen / raider:")
-
-    -- Right column: Curse of the Elements settings.
-    f.coeCheck = MakeCheck(f, COL_R, iy, "Curse of the Elements applied", function(on)
-        f.state.coe = on
-        Recompute(f)
-    end)
-    if IS_CLASSIC_ERA then
-        f.igniteCheck = MakeCheck(f, COL_R, iy + 26,
-            "Ignite double-dips (1.21x)", function(on)
-                f.state.igniteDoubleDip = on
-                Recompute(f)
-            end)
-        f.cosCheck = MakeCheck(f, COL_R, iy + 52,
-            "Curse of Shadow applied", function(on)
-                f.state.cos = on
-                Recompute(f)
-            end)
-    else
-        f.maledictionCheck = MakeCheck(f, COL_R, iy + 26,
-            "Malediction (13% instead of 10%)", function(on)
-                f.state.malediction = on
-                Recompute(f)
-            end)
-    end
-
-    f.penEdit = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    local penRow = AddValueRow(armor, 6)
+    penRow.label:SetText("Extra armor pen")
+    f.penEdit = CreateFrame("EditBox", nil, penRow, "InputBoxTemplate")
     f.penEdit:SetSize(48, 18)
-    f.penEdit:SetPoint("LEFT", penLabel, "RIGHT", 10, 0)
+    f.penEdit:SetPoint("RIGHT", penRow, "RIGHT", -LABEL_X, 0)
     f.penEdit:SetAutoFocus(false)
     f.penEdit:SetNumeric(true)
     f.penEdit:SetMaxLetters(5)
@@ -600,51 +653,96 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     UI.AddTooltip(f.penEdit, "Extra armor penetration",
         function(self) return self.tooltip end)
 
-    f.footnote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.footnote:SetPoint("BOTTOMLEFT", MARGIN, MARGIN)
-    f.footnote:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
-    f.footnote:SetJustifyH("LEFT")
-
-    -- Divider between the inputs and the results column, down to the footnote.
-    local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
-    divider:SetWidth(1)
-    divider:SetPoint("TOPLEFT", LEFT_W, -top)
-    divider:SetPoint("BOTTOMLEFT", f.footnote, "TOPLEFT", LEFT_W - MARGIN, 10)
-
-    -- Results, stacked down the right column in the inputs' reading order:
-    -- CoR, CoE, then CoS (Classic) or the Arms-warrior line (TBC). Each block
-    -- sizes to its text, so the next one follows it down.
-    local function ResultString(anchor)
-        local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        if anchor then
-            fs:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -RESULT_GAP)
+    -- Results, one box each down the right-hand column. A box's options take
+    -- its top `options` rows; the result rows follow. -------------------------
+    local function AddResult(key, title, opts, options, rows, above)
+        local box = CreateBox(f, title, opts)
+        if above then
+            box:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -GAP)
+            box:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", 0, -GAP)
         else
-            fs:SetPoint("TOPLEFT", RESULTS_X, -top)
+            box:SetPoint("TOPLEFT", LEFT_W + GAP, 0)
+            box:SetPoint("TOPRIGHT")
         end
-        fs:SetWidth(RESULTS_W)
-        fs:SetJustifyH("LEFT")
-        fs:SetJustifyV("TOP")
-        fs:SetSpacing(3)
-        return fs
+        local result = { box = box, rows = {} }
+        for i = 1, rows do result.rows[i] = AddValueRow(box, options + i) end
+        box:SetHeight(BoxHeight(box, options + rows))
+        f.results[key] = result
+        return box
     end
-    f.corResult = ResultString()
-    f.coeResult = ResultString(f.corResult)
-    f.cosResult = ResultString(f.coeResult)
-    f.cosResult:SetShown(IS_CLASSIC_ERA)
-    f.armsResult = ResultString(f.coeResult)
-    f.armsResult:SetShown(not IS_CLASSIC_ERA)
+
+    local corBox = AddResult("cor", CURSES.reck.name_long,
+        { icon = CURSES.reck.icon, titleColor = C_COR, tintColor = C_COR }, 1, 3)
+    corChecks[#corChecks + 1] = AddCheckRow(corBox, 1, "Applied during the fight", nil,
+        "Curse of Recklessness was up on the boss.", SetCor)
+
+    local coeBox = AddResult("coe", CURSES.elements.name_long,
+        { icon = CURSES.elements.icon, titleColor = C_COE, tintClass = "Warlock" },
+        2, 3, corBox)
+    f.coeCheck = AddCheckRow(coeBox, 1, "Applied during the fight", nil,
+        "Curse of the Elements was up on the boss.",
+        function(on)
+            f.state.coe = on
+            Recompute(f)
+        end)
+    if IS_CLASSIC_ERA then
+        f.igniteCheck = AddCheckRow(coeBox, 2, "Ignite double-dips", "1.21x",
+            "Ignite copies a fire crit that Curse of the Elements already raised,"
+                .. " then the curse raises the Ignite damage again.",
+            function(on)
+                f.state.igniteDoubleDip = on
+                Recompute(f)
+            end)
+
+        local cosBox = AddResult("cos", CURSES.shadow.name_long,
+            { icon = CURSES.shadow.icon, titleColor = C_COE, tintClass = "Warlock" },
+            1, 3, coeBox)
+        f.cosCheck = AddCheckRow(cosBox, 1, "Applied during the fight", nil,
+            "Curse of Shadow was up on the boss.",
+            function(on)
+                f.state.cos = on
+                Recompute(f)
+            end)
+    else
+        f.maledictionCheck = AddCheckRow(coeBox, 2, "Malediction", "13%",
+            "The Affliction talent that raises Curse of the Elements to 13%.",
+            function(on)
+                f.state.malediction = on
+                Recompute(f)
+            end)
+
+        local armsBox = AddResult("arms", "Blood Frenzy",
+            { icon = BLOOD_FRENZY_ICON, titleColor = C_ARMS, tintClass = "Warrior" },
+            1, 3, coeBox)
+        f.bloodFrenzyCheck = AddCheckRow(armsBox, 1, "Applied during the fight", nil,
+            "An Arms warrior kept Blood Frenzy up on the boss: +4% to all physical"
+                .. " damage, bleeds included.",
+            function(on)
+                f.state.bloodFrenzy = on
+                Recompute(f)
+            end)
+    end
+
+    f.footnote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.footnote:SetPoint("BOTTOMLEFT", 4, 2)
+    f.footnote:SetPoint("BOTTOMRIGHT", -4, 2)
+    f.footnote:SetJustifyH("LEFT")
+    f.footnote:SetText("Assumes 100% curse uptime; resistance reduction is not valued. CoR is an"
+        .. " estimate: ticked debuffs and average armor pen are flat reductions, and known"
+        .. " bleeds are excluded. Zero extra pen is conservative unless armor is already zero.")
 
     -- Reflect the default checkbox states.
     f.sunderCheck:SetChecked(f.state.sunder)
     f.exposeCheck:SetChecked(f.state.expose)
-    f.corCheck:SetChecked(f.state.cor)
+    f.ffCheck:SetChecked(f.state.ff)
+    for _, check in ipairs(corChecks) do check:SetChecked(f.state.cor) end
     f.coeCheck:SetChecked(f.state.coe)
     if IS_CLASSIC_ERA then
         f.igniteCheck:SetChecked(f.state.igniteDoubleDip)
         f.cosCheck:SetChecked(f.state.cos)
     else
         f.maledictionCheck:SetChecked(f.state.malediction)
+        f.bloodFrenzyCheck:SetChecked(f.state.bloodFrenzy)
     end
 
     -- Rebuild the fight list every time the page comes up, so fights logged

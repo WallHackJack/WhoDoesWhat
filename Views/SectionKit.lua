@@ -350,17 +350,24 @@ end
 -- class colour into the panel; the kit derives the row stripes from it. The
 -- border leans the same way, so a section's frame matches it rather than the
 -- window's theme; an untinted section keeps the kit's grey for both.
+--
+-- K.ColorTint returns that panel colour and border for UI.CreateSectionBox from
+-- any colour, K.ClassTint from a class (nothing for no class), so other pages
+-- can box their sections the same way.
+function K.ColorTint(r, g, b)
+    return { 0.08 + r * 0.18, 0.08 + g * 0.18, 0.08 + b * 0.18 },
+        { 0.4 + (r - 0.4) * 0.35, 0.4 + (g - 0.4) * 0.35, 0.4 + (b - 0.4) * 0.35 }
+end
+
+function K.ClassTint(tintClass)
+    local tint = tintClass and classColors[tintClass]
+    if not tint then return end
+    return K.ColorTint(tint.r, tint.g, tint.b)
+end
+
 local function CreateSectionBox(f, content, titleText, column, tintClass)
     local col = f.columns[column]
-    local tint = tintClass and classColors[tintClass]
-    local color = tint and {
-        0.08 + tint.r * 0.18, 0.08 + tint.g * 0.18, 0.08 + tint.b * 0.18,
-    }
-    local border = tint and {
-        0.4 + (tint.r - 0.4) * 0.35, 0.4 + (tint.g - 0.4) * 0.35,
-        0.4 + (tint.b - 0.4) * 0.35,
-    }
-    local box = UI.CreateSectionBox(content, titleText, color, border)
+    local box = UI.CreateSectionBox(content, titleText, K.ClassTint(tintClass))
     box:SetWidth(col.width)
     col.boxes[#col.boxes + 1] = box
     return box

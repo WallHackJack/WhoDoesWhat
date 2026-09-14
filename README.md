@@ -63,7 +63,7 @@ The movable **Paladin Buffing Bar** is a secure alternative to PallyPower's buff
 
 WhoDoesWhat displays the available Improved Healthstone ranks and supports manual or one-click curse assignment.
 
-The optional Details!-backed **Curse Value Calculator**, on its own tab in the main window, estimates damage provided or missed by each raid curse. It supports Classic's three-curse setup and Ignite behavior, plus TBC Malediction and Blood Frenzy. These are estimates based on encounter data and the armor, uptime, and debuff assumptions shown in the calculator.
+The optional Details!-backed **Curse Value Calculator**, on the Calculator tab of the main window, estimates damage provided or missed by each raid curse. It supports Classic's three-curse setup and Ignite behavior, plus TBC Malediction and Blood Frenzy. These are estimates based on encounter data and the armor, uptime, and debuff assumptions shown in the calculator.
 
 ## Sync and Permissions
 

@@ -3,7 +3,7 @@ local UI = select(2, ...).UI
 
 -- Main /wdw window: one fixed-size window, one tab per page.
 --
---   Raid  Members  Buff Grid  Curse Calculator  Settings        Logs  About
+--   Raid  Members  Buff Grid  Calculator  Settings              Logs  About
 --
 -- This file owns the window, its tab row and the Raid page. Every other page is
 -- built by its own view file (BuildMembersPage and friends) the first time its
@@ -56,7 +56,7 @@ local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
 local THEME = WhoDoesWhat.Theme
 local PAGE_DARK = THEME.pageDark
 local PAGE_COLORS = {
-    raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, curses = PAGE_DARK,
+    raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, calculator = PAGE_DARK,
     logs = PAGE_DARK, settings = PAGE_DARK,
 }
 
@@ -328,7 +328,7 @@ local function EnsureMainFrame()
         { label = "Buff Grid", page = "grid",
             tooltip = "The raid-wide paladin blessing plan and live buff status.",
             build = ViewPage("BuildBuffingGridPage") },
-        { label = "Curse Calculator", page = "curses",
+        { label = "Calculator", page = "calculator",
             tooltip = "Estimate how much raid damage each curse provided (or could have"
                 .. " provided) in a fight, pulling the fight data from Details!.",
             build = ViewPage("BuildCurseCalculatorPage") },
