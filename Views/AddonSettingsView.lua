@@ -391,28 +391,6 @@ local function DefaultStatusBarColor(definition)
     return { r = 0.96, g = 0.55, b = 0.73 }
 end
 
--- A 10px shadow for the edge of a scroll area, dark against the edge and clear
--- toward the content, drawn at `level` so content scrolls under it. `top` says
--- which edge; the caller anchors and sizes it across. On a client without
--- gradients it is an empty frame.
-local function CreateEdgeShadow(parent, level, top)
-    local edge = CreateFrame("Frame", nil, parent)
-    edge:SetHeight(10)
-    edge:SetFrameLevel(level)
-    local shadow = edge:CreateTexture(nil, "BACKGROUND")
-    if not (shadow.SetGradient and CreateColor) then return edge end
-    shadow:SetAllPoints()
-    shadow:SetColorTexture(1, 1, 1, 1)
-    -- Vertical gradients run bottom to top.
-    local clear, dark = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.55)
-    if top then
-        shadow:SetGradient("VERTICAL", clear, dark)
-    else
-        shadow:SetGradient("VERTICAL", dark, clear)
-    end
-    return edge
-end
-
 -- `color` is { r, g, b }, gold when left out.
 local function CreateMiniDivider(parent, text, color)
     local r, g, b = 0.8, 0.65, 0.12
@@ -914,23 +892,17 @@ local function EnsureBuffOptionsFrame(owner, key)
     barFill:SetAllPoints()
     local blue = OPTIONS_HEADER_BLUE
     barFill:SetColorTexture(blue[1], blue[2], blue[3], blue[4])
-    local topEdge = CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, true)
+    local topEdge = UI.CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, true)
     topEdge:SetPoint("TOPLEFT", nameBar, "BOTTOMLEFT")
     topEdge:SetPoint("TOPRIGHT", nameBar, "BOTTOMRIGHT")
     -- The same shadow upside down along the panel's bottom edge, which the
     -- options scroll down under.
-    local bottomEdge = CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, false)
+    local bottomEdge = UI.CreateEdgeShadow(well, scroll:GetFrameLevel() + 20, false)
     bottomEdge:SetPoint("BOTTOMLEFT", well, "BOTTOMLEFT", BUFF_TABLE_W + BUFF_PANEL_GAP, 0)
     bottomEdge:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT")
 
-    -- The template hangs the bar's arrow buttons right at the scroll area's
-    -- ends, where they would poke into the heading bar and the bottom shadow.
-    local bar = scroll.uiScrollBar
-    if bar then
-        bar:ClearAllPoints()
-        bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -28)
-        bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 28)
-    end
+    -- Clear of the heading bar and the bottom shadow.
+    UI.InsetScrollBar(scroll, 12)
 
     local nameGroup = CreateFrame("Frame", nil, nameBar)
     nameGroup:SetPoint("CENTER")
@@ -1463,19 +1435,14 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         scroll:SetPoint("BOTTOMRIGHT", -UI.SCROLLBAR_W, 0)
         if sections[i].label ~= "Buffs" then
             local level = scroll:GetFrameLevel() + 20
-            local topEdge = CreateEdgeShadow(well, level, true)
+            local topEdge = UI.CreateEdgeShadow(well, level, true)
             topEdge:SetPoint("TOPLEFT")
             topEdge:SetPoint("TOPRIGHT")
-            local bottomEdge = CreateEdgeShadow(well, level, false)
+            local bottomEdge = UI.CreateEdgeShadow(well, level, false)
             bottomEdge:SetPoint("BOTTOMLEFT")
             bottomEdge:SetPoint("BOTTOMRIGHT")
             -- Its arrows otherwise sit right at the ends, under the shadows.
-            local bar = scroll.uiScrollBar
-            if bar then
-                bar:ClearAllPoints()
-                bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -28)
-                bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 28)
-            end
+            UI.InsetScrollBar(scroll, 12)
         end
         -- By label as well: the pages below are found by name, not position.
         pages[i], scrolls[i] = page, scroll

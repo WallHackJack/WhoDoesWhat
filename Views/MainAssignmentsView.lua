@@ -224,11 +224,14 @@ end
 -- confirm "nothing to fix" is a legitimate thing to want before a pull.
 local function UpdateTabs(f)
     local count, actionable = WhoDoesWhat:CountActionItems()
-    -- "25 Raid Members - 3 (!)": the group's size and kind, then how many
-    -- issues it has. Solo, it is just "Members".
+    -- "25 Raiders - 3 (!)": the group's size and kind, then how many issues it
+    -- has. Solo, it is just "Members". A fake raid (solo-only) reads as the
+    -- raid it simulates, counted off the roster that folds the fakes in.
     local label = "Members"
-    if IsInRaid() then
-        label = GetNumGroupMembers() .. " Raid Members"
+    if WhoDoesWhat:IsFakeRaidEnabled() then
+        label = #WhoDoesWhat:GetGroupMembers(nil) .. " Raiders"
+    elseif IsInRaid() then
+        label = GetNumGroupMembers() .. " Raiders"
     elseif IsInGroup() then
         label = GetNumGroupMembers() .. " Party Members"
     end

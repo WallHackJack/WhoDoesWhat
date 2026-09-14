@@ -29,8 +29,10 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- Solo, the flag-derived issues are skipped: outside a group Blizzard reports
 -- your own flag as NONE, which would be a permanent complaint about a flag that
--- means nothing until you're grouped. Fake raiders (FakeRaid.lua) skip them
--- too -- they have no unit, so there is no flag to read or promotion to check.
+-- means nothing until you're grouped. Fake raiders (FakeRaid.lua) skip the
+-- unset-flag and promotion checks -- they have no unit -- but carry a simulated
+-- flag (their board role's) and talent spread (their roster spec's), so the
+-- disagreement checks judge them like anyone.
 
 -- Blizzard's group-role token to our wowRole string. Shared with the view,
 -- which uses it to tick the right entry in the group-role dropdown.
@@ -336,9 +338,20 @@ function WhoDoesWhat:GetRosterIssues()
         if real and inGroup and haveRoleApi then
             blizzRole = UnitGroupRolesAssigned(unit)
             if blizzRole == "NONE" then blizzRole = nil end
+        elseif m.isFake then
+            -- Simulated: the flag a real raider's would be once SetAssignedRole
+            -- pushed it to match the board.
+            local meta = role and role.wowRole
+                and self.BasicWowRoles[role.wowRole]
+            blizzRole = meta and meta.blizzRole or nil
         end
 
-        local snapshot = unit and self:GetTalentSnapshot(unit) or nil
+        local snapshot
+        if m.isFake then
+            snapshot = self:GetFakeTalentSnapshot(m.name)
+        else
+            snapshot = unit and self:GetTalentSnapshot(unit) or nil
+        end
         local talentRoles = {}
         if snapshot and snapshot.roleIds then
             for _, id in ipairs(snapshot.roleIds) do
@@ -348,7 +361,8 @@ function WhoDoesWhat:GetRosterIssues()
         end
 
         local mayRole = self:CanEditRoleOf(m.name)
-        local mayFlag, flagBlocker = false, "Fake raiders have no Blizzard group role."
+        local mayFlag, flagBlocker = false,
+            "A fake raider's group role is simulated from their WhoDoesWhat role."
         if real then
             mayFlag, flagBlocker = self:CanEditGroupRoleOf(m.name, unit)
         end

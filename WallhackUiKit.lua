@@ -821,6 +821,40 @@ function UI.SetScrollHeight(scroll, height)
     if not needed then scroll:SetVerticalScroll(0) end
 end
 
+-- A 10px shadow for the edge of a scroll area, dark against the edge and clear
+-- toward the content, drawn at `level` so content scrolls under it (the
+-- scroll's own level + 20 clears its rows and dropdowns). `top` says which
+-- edge; the caller anchors and sizes it across. It takes no mouse. On a client
+-- without gradients it is an empty frame.
+function UI.CreateEdgeShadow(parent, level, top)
+    local edge = CreateFrame("Frame", nil, parent)
+    edge:SetHeight(10)
+    edge:SetFrameLevel(level)
+    local shadow = edge:CreateTexture(nil, "BACKGROUND")
+    if not (shadow.SetGradient and CreateColor) then return edge end
+    shadow:SetAllPoints()
+    shadow:SetColorTexture(1, 1, 1, 1)
+    -- Vertical gradients run bottom to top.
+    local clear, dark = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.55)
+    if top then
+        shadow:SetGradient("VERTICAL", clear, dark)
+    else
+        shadow:SetGradient("VERTICAL", dark, clear)
+    end
+    return edge
+end
+
+-- Pull a scroll area's bar in from both ends by `pad`. The template hangs its
+-- arrow buttons right at the scroll area's ends, where they poke into whatever
+-- borders it -- a heading, a divider, an edge shadow. The track follows the bar.
+function UI.InsetScrollBar(scroll, pad)
+    local bar = scroll.uiScrollBar
+    if not bar then return end
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -(16 + pad))
+    bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 16 + pad)
+end
+
 -- Size a scroll area to what its content actually covers, for a page laid out
 -- by hand where nobody kept a running total. Measured off the shown children
 -- and regions of the scroll child, a frame after the call: rects are not settled
@@ -1556,6 +1590,8 @@ function UI.SetDropdownWidth(dd, width)
 end
 
 UI.GEAR_ICON = "Interface\\Buttons\\UI-OptionsButton"
+-- The circular arrows on the LFG tool's refresh button.
+UI.REFRESH_ICON = "Interface\\Buttons\\UI-RefreshButton"
 -- The old voice-chat speaker, which is the only plain volume glyph the client
 -- ships outside an ability icon. If it ever comes up blank this is the one line
 -- to change - a missing texture draws as nothing rather than erroring.
@@ -2674,6 +2710,30 @@ function UI.StyleDropdown(dd, leftAlign)
         if button then button:AdjustPointsOffset(2, 2.5) end
         if label  then label:AdjustPointsOffset(0, 0.2) end
         dd.uiHousingStyled = true
+    end
+
+    -- The whole box opens the menu, not just the arrow: the box is what reads
+    -- as the control. The hit rect is trimmed to the visible housing (the
+    -- template overhangs it by ~16px each side) so it can't steal clicks from
+    -- a neighbour. A disabled dropdown's arrow is disabled, so this follows it.
+    -- The arrow still takes its own clicks, sitting above the frame.
+    if not dd.uiBoxClickable then
+        dd:EnableMouse(true)
+        dd:SetHitRectInsets(16, 16, 4, 4)
+        dd:SetScript("OnMouseDown", function(self, mouseButton)
+            if mouseButton ~= "LeftButton" then return end
+            local arrow = _G[name .. "Button"]
+            if arrow and not arrow:IsEnabled() then return end
+            ToggleDropDownMenu(nil, nil, self)
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        end)
+        -- Blizzard closes open menus on any mouse-down outside them unless the
+        -- clicked frame claims it, which would shut the menu this click is
+        -- about to toggle and then reopen it.
+        dd.HandlesGlobalMouseEvent = function(_, mouseButton, event)
+            return event == "GLOBAL_MOUSE_DOWN" and mouseButton == "LeftButton"
+        end
+        dd.uiBoxClickable = true
     end
 
     if leftAlign and not dd.uiTextAligned then

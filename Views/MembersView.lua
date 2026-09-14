@@ -9,7 +9,7 @@ local UI = select(2, ...).UI
 -- WhoDoesWhat role, and what the last talent scan reads as -- because the
 -- interesting part is where they disagree. The first two are dropdowns you pick
 -- from; the third is EVIDENCE, not a control, with the point spread on hover and
--- a Rescan button at the row's right edge to go and look again. The leading
+-- a rescan button at the row's right edge to go and look again. The leading
 -- column is one warning icon per member whose tooltip lists everything wrong
 -- with them, from "no role yet" through to "tank isn't promoted".
 --
@@ -34,22 +34,49 @@ local UI = select(2, ...).UI
 
 local membersFrame = nil
 
-local OVERVIEW_H = 55 -- two-line summary strip between the title bar and grids
+local OVERVIEW_H = 64 -- two-line summary strip between the title bar and grids
 -- The counts line's inline icons stand taller than the font, so it needs a bit
 -- more clearance under the title bar than the text alone would suggest.
 local OVERVIEW_TOP_PAD = 15
-local OVERVIEW_ICON_SIZE = 18
+local OVERVIEW_ICON_SIZE = 20
 local MARGIN = 12
 local SCROLLBAR_W = UI.SCROLLBAR_W
 
 local GRID_GAP = 10
+local CONTENT_TOP_PAD = 8 -- first grid's gap under the divider
 -- Two lines: the bucket's own title keeps the first row to itself and the column
 -- headings sit under it, so "2 Tanks" reads as the grid's name rather than as
 -- the first column's heading.
-local GRID_HEADER_H = 44
-local GRID_HEADINGS_Y = 24
-local ROW_H = 30
+-- The bucket title sits between GameFontNormal (12) and Large (16).
+local GRID_TITLE_FONT_SIZE = 14
+-- The icon SLOT: the name column starts after it at every density, and a
+-- condensed row centres its smaller icon inside it.
 local CLASS_ICON_SIZE = 20
+
+-- Row density by group size. Roomy rows read well for a party or a ten-man,
+-- but at 25 or 40 they turn the page into a long scroll where you can't see
+-- both ends of the raid at once. So bigger groups get shorter rows: smaller
+-- icons, a smaller name font past 30, and the two dropdowns and the refresh
+-- button drawn at `controlScale` -- the dropdown template's box can't be made
+-- shorter any other way. The grid header tightens a little alongside. Picked
+-- off the whole roster, not per bucket, so every grid on the page matches.
+local DENSITIES = {
+    { minMembers = 30, rowH = 22, iconSize = 16, tickSize = 12,
+      headerH = 42, headingsY = 24, nameFont = "GameFontHighlightSmall",
+      controlScale = 0.76, buttonSize = 18, buttonIcon = 12 },
+    { minMembers = 20, rowH = 26, iconSize = 18, tickSize = 14,
+      headerH = 45, headingsY = 26, nameFont = "GameFontHighlight",
+      controlScale = 0.88, buttonSize = 21, buttonIcon = 14 },
+    { minMembers = 0, rowH = 30, iconSize = 20, tickSize = 16,
+      headerH = 48, headingsY = 28, nameFont = "GameFontHighlight",
+      controlScale = 1, buttonSize = 24, buttonIcon = 16 },
+}
+
+local function DensityFor(memberCount)
+    for _, density in ipairs(DENSITIES) do
+        if memberCount >= density.minMembers then return density end
+    end
+end
 
 -- Column geometry, left to right. The warning gutter LEADS the row: trailing it,
 -- the icon read as belonging to the column it followed rather than to the member
@@ -68,10 +95,9 @@ local TALENT_X = WDW_X + WDW_DD_W
 -- The talents column: the role the spread reads as, icon and name, exactly like
 -- the other two columns state a role. The point spread itself lives in the hover
 -- tooltip -- "0/47/14" is evidence you consult, not a label you scan a list by.
--- Rescan is pinned to the row's right edge, out of the column's flow.
+-- The rescan button is pinned to the row's right edge, out of the column's flow.
 local TALENT_PAD = 6
 local TALENT_TEXT_W = 132
-local RESCAN_BTN_W = 62
 
 -- UIDropDownMenuTemplate's visible box starts inset from the frame's own left
 -- edge, so both dropdown anchors back off by this much to line the box up with
@@ -294,18 +320,68 @@ local function MenuIsOpen()
     return DropDownList1 and DropDownList1:IsShown()
 end
 
--- Build pooled row #index inside a role grid. The position is fixed;
--- RefreshRoster maps a member onto it (row.member / row.data) and hides surplus
--- rows, so the dropdowns read the current occupant at open time.
+-- Place a row dropdown so its visible box lands at column `x`, `width` wide,
+-- at `scale`. Offsets and widths are in the dropdown's own scaled units, and
+-- the template's DD_INSET overhang shrinks with it.
+local function PlaceDropdown(dd, row, x, width, scale)
+    dd:SetScale(scale)
+    dd:ClearAllPoints()
+    dd:SetPoint("LEFT", row, "LEFT", x / scale - DD_INSET, -2 / scale)
+    UI.SetDropdownWidth(dd, width / scale)
+end
+
+-- Size and position pooled row #index for a density. Only runs when the
+-- density changes (RefreshRoster checks), so a steady raid pays nothing.
+local function ApplyRowDensity(row, index, density)
+    row.density = density
+    local rowH, headerH = density.rowH, density.headerH
+
+    row:SetHeight(rowH)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", 0, -(headerH + (index - 1) * rowH))
+    row:SetPoint("TOPRIGHT", 0, -(headerH + (index - 1) * rowH))
+
+    local warnSize = math.min(ISSUE_COL_W - 2, rowH - 4)
+    row.warnIcon:SetSize(warnSize, warnSize)
+
+    row.classIcon:SetSize(density.iconSize, density.iconSize)
+    row.classIcon:ClearAllPoints()
+    row.classIcon:SetPoint("LEFT", ICON_X + (CLASS_ICON_SIZE - density.iconSize) / 2, 0)
+
+    row.nameFS:SetFontObject(density.nameFont)
+    row.nameHover:SetHeight(rowH)
+    row.addonStatus:SetHeight(rowH)
+
+    PlaceDropdown(row.groupDD, row, GROUP_X, GROUP_DD_W - 30, density.controlScale)
+    PlaceDropdown(row.dropdown, row, WDW_X, WDW_DD_W - 30, density.controlScale)
+
+    row.talentHover:SetHeight(rowH)
+
+    row.rescanBtn:SetSize(density.buttonSize, density.buttonSize)
+    row.rescanBtn.icon:SetSize(density.buttonIcon, density.buttonIcon)
+end
+
+-- The grid header's column headings and gold rule for a density.
+local function ApplyHeaderDensity(state, density)
+    state.density = density
+    for _, fs in ipairs(state.headings) do
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", fs.x, -density.headingsY)
+    end
+    state.line:ClearAllPoints()
+    state.line:SetPoint("TOPLEFT", 0, -(density.headerH - 1))
+    state.line:SetPoint("TOPRIGHT", 0, -(density.headerH - 1))
+end
+
+-- Build pooled row #index inside a role grid. RefreshRoster positions it for
+-- the current density and maps a member onto it (row.member / row.data),
+-- hiding surplus rows, so the dropdowns read the current occupant at open time.
 local function CreateRow(f, section, index)
     local state = f.sections[section.key]
     local box = state.box
 
     local row = CreateFrame("Frame", nil, box)
     row:SetFrameLevel(box:GetFrameLevel() + 1)
-    row:SetHeight(ROW_H)
-    row:SetPoint("TOPLEFT", 0, -(GRID_HEADER_H + (index - 1) * ROW_H))
-    row:SetPoint("TOPRIGHT", 0, -(GRID_HEADER_H + (index - 1) * ROW_H))
 
     local stripe = row:CreateTexture(nil, "BACKGROUND")
     stripe:SetAllPoints()
@@ -316,8 +392,6 @@ local function CreateRow(f, section, index)
     row.warnIcon = warn
 
     local icon = row:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(CLASS_ICON_SIZE, CLASS_ICON_SIZE)
-    icon:SetPoint("LEFT", ICON_X, 0)
     row.classIcon = icon
 
     local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -328,7 +402,6 @@ local function CreateRow(f, section, index)
     row.nameFS = nameFS
 
     local nameHover = CreateFrame("Frame", nil, row)
-    nameHover:SetHeight(ROW_H)
     nameHover:SetPoint("LEFT", ICON_X, 0)
     nameHover:EnableMouse(true)
     nameHover:SetScript("OnEnter", function(self)
@@ -338,16 +411,16 @@ local function CreateRow(f, section, index)
     row.nameHover = nameHover
 
     local addonStatus = CreateFrame("Frame", nil, row)
-    addonStatus:SetSize(ADDON_COL_W, ROW_H)
+    addonStatus:SetWidth(ADDON_COL_W)
     addonStatus:SetPoint("LEFT", row, "LEFT", ADDON_X, 0)
     local addonIcon = addonStatus:CreateTexture(nil, "OVERLAY")
     addonIcon:SetSize(16, 16)
     addonIcon:SetPoint("CENTER")
     row.addonIcon = addonIcon
+    row.addonStatus = addonStatus
 
     -- Group role: writes Blizzard's flag directly.
     local groupDD = UI.CreateMenuDropdown(row, "WhoDoesWhatMembersGroupDD_" .. section.key .. index, GROUP_DD_W - 30)
-    groupDD:SetPoint("LEFT", row, "LEFT", GROUP_X - DD_INSET, -2)
     UIDropDownMenu_Initialize(groupDD, function(_, level)
         local data, m = row.data, row.member
         if not (data and m) then return end
@@ -370,7 +443,6 @@ local function CreateRow(f, section, index)
 
     -- WhoDoesWhat role: writes the board, which pushes the flag to match.
     local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatMembersRoleDD_" .. section.key .. index, WDW_DD_W - 30)
-    dropdown:SetPoint("LEFT", row, "LEFT", WDW_X - DD_INSET, -2)
     UIDropDownMenu_Initialize(dropdown, function(_, level)
         local m, data = row.member, row.data
         if not m then return end
@@ -436,14 +508,14 @@ local function CreateRow(f, section, index)
     -- over the column. RefreshRoster hands it the snapshot to render.
     local talentHover = CreateFrame("Frame", nil, row)
     talentHover:SetPoint("LEFT", row, "LEFT", TALENT_X, 0)
-    talentHover:SetSize(TALENT_PAD + TALENT_TEXT_W, ROW_H)
+    talentHover:SetWidth(TALENT_PAD + TALENT_TEXT_W)
     talentHover:EnableMouse(true)
     UI.AddTooltip(talentHover, function(self)
         GameTooltip:SetText("Talents", unpack(UI.TOOLTIP_TITLE))
         local snapshot = self.snapshot
         if not snapshot then
             GameTooltip:AddLine("Nobody has been close enough to inspect them "
-                .. "yet -- Rescan queues one.", 0.8, 0.8, 0.8, true)
+                .. "yet -- the refresh button queues one.", 0.8, 0.8, 0.8, true)
         else
             for i, points in ipairs(snapshot.points) do
                 GameTooltip:AddDoubleLine(
@@ -463,17 +535,9 @@ local function CreateRow(f, section, index)
 
     -- Go and look again. Not a fix and not gated on permissions -- an inspect
     -- writes nothing to anyone's board, it just refreshes the evidence the rest
-    -- of the row is judged against.
-    local rescanBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    rescanBtn:SetSize(RESCAN_BTN_W, ROW_H - 8)
-    rescanBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-    rescanBtn:SetText("Rescan")
-    rescanBtn:SetScript("OnClick", function()
-        local m = row.member
-        if not m then return end
-        WhoDoesWhat:RescanPlayerTalents(UnitOf(row), m.name)
-    end)
-    UI.AddTooltip(rescanBtn, function(self)
+    -- of the row is judged against. Wears the LFG tool's refresh arrows rather
+    -- than a word; the tooltip says what it does.
+    local rescanBtn = UI.CreateIconButton(row, UI.REFRESH_ICON, function(self)
         GameTooltip:SetText("Rescan talents", unpack(UI.TOOLTIP_TITLE))
         GameTooltip:AddLine("Queue a fresh inspect. They have to be in range "
             .. "-- out of range, their last-known talents stand.",
@@ -482,7 +546,12 @@ local function CreateRow(f, section, index)
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
         end
         return true
+    end, nil, function()
+        local m = row.member
+        if not m then return end
+        WhoDoesWhat:RescanPlayerTalents(UnitOf(row), m.name)
     end)
+    rescanBtn:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.rescanBtn = rescanBtn
 
     state.rows[index] = row
@@ -519,7 +588,10 @@ local function LayoutRow(row, m, data, index, connected)
     row.addonIcon:SetShown(connected)
     if connected then
         row.addonIcon:SetTexture(installed and READY_ICON or NOT_READY_ICON)
-        row.addonIcon:SetSize(16, installed and 13 or 16)
+        -- The ready tick's art sits short in its square, so it's drawn 13/16
+        -- as tall to match the cross beside it.
+        local tick = row.density.tickSize
+        row.addonIcon:SetSize(tick, installed and tick * 13 / 16 or tick)
     end
 
     local combat = InCombatLockdown()
@@ -571,10 +643,14 @@ local function LayoutRow(row, m, data, index, connected)
     -- re-queues the same inspect, so it goes quiet until the answer lands or
     -- the request times out.
     local pendingScan = WhoDoesWhat:IsTalentRescanPending(m.name)
-    row.rescanBtn:SetEnabled(not combat and not pendingScan and data.unit ~= nil)
-    row.rescanBtn:SetText(pendingScan and "Queued" or "Rescan")
-    row.rescanBtn.blockedReason = (combat and "Can't inspect in combat.")
-        or (pendingScan and "Waiting for their talents to arrive.")
+    local canScan = not combat and not pendingScan and data.unit ~= nil
+    row.rescanBtn:SetEnabled(canScan)
+    -- The template greys its own chrome but not the icon laid over it.
+    row.rescanBtn.icon:SetDesaturated(not canScan)
+    row.rescanBtn.blockedReason = (m.isFake
+            and "Fake raiders' talents are simulated -- there is nobody to inspect.")
+        or (combat and "Can't inspect in combat.")
+        or (pendingScan and "Queued -- waiting for their talents to arrive.")
         or (not data.unit and "They aren't in the group right now.") or nil
 
     row.warnIcon.issues = data.issues
@@ -588,7 +664,7 @@ end
 -- after the last grid doubles as bottom padding, exactly as the Raid page's
 -- SECTION_GAP does.
 local function UpdateContentHeight(f)
-    local h = 0
+    local h = CONTENT_TOP_PAD
     for _, section in ipairs(SECTIONS) do
         local box = f.sections[section.key].box
         if box:IsShown() then h = h + box:GetHeight() + GRID_GAP end
@@ -616,14 +692,22 @@ function RefreshRoster(f)
     local buckets = BucketedMembers(review)
     local prevBox -- last *shown* grid; the chain re-anchors past hidden ones
     local total, withAddon, offline = 0, 0, 0
+    local memberCount = 0
+    for _, section in ipairs(SECTIONS) do
+        memberCount = memberCount + #buckets[section.key]
+    end
+    local density = DensityFor(memberCount)
+
     for _, section in ipairs(SECTIONS) do
         local state = f.sections[section.key]
         local members = buckets[section.key]
 
         state.title:SetText(SectionHeaderText(section, #members))
+        if state.density ~= density then ApplyHeaderDensity(state, density) end
 
         for i, m in ipairs(members) do
             local row = state.rows[i] or CreateRow(f, section, i)
+            if row.density ~= density then ApplyRowDensity(row, i, density) end
             -- Both loops walk the same frame-cached roster (Assignments.lua),
             -- so the lookup always lands; the fallback only keeps a roster that
             -- somehow moved underneath us from erroring mid-paint.
@@ -651,7 +735,7 @@ function RefreshRoster(f)
         -- chain, so the next shown grid re-anchors to the last shown one.
         state.box:SetShown(#members > 0)
         if #members > 0 then
-            state.box:SetHeight(GRID_HEADER_H + #members * ROW_H)
+            state.box:SetHeight(density.headerH + #members * density.rowH)
             -- Both edges, every time: the grid takes its width from the page,
             -- and a grid pinned by one corner alone has no width, so neither
             -- do the rows hung across it.
@@ -660,8 +744,8 @@ function RefreshRoster(f)
                 state.box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
                 state.box:SetPoint("TOPRIGHT", prevBox, "BOTTOMRIGHT", 0, -GRID_GAP)
             else
-                state.box:SetPoint("TOPLEFT", f.content, "TOPLEFT", 0, 0)
-                state.box:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", 0, 0)
+                state.box:SetPoint("TOPLEFT", f.content, "TOPLEFT", 0, -CONTENT_TOP_PAD)
+                state.box:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", 0, -CONTENT_TOP_PAD)
             end
             prevBox = state.box
         end
@@ -675,7 +759,7 @@ end
 
 -- Build the page into the Members tab: the four role grids (rows come from
 -- RefreshRoster) scrolling under a fixed overview strip, stretched across the
--- page. The columns keep their places from the left; the Rescan button rides the
+-- page. The columns keep their places from the left; the rescan button rides the
 -- right edge, so the rows' stripes span the whole width.
 function WhoDoesWhat:BuildMembersPage(page)
     local f = CreateFrame("Frame", nil, page)
@@ -684,13 +768,13 @@ function WhoDoesWhat:BuildMembersPage(page)
 
     -- Overview strip: fixed chrome above the scroll area, so it stays put while
     -- the grids scroll under it.
-    local counts = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local counts = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     counts:SetPoint("TOP", f, "TOP", 0, -(f.titleBarHeight + OVERVIEW_TOP_PAD))
     counts:SetJustifyH("CENTER")
     f.overviewCounts = counts
 
-    local detail = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    detail:SetPoint("TOP", counts, "BOTTOM", 0, -4)
+    local detail = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detail:SetPoint("TOP", counts, "BOTTOM", 0, -8)
     detail:SetJustifyH("CENTER")
     detail:SetTextColor(0.65, 0.65, 0.65)
     f.overviewDetail = detail
@@ -701,13 +785,26 @@ function WhoDoesWhat:BuildMembersPage(page)
     rule:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + OVERVIEW_H))
     rule:SetPoint("TOPRIGHT", -MARGIN, -(f.titleBarHeight + OVERVIEW_H))
 
-    f.scrollTop = f.titleBarHeight + OVERVIEW_H + 8 -- chrome above the scroll area
+    -- The scroll area starts right under the divider, so rows scroll up to it
+    -- and fade under its shadow; the breathing room at rest is CONTENT_TOP_PAD
+    -- inside the content instead.
+    f.scrollTop = f.titleBarHeight + OVERVIEW_H + 1 -- chrome above the scroll area
 
     local scroll, content = UI.CreateScroll(f, "WhoDoesWhatMembersScroll")
     scroll:SetPoint("TOPLEFT", MARGIN, -f.scrollTop)
     scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W), 0)
     f.content = content
     f.scroll = scroll
+    -- Shadows on both ends, so rows fade out under the divider and off the
+    -- page's bottom edge; the bar pulls in clear of both.
+    local shadowLevel = scroll:GetFrameLevel() + 20
+    local topShadow = UI.CreateEdgeShadow(f, shadowLevel, true)
+    topShadow:SetPoint("TOPLEFT", rule, "BOTTOMLEFT")
+    topShadow:SetPoint("TOPRIGHT", rule, "BOTTOMRIGHT")
+    local bottomShadow = UI.CreateEdgeShadow(f, shadowLevel, false)
+    bottomShadow:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", MARGIN, 0)
+    bottomShadow:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -MARGIN, 0)
+    UI.InsetScrollBar(scroll, 8)
 
     WhoDoesWhat:LogUiBuilding("Building members content.")
 
@@ -720,24 +817,29 @@ function WhoDoesWhat:BuildMembersPage(page)
             box:SetPoint("TOPLEFT", prevBox, "BOTTOMLEFT", 0, -GRID_GAP)
             box:SetPoint("TOPRIGHT", prevBox, "BOTTOMRIGHT", 0, -GRID_GAP)
         else
-            box:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
-            box:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
+            box:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -CONTENT_TOP_PAD)
+            box:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -CONTENT_TOP_PAD)
         end
         prevBox = box
 
         local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local fontPath, _, fontFlags = title:GetFont()
+        title:SetFont(fontPath, GRID_TITLE_FONT_SIZE, fontFlags)
         title:SetPoint("TOPLEFT", 4, -4)
         title:SetText(SectionHeaderText(section, 0))
 
         -- Column headings on their own line under the bucket title, each lined
         -- up with its column's content: the class icon, the WDW tick, the
         -- dropdowns' own text inset, and the first talent icon.
+        -- ApplyHeaderDensity places them vertically, per density.
+        local headings = {}
         local function Heading(text, x, w, justify)
             local fs = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            fs:SetPoint("TOPLEFT", x, -GRID_HEADINGS_Y)
             fs:SetWidth(w)
             fs:SetJustifyH(justify or "LEFT")
             fs:SetText(text)
+            fs.x = x
+            headings[#headings + 1] = fs
         end
         Heading("Player", ICON_X, NAME_W + CLASS_ICON_SIZE)
         Heading("Has WDW?", ADDON_X, ADDON_COL_W, "CENTER")
@@ -748,10 +850,9 @@ function WhoDoesWhat:BuildMembersPage(page)
         local line = box:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))
         line:SetHeight(1)
-        line:SetPoint("TOPLEFT", 0, -(GRID_HEADER_H - 1))
-        line:SetPoint("TOPRIGHT", 0, -(GRID_HEADER_H - 1))
 
-        f.sections[section.key] = { box = box, title = title, rows = {} }
+        f.sections[section.key] = { box = box, title = title, rows = {},
+            headings = headings, line = line }
     end
 
     -- Track joins/leaves live while the page is on screen, and catch up

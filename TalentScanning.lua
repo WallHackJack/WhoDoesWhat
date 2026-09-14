@@ -93,6 +93,39 @@ function WhoDoesWhat:GetTalentSnapshot(unit)
     }
 end
 
+-- The same shape for a fake raider (FakeRaid.lua), which has no unit to
+-- inspect: the spread a max-level player of their roster spec would carry --
+-- the spec tree minus 20, 20 in the next tree over. Read from the ROSTER spec,
+-- not the board, so reassigning a fake by hand still disagrees with its
+-- "talents" the way it would for a real player.
+function WhoDoesWhat:GetFakeTalentSnapshot(name)
+    local fm = self.FakeRaid and self.FakeRaid.BY_NAME[name]
+    local ids = fm and SPEC_ROLES[fm.class]
+    if not ids then return nil end
+    local specIndex = fm.role == "druid_feral_tank" and 2 or nil
+    for i, id in ipairs(ids) do
+        if id == fm.role then specIndex = i end
+    end
+    if not specIndex then return nil end
+
+    local total = (GetMaxPlayerLevel and GetMaxPlayerLevel() or 70) - 9
+    local points = { 0, 0, 0 }
+    points[specIndex] = total - 20
+    points[specIndex % 3 + 1] = 20
+    local specNames = nil
+    if Inspector then
+        specNames = {}
+        for i = 1, 3 do
+            specNames[i] = Inspector:GetSpecializationName(fm.class, i, true)
+        end
+    end
+    return {
+        points = points,
+        specNames = specNames,
+        roleIds = RolesForSpec(fm.class, specIndex),
+    }
+end
+
 -- The roles a talent spread can actually name. Anything outside this set --
 -- warlock_firetank, druid_dreamstate, custom roles -- is a hand-made call the
 -- points can neither confirm nor contradict, so it must never be reported as

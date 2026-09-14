@@ -141,9 +141,12 @@ function FakeRaid.Rebuild()
     if count < 3 then r[#r + 1] = FakeRaid.HEALER_FILLER end
     for i = 1, TotalFakes() - #r do r[#r + 1] = FakeRaid.DPS_POOL[i] end
     FakeRaid.ROSTER = r
+    FakeRaid.BY_NAME = {}
+    for _, fm in ipairs(r) do FakeRaid.BY_NAME[fm.name] = fm end
 end
 
 FakeRaid.ROSTER = {} -- filled by Rebuild() once the DB is up (ReapplyFakeRaid)
+FakeRaid.BY_NAME = {}
 
 -- Every fake that could exist under ANY paladin count -- removal must cover
 -- names the current roster no longer includes (e.g. after a count change).
