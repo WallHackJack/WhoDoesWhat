@@ -264,6 +264,19 @@ local function CreateCoreCell(row, column)
 
     UI.AddTooltip(cell, function(self)
         local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
+        -- A flask's guardian cell is blank, and so is its tooltip; the battle
+        -- cell speaks for it.
+        if self.flaskCovered and self.connected then return false end
+        -- An elixir on the raider gets the spell's own tooltip.
+        if self.elixirSpell and self.connected and GameTooltip.SetSpellByID then
+            GameTooltip:SetSpellByID(self.elixirSpell)
+            local remaining = WhoDoesWhat:GetBuffTimeRemaining(
+                self.raider, self.buffKey)
+            GameTooltip:AddLine("On " .. WhoDoesWhat:DisplayName(self.raider)
+                .. (remaining and (", " .. RemainingText(remaining)
+                    .. " remaining.") or "."), 1, 0.82, 0)
+            return true
+        end
         GameTooltip:SetText(buff.name .. " - "
             .. WhoDoesWhat:DisplayName(self.raider), unpack(UI.TOOLTIP_TITLE))
         if self.notNeeded then
@@ -651,8 +664,18 @@ local function RefreshGrid(f)
                 end
             end
             cell.betterProvider = betterProvider
-            cell.icon:SetTexture(buff.icon)
-            cell.icon:SetShown(has == true
+            -- An elixir cell wears the elixir actually on the raider. A flask
+            -- is drawn once, in the battle column; its guardian cell stays
+            -- empty rather than repeating it.
+            local elixirSpell, isFlask
+            if buff.elixirCategory and has == true then
+                elixirSpell, isFlask = WhoDoesWhat:GetElixirSpell(m.name, key)
+            end
+            cell.elixirSpell = elixirSpell
+            cell.flaskCovered = isFlask and buff.elixirCategory == "guardian"
+            cell.icon:SetTexture(elixirSpell and GetSpellTexture(elixirSpell)
+                or buff.icon)
+            cell.icon:SetShown(has == true and not cell.flaskCovered
                 and (options.negative or not betterProvider))
             cell.icon:SetDesaturated(not connected)
             cell.missing:ClearAllPoints()
@@ -666,6 +689,7 @@ local function RefreshGrid(f)
                 cell.missing:SetPoint("CENTER")
             end
             cell.missing:SetShown(not notNeeded and connected and not m.isFake
+                and not cell.flaskCovered
                 and (options.negative and has == true
                     or not options.negative and has == false))
             cell.warning:SetShown(betterProvider ~= nil)

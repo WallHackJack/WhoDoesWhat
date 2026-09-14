@@ -69,15 +69,19 @@ local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 -- guardian row. Each listed item's use-spell is its aura. An item the client
 -- hasn't loaded yet has no spell to give, so it is asked for and the map is
 -- rebuilt when it arrives (GET_ITEM_INFO_RECEIVED below).
+--
+-- `flaskSpells` marks the flasks among them, for the grid: it draws a flask
+-- once, in the battle column.
 local nameToKey, debuffNameToKey, spellIdToKeys
-local pendingElixirItems = {}
-local function AddElixirSpells(key, ids)
+local pendingElixirItems, flaskSpells = {}, {}
+local function AddElixirSpells(key, ids, isFlask)
     for _, id in ipairs(ids or {}) do
         local _, spellId = GetItemSpell(id)
         if spellId then
             local keys = spellIdToKeys[spellId] or {}
             keys[#keys + 1] = key
             spellIdToKeys[spellId] = keys
+            if isFlask then flaskSpells[spellId] = true end
             pendingElixirItems[id] = nil
         else
             pendingElixirItems[id] = true
@@ -95,7 +99,7 @@ local function BuildNameMap()
     for key, check in pairs(WhoDoesWhat.StatusBarChecks) do
         if check.elixirCategory then
             AddElixirSpells(key, WhoDoesWhat.ElixirItems[check.elixirCategory])
-            AddElixirSpells(key, WhoDoesWhat.ElixirItems.flask)
+            AddElixirSpells(key, WhoDoesWhat.ElixirItems.flask, true)
         end
     end
     -- Nil when there is nothing to match, so the scan skips the lookup.
@@ -219,9 +223,10 @@ end
 -- 40-man match nothing we track, so the lookup now happens inline and only a
 -- match costs a call.
 --
--- `spellMap` (spell id -> keys) is the elixir checks' map, nil for debuffs.
+-- `spellMap` (spell id -> keys) is the elixir checks' map, nil for debuffs;
+-- `spellIds` records which spell each of those keys matched.
 local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
-                            expirations, previous)
+                            expirations, previous, spellIds)
     if not map then return end
     local GetByIndex = harmful and GetDebuffDataByIndex or GetBuffDataByIndex
     local i = 1
@@ -239,6 +244,7 @@ local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
                 for _, spellKey in ipairs(keys) do
                     StoreAura(spellKey, aura.sourceUnit, aura.expirationTime,
                         buffs, sources, expirations, previous)
+                    spellIds[spellKey] = aura.spellId
                 end
             end
             i = i + 1
@@ -259,6 +265,7 @@ local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
                 for _, spellKey in ipairs(keys) do
                     StoreAura(spellKey, sourceUnit, expirationTime,
                         buffs, sources, expirations, previous)
+                    spellIds[spellKey] = spellId
                 end
             end
             i = i + 1
@@ -267,13 +274,16 @@ local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
 end
 
 -- Did the freshly-scanned buff set differ from what we had stored?
-local function Differs(prev, buffs, sources, expirations, connected)
+local function Differs(prev, buffs, sources, expirations, spellIds, connected)
     if not prev or prev.connected ~= connected then return true end
     for key in pairs(buffs) do
         if not prev.buffs[key] then return true end
         if not prev.sources or prev.sources[key] ~= sources[key] then return true end
         if not prev.expirations
             or prev.expirations[key] ~= expirations[key] then return true end
+        if (prev.spellIds and prev.spellIds[key]) ~= spellIds[key] then
+            return true
+        end
     end
     for key in pairs(prev.buffs) do
         if not buffs[key] then return true end
@@ -285,9 +295,9 @@ end
 -- anything changed. Aura presence is available at any group-member range.
 local function ScanUnit(unit, name)
     local previous = state[name]
-    local buffs, sources, expirations = {}, {}, {}
+    local buffs, sources, expirations, spellIds = {}, {}, {}, {}
     ScanAuraList(unit, false, nameToKey, spellIdToKeys, buffs, sources,
-        expirations, previous)
+        expirations, previous, spellIds)
     -- Skipped outright when no harmful check is configured: with an empty map
     -- the debuff walk can only ever read every debuff on the unit and discard
     -- all of them.
@@ -297,10 +307,11 @@ local function ScanUnit(unit, name)
     end
     if UnitIsDeadOrGhost(unit) then buffs.dead = true end
     local connected = UnitIsConnected(unit) ~= false
-    local changed = Differs(state[name], buffs, sources, expirations, connected)
+    local changed = Differs(state[name], buffs, sources, expirations, spellIds,
+        connected)
     state[name] = {
         buffs = buffs, sources = sources, expirations = expirations,
-        connected = connected,
+        spellIds = spellIds, connected = connected,
     }
     return changed
 end
@@ -434,6 +445,14 @@ function WhoDoesWhat:IsBuffFromOutsideRaid(name, key)
     if source == nil then return false end
     if source ~= false and UnitInRaid(source) ~= nil then return false end
     return IsInRaid() and true or false
+end
+
+-- The spell an elixir check matched on a raider, and whether it is a flask
+-- (which fills both elixir checks); nil when none is recorded.
+function WhoDoesWhat:GetElixirSpell(name, key)
+    local s = state[name]
+    local spellId = s and s.spellIds and s.spellIds[key]
+    return spellId, spellId ~= nil and flaskSpells[spellId] == true
 end
 
 -- Seconds left on the last observed timed aura, or nil for permanent,

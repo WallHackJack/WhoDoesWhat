@@ -536,8 +536,11 @@ WhoDoesWhat.CoreRaidBuffs = {
         -- class to key on. It watches the local player's own row instead --
         -- and their pet's, since the owner is who feeds it.
         selfSupplied = true,
-        -- Everybody eats; the one targeting question is whether pets do.
-        hiddenOptions = { onlyManaUsers = true, onlyTanks = true },
+        -- Everybody eats; the one targeting question is whether pets do. And
+        -- nobody outside the raid feeds you, so there is no caster to flag.
+        hiddenOptions = {
+            onlyManaUsers = true, onlyTanks = true, flagOutsideRaid = true,
+        },
     },
     shadowProtection = {
         name = "Shadow",
@@ -746,15 +749,15 @@ end
 if WhoDoesWhat.ElixirItems then
     local ELIXIR_HIDDEN_OPTIONS = {
         onlyManaUsers = true, onlyTanks = true, hunterPets = true,
+        flagOutsideRaid = true,
     }
     WhoDoesWhat.StatusBarChecks.battleElixir = {
         name = "Battle Elixir",
         description = "Shows who has a battle elixir or a flask up.",
-        icon = 134813,
+        icon = 134873,
         elixirCategory = "battle",
-        colorRGB = { r = 0.6, g = 0.92, b = 0.2 }, -- lime
+        colorRGB = { r = 119 / 255, g = 183 / 255, b = 40 / 255 }, -- #77B728
         selfSupplied = true,
-        defaultGrid = false,
         hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
     }
     WhoDoesWhat.StatusBarChecks.guardianElixir = {
@@ -762,9 +765,8 @@ if WhoDoesWhat.ElixirItems then
         description = "Shows who has a guardian elixir or a flask up.",
         icon = 134823,
         elixirCategory = "guardian",
-        colorRGB = { r = 1, g = 0.45, b = 0.75 }, -- pink
+        colorRGB = { r = 208 / 255, g = 94 / 255, b = 156 / 255 }, -- #D05E9C
         selfSupplied = true,
-        defaultGrid = false,
         hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
     }
 end
@@ -1038,8 +1040,10 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
     if anyInCombat == nil then anyInCombat = true end
     -- A buff cast by somebody outside the raid is stripped the moment a boss
     -- is pulled, so by default it counts as missing however good it looked.
-    -- Nonsense on a debuff, and inert in a party or a dungeon.
+    -- Nonsense on a debuff, and inert in a party or a dungeon. Off outright
+    -- where a check hides the option (food, elixirs: you supply your own).
     local flagOutsideRaid = saved.flagOutsideRaid ~= false
+        and self:StatusBarOptionOffered(definition, "flagOutsideRaid")
     local requiredClass = saved.requiredClass
     if requiredClass == nil then requiredClass = definition.className or false end
     if requiredClass then
