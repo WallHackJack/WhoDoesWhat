@@ -205,10 +205,14 @@ end
 -- Nobody is filtered for being unreachable here: the announce names the raid's
 -- providers whoever they are, yourself included, and it is the whisper that
 -- then drops the ones there is no point sending to.
+--
+-- The second return says whether either narrowing actually picked somebody
+-- out: an improved rank on top, or a spec that cannot cast it dropped. Without
+-- that the list is just the whole class, which the announce leaves unsaid.
 local function SuppliersForCheck(key, definition, options)
     local className = options.requiredClass or definition.className
-    if not className or definition.selfSupplied then return {} end
-    local best, candidates = nil, {}
+    if not className or definition.selfSupplied then return {}, false end
+    local best, candidates, dropped = nil, {}, false
     for _, name in ipairs(WhoDoesWhat.Assign.MembersOfClass(className)) do
         local rank = WhoDoesWhat:GetCoreBuffTalentSpecs(name, key)
         -- `false` is "scanned, and this spec cannot cast it".
@@ -216,6 +220,8 @@ local function SuppliersForCheck(key, definition, options)
             local value = type(rank) == "number" and rank or -1
             candidates[#candidates + 1] = { name = name, rank = value }
             if best == nil or value > best then best = value end
+        else
+            dropped = true
         end
     end
     local out = {}
@@ -223,7 +229,7 @@ local function SuppliersForCheck(key, definition, options)
         if candidate.rank == best then out[#out + 1] = candidate.name end
     end
     table.sort(out)
-    return out
+    return out, dropped or (best or 0) > 0
 end
 
 -- nil when there is nobody left to name. A finished bar is never announced at
@@ -324,12 +330,14 @@ local function AnnounceLines(row)
         if #names <= MAX_NAMED_MISSING then
             line = AnnounceLine(line .. " -- Missing: ", names)
         end
-        -- Who can fix it, on the same line: a count nobody owns is a
-        -- complaint, and the raid should not have to work out whose job it is.
+        -- Who can fix it, on the same line -- but only when that is news. "Int
+        -- missing -- Mages: <every mage>" tells the raid nothing it did not
+        -- know; "Fortitude -- Priest: <the one with Improved>" does.
         if definition then
             local options = WhoDoesWhat:GetStatusBarCheckOptions(row.buffKey)
-            local suppliers = SuppliersForCheck(row.buffKey, definition, options)
-            if #suppliers > 0 then
+            local suppliers, narrowed =
+                SuppliersForCheck(row.buffKey, definition, options)
+            if narrowed and #suppliers > 0 then
                 local className = options.requiredClass or definition.className
                 local shown = {}
                 for _, name in ipairs(suppliers) do
