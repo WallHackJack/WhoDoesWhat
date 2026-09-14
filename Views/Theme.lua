@@ -58,6 +58,9 @@ local T = {
 
     -- Hairline rules under headings.
     divider = { 0.40, 0.48, 0.64, 0.6 },
+    -- The dark gold of the Settings pages' section dividers, for the roster
+    -- pages (Members, Buff Grid).
+    goldDivider = { 0.8, 0.65, 0.12, 0.3 },
 
     -- UI.StylePanel style for something floating over a window.
     popup = { fill = { 0.07, 0.10, 0.18, 0.95 }, border = EDGE },

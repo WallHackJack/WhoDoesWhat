@@ -1332,11 +1332,12 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     end
 
     -- Fake raid off first: that is what wipes the board, and with it off the
-    -- paladin count changes without wiping it a second time.
+    -- paladin count and size change without wiping it a second time.
     local function ResetTesting()
         if WhoDoesWhat:IsFakeRaidEnabled() then WhoDoesWhat:SetFakeRaidEnabled(false) end
         WhoDoesWhat:SetFakeRaidPaladinCount(
             WhoDoesWhat.db.defaults.profile.settings.fakeRaidPaladinCount)
+        WhoDoesWhat:SetFakeRaidSize(WhoDoesWhat.db.defaults.profile.settings.fakeRaidSize)
         WhoDoesWhat:RestoreDefaultSettings(RESET_TESTING)
         WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
     end
@@ -2532,12 +2533,35 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     local testingPage = pages.Testing
     yR = y0
     f.fakeRaidCheck, yR = AddCompactCheckboxRow(testingPage, PAGE_X, yR, "Populate Fake Raid",
-        "Fill the roster with 23 fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
+        "Fill the roster with fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
             RefreshBuffingTestPaladinDropdown(f)
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
+
+    local sizeLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    sizeLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
+    sizeLabel:SetText("Fake raiders:")
+    local sizeDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatFakeRaidSizeDD", 40)
+    sizeDD:SetPoint("LEFT", sizeLabel, "RIGHT", -8, -2)
+    UIDropDownMenu_Initialize(sizeDD, function(_, level)
+        local saved = WhoDoesWhat.db.profile.settings.fakeRaidSize
+        for _, n in ipairs(WhoDoesWhat.FakeRaid.SIZES) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = tostring(n)
+            info.checked = (saved == n)
+            info.func = function()
+                WhoDoesWhat:SetFakeRaidSize(n)
+                UIDropDownMenu_SetText(sizeDD, tostring(n))
+                RefreshBuffingTestPaladinDropdown(f)
+                WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    f.fakeRaidSizeDD = sizeDD
+    yR = yR + 40
 
     local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     palLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
@@ -2664,6 +2688,7 @@ function LoadSettings(f)
     f.newerVersionTestCheck:SetChecked(settings.simulateNewerAddonVersion)
 --@end-do-not-package@
     f.fakeRaidCheck:SetChecked(settings.populateFakeRaid)
+    UIDropDownMenu_SetText(f.fakeRaidSizeDD, tostring(settings.fakeRaidSize))
     UIDropDownMenu_SetText(f.fakePaladinDD, tostring(settings.fakeRaidPaladinCount or 3))
 end
 

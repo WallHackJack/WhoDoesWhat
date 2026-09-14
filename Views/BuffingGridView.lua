@@ -6,7 +6,8 @@ local UI = select(2, ...).UI
 -- columns can show WDW's plan, WDW's PLPWR wire mirror, or the live tables of a
 -- co-installed PallyPower addon.
 -- The grid is centred in its page at its own width; the column headers stay put
--- and the raider rows scroll under them.
+-- and the raider rows scroll under them. At SPLIT_AT_ROWS raiders (or more)
+-- the rows split into two balanced side-by-side blocks.
 --
 -- Grid cells can show WDW's computed plan, a co-installed PallyPower's live
 -- tables, or WDW's observed PallyPower mirror. A paladin with no assignment
@@ -21,20 +22,27 @@ local gridFrame = nil
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
 
-local MIN_FRAME_W = 330 -- floor for the source picker; width tracks columns
+local MIN_FRAME_W = 330 -- floor for an empty group; width tracks columns
 local MARGIN = 12
 local SCROLLBAR_W = UI.SCROLLBAR_W
 
-local NAME_COL_W = 150 -- role icon + raider name (minimum; grows to fill)
+local NAME_COL_W = 150 -- role icon + raider name (grows to fill)
+local NAME_MIN_W = 100 -- how far two blocks may squeeze it to fit the page
 -- The name column absorbs whatever width the window has beyond its columns,
 -- so a narrow grid still spans the window's minimum width. RefreshGrid sets it.
 local nameColW = NAME_COL_W
-local COL_W = K.PALADIN_GRID_COL_W -- one paladin column
+-- One buff column: a little tighter than the kit's paladin columns, so two
+-- blocks fit the page side by side.
+local COL_W = K.PALADIN_GRID_COL_W - 4
 local ROW_H = 22
+-- Past this many rows (a 40-man and its pets) the rows tighten up a little.
+local COMPACT_AT_ROWS = 30
+local COMPACT_ROW_H = 20
 local ROLE_ICON_SIZE = 18
 local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
 local HEADER_H = 28
-local SOURCE_ROW_H = 27
+local GEAR_SIZE = 16
+local SOURCE_BADGE_SIZE = 11
 local CORE_CELL_ICON_SIZE = 16
 local CORE_MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local PALADIN_SECTION_GAP = 12
@@ -46,6 +54,10 @@ local SOURCE_OPTIONS = {
 }
 local SOURCE_LABELS = { wdw = "WDW", observed = "PP Mirror", addon = "PP Addon" }
 
+-- Grid blocks: at this many raiders (or more) the rows split into two
+-- side-by-side blocks (balanced halves).
+local SPLIT_AT_ROWS = 20
+local BLOCK_GAP = 14
 local GRID_X = MARGIN
 
 local function RemainingText(seconds)
@@ -376,6 +388,7 @@ local function CreateRow(f, index)
     local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     nameFS:SetPoint("LEFT", icon, "RIGHT", 6, 0)
     nameFS:SetJustifyH("LEFT")
+    nameFS:SetWordWrap(false)
     row.nameFS = nameFS
 
     row.coreCells = {}
@@ -396,23 +409,24 @@ local function DefaultGridSource()
     return "wdw"
 end
 
+-- A source other than the raid's own is a comparison, not the plan: the gear
+-- carries a warning badge, and its tooltip says what is on screen instead.
 local function UpdateSourceControl(f)
     local expected = DefaultGridSource()
     local pallyPowerMode = WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
     local matchesMode = f.gridSource == expected
         or (pallyPowerMode and (f.gridSource == "addon" or f.gridSource == "observed"))
-    UIDropDownMenu_SetText(f.sourceDD, SOURCE_LABELS[f.gridSource] or "WDW")
     if not matchesMode then
-        f.sourceWarning.tooltipText = "Paladin blessing cells are showing "
+        f.sourceWarningText = "Paladin blessing cells are showing "
             .. (SOURCE_LABELS[f.gridSource] or "this source")
             .. " for comparison only. They do not represent the raid's active"
             .. " assignment source. Select " .. SOURCE_LABELS[expected]
             .. " to view the plan currently driving WDW. Missing-buff indicators"
             .. " still use live aura data."
-        f.sourceWarning:Show()
     else
-        f.sourceWarning:Hide()
+        f.sourceWarningText = nil
     end
+    f.sourceBadge:SetShown(not matchesMode)
 end
 
 local function BuffPlanForSource(source)
@@ -442,29 +456,35 @@ local function RefreshGrid(f)
     end
 
     -- With no paladins in the group there is nothing for the blessing source
-    -- row to control, so the header collapses to just the column icons.
+    -- gear to control.
     local hasPaladins = #paladins > 0
-    f.sourceCaption:SetShown(hasPaladins)
-    f.sourceDD:SetShown(hasPaladins)
-    f.headerBottom = f.titleBarHeight + 8 + HEADER_H
-        + (hasPaladins and SOURCE_ROW_H or 0)
-    f.divider:ClearAllPoints()
-    f.divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
-    f.divider:SetPoint("TOPRIGHT", -MARGIN, -f.headerBottom)
+    f.sourceGear:SetShown(hasPaladins)
 
+    local numBlocks = (#members >= SPLIT_AT_ROWS) and 2 or 1
+    local rowsPerBlock = math.ceil(#members / numBlocks)
+    local rowH = #members > COMPACT_AT_ROWS and COMPACT_ROW_H or ROW_H
     local paladinGap = hasPaladins and PALADIN_SECTION_GAP or 0
     local columnsW = #coreKeys * COL_W + paladinGap
         + K.PaladinColumnsWidth(paladins, COL_W, 0)
-    local gaps = GRID_X + MARGIN
-    local frameW = math.max(MIN_FRAME_W, gaps + NAME_COL_W + columnsW)
-    -- Spend the leftover width on the name column so the rows always reach
+    local gaps = GRID_X + (numBlocks - 1) * BLOCK_GAP + MARGIN
+    local frameW = math.max(MIN_FRAME_W,
+        gaps + numBlocks * (NAME_COL_W + columnsW))
+    -- Two blocks that overflow the page squeeze their name columns first.
+    local pageW = f:GetParent():GetWidth()
+    if pageW > 0 then
+        frameW = math.max(math.min(frameW, pageW - SCROLLBAR_W),
+            gaps + numBlocks * (NAME_MIN_W + columnsW))
+    end
+    -- Spend the leftover width on the name column so the blocks always reach
     -- the right edge, even at the minimum width.
-    nameColW = frameW - gaps - columnsW
+    nameColW = (frameW - gaps) / numBlocks - columnsW
     local blockW = nameColW + columnsW
+    local function BlockX(b)
+        return GRID_X + (b - 1) * (blockW + BLOCK_GAP)
+    end
 
     -- The grid plus its scrollbar gutter, centred in the page, but never wider
     -- than the page: past that the name column is what gets cut.
-    local pageW = f:GetParent():GetWidth()
     local width = frameW + SCROLLBAR_W
     f:SetWidth(pageW > 0 and math.min(width, pageW) or width)
     f.rowContent:SetWidth(frameW)
@@ -472,16 +492,16 @@ local function RefreshGrid(f)
     f.scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -(f.headerBottom + 4))
     f.scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -SCROLLBAR_W, 0)
 
-    -- Raid-buff icon headers, from one flat pool.
+    -- Raid-buff icon headers above every block, from one flat pool.
     local coreHeaderCount = 0
-    do
+    for b = 1, numBlocks do
         for c, key in ipairs(coreKeys) do
             coreHeaderCount = coreHeaderCount + 1
             local header = f.coreHeaders[coreHeaderCount]
                 or CreateCoreHeader(f, coreHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                GRID_X + nameColW + (c - 1) * COL_W
+                BlockX(b) + nameColW + (c - 1) * COL_W
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.buffKey = key
             header.providers = providerPools[key]
@@ -512,14 +532,14 @@ local function RefreshGrid(f)
 
     -- Role-icon paladin headers follow the raid-buff columns.
     local paladinHeaderCount = 0
-    do
+    for b = 1, numBlocks do
         for c, p in ipairs(paladins) do
             paladinHeaderCount = paladinHeaderCount + 1
             local header = f.paladinHeaders[paladinHeaderCount]
                 or CreatePaladinHeader(f, paladinHeaderCount)
             header:ClearAllPoints()
             header:SetPoint("BOTTOMLEFT", f, "TOPLEFT",
-                GRID_X + nameColW + #coreKeys * COL_W
+                BlockX(b) + nameColW + #coreKeys * COL_W
                     + PALADIN_SECTION_GAP
                     + K.PaladinColumnOffset(c, paladins, COL_W)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
@@ -539,25 +559,34 @@ local function RefreshGrid(f)
     -- The local paladin's first column stays visually attached across the
     -- header and all rows, with a small break before the other paladins. Two
     -- pieces, since the header stays put while the rows scroll: one over the
-    -- header, one down the scroll child.
-    local stripeX = GRID_X + nameColW + #coreKeys * COL_W + PALADIN_SECTION_GAP
+    -- header, one down the scroll child, for each block.
     local localFirst = paladins[1] and K.IsLocalPaladin(paladins[1])
-    local headerStripe = f.localPaladinStripes.header
-    local rowsStripe = f.localPaladinStripes.rows
-    headerStripe:SetShown(localFirst and true or false)
-    rowsStripe:SetShown(localFirst and #members > 0 or false)
-    if localFirst then
-        headerStripe:ClearAllPoints()
-        headerStripe:SetPoint("TOPLEFT", f, "TOPLEFT", stripeX,
-            -(f.headerBottom - HEADER_H))
-        headerStripe:SetSize(COL_W, HEADER_H + 4)
-        rowsStripe:ClearAllPoints()
-        rowsStripe:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT", stripeX, 0)
-        rowsStripe:SetSize(COL_W, math.max(#members * ROW_H, 1))
+    for b = 1, 2 do
+        local headerStripe = f.localPaladinStripes.header[b]
+        local rowsStripe = f.localPaladinStripes.rows[b]
+        local shown = b <= numBlocks and localFirst and true or false
+        headerStripe:SetShown(shown)
+        rowsStripe:SetShown(shown and #members > 0)
+        if shown then
+            local stripeX = BlockX(b) + nameColW + #coreKeys * COL_W
+                + PALADIN_SECTION_GAP
+            headerStripe:ClearAllPoints()
+            headerStripe:SetPoint("TOPLEFT", f, "TOPLEFT", stripeX,
+                -(f.headerBottom - HEADER_H))
+            headerStripe:SetSize(COL_W, HEADER_H + 4)
+            rowsStripe:ClearAllPoints()
+            rowsStripe:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT", stripeX, 0)
+            rowsStripe:SetSize(COL_W, math.max(rowsPerBlock * rowH, 1))
+        end
     end
 
-    f.raiderLabel:ClearAllPoints()
-    f.raiderLabel:SetPoint("BOTTOMLEFT", f, "TOPLEFT", GRID_X + 4, -(f.headerBottom - 6))
+    -- One "Raider" label per visible block.
+    for b = 1, 2 do
+        local label = f.raiderLabels[b]
+        label:SetShown(b <= numBlocks)
+        label:ClearAllPoints()
+        label:SetPoint("BOTTOMLEFT", f, "TOPLEFT", BlockX(b) + 4, -(f.headerBottom - 6))
+    end
 
     -- All three sources expose the assignment-model snapshot shape expected
     -- below, so the rendering path remains shared.
@@ -566,21 +595,23 @@ local function RefreshGrid(f)
         f.gridSource = DefaultGridSource()
         buffPlan = BuffPlanForSource(f.gridSource)
     end
-    if hasPaladins then
-        UpdateSourceControl(f)
-    else
-        f.sourceWarning:Hide()
-    end
+    UpdateSourceControl(f)
 
     for i, m in ipairs(members) do
         local row = f.rows[i] or CreateRow(f, i)
-        row:SetWidth(blockW)
+        -- Anchor into this row's block slot; the stripe follows the
+        -- block-local position so both blocks stripe from their own top.
+        local b = math.ceil(i / rowsPerBlock)
+        local localRow = i - (b - 1) * rowsPerBlock
+        row:SetSize(blockW, rowH)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT", GRID_X, -((i - 1) * ROW_H))
+        row:SetPoint("TOPLEFT", f.rowContent, "TOPLEFT",
+            BlockX(b), -((localRow - 1) * rowH))
+        row.nameFS:SetWidth(nameColW - (4 + ROLE_ICON_SIZE + 6) - 2)
         local connected = m.isFake or not disconnected[m.name]
         local rowColors = connected and m.classInfo.gridRowColors
             or WhoDoesWhat.DisconnectedGridRowColors
-        local rowColor = rowColors[i % 2 == 1 and 1 or 2]
+        local rowColor = rowColors[localRow % 2 == 1 and 1 or 2]
         row.stripe:SetColorTexture(rowColor.r, rowColor.g, rowColor.b, rowColor.a)
         row:Show()
         WhoDoesWhat:SetRoleIconTexture(row.roleIcon, RoleIconFor(m))
@@ -666,7 +697,41 @@ local function RefreshGrid(f)
         f.rows[i]:Hide()
     end
 
-    UI.SetScrollHeight(f.scroll, #members * ROW_H)
+    UI.SetScrollHeight(f.scroll, rowsPerBlock * rowH)
+    -- Ask the main window for room to show every row without scrolling; it
+    -- stops at the screen's bottom edge, and the rows scroll past that.
+    WhoDoesWhat:SetMainPageHeight("grid", f.headerBottom + 4 + rowsPerBlock * rowH)
+end
+
+-- Created on first open, not at load: see PaladinBuffsSection's note on
+-- DropDownList frames.
+local sourceMenu
+
+local function OpenSourceMenu(f, button)
+    if not sourceMenu then
+        sourceMenu = CreateFrame("Frame", "WhoDoesWhatBuffGridSourceMenu",
+            UIParent, "UIDropDownMenuTemplate")
+    end
+    UIDropDownMenu_Initialize(sourceMenu, function(_, level)
+        local title = UIDropDownMenu_CreateInfo()
+        title.text = "Show Pally Buff Source"
+        title.isTitle = true
+        title.notCheckable = true
+        UIDropDownMenu_AddButton(title, level)
+        for _, option in ipairs(SOURCE_OPTIONS) do
+            local key = option.key
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = option.label
+            info.checked = f.gridSource == key
+            info.disabled = key == "addon" and not HasPallyPowerAddon()
+            info.func = function()
+                f.gridSource = key
+                RefreshGrid(f)
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end, "MENU")
+    ToggleDropDownMenu(1, nil, sourceMenu, button, 0, 0)
 end
 
 -- Build the page into the Buff Grid tab. The header parents straight onto the
@@ -676,47 +741,46 @@ function WhoDoesWhat:BuildBuffingGridPage(page)
     f:SetPoint("TOP", page, "TOP")
     f:SetPoint("BOTTOM", page, "BOTTOM")
     f:SetWidth(MIN_FRAME_W)
-    f.titleBarHeight = 0
-
-    local sourceCaption = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sourceCaption:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + 13))
-    sourceCaption:SetText("Show Pally Buff Source:")
-    f.sourceCaption = sourceCaption
-
     f.gridSource = DefaultGridSource()
-    local sourceDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffGridSourceDD", 82)
-    sourceDD:SetPoint("LEFT", sourceCaption, "RIGHT", -12, -2)
-    UIDropDownMenu_Initialize(sourceDD, function(_, level)
-        for _, option in ipairs(SOURCE_OPTIONS) do
-            local key, label = option.key, option.label
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = label
-            info.checked = f.gridSource == key
-            info.disabled = key == "addon" and not HasPallyPowerAddon()
-            info.func = function()
-                f.gridSource = key
-                RefreshGrid(f)
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    f.sourceDD = sourceDD
 
-    local sourceWarning = UI.CreateWarningIcon(f)
-    sourceWarning:SetPoint("LEFT", sourceDD, "RIGHT", -10, 0)
-    f.sourceWarning = sourceWarning
+    -- Everything in the grid header hangs off this: the y where the column
+    -- icons stand and the rows begin. The header starts at the page's top.
+    f.headerBottom = HEADER_H
+
+    -- The blessing-source picker: a gear in the top-right corner, in the
+    -- scrollbar's gutter above the rows, so it takes nothing from the grid.
+    local gear = UI.CreateBareIconButton(f, UI.GEAR_ICON, GEAR_SIZE,
+        function()
+            GameTooltip:SetText("Pally Buff Source", unpack(UI.TOOLTIP_TITLE))
+            GameTooltip:AddLine("Paladin blessing cells show "
+                .. (SOURCE_LABELS[f.gridSource] or "WDW") .. ".",
+                0.8, 0.8, 0.8, true)
+            if f.sourceWarningText then
+                GameTooltip:AddLine(f.sourceWarningText, 1, 0.45, 0.2, true)
+            end
+            return true
+        end, nil,
+        function(self) OpenSourceMenu(f, self) end)
+    gear:SetPoint("CENTER", f, "TOPRIGHT", -(SCROLLBAR_W / 2),
+        -(HEADER_H - 3 - CELL_SIZE / 2))
+    f.sourceGear = gear
+
+    local badge = gear:CreateTexture(nil, "OVERLAY")
+    badge:SetTexture(UI.WARNING_ICON)
+    badge:SetSize(SOURCE_BADGE_SIZE, SOURCE_BADGE_SIZE)
+    badge:SetPoint("CENTER", gear, "BOTTOMLEFT", 1, 1)
+    f.sourceBadge = badge
     UpdateSourceControl(f)
 
-    -- Everything in the grid header hangs off this: the y where the paladin
-    -- role icons stand and the rows begin.
-    f.headerBottom = f.titleBarHeight + 8 + SOURCE_ROW_H + HEADER_H
-
-    local raiderLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    raiderLabel:SetText("Raider")
-    f.raiderLabel = raiderLabel
+    f.raiderLabels = {}
+    for b = 1, 2 do
+        local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetText("Raider")
+        f.raiderLabels[b] = label
+    end
 
     local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
+    divider:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))
     divider:SetHeight(1)
     divider:SetPoint("TOPLEFT", GRID_X, -f.headerBottom)
     divider:SetPoint("TOPRIGHT", -(MARGIN + SCROLLBAR_W), -f.headerBottom)
@@ -730,8 +794,9 @@ function WhoDoesWhat:BuildBuffingGridPage(page)
     f.coreHeaders = {}
     f.paladinHeaders = {}
     f.localPaladinStripes = {
-        header = K.CreateLocalPaladinStripe(f),
-        rows = K.CreateLocalPaladinStripe(rowContent),
+        header = { K.CreateLocalPaladinStripe(f), K.CreateLocalPaladinStripe(f) },
+        rows = { K.CreateLocalPaladinStripe(rowContent),
+            K.CreateLocalPaladinStripe(rowContent) },
     }
     f.rows = {}
 

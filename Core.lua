@@ -497,9 +497,11 @@ local defaults = {
             -- Let auto-assign fill Curse of Recklessness. It raises the boss's
             -- damage taken *and* dealt, so the leader can opt out of it.
             allowRecklessnessAutoAssign = true,
-            -- Testing toggle: inject 23 fake raiders into the roster so paladin
+            -- Testing toggle: inject fake raiders into the roster so paladin
             -- buff strategies can be worked out solo. See FakeRaid.lua.
             populateFakeRaid = false,
+            -- How many fakes that is: 23 or 39 (FakeRaid.SIZES).
+            fakeRaidSize = 39,
 --@do-not-package@
             -- Testing toggle: advertise and compare as the next patch version.
             simulateNewerAddonVersion = false,

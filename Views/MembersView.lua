@@ -696,7 +696,7 @@ function WhoDoesWhat:BuildMembersPage(page)
     f.overviewDetail = detail
 
     local rule = f:CreateTexture(nil, "ARTWORK")
-    rule:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
+    rule:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))
     rule:SetHeight(1)
     rule:SetPoint("TOPLEFT", MARGIN, -(f.titleBarHeight + OVERVIEW_H))
     rule:SetPoint("TOPRIGHT", -MARGIN, -(f.titleBarHeight + OVERVIEW_H))
@@ -746,7 +746,7 @@ function WhoDoesWhat:BuildMembersPage(page)
         Heading("Talents", TALENT_X + TALENT_PAD, TALENT_TEXT_W)
 
         local line = box:CreateTexture(nil, "ARTWORK")
-        line:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
+        line:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))
         line:SetHeight(1)
         line:SetPoint("TOPLEFT", 0, -(GRID_HEADER_H - 1))
         line:SetPoint("TOPRIGHT", 0, -(GRID_HEADER_H - 1))

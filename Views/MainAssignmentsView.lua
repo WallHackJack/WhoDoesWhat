@@ -39,10 +39,13 @@ local Sync = WhoDoesWhat:GetModule("Sync")
 local mainFrame = nil
 
 local SCROLLBAR_W = UI.SCROLLBAR_W
--- Fixed size: wide enough for the Raid board's two columns and its scrollbar
--- inside the tab panel. Pages taller than the panel scroll.
+-- Fixed width: wide enough for the Raid board's two columns and its scrollbar
+-- inside the tab panel. WINDOW_H is the height every page gets unless it asks
+-- for more (SetMainPageHeight); pages taller than the panel scroll.
 local WINDOW_W = 900
 local WINDOW_H = 560
+-- Page key -> the content height that page asked for.
+local pageHeights = {}
 -- Room above the Raid page's columns for the permission picker.
 local PERMISSION_STRIP_H = 30
 
@@ -293,6 +296,25 @@ local function BuildRaidPage(f, page)
     page:HookScript("OnShow", function() RefreshRaidPage(f) end)
 end
 
+-- Size the window to the selected page's request. It resizes from the top: the
+-- window is re-anchored by its top-left first, so the title bar and the tab row
+-- hold still and only the bottom edge moves. Never below WINDOW_H, and never
+-- past the bottom of the screen -- the page scrolls beyond that.
+local function ApplyWindowHeight(f)
+    -- The window's chrome above and below a page: title bar, tab row, the
+    -- panel's border and the page's inset in it (UI.AddTabs).
+    local chromeH = f.tabTop + UI.TAB_H - UI.TAB_LIP + UI.INSET + 20
+    local request = pageHeights[f.selectedPage]
+    local height = request and (request + chromeH) or WINDOW_H
+    local top, left = f:GetTop(), f:GetLeft()
+    if top and left then
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        height = math.min(height, top)
+    end
+    f:SetHeight(math.max(WINDOW_H, height))
+end
+
 -- Build the window once and reuse it: the chrome, the tab row, and the Raid
 -- page. Every other page is built by its own view the first time it is opened.
 local function EnsureMainFrame()
@@ -343,6 +365,8 @@ local function EnsureMainFrame()
     }, { initial = "raid", colors = THEME.tabs })
     for key, color in pairs(PAGE_COLORS) do UI.SetTabPageColor(pages[key], color) end
 
+    f:OnTabSelected(function() ApplyWindowHeight(f) end)
+    f:HookScript("OnShow", ApplyWindowHeight)
     f:HookScript("OnShow", UpdateTabs)
     UpdateTabs(f)
 
@@ -366,6 +390,16 @@ function WhoDoesWhat:RefreshMainAssignmentsView()
     if not (mainFrame and mainFrame:IsShown()) then return end
     UpdateTabs(mainFrame)
     if mainFrame.raidPage:IsVisible() then RefreshRaidPage(mainFrame) end
+end
+
+-- A page asks for the height its content needs (nil: the default). The window
+-- grows or shrinks to it while that page is the one on screen.
+function WhoDoesWhat:SetMainPageHeight(key, height)
+    if pageHeights[key] == height then return end
+    pageHeights[key] = height
+    if mainFrame and mainFrame.selectedPage == key then
+        ApplyWindowHeight(mainFrame)
+    end
 end
 
 -- Just the tab row, for a page whose change moves the Members count without
