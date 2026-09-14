@@ -138,7 +138,8 @@ local function GetStatusBuffSetup()
 end
 
 local function RefreshStatusBuffRows(f)
-    if not f.statusBuffRows then return end
+    -- A drag lays the rows out itself every frame and repaints them on drop.
+    if not f.statusBuffRows or f.statusBuffDrag then return end
     local order, enabledCount = GetStatusBuffSetup()
     f.statusBuffOrder = order
     f.statusBuffEnabledCount = enabledCount
@@ -155,8 +156,6 @@ local function RefreshStatusBuffRows(f)
         row:SetPoint("TOPLEFT", CONTENT_X,
             -(f.statusBuffListTop + (visualIndex - 1) * STATUS_BUFF_ROW_H))
         row.index:SetText(disabled and "" or (index .. "."))
-        row.up:SetArrowEnabled(index > 1 or disabled)
-        row.down:SetArrowEnabled(index <= enabledCount)
         row.bar:SetChecked(options.bar)
         row.grid:SetChecked(options.grid)
         row.grid:SetShown(not WhoDoesWhat.StatusBarChecks[key].gridOptionDisabled)
@@ -196,34 +195,6 @@ local function SetStatusBuffBarEnabled(f, key, enabled)
     table.insert(f.statusBuffOrder, active + (enabled and 0 or 1), key)
     f.statusBuffEnabledCount = active
     StoreStatusBuffOption(key, "bar", enabled)
-    FinishStatusBuffOrderChange(f)
-end
-
-local function MoveStatusBuff(f, key, delta)
-    local index
-    for i, orderedKey in ipairs(f.statusBuffOrder) do
-        if orderedKey == key then index = i break end
-    end
-    if not index then return end
-    local active = f.statusBuffEnabledCount
-    if delta < 0 and index > active then
-        table.remove(f.statusBuffOrder, index)
-        active = active + 1
-        table.insert(f.statusBuffOrder, active, key)
-        StoreStatusBuffOption(key, "bar", true)
-    elseif delta < 0 and index > 1 then
-        f.statusBuffOrder[index], f.statusBuffOrder[index - 1] =
-            f.statusBuffOrder[index - 1], f.statusBuffOrder[index]
-    elseif delta > 0 and index == active then
-        active = active - 1
-        StoreStatusBuffOption(key, "bar", false)
-    elseif delta > 0 and index < active then
-        f.statusBuffOrder[index], f.statusBuffOrder[index + 1] =
-            f.statusBuffOrder[index + 1], f.statusBuffOrder[index]
-    else
-        return
-    end
-    f.statusBuffEnabledCount = active
     FinishStatusBuffOrderChange(f)
 end
 
@@ -1244,6 +1215,108 @@ local function OpenBuffOptions(owner, key)
     f:Show()
 end
 
+-- Drag to reorder. The dragged row follows the cursor and the others close up
+-- around the slot it would land in. The "Hidden from Status Bars" divider is
+-- one of the slots' neighbours like any row, so dropping below it turns the
+-- row's bar off and dropping above it turns it back on.
+local DRAG_SCROLL_EDGE = 20   -- how near the scroll's top or bottom starts scrolling
+local DRAG_SCROLL_SPEED = 300 -- pixels a second
+
+local function UpdateStatusBuffDrag(f, elapsed)
+    local drag = f.statusBuffDrag
+    local page, scroll = drag.row:GetParent(), f.statusBuffScroll
+    local _, cursorY = GetCursorPosition()
+    cursorY = cursorY / page:GetEffectiveScale()
+
+    -- Held against an edge of the list, scroll it. Through the bar, which
+    -- clamps to the range and keeps its thumb in step.
+    local bar = scroll.uiScrollBar
+    if bar and bar:IsShown() then
+        local step = (cursorY > scroll:GetTop() - DRAG_SCROLL_EDGE and -1)
+            or (cursorY < scroll:GetBottom() + DRAG_SCROLL_EDGE and 1) or 0
+        if step ~= 0 then
+            bar:SetValue(bar:GetValue() + step * DRAG_SCROLL_SPEED * elapsed)
+        end
+    end
+
+    -- How far down the list the dragged row's top edge is, and the gap nearest
+    -- it: gap N sits below the first N of the remaining rows-plus-divider.
+    local depth = page:GetTop() - (cursorY + drag.grabOffset) - f.statusBuffListTop
+    local others, otherEnabled = drag.others, drag.otherEnabled
+    local slots = #others + 1
+    local gap = math.max(0, math.min(slots,
+        math.floor(depth / STATUS_BUFF_ROW_H + 0.5)))
+    drag.gap = gap
+
+    drag.row:ClearAllPoints()
+    drag.row:SetPoint("TOPLEFT", CONTENT_X, -(f.statusBuffListTop + depth))
+    drag.row.index:SetText(gap <= otherEnabled and ((gap + 1) .. ".") or "")
+    for i = 1, slots do
+        local region
+        if i == otherEnabled + 1 then
+            region = f.statusBuffDivider
+        else
+            region = f.statusBuffRows[others[i > otherEnabled and i - 1 or i]]
+            if i <= otherEnabled then
+                region.index:SetText((i + (gap < i and 1 or 0)) .. ".")
+            end
+        end
+        local slot = i + (i > gap and 1 or 0)
+        region:ClearAllPoints()
+        region:SetPoint("TOPLEFT", CONTENT_X,
+            -(f.statusBuffListTop + (slot - 1) * STATUS_BUFF_ROW_H))
+    end
+end
+
+local function StartStatusBuffDrag(f, row, key)
+    if f.statusBuffDrag then return end
+    local others, otherEnabled, wasEnabled = {}, f.statusBuffEnabledCount, false
+    for i, orderedKey in ipairs(f.statusBuffOrder) do
+        if orderedKey == key then
+            wasEnabled = i <= f.statusBuffEnabledCount
+            if wasEnabled then otherEnabled = otherEnabled - 1 end
+        else
+            others[#others + 1] = orderedKey
+        end
+    end
+    f.statusBuffDrag = {
+        row = row, key = key, others = others, otherEnabled = otherEnabled,
+        wasEnabled = wasEnabled, level = row:GetFrameLevel(),
+        grabOffset = row.grabOffset,
+    }
+    -- The row's follow-the-cursor tooltip would ride along with the drag.
+    row.hover:SetScript("OnUpdate", nil)
+    if GameTooltip:GetOwner() == row.hover then GameTooltip:Hide() end
+    row:SetFrameLevel(row:GetFrameLevel() + 10)
+    row.stripe:SetColorTexture(0.42, 0.33, 0.04, 1)
+    f.statusBuffDivider:Show()
+    UpdateStatusBuffDrag(f, 0)
+    f.statusBuffDragDriver:Show()
+end
+
+-- `commit` false puts everything back where it was: the page closed mid-drag.
+local function StopStatusBuffDrag(f, commit)
+    local drag = f.statusBuffDrag
+    if not drag then return end
+    f.statusBuffDrag = nil
+    f.statusBuffDragDriver:Hide()
+    drag.row:SetFrameLevel(drag.level)
+    if not commit then
+        RefreshStatusBuffRows(f)
+        return
+    end
+    local enabled = drag.gap <= drag.otherEnabled
+    local order = drag.others
+    table.insert(order, drag.gap + (enabled and 1 or 0), drag.key)
+    f.statusBuffOrder = order
+    f.statusBuffEnabledCount = drag.otherEnabled + (enabled and 1 or 0)
+    if enabled ~= drag.wasEnabled then
+        StoreStatusBuffOption(drag.key, "bar", enabled)
+    end
+    FinishStatusBuffOrderChange(f)
+    OpenBuffOptions(f, drag.key)
+end
+
 local function ResetBuffTrackingPage(f)
     local settings = WhoDoesWhat.db.profile.settings
     wipe(settings.statusBarChecks)
@@ -1884,8 +1957,15 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
     dividerRight:SetVertexColor(0.45, 0.45, 0.45)
     UI.AddTooltip(divider, "Hidden from Status Bars",
-        "Move a row above this divider to show it in WDW Status again.")
+        "Drag a row above this divider to show it in WDW Status again.")
     f.statusBuffDivider = divider
+    f.statusBuffScroll = buffScroll
+    local dragDriver = CreateFrame("Frame", nil, statusBuffPage)
+    dragDriver:Hide()
+    dragDriver:SetScript("OnUpdate", function(_, elapsed)
+        UpdateStatusBuffDrag(f, elapsed)
+    end)
+    f.statusBuffDragDriver = dragDriver
     f.statusBuffRows = {}
     for _, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
         local rowKey = key
@@ -1898,24 +1978,43 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         stripe:SetAllPoints()
         row.stripe = stripe
 
-        row.up = UI.CreateArrowButton(row, "Up")
-        row.up:SetPoint("LEFT", 0, 0)
-        row.up:SetScript("OnClick", function()
-            MoveStatusBuff(f, rowKey, -1)
-            OpenBuffOptions(f, rowKey)
-        end)
-        UI.AddTooltip(row.up, "Move up", "Move this row earlier in WDW Status.")
-        row.down = UI.CreateArrowButton(row, "Down")
-        row.down:SetPoint("LEFT", row.up, "RIGHT", 2, 0)
-        row.down:SetScript("OnClick", function()
-            MoveStatusBuff(f, rowKey, 1)
-            OpenBuffOptions(f, rowKey)
-        end)
-        UI.AddTooltip(row.down, "Move down",
-            "Move this row later, or disable it when it is last.")
+        -- The whole row is the drag handle; the checkboxes and cog take their
+        -- own clicks first. The grip dots, where the arrows used to be, say so.
+        -- The row's tooltip sits on `hover`, which stops short of the grip so
+        -- reaching for the handle doesn't open one; it drags the row too.
+        local hover = CreateFrame("Frame", nil, row)
+        hover:SetPoint("TOPLEFT", 50, 0)
+        hover:SetPoint("BOTTOMRIGHT")
+        hover:SetFrameLevel(row:GetFrameLevel()) -- under the checkboxes and cog
+        row.hover = hover
+        for _, handle in ipairs({ row, hover }) do
+            handle:EnableMouse(true)
+            handle:RegisterForDrag("LeftButton")
+            -- Where on the row it was grabbed is taken at the press, not when
+            -- the drag starts: the client holds OnDragStart back until the
+            -- cursor has travelled a few pixels, and measuring then would leave
+            -- the row trailing the cursor by that distance for the whole drag.
+            handle:SetScript("OnMouseDown", function()
+                local _, cursorY = GetCursorPosition()
+                row.grabOffset = row:GetTop() - cursorY / row:GetEffectiveScale()
+            end)
+            handle:SetScript("OnDragStart", function()
+                StartStatusBuffDrag(f, row, rowKey)
+            end)
+            handle:SetScript("OnDragStop", function() StopStatusBuffDrag(f, true) end)
+        end
+        row:HookScript("OnHide", function() StopStatusBuffDrag(f, false) end)
+        for col = 0, 1 do
+            for line = -1, 1 do
+                local dot = row:CreateTexture(nil, "ARTWORK")
+                dot:SetSize(3, 3)
+                dot:SetPoint("CENTER", row, "LEFT", 22 + col * 6, line * 6)
+                dot:SetColorTexture(0.6, 0.6, 0.6, 0.9)
+            end
+        end
 
         local index = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        index:SetPoint("LEFT", row.down, "RIGHT", 5, 0)
+        index:SetPoint("LEFT", 55, 0)
         index:SetWidth(20)
         index:SetJustifyH("LEFT")
         index:SetTextColor(1, 0.82, 0)
@@ -1937,7 +2036,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         name:SetJustifyH("LEFT")
         name:SetWordWrap(false)
         name:SetText(definition.name)
-        UI.AddTooltip(row, definition.name, definition.description, nil, true)
+        UI.AddTooltip(hover, definition.name, definition.description, nil, true)
 
         row.bar = UI.CreateCheckbox(row, nil, "Show in Bars",
             "Show this row in WDW Status. Turning it off moves it below the divider.",

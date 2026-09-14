@@ -19,7 +19,7 @@ local QUESTION_MARK_ICON = 134400 -- INV_Misc_QuestionMark
 
 local BUFF_ROW_H = 30
 local BUFF_ICON_SIZE = 22
-local ARROW_BTN_SIZE = 24
+local GRIP_W = 50 -- the drag grip on each buff row's right edge
 
 
 -- Dropdown display text for a WoW role: its micro atlas icon + name.
@@ -68,10 +68,24 @@ local function GetRoleControls(f)
 end
 
 
--- Repaint the full order around the END divider. Rows below it are banned:
--- their Up arrow promotes them, while their Down arrow is disabled.
+-- A row's number and colours: `number` nil marks it banned, below the divider.
+local function PaintBuffRow(row, number)
+    if number then
+        row.index:SetText(number .. ".")
+        row.index:SetTextColor(1, 0.82, 0)
+        row.label:SetTextColor(1, 1, 1)
+    else
+        row.index:SetText("X")
+        row.index:SetTextColor(1, 0.2, 0.2)
+        row.label:SetTextColor(0.5, 0.5, 0.5)
+    end
+end
+
+
+-- Repaint the full order around the END divider. Rows below it are banned;
+-- dragging one above the divider promotes it.
 --
--- The arrows disappear for a built-in role, which is the one thing this window
+-- The grips disappear for a built-in role, which is the one thing this window
 -- can't change: its order is WDW's default, retuned only by overriding it for
 -- the raid. They live on the row's right edge, so hiding them leaves the list
 -- itself exactly where it was.
@@ -96,48 +110,89 @@ local function RenderBuffRows(f)
         row.buffKey = key
         row.icon:SetTexture(buff.iconId)
         row.label:SetText(buff.name_long)
-        if isBanned then
-            row.index:SetText("X")
-            row.index:SetTextColor(1, 0.2, 0.2)
-            row.label:SetTextColor(0.5, 0.5, 0.5)
-        else
-            row.index:SetText(i .. ".")
-            row.index:SetTextColor(1, 0.82, 0)
-            row.label:SetTextColor(1, 1, 1)
-        end
-        row.upBtn:SetShown(editable)
-        row.downBtn:SetShown(editable)
-        if editable then
-            row.upBtn:SetArrowEnabled(i > 1 or i > f.allowedCount)
-            row.downBtn:SetArrowEnabled(i <= f.allowedCount)
-        end
+        PaintBuffRow(row, (not isBanned) and i or nil)
+        for _, dot in ipairs(row.grip) do dot:SetShown(editable) end
         row:Show()
     end
 end
 
 
--- Reorder allowed buffs, ban the last allowed buff, or promote any banned buff
--- to the lowest allowed priority.
-local function MoveBuff(f, index, delta)
-    if delta < 0 and index > f.allowedCount then
-        local key = table.remove(f.buffOrder, index)
-        f.allowedCount = f.allowedCount + 1
-        table.insert(f.buffOrder, f.allowedCount, key)
-    elseif delta < 0 and index > 1 then
-        f.buffOrder[index], f.buffOrder[index - 1] = f.buffOrder[index - 1], f.buffOrder[index]
-    elseif delta > 0 and index == f.allowedCount then
-        f.allowedCount = f.allowedCount - 1
-    elseif delta > 0 and index < f.allowedCount then
-        f.buffOrder[index], f.buffOrder[index + 1] = f.buffOrder[index + 1], f.buffOrder[index]
-    else
-        return
+-- Drag to reorder, same as the Buffs settings table: the dragged row follows
+-- the cursor and the others close up around the slot it would land in. The
+-- divider is one of the slots' neighbours like any row, so dropping below it
+-- bans the blessing and dropping above it allows it again. Nothing is saved
+-- until Save, same as every other edit in this window.
+local function UpdateBuffDrag(f)
+    local drag = f.buffDrag
+    local _, cursorY = GetCursorPosition()
+    cursorY = cursorY / f:GetEffectiveScale()
+
+    -- How far down the list the dragged row's top edge is, held to the list so
+    -- the row can't be carried off the window, and the gap nearest it: gap N
+    -- sits below the first N of the remaining rows-plus-divider.
+    local others, otherAllowed = drag.others, drag.otherAllowed
+    local slots = #others + 1
+    local depth = f:GetTop() - (cursorY + drag.grabOffset) - f.buffListTop
+    depth = math.max(0, math.min(slots * BUFF_ROW_H, depth))
+    local gap = math.floor(depth / BUFF_ROW_H + 0.5)
+    drag.gap = gap
+
+    drag.row:ClearAllPoints()
+    drag.row:SetPoint("TOPLEFT", 16, -(f.buffListTop + depth))
+    PaintBuffRow(drag.row, gap <= otherAllowed and (gap + 1) or nil)
+    for i = 1, slots do
+        local region
+        if i == otherAllowed + 1 then
+            region = f.buffDivider
+        else
+            region = others[i > otherAllowed and i - 1 or i]
+            PaintBuffRow(region, i <= otherAllowed and (i + (gap < i and 1 or 0)) or nil)
+        end
+        local slot = i + (i > gap and 1 or 0)
+        region:ClearAllPoints()
+        region:SetPoint("TOPLEFT", 16, -(f.buffListTop + (slot - 1) * BUFF_ROW_H))
+    end
+end
+
+local function StartBuffDrag(f, row)
+    if f.buffDrag or not f.orderEditable then return end
+    local others, otherAllowed = {}, f.allowedCount
+    for i, other in ipairs(f.buffRows) do
+        if other == row then
+            if i <= f.allowedCount then otherAllowed = otherAllowed - 1 end
+        else
+            others[#others + 1] = other
+        end
+    end
+    f.buffDrag = { row = row, others = others, otherAllowed = otherAllowed,
+        grabOffset = row.grabOffset, level = row:GetFrameLevel() }
+    if GameTooltip:GetOwner() == row.iconHover then GameTooltip:Hide() end
+    row:SetFrameLevel(row:GetFrameLevel() + 10)
+    UpdateBuffDrag(f)
+    f.buffDragDriver:Show()
+end
+
+-- `commit` false leaves the order as it was: the window closed mid-drag.
+local function StopBuffDrag(f, commit)
+    local drag = f.buffDrag
+    if not drag then return end
+    f.buffDrag = nil
+    f.buffDragDriver:Hide()
+    drag.row:SetFrameLevel(drag.level)
+    if commit then
+        local allowed = drag.gap <= drag.otherAllowed
+        local order = {}
+        for _, other in ipairs(drag.others) do order[#order + 1] = other.buffKey end
+        table.insert(order, drag.gap + (allowed and 1 or 0), drag.row.buffKey)
+        f.buffOrder = order
+        f.allowedCount = drag.otherAllowed + (allowed and 1 or 0)
     end
     RenderBuffRows(f)
 end
 
 
 -- When a custom role becomes a tank, place its role-type defaults below the
--- divider. The user can immediately promote them again with Up.
+-- divider. The user can immediately drag them back above it.
 local function ApplyWowRoleBans(f, wowRole)
     local banned = WhoDoesWhat.PaladinBuffBansByWowRole[wowRole]
     if not banned then return end
@@ -512,7 +567,7 @@ local function EnsureCustomizeFrame()
     buffHeading:SetText("Paladin Buff Priority")
     f.buffHeading = buffHeading
 
-    -- Buff priority rows: number, icon, spell name, and up/down arrows, with an
+    -- Buff priority rows: number, icon, spell name, and a drag grip, with an
     -- END divider inserted between allowed and banned blessings at render time.
     local canonical = WhoDoesWhat.CanonicalBuffOrder
     f.buffOrder = { unpack(canonical) }
@@ -545,23 +600,30 @@ local function EnsureCustomizeFrame()
     dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
     dividerRight:SetVertexColor(0.55, 0.55, 0.55)
     f.buffDivider = divider
+    local dragDriver = CreateFrame("Frame", nil, f)
+    dragDriver:Hide()
+    dragDriver:SetScript("OnUpdate", function() UpdateBuffDrag(f) end)
+    f.buffDragDriver = dragDriver
+    f:HookScript("OnHide", function(self) StopBuffDrag(self, false) end)
     for i = 1, #canonical do
         local row = CreateFrame("Frame", nil, f)
         row:SetSize(FRAME_W - 32, BUFF_ROW_H)
 
-        -- Number, icon and name read from the left; the arrows sit on the right
-        -- edge, out of the way of the list itself. A built-in role hides them,
-        -- and because they were never holding left-hand space the rows still
-        -- line up with everything above.
-        local downBtn = UI.CreateArrowButton(row, "Down", ARROW_BTN_SIZE)
-        downBtn:SetPoint("RIGHT", 0, 0)
-        downBtn:SetScript("OnClick", function() MoveBuff(f, i, 1) end)
-        row.downBtn = downBtn
-
-        local upBtn = UI.CreateArrowButton(row, "Up", ARROW_BTN_SIZE)
-        upBtn:SetPoint("RIGHT", downBtn, "LEFT", -2, 0)
-        upBtn:SetScript("OnClick", function() MoveBuff(f, i, -1) end)
-        row.upBtn = upBtn
+        -- Number, icon and name read from the left; the grip sits on the right
+        -- edge, out of the way of the list itself. A built-in role hides it,
+        -- and because it never held left-hand space the rows still line up
+        -- with everything above. The grip only marks the handle: the whole row
+        -- drags.
+        row.grip = {}
+        for col = 0, 1 do
+            for line = -1, 1 do
+                local dot = row:CreateTexture(nil, "ARTWORK")
+                dot:SetSize(3, 3)
+                dot:SetPoint("CENTER", row, "RIGHT", -GRIP_W / 2 - 3 + col * 6, line * 6)
+                dot:SetColorTexture(0.6, 0.6, 0.6, 0.9)
+                row.grip[#row.grip + 1] = dot
+            end
+        end
 
         local index = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         index:SetPoint("LEFT", 0, 0)
@@ -576,7 +638,7 @@ local function EnsureCustomizeFrame()
 
         local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
         label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
-        label:SetPoint("RIGHT", upBtn, "LEFT", -6, 0)
+        label:SetPoint("RIGHT", -(GRIP_W + 6), 0)
         label:SetJustifyH("LEFT")
         row.label = label
 
@@ -592,6 +654,21 @@ local function EnsureCustomizeFrame()
             tooltip:SetHyperlink("spell:" .. buff.spellId)
             return true
         end)
+        row.iconHover = iconHover
+
+        -- The icon takes the mouse for its tooltip, so it drags the row too.
+        for _, handle in ipairs({ row, iconHover }) do
+            handle:EnableMouse(true)
+            handle:RegisterForDrag("LeftButton")
+            -- Grab point taken at the press: OnDragStart waits for a few pixels
+            -- of travel, and measuring then leaves the row trailing the cursor.
+            handle:SetScript("OnMouseDown", function()
+                local _, cursorY = GetCursorPosition()
+                row.grabOffset = row:GetTop() - cursorY / row:GetEffectiveScale()
+            end)
+            handle:SetScript("OnDragStart", function() StartBuffDrag(f, row) end)
+            handle:SetScript("OnDragStop", function() StopBuffDrag(f, true) end)
+        end
 
         f.buffRows[i] = row
     end
@@ -758,7 +835,7 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
     if f.identityEditable then SetRoleControls(f, role.wowRole) end
 
     -- The effective order: the board's override where there is one, the
-    -- defaults otherwise. Copied so the in-window arrows don't mutate the
+    -- defaults otherwise. Copied so dragging in the window doesn't mutate the
     -- stored tables; nothing is persisted until Save.
     local order
     order, f.allowedCount = self:GetEffectiveBuffSetup(roleId)
