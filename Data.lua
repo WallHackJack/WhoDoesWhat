@@ -57,11 +57,11 @@ WhoDoesWhat.Classes = {
             { name = "Survival", icon = 132215, id = "hunter_surv", wowRole = "dps" },
             { name = "Marksmanship", icon = 132222, id = "hunter_mm", wowRole = "dps" }, -- Ability_Marksmanship
             -- A hunter who stands in melee. Spec-wise it is the three above
-            -- (same Beast Mastery icon, same blessing order); what it says is
-            -- where they stand, which is the one thing the raid can't read off
-            -- a talent tree -- and what puts them inside a Battle Shout
-            -- (BattleShoutWantedByRole below).
-            { name = "Melee Hunter", icon = 132164, id = "hunter_melee", wowRole = "dps" }
+            -- (same blessing order); what it says is where they stand, which
+            -- is the one thing the raid can't read off a talent tree -- and
+            -- what puts them inside a Battle Shout (BattleShoutWantedByRole
+            -- below). It wears Raptor Strike's icon to say so.
+            { name = "Melee Hunter", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" }
         },
         categories = {
             { name = "DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm", "hunter_melee" } } -- class icon
@@ -298,6 +298,37 @@ for _, aura in ipairs(WhoDoesWhat.PaladinAuras) do
 end
 WhoDoesWhat.PaladinAuras = knownAuras
 
+-- Hunter aspects for the Buff Checklist's aspect swapper, base-rank ids for
+-- the same reason as the auras above; names and icons resolved at load, and
+-- the view keeps only the ones in your spellbook.
+WhoDoesWhat.HunterAspects = {
+    { key = "hawk",    spellId = 13165 },
+    { key = "monkey",  spellId = 13163 },
+    { key = "cheetah", spellId = 5118 },
+    { key = "pack",    spellId = 13159 },
+    { key = "wild",    spellId = 20043 },
+    { key = "beast",   spellId = 13161 },
+}
+if not features.isClassicEra then
+    -- Aspect of the Viper arrived with TBC.
+    table.insert(WhoDoesWhat.HunterAspects, { key = "viper", spellId = 34074 })
+end
+local knownAspects = {}
+for _, aspect in ipairs(WhoDoesWhat.HunterAspects) do
+    aspect.name = GetSpellInfo(aspect.spellId)
+    aspect.icon = GetSpellTexture(aspect.spellId)
+    if aspect.name then knownAspects[#knownAspects + 1] = aspect end
+end
+WhoDoesWhat.HunterAspects = knownAspects
+
+-- Omen of Clarity: a druid self-buff the talent of the same name grants
+-- (Restoration, tier 3, column 3), so the checklist asks the talent tree.
+WhoDoesWhat.OmenOfClarity = {
+    spellId = 16864,
+    name = GetSpellInfo(16864) or "Omen of Clarity",
+    icon = GetSpellTexture(16864),
+}
+
 -- Righteous Fury: a 30 minute self-buff (not a toggle on these clients), so it
 -- can quietly lapse mid-raid on a tanking paladin.
 WhoDoesWhat.RighteousFury = {
@@ -366,6 +397,10 @@ WhoDoesWhat.WeaponEnchantItems = {
 -- doesn't say battle or guardian. The checklist resolves each item's use-spell
 -- at runtime and matches your auras against that, so no spell ids live here.
 if not features.isClassicEra then
+    -- Pet food that leaves a hunter's pet Well Fed (Kibler's Bits, Sporeling
+    -- Snack), for the pet section's food picker. Kept off the player's own
+    -- food list, whose tooltip scan would otherwise pick them up too.
+    WhoDoesWhat.PetBuffFoodItems = { 33874, 27656 }
     WhoDoesWhat.ElixirItems = {
         battle = {
             22831, 28104, 22824, 22825, 28103, 22833, 22835, 22827, 28102,
@@ -382,6 +417,16 @@ if not features.isClassicEra then
         },
     }
 end
+
+-- Scrolls of Agility and Strength for the Buff Checklist's scroll pickers, by
+-- item id, lowest rank first. Ranks I-IV exist on every client; V and VI are
+-- TBC's, and simply never turn up in an Era player's bags. Their auras share a
+-- name with the Elixir of Agility's and friends, so the checklist tells them
+-- apart by spell id.
+WhoDoesWhat.ScrollItems = {
+    agility = { 3012, 1477, 4425, 10309, 27498, 33457 },
+    strength = { 954, 2289, 4426, 10310, 27503, 33462 },
+}
 
 -- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
 -- rank-independent and include both the single-target and group versions.

@@ -2062,7 +2062,9 @@ end
 --     remaining seconds left on it, or nil,
 --     askName   who a request whispers (assigned paladin, best caster); nil
 --               for a shout, which is asked of the party,
---     selfSupplied  food: nobody to ask, you eat it yourself }
+--     selfSupplied  food: nobody to ask, you eat it yourself,
+--     target    the name key the buff is tracked under (you, or your pet),
+--     className the class that casts it (nil for food) }
 --
 -- Every rule is borrowed rather than restated, so the checklist and the raid
 -- views never disagree about you:
@@ -2073,26 +2075,47 @@ end
 --   shouts       Battle Shout when your role wants it and your party has a
 --                warrior; Commanding Shout once it has two. A lone warrior
 --                who is you covers whichever shout your Shout Bar picked.
-local function GetPlayerBuffChecklist()
+--
+-- With `forPet` the same list is built for the local hunter's pet instead,
+-- keyed "<You>'s Pet" like everywhere else: its planned blessings, the class
+-- buffs and food whose check includes hunter pets, and the shouts a pet wants.
+-- Every id is prefixed "pet:" so it never collides with your own. Returns nil
+-- when there is no pet out, or it is dead.
+local function BuildBuffChecklist(forPet)
     local me = UnitName("player")
     local member = me and FindMember(me)
     local entries = {}
     if not member or WhoDoesWhat:IsNonRaider(me) then return entries end
+    local target, prefix = me, ""
+    if forPet then
+        -- A dead pet reads as no pet: nothing on it can be fixed until it is
+        -- revived, which is the same job as summoning one. So does a Steam
+        -- Tonk (IsIgnoredPetName, Core.lua): it sits in the pet slot while
+        -- the real pet is still to be called.
+        if not UnitExists("pet") or UnitIsDead("pet")
+            or WhoDoesWhat:IsIgnoredPetName(GetUnitName("pet", true)) then
+            return nil
+        end
+        target, prefix = me .. "'s Pet", "pet:"
+        member = { name = target, owner = me, classInfo = member.classInfo,
+            isPet = true }
+    end
     local disconnected = DisconnectedGroupTargets()
 
     local paladinOptions = WhoDoesWhat:GetStatusBarCheckOptions("paladinBuffs")
     if paladinOptions and (paladinOptions.bar or paladinOptions.grid) then
-        local cells = GetActivePaladinBuffPlan().grid[me]
+        local cells = GetActivePaladinBuffPlan().grid[target]
         for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
             for paladin, planned in pairs(cells or {}) do
                 local buff = WhoDoesWhat.PaladinBuffs[key]
                 if planned == key and buff then
-                    local has = WhoDoesWhat:HasBuff(me, key)
+                    local has = WhoDoesWhat:HasBuff(target, key)
                     entries[#entries + 1] = {
-                        id = "blessing:" .. key, key = key,
+                        id = prefix .. "blessing:" .. key, key = key, target = target,
+                        className = "Paladin",
                         name = "Blessing of " .. buff.name_long,
                         icon = buff.icon, has = has, missing = has == false,
-                        remaining = WhoDoesWhat:GetBuffTimeRemaining(me, key),
+                        remaining = WhoDoesWhat:GetBuffTimeRemaining(target, key),
                         askName = paladin ~= me and paladin or nil,
                     }
                 end
@@ -2107,24 +2130,25 @@ local function GetPlayerBuffChecklist()
         if (buff.className or buff.selfSupplied)
             and not buff.customOptions and not buff.customCoverage
             and not options.negative and (options.bar or options.grid)
+            and (not forPet or options.hunterPets)
             and (not options.requiredClass or HasMemberOfClass(options.requiredClass))
             and not (buff.requiredTalent and options.requiredClass == buff.className
                 and not CoreBuffProviderReach(buff, key, disconnected))
             and IsEligibleCoreBuffTarget(member, buff, options, disconnected) then
-            local has = WhoDoesWhat:HasBuff(me, key)
+            local has = WhoDoesWhat:HasBuff(target, key)
             local missing, note = has == false, nil
             if has == true then
                 local bestRank = options.bestAvailable
                     and not (options.anyInCombat and anyContext)
                     and BestAvailableCoreBuffRank(buff, key, disconnected) or nil
                 if bestRank and bestRank > 0 then
-                    local _, _, rank = WhoDoesWhat:GetImprovedBuffState(me, key)
+                    local _, _, rank = WhoDoesWhat:GetImprovedBuffState(target, key)
                     if not (rank and rank >= bestRank) then
                         missing, note = true, "A better-talented caster is here."
                     end
                 end
                 if options.flagOutsideRaid
-                    and WhoDoesWhat:IsBuffFromOutsideRaid(me, key) then
+                    and WhoDoesWhat:IsBuffFromOutsideRaid(target, key) then
                     missing, note = true, "Cast from outside the raid; the pull strips it."
                 end
             end
@@ -2138,9 +2162,11 @@ local function GetPlayerBuffChecklist()
                 end
             end
             entries[#entries + 1] = {
-                id = "buff:" .. key, key = key, name = buff.gridName or buff.name,
+                id = prefix .. "buff:" .. key, key = key, target = target,
+                className = options.requiredClass or buff.className,
+                name = buff.gridName or buff.name,
                 icon = buff.icon, has = has, missing = missing, note = note,
-                remaining = WhoDoesWhat:GetBuffTimeRemaining(me, key),
+                remaining = WhoDoesWhat:GetBuffTimeRemaining(target, key),
                 askName = askName ~= me and askName or nil,
                 selfSupplied = buff.selfSupplied,
             }
@@ -2164,17 +2190,21 @@ local function GetPlayerBuffChecklist()
     end
     for _, shout in ipairs(shouts) do
         if shout.everyone or WhoDoesWhat:WantsBattleShout(member) then
-            local has = WhoDoesWhat:HasBuff(me, shout.key)
+            local has = WhoDoesWhat:HasBuff(target, shout.key)
             entries[#entries + 1] = {
-                id = "shout:" .. shout.key, key = shout.key, name = shout.name,
+                id = prefix .. "shout:" .. shout.key, key = shout.key,
+                target = target, name = shout.name, className = "Warrior",
                 icon = shout.icon, has = has, missing = has == false,
-                remaining = WhoDoesWhat:GetBuffTimeRemaining(me, shout.key),
+                remaining = WhoDoesWhat:GetBuffTimeRemaining(target, shout.key),
                 isShout = true,
             }
         end
     end
     return entries
 end
+
+local function GetPlayerBuffChecklist() return BuildBuffChecklist(false) end
+local function GetPetBuffChecklist() return BuildBuffChecklist(true) end
 
 -- The plan aggregated per paladin: how many raiders each paladin blesses
 -- with each buff. Returns an array of
@@ -2840,6 +2870,7 @@ WhoDoesWhat.Assign = {
     ComputeCoreRaidBuffCoverage = ComputeCoreRaidBuffCoverage,
     ComputeCoreBuffProviders = ComputeCoreBuffProviders,
     GetPlayerBuffChecklist = GetPlayerBuffChecklist,
+    GetPetBuffChecklist = GetPetBuffChecklist,
     ComputePaladinBuffSummary = ComputePaladinBuffSummary,
     GetPaladinBuffJobs = GetPaladinBuffJobs,
     CollectPaladinBuffWhispers = CollectPaladinBuffWhispers,

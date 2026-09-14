@@ -1440,7 +1440,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             description = "Puts every option on this page back and re-centres the"
                 .. " shout bar -- for the settings you are editing now only.",
             reset = WithReload(function() WhoDoesWhat:ResetShoutBarSettings() end) },
-        { label = "Checklist", title = "Buff Checklist",
+        { label = "Checklist", title = "Buff Checklist (Beta)",
             description = "Puts every option on this page back and re-centres the"
                 .. " checklist.",
             reset = WithReload(function() WhoDoesWhat:ResetBuffChecklistSettings() end) },
@@ -2555,7 +2555,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     yL = AddPageDivider(checklistPage, yL, "Checklist")
     local checklistEnableLabel
     f.checklistEnableCheck, yL, checklistEnableLabel = AddCompactCheckboxRow(
-        checklistPage, PAGE_X, yL, "Enable Buff Checklist",
+        checklistPage, PAGE_X, yL, "Enable Buff Checklist (Beta)",
         "Shows the checklist whenever there is a buff you should have.",
         function(value)
             checklistSettings().buffChecklistEnabled = value
@@ -2582,8 +2582,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end
     end)
     UI.AddDropdownTooltip(checklistAlignDD, checklistAlignLabel, "Align",
-        "Which side of the checklist stays put as buffs come and go, and which"
-        .. " side a short last row lines up against.")
+        "Which side of the checklist stays put as buffs come and go. On Right"
+        .. " the grid starts from the top-right corner and fills leftwards.")
     f.checklistAlignDD = checklistAlignDD
 
     local columnRange = WhoDoesWhat.BUFF_CHECKLIST_COLUMNS
@@ -2629,6 +2629,16 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:RefreshBuffChecklist()
         end)
 
+    f.checklistHideOthersCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Hide other classes' buffs I have",
+        "Hides a buff another class casts on you (blessings, Fortitude, shouts)"
+        .. " while it's up, and brings it back when it drops or is about to."
+        .. " Your own class's buffs, food, elixirs and weapons stay.",
+        function(value)
+            checklistSettings().buffChecklistHideOthersHave = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
     -- Classic Era has no battle/guardian elixir split, so no row for it.
     if WhoDoesWhat.ElixirItems then
         f.checklistElixirsCheck, yL = AddCompactCheckboxRow(checklistPage,
@@ -2641,6 +2651,16 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             end)
     end
 
+    f.checklistScrollsCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Track scrolls",
+        "For physical damage roles, adds a Scroll of Agility and a Scroll of"
+        .. " Strength icon. Click one to pick the rank to read. This character"
+        .. " only.",
+        function(value)
+            WhoDoesWhat.db.char.buffChecklistScrolls = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
     f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, "Track weapon enchants",
         "Adds an icon per weapon you wield for its oil, stone or poison. Click"
@@ -2650,6 +2670,69 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat.db.char.buffChecklistWeapons = value
             WhoDoesWhat:RefreshBuffChecklist()
         end)
+
+    -- The status bars' highlight styles, in the checklist's own two colours.
+    yL = AddNextPageDivider(checklistPage, yL, "Highlight")
+    -- One threshold, two tells, as on the Paladin Bar: the countdown over an
+    -- icon and its expiring glow.
+    local checklistWarnLabel, checklistWarnDD
+    checklistWarnLabel, checklistWarnDD, yL = AddDropdownRow(checklistPage, yL,
+        "Warn below:", "WhoDoesWhatBuffChecklistWarnDD")
+    local function ChecklistWarnLabel(minutes)
+        return minutes .. (minutes == 1 and " minute" or " minutes")
+    end
+    UIDropDownMenu_Initialize(checklistWarnDD, function(_, level)
+        local saved = WhoDoesWhat:GetBuffChecklistWarnMinutes()
+        for _, minutes in ipairs(WhoDoesWhat.BuffingWarnMinutes) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = ChecklistWarnLabel(minutes)
+            info.checked = (saved == minutes)
+            info.func = function()
+                checklistSettings().buffChecklistWarnMinutes = minutes
+                UIDropDownMenu_SetText(checklistWarnDD, ChecklistWarnLabel(minutes))
+                WhoDoesWhat:RefreshBuffChecklist()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UI.AddDropdownTooltip(checklistWarnDD, checklistWarnLabel, "Warn below",
+        "How close to dropping a buff gets before its icon glows in the"
+        .. " expiring color and counts down.")
+    f.RefreshChecklistWarn = function()
+        UIDropDownMenu_SetText(checklistWarnDD,
+            ChecklistWarnLabel(WhoDoesWhat:GetBuffChecklistWarnMinutes()))
+    end
+
+    f.RefreshChecklistHighlight, yL = AddHighlightControls(checklistPage,
+        PAGE_X, yL, {
+            name = "WhoDoesWhatBuffChecklistHighlightDD",
+            tooltip = "The animation a checklist icon wears while that buff"
+                .. " is missing or about to drop -- the box to the right shows"
+                .. " it running.",
+            GetStyle = function()
+                return checklistSettings().buffChecklistGlowStyle
+            end,
+            SetStyle = function(key)
+                checklistSettings().buffChecklistGlowStyle = key
+            end,
+            colors = {
+                {
+                    label = "Missing color:",
+                    tooltip = "The color an icon glows while its buff is"
+                        .. " missing, or isn't the one you picked. Right-click"
+                        .. " the swatch to reset it.",
+                    key = "buffChecklistGlowMissingColor",
+                },
+                {
+                    label = "Expiring color:",
+                    tooltip = "The color an icon glows, and its countdown"
+                        .. " reads in, once its buff is inside the warning"
+                        .. " time above. Right-click the swatch to reset it.",
+                    key = "buffChecklistGlowExpiringColor",
+                },
+            },
+            OnChange = function() WhoDoesWhat:RefreshBuffChecklist() end,
+        })
 
     -- ---- Developer ----
     local developerPage = pages.Developer
@@ -2874,11 +2957,15 @@ function LoadSettings(f)
     f.SetShoutControlsEnabled(shout.enabled and true or false)
     f.checklistEnableCheck:SetChecked(settings.buffChecklistEnabled)
     f.checklistHideHaveCheck:SetChecked(settings.buffChecklistHideHave)
+    f.checklistHideOthersCheck:SetChecked(settings.buffChecklistHideOthersHave)
     f.checklistHeaderCheck:SetChecked(settings.buffChecklistShowHeader)
     f.checklistWeaponsCheck:SetChecked(self.db.char.buffChecklistWeapons)
+    f.RefreshChecklistWarn()
+    f.RefreshChecklistHighlight()
     if f.checklistElixirsCheck then
         f.checklistElixirsCheck:SetChecked(self.db.char.buffChecklistElixirs)
     end
+    f.checklistScrollsCheck:SetChecked(self.db.char.buffChecklistScrolls)
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
     f.RefreshChecklistColumns()

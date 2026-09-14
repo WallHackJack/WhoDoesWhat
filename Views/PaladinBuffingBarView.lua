@@ -1296,6 +1296,18 @@ local function CastableAuras()
     return out
 end
 
+-- The same filter for the Buff Checklist's aura swapper, without test mode:
+-- the checklist only ever offers one to a real paladin.
+function WhoDoesWhat:GetKnownPaladinAuras()
+    local out = {}
+    for _, aura in ipairs(AURAS) do
+        if GetSpellInfo(aura.name) and TalentGrantsAura(aura) then
+            out[#out + 1] = aura
+        end
+    end
+    return out
+end
+
 -- Where the saved choice lands in the current castable list. A respec or a
 -- level-up reorders it, and a no-longer-known aura falls back to the first.
 local function SelectedAuraStep(auras)

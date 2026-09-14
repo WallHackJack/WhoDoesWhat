@@ -14,9 +14,21 @@ local Assign = WhoDoesWhat.Assign
 -- supply, so instead they carry a picker -- the "trundle": left-click opens it
 -- to choose which food, elixir, flask, oil, stone or poison from your bags,
 -- and right-click uses that choice (eats or drinks it, or applies it to that
--- weapon). Flasks are offered for both elixir slots and fill both. A weapon can also be told to
+-- weapon). Flasks are offered for both elixir slots and fill both. Physical
+-- damage roles also get a Scroll of Agility and a Scroll of Strength slot,
+-- each picking a rank. An elixir or scroll that is up but isn't the pick wears
+-- the expiring glow. A weapon can also be told to
 -- stay bare, for melee hoping for Windfury: right-click then strips whatever
--- enchant is on it, and Windfury itself counts as bare.
+-- enchant is on it, and Windfury itself counts as bare. A picked consumable's
+-- icon carries how many are left in its corner.
+--
+-- A paladin gets an aura swapper and a hunter an aspect swapper: left-click
+-- opens a secure menu where picking one casts it, right-click recasts the
+-- pick. A druid with the talent gets Omen of Clarity, right-click to cast.
+--
+-- A hunter's grid gains a second section for the pet (Assign.
+-- GetPetBuffChecklist) under a divider reading "Pet (covered/total)", or a red
+-- "Pet Not Summoned". Clicking the divider collapses the pet's icons.
 --
 -- Right-click using an item is a protected action, so the grid's icons are
 -- secure buttons. That brings the Shout Bar's combat discipline with it: a
@@ -31,6 +43,10 @@ local Assign = WhoDoesWhat.Assign
 
 local frame = nil
 local picker = nil
+-- Set by the loader at the bottom of the file: a refresh a moment from now.
+local RequestChecklistRefresh = nil
+local swapMenu = nil
+local divider = nil
 
 local INSET = 3
 local PAD = 3
@@ -41,11 +57,42 @@ local TITLE_TEXT_PAD = 6
 WhoDoesWhat.BUFF_CHECKLIST_ICON_SIZE = { min = 16, max = 64, default = 28 }
 WhoDoesWhat.BUFF_CHECKLIST_COLUMNS = { min = 1, max = 12, default = 6 }
 
--- A buff this close to dropping glows blue and counts down on its icon.
-local EXPIRING_SECONDS = 60
-local GLOW_STYLE = "flash"
+-- A buff this close to dropping glows in the expiring colour and counts down
+-- on its icon. Minutes, from the same choices as the Paladin Bar's "Warn
+-- below" (BuffingWarnMinutes); 6 unless set.
+local DEFAULT_WARN_MINUTES = 6
+
+function WhoDoesWhat:GetBuffChecklistWarnMinutes()
+    local saved = self.db.profile.settings.buffChecklistWarnMinutes
+    for _, minutes in ipairs(self.BuffingWarnMinutes) do
+        if minutes == saved then return saved end
+    end
+    return DEFAULT_WARN_MINUTES
+end
+
+local function WarnSeconds()
+    return WhoDoesWhat:GetBuffChecklistWarnMinutes() * 60
+end
+
+-- The glow is the status bars' highlight styles in this checklist's own two
+-- colours, all three settings. These are only reached if one has gone missing
+-- from the profile. "Missing" is a buff that wants fixing; "expiring" is one
+-- inside the warning time above.
+local DEFAULT_GLOW_STYLE = "flash"
 local MISSING_GLOW_COLOR = { r = 0.949, g = 0.71, b = 0 }
 local EXPIRING_GLOW_COLOR = { r = 0.157, g = 0.561, b = 1 }
+
+function WhoDoesWhat:GetBuffChecklistGlowStyle()
+    return self.db.profile.settings.buffChecklistGlowStyle or DEFAULT_GLOW_STYLE
+end
+
+function WhoDoesWhat:GetBuffChecklistGlowColor(which)
+    local settings = self.db.profile.settings
+    if which == "expiring" then
+        return settings.buffChecklistGlowExpiringColor or EXPIRING_GLOW_COLOR
+    end
+    return settings.buffChecklistGlowMissingColor or MISSING_GLOW_COLOR
+end
 local TIMER_FONT_RATIO = 16 / 28
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 
@@ -69,7 +116,8 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Left or Right: which top corner holds still as the grid changes width, and
--- which side a short last row hugs. Encoded as the saved anchor point, like
+-- which corner the grid starts from (Right mirrors it, filling leftwards from
+-- the top-right). Encoded as the saved anchor point, like
 -- the Shout Bar's anchor, so a stored position describes itself.
 local ALIGN_POINTS = { LEFT = "TOPLEFT", RIGHT = "TOPRIGHT" }
 WhoDoesWhat.BuffChecklistAligns = {
@@ -79,7 +127,7 @@ WhoDoesWhat.BuffChecklistAligns = {
 
 function WhoDoesWhat:GetBuffChecklistAlign()
     local align = self.db.profile.settings.buffChecklistAlign
-    return ALIGN_POINTS[align] and align or "LEFT"
+    return ALIGN_POINTS[align] and align or "RIGHT"
 end
 
 function WhoDoesWhat:GetBuffChecklistAlignLabel(align)
@@ -190,85 +238,149 @@ local function IsBuffFood(id, bag, slot)
     return buffFood[id] == true
 end
 
--- The two elixir slots (TBC only; ElixirItems is nil on Classic Era). Each
--- picker lists its own category plus flasks, which fill both.
+-- The consumable slots that fill from an aura: two elixir slots (TBC only;
+-- ElixirItems is nil on Classic Era), whose pickers list their own category
+-- plus flasks, which fill both; and two scroll slots (ScrollItems), one per
+-- scroll family, each picker listing that family's ranks.
 local ELIXIR_SLOTS = {
     { key = "battleElixir", category = "battle", name = "Battle Elixir",
       defaultIcon = 22831 }, -- Elixir of Major Agility
     { key = "guardianElixir", category = "guardian", name = "Guardian Elixir",
       defaultIcon = 32067 }, -- Elixir of Draenic Wisdom
 }
+-- petKey is the pick for the pet section's copy of the slot.
+local SCROLL_SLOTS = {
+    { key = "agilityScroll", petKey = "petAgilityScroll", category = "agility",
+      name = "Scroll of Agility", defaultIcon = 3012 }, -- Scroll of Agility
+    { key = "strengthScroll", petKey = "petStrengthScroll", category = "strength",
+      name = "Scroll of Strength", defaultIcon = 954 }, -- Scroll of Strength
+}
 
--- item id -> "battle" / "guardian" / "flask", and per picker which ids it
--- offers.
-local elixirCategory, elixirChoices = {}, {}
+-- item id -> category ("battle" / "guardian" / "flask" / "agility" /
+-- "strength"), and per picker which ids it offers.
+local consumableCategory, consumableChoices = {}, {}
 for category, ids in pairs(WhoDoesWhat.ElixirItems or {}) do
-    for _, id in ipairs(ids) do elixirCategory[id] = category end
+    for _, id in ipairs(ids) do consumableCategory[id] = category end
 end
-for _, slot in ipairs(ELIXIR_SLOTS) do
-    elixirChoices[slot.key] = {}
-    for id, category in pairs(elixirCategory) do
-        if category == slot.category or category == "flask" then
-            elixirChoices[slot.key][id] = true
+for category, ids in pairs(WhoDoesWhat.ScrollItems or {}) do
+    for _, id in ipairs(ids) do consumableCategory[id] = category end
+end
+for _, slots in ipairs({ ELIXIR_SLOTS, SCROLL_SLOTS }) do
+    for _, slot in ipairs(slots) do
+        consumableChoices[slot.key] = {}
+        for id, category in pairs(consumableCategory) do
+            if category == slot.category
+                or (category == "flask" and slots == ELIXIR_SLOTS) then
+                consumableChoices[slot.key][id] = true
+            end
         end
+        if slot.petKey then consumableChoices[slot.petKey] = consumableChoices[slot.key] end
     end
 end
 
--- An elixir's aura is its use-spell, so the category of an aura on you is
--- found by resolving each listed item's spell. Item data loads on demand,
--- so ids not answered yet are asked for again on the next pass.
-local elixirBySpellId, elixirBySpellName = {}, {}
-local unresolvedElixirs = {}
-for id in pairs(elixirCategory) do unresolvedElixirs[id] = true end
+-- A consumable's aura is its use-spell, so the category of an aura on you is
+-- found by resolving each listed item's spell. Item data loads on demand, so
+-- ids not answered yet are asked for again on the next pass.
+--
+-- Matched by spell id. Names are only a fallback for a client that hands out
+-- no ids, because they collide: Elixir of Agility's aura and every Scroll of
+-- Agility's are all just "Agility", which is how scrolls were landing in the
+-- battle elixir slot.
+local consumableBySpellId, consumableBySpellName = {}, {}
+local unresolvedConsumables = {}
+for id in pairs(consumableCategory) do unresolvedConsumables[id] = true end
 
-local function ResolveElixirSpells()
-    for id in pairs(unresolvedElixirs) do
+local function ResolveConsumableSpells()
+    for id in pairs(unresolvedConsumables) do
         local name, spellId = GetItemSpell(id)
         if name then
-            elixirBySpellName[name] = elixirCategory[id]
-            if spellId then elixirBySpellId[spellId] = elixirCategory[id] end
-            unresolvedElixirs[id] = nil
+            consumableBySpellName[name] = consumableCategory[id]
+            if spellId then consumableBySpellId[spellId] = consumableCategory[id] end
+            unresolvedConsumables[id] = nil
         elseif C_Item and C_Item.RequestLoadItemDataByID then
             C_Item.RequestLoadItemDataByID(id)
         end
     end
 end
 
--- The battle-slot and guardian-slot elixir on you, each { name, icon,
--- remaining } or nil. A flask answers for both.
+-- Your own buffs (or your pet's, with unit "pet"), scanned once per pass for
+-- everything here that BuffTracking doesn't follow (elixirs, scrolls, aura,
+-- aspect, Omen of Clarity): an array of { name, icon, remaining, spellId },
+-- plus the same records by name.
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
-local function ActiveElixirs()
-    if next(unresolvedElixirs) then ResolveElixirSpells() end
-    local battle, guardian
+local function OwnBuffs(unit)
+    unit = unit or "player"
+    local list, byName = {}, {}
     for i = 1, 40 do
         local name, icon, expirationTime, spellId
         if GetBuffDataByIndex then
-            local aura = GetBuffDataByIndex("player", i)
+            local aura = GetBuffDataByIndex(unit, i)
             if not aura then break end
             name, icon, expirationTime, spellId =
                 aura.name, aura.icon, aura.expirationTime, aura.spellId
         else
             local _
-            name, icon, _, _, _, expirationTime, _, _, _, spellId = UnitBuff("player", i)
+            name, icon, _, _, _, expirationTime, _, _, _, spellId = UnitBuff(unit, i)
             if not name then break end
         end
-        local category = spellId and elixirBySpellId[spellId]
-            or elixirBySpellName[name]
-        if category then
-            local found = {
-                name = name, icon = icon,
-                remaining = expirationTime and expirationTime > 0
-                    and expirationTime - GetTime() or nil,
-            }
-            if category ~= "guardian" then battle = found end
-            if category ~= "battle" then guardian = found end
-        end
+        local buff = {
+            name = name, icon = icon, spellId = spellId,
+            remaining = expirationTime and expirationTime > 0
+                and expirationTime - GetTime() or nil,
+        }
+        list[#list + 1] = buff
+        byName[name] = buff
     end
-    return battle, guardian
+    return list, byName
 end
 
+-- category -> the OwnBuffs record filling it. A flask fills both "battle"
+-- and "guardian".
+local function ActiveConsumables(buffs)
+    if next(unresolvedConsumables) then ResolveConsumableSpells() end
+    local byIds = next(consumableBySpellId) ~= nil
+    local active = {}
+    for _, buff in ipairs(buffs) do
+        local category
+        if buff.spellId and byIds then
+            category = consumableBySpellId[buff.spellId]
+        else
+            category = consumableBySpellName[buff.name]
+        end
+        if category == "flask" then
+            active.battle, active.guardian = buff, buff
+        elseif category then
+            active[category] = buff
+        end
+    end
+    return active
+end
+
+-- The swapper a class gets: one self-buff out of a set, where picking one
+-- casts it. `List` is what this character can cast right now.
+local SWAPPERS = {
+    PALADIN = {
+        key = "aura", name = "Aura", noun = "aura",
+        List = function() return WhoDoesWhat:GetKnownPaladinAuras() end,
+    },
+    HUNTER = {
+        key = "aspect", name = "Aspect", noun = "aspect",
+        List = function()
+            local out = {}
+            for _, aspect in ipairs(WhoDoesWhat.HunterAspects) do
+                if GetSpellInfo(aspect.name) then out[#out + 1] = aspect end
+            end
+            return out
+        end,
+    },
+}
+
+local petFoodItems = {}
+for _, id in ipairs(WhoDoesWhat.PetBuffFoodItems or {}) do petFoodItems[id] = true end
+
 -- Distinct item ids in your bags a picker offers, by name. `kind` is "food",
--- an elixir slot key, or a weapon slot key for the weapon enchant list.
+-- "petFood", an elixir slot key, or a weapon slot key for the weapon enchant
+-- list.
 local function BagChoices(kind)
     local seen, out = {}, {}
     for bag = 0, NUM_BAG_SLOTS do
@@ -277,10 +389,12 @@ local function BagChoices(kind)
             if id and not seen[id] then
                 seen[id] = true
                 local wanted
-                if kind == "food" then
-                    wanted = IsBuffFood(id, bag, slot)
-                elseif elixirChoices[kind] then
-                    wanted = elixirChoices[kind][id]
+                if kind == "petFood" then
+                    wanted = petFoodItems[id]
+                elseif kind == "food" then
+                    wanted = not petFoodItems[id] and IsBuffFood(id, bag, slot)
+                elseif consumableChoices[kind] then
+                    wanted = consumableChoices[kind][id]
                 else
                     wanted = weaponItems[id] and GetItemSpell(id) ~= nil
                 end
@@ -334,19 +448,55 @@ local function ApplyPick(entry, pick)
     entry.icon = GetItemIcon(pick) or entry.icon
 end
 
+-- Grid order: what you cast on yourself (aura, aspect, Omen of Clarity), then
+-- weapon enchants, food, elixirs, scrolls, blessings, and everything else
+-- (class buffs, shouts). Within a group the order things were collected in
+-- stands, so main hand stays ahead of off hand.
+local function EntryGroup(entry)
+    if entry.swap or entry.castSpell then return 1 end
+    if entry.slot then return 2 end
+    if entry.key == "food" then return 3 end
+    if entry.id:find("elixir:", 1, true) then return 4 end
+    if entry.id:find("scroll:", 1, true) then return 5 end
+    if entry.id:find("blessing:", 1, true) then return 6 end
+    return 7
+end
+
+local function SortEntries(list)
+    for i, entry in ipairs(list) do
+        entry.sortGroup, entry.sortIndex = EntryGroup(entry), i
+    end
+    table.sort(list, function(a, b)
+        if a.sortGroup ~= b.sortGroup then return a.sortGroup < b.sortGroup end
+        return a.sortIndex < b.sortIndex
+    end)
+end
+
+-- Whether this druid has Omen of Clarity; nil until asked.
+local omenTalented = nil
+
+local function IsHunter()
+    local _, class = UnitClass("player")
+    return class == "HUNTER"
+end
+
 -- The model's list plus what only this character's bags and gear can say: the
 -- picked food on the food entry, a battle and a guardian elixir, and one
 -- entry per wielded weapon.
 --
 -- Extra fields on those entries:
---   pick      "food" / an elixir slot key / "mainHand" / "offHand": left-click
---             opens a picker
+--   pick      "food" / "petFood" / an elixir slot key / "mainHand" /
+--             "offHand": left-click opens a picker
 --   pickNoun, useVerb   how the tooltip names the pick and its right-click
 --   useItem   the picked item id, useCount how many are in your bags
 --   activeName          the elixir or flask on you, when it isn't the pick
 --   slot, hand     the weapon's inventory slot and enchant hand
 --   bare      the weapon is meant to stay unenchanted; enchanted / windfury
 --             say what is on it
+--   forPet    one of the pet section's entries
+--
+-- Returns your entries, then the pet's: nil for anyone but a hunter, false
+-- for a hunter with no pet out, otherwise the pet's list.
 local function CollectEntries()
     local entries = Assign.GetPlayerBuffChecklist()
     local picks = Picks()
@@ -357,31 +507,126 @@ local function CollectEntries()
         end
     end
 
-    if WhoDoesWhat.ElixirItems and WhoDoesWhat.db.char.buffChecklistElixirs then
-        local battle, guardian = ActiveElixirs()
-        for _, slot in ipairs(ELIXIR_SLOTS) do
-            local active = slot.category == "battle" and battle or guardian
-            local entry = {
-                id = "elixir:" .. slot.key, key = slot.key, pick = slot.key,
-                pickNoun = "elixir", useVerb = "Drink",
-                name = slot.name, selfSupplied = true,
-                has = active ~= nil, missing = active == nil,
-                remaining = active and active.remaining,
-                activeName = active and active.name,
-                icon = active and active.icon or GetItemIcon(slot.defaultIcon),
-            }
-            ApplyPick(entry, picks[slot.key])
-            -- What is on you outranks what you would drink next.
-            if active and active.icon then entry.icon = active.icon end
-            entries[#entries + 1] = entry
+    local pet = nil
+    if IsHunter() then
+        pet = Assign.GetPetBuffChecklist() or false
+        for _, entry in ipairs(pet or {}) do
+            entry.forPet = true
+            if entry.key == "food" then
+                entry.name = "Pet Food"
+                entry.pick, entry.pickNoun, entry.useVerb = "petFood", "pet food", "Feed"
+                ApplyPick(entry, picks.petFood)
+            end
         end
     end
 
-    if not WhoDoesWhat.db.char.buffChecklistWeapons then return entries end
+    local buffs, buffsByName = OwnBuffs()
+    local _, class = UnitClass("player")
 
-    local states = { WeaponEnchantState() }
+    -- Aura (paladin) or aspect (hunter): shows what is running, glows while
+    -- that isn't the one you picked. Nothing picked yet adopts what is up.
+    local swapper = SWAPPERS[class]
+    local swapOptions = swapper and swapper.List() or {}
+    if #swapOptions > 0 then
+        local running, selected
+        for _, option in ipairs(swapOptions) do
+            if buffsByName[option.name] then running = option end
+            if option.key == picks[swapper.key] then selected = option end
+        end
+        selected = selected or running
+        local entry = {
+            id = "swap:" .. swapper.key, key = swapper.key, swap = swapper,
+            swapOptions = swapOptions, name = swapper.name, selfSupplied = true,
+            running = running, selected = selected,
+            has = running ~= nil and running == selected,
+            icon = (running or selected or swapOptions[1]).icon,
+        }
+        entry.missing = not entry.has
+        entries[#entries + 1] = entry
+    end
+
+    -- Omen of Clarity, for a druid with the talent that grants it. Asked by
+    -- name, like the Paladin Bar's talent auras, and remembered until the
+    -- spellbook changes (SPELLS_CHANGED on the loader).
+    local omen = WhoDoesWhat.OmenOfClarity
+    if class == "DRUID" and omenTalented == nil then
+        omenTalented = (WhoDoesWhat:GetOwnTalentRankByName(omen.name) or 0) > 0
+    end
+    if class == "DRUID" and omenTalented then
+        local buff = buffsByName[omen.name]
+        entries[#entries + 1] = {
+            id = "self:omen", key = "omen", name = omen.name, icon = omen.icon,
+            selfSupplied = true, castSpell = omen.name,
+            has = buff ~= nil, missing = buff == nil,
+            remaining = buff and buff.remaining,
+        }
+    end
+
+    local consumables = ActiveConsumables(buffs)
+    local petConsumables = pet and ActiveConsumables((OwnBuffs("pet"))) or {}
+    -- `forPet` builds the pet's copy of a slot: its own pick (slot.petKey),
+    -- read off the pet's auras, and added to the pet's list.
+    local function AddConsumableSlot(slot, prefix, noun, verb, forPet)
+        local active = (forPet and petConsumables or consumables)[slot.category]
+        local pickKey = forPet and slot.petKey or slot.key
+        local entry = {
+            id = prefix .. slot.key, key = pickKey, pick = pickKey,
+            pickNoun = noun, useVerb = verb, forPet = forPet,
+            -- A pet scroll is read onto the pet (unit2), not onto you.
+            useUnit = forPet and "pet" or nil,
+            name = slot.name, selfSupplied = true,
+            has = active ~= nil, missing = active == nil,
+            remaining = active and active.remaining,
+            activeName = active and active.name,
+            icon = active and active.icon or GetItemIcon(slot.defaultIcon),
+        }
+        ApplyPick(entry, picks[pickKey])
+        -- What is on you outranks what you would drink next.
+        if active and active.icon then entry.icon = active.icon end
+        -- Up, but not the one picked -- another elixir, a lower scroll rank.
+        -- The slot is full so it isn't missing, but it glows as expiring: it
+        -- wants replacing. Compared by spell id where both have one, since a
+        -- scroll's ranks all share a name.
+        if active and entry.useItem then
+            local pickedName, pickedSpellId = GetItemSpell(entry.useItem)
+            if pickedSpellId and active.spellId then
+                entry.otherActive = pickedSpellId ~= active.spellId
+            elseif pickedName then
+                entry.otherActive = pickedName ~= active.name
+            end
+        end
+        local list = forPet and pet or entries
+        list[#list + 1] = entry
+    end
+
+    if WhoDoesWhat.ElixirItems and WhoDoesWhat.db.char.buffChecklistElixirs then
+        for _, slot in ipairs(ELIXIR_SLOTS) do
+            AddConsumableSlot(slot, "elixir:", "elixir", "Drink")
+        end
+    end
+
+    -- Scrolls of Agility and Strength, for the physical damage roles: whoever
+    -- the raid would give Battle Shout, plus every hunter (whose ranged roles
+    -- don't stand in a shout, but do want the agility).
+    local member = Assign.FindMember(UnitName("player"))
+    if WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls
+        and member and (class == "HUNTER" or WhoDoesWhat:WantsBattleShout(member)) then
+        for _, slot in ipairs(SCROLL_SLOTS) do
+            AddConsumableSlot(slot, "scroll:", "scroll", "Read")
+        end
+    end
+    -- And the pet's: a scroll reads onto a friendly target, and every hunter
+    -- pet fights in melee.
+    if pet and WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls then
+        for _, slot in ipairs(SCROLL_SLOTS) do
+            AddConsumableSlot(slot, "pet:scroll:", "scroll", "Read", true)
+        end
+    end
+
+    local weapons = WhoDoesWhat.db.char.buffChecklistWeapons
+    local states = weapons and { WeaponEnchantState() }
     for _, weapon in ipairs(WEAPON_SLOTS) do
-        if WieldsWeapon(weapon.slot) then
+        if weapons and WieldsWeapon(weapon.slot) then
             local state = states[weapon.hand]
             local enchanted = state[1] and true or false
             local pick = picks[weapon.key]
@@ -407,7 +652,9 @@ local function CollectEntries()
             entries[#entries + 1] = entry
         end
     end
-    return entries
+    SortEntries(entries)
+    if pet then SortEntries(pet) end
+    return entries, pet
 end
 
 -- ---------------------------------------------------------------------------
@@ -428,7 +675,8 @@ local function AskFor(entry)
         return
     end
     lastRequest[entry.id] = now
-    local text = "[WhoDoesWhat] " .. entry.name .. " please!"
+    local text = "[WhoDoesWhat] " .. entry.name
+        .. (entry.forPet and " on my pet please!" or " please!")
     if entry.isShout then
         if IsInGroup() then
             SendChatMessage(text, "PARTY")
@@ -459,10 +707,15 @@ local PICKER_ROW_H = 20
 local PICKER_TITLES = {
     food = "Food", mainHand = "Main Hand", offHand = "Off Hand",
     battleElixir = "Battle Elixir", guardianElixir = "Guardian Elixir",
+    petFood = "Pet Food",
+    agilityScroll = "Scroll of Agility", strengthScroll = "Scroll of Strength",
+    petAgilityScroll = "Pet: Scroll of Agility", petStrengthScroll = "Pet: Scroll of Strength",
 }
 -- By the entry's pickNoun.
 local PICKER_EMPTY = {
     food = "No Well Fed food in your bags.",
+    ["pet food"] = "No Kibler's Bits or Sporeling Snacks in your bags.",
+    scroll = "No scrolls of this kind in your bags.",
     elixir = "No elixirs or flasks for this slot in your bags.",
     enchant = "No oils, stones or poisons in your bags.",
 }
@@ -647,7 +900,7 @@ end
 
 local function IsExpiring(entry)
     return entry.has == true and entry.remaining ~= nil
-        and entry.remaining < EXPIRING_SECONDS
+        and entry.remaining < WarnSeconds()
 end
 
 local function CanUse(entry)
@@ -666,11 +919,23 @@ end
 
 local function ShowTooltip(btn)
     local entry = btn.entry
-    if not entry or (picker and picker:IsShown()) then return end
+    if not entry or (picker and picker:IsShown())
+        or (swapMenu and swapMenu:IsShown()) then
+        return
+    end
     GameTooltip:SetOwner(btn, "ANCHOR_NONE")
     GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-    GameTooltip:SetText(entry.name, 1, 1, 1)
-    if entry.bare then
+    GameTooltip:SetText((entry.forPet and "Pet: " or "") .. entry.name, 1, 1, 1)
+    if entry.swap then
+        if entry.running then
+            GameTooltip:AddLine("Running: " .. entry.running.name .. ".", 0.3, 1, 0.3)
+        else
+            GameTooltip:AddLine("No " .. entry.swap.noun .. " running.", 1, 0.3, 0.3)
+        end
+        if entry.selected and entry.selected ~= entry.running then
+            GameTooltip:AddLine("Picked: " .. entry.selected.name .. ".", 1, 0.6, 0.2)
+        end
+    elseif entry.bare then
         if entry.windfury then
             GameTooltip:AddLine("Windfury is on it.", 0.3, 1, 0.3)
         elseif entry.enchanted then
@@ -689,10 +954,16 @@ local function ShowTooltip(btn)
     elseif entry.has == false then
         GameTooltip:AddLine("Missing.", 1, 0.3, 0.3)
     else
-        AddTimeLeftLine(btn, entry.activeName and ("On you: " .. entry.activeName)
-            or "On you")
+        local onWho = entry.forPet and "On your pet" or "On you"
+        AddTimeLeftLine(btn, entry.activeName and (onWho .. ": " .. entry.activeName)
+            or onWho)
+        if entry.otherActive then
+            local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+            GameTooltip:AddLine("Not the " .. entry.pickNoun .. " you picked.",
+                c.r, c.g, c.b)
+        end
         local source = not entry.selfSupplied
-            and WhoDoesWhat:GetBuffSource(UnitName("player"), entry.key)
+            and WhoDoesWhat:GetBuffSource(entry.target or UnitName("player"), entry.key)
         if source then
             GameTooltip:AddLine("From " .. WhoDoesWhat:DisplayName(source) .. ".",
                 0.8, 0.8, 0.8)
@@ -716,6 +987,15 @@ local function ShowTooltip(btn)
     end
 
     GameTooltip:AddLine(" ")
+    if entry.swap then
+        UI.AddTooltipHint(GameTooltip, "Left-Click:",
+            "Pick " .. entry.swap.noun .. " (casts it)")
+        if entry.selected then
+            UI.AddTooltipHint(GameTooltip, "Right-Click:", "Cast " .. entry.selected.name)
+        end
+    elseif entry.castSpell then
+        UI.AddTooltipHint(GameTooltip, "Right-Click:", "Cast " .. entry.castSpell)
+    end
     if entry.pick then
         UI.AddTooltipHint(GameTooltip, "Left-Click:", "Pick " .. noun)
         if entry.bare then
@@ -735,6 +1015,8 @@ local function ShowTooltip(btn)
     GameTooltip:Show()
 end
 
+local STOCK_FONT_RATIO = 11 / 28
+
 local function SizeButton(btn, size)
     if btn.sizedAt == size then return end
     btn.sizedAt = size
@@ -742,17 +1024,185 @@ local function SizeButton(btn, size)
     local face, _, flags = btn.timer:GetFont()
     btn.timer:SetFont(face or FALLBACK_FONT,
         math.max(9, math.floor(size * TIMER_FONT_RATIO + 0.5)), flags)
+    local stockFace = btn.stock:GetFont()
+    btn.stock:SetFont(stockFace or FALLBACK_FONT,
+        math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
 end
 
--- Point right-click at the entry's picked item: a macro for a weapon, since
--- an oil has to be used and then aimed at the slot (the classic
--- "/use item" + "/use 16" pair), and a plain item use for food. Out of combat
--- only, and only written when it changed -- the same button can be any entry
--- from one repaint to the next.
+-- ---------------------------------------------------------------------------
+-- Swap menu (aura / aspect)
+-- ---------------------------------------------------------------------------
+
+-- Unlike the item picker, choosing here CASTS, and a cast is protected -- so
+-- this menu is a secure frame of secure buttons, opened by a restricted
+-- snippet wrapped round the grid button's OnClick (it has to open mid-fight,
+-- which is when aspects get swapped). One menu serves whichever grid button
+-- carries the swapper; a character only ever has one. Built like the Paladin
+-- Bar's aura picker, whose notes explain the template order and the post body.
+local SWAP_OPTION_SIZE = 28
+local SWAP_COLUMNS = 7
+local SWAP_HEADER_H = 16
+local SWAP_PAD = 5
+
+-- Pre body on every grid button's OnClick. `owner` is the menu. Only a button
+-- flagged "swapper" (set out of combat) toggles it, on the release, and a
+-- held Shift or Alt means settings or dragging instead.
+local SWAP_TOGGLE_SNIPPET = [==[
+    if down or button ~= "LeftButton" or not self:GetAttribute("swapper") then return end
+    if IsShiftKeyDown() or IsAltKeyDown() then return end
+    if owner:IsShown() then
+        owner:Hide()
+        return
+    end
+    owner:ClearAllPoints()
+    owner:SetPoint(self:GetAttribute("swapPoint"), self,
+        self:GetAttribute("swapRelPoint"), 0, -2)
+    owner:Show()
+    owner:RegisterAutoHide(1)
+    owner:AddToAutoHide(self)
+]==]
+
+-- Post body on each option: close once the cast has gone out.
+local SWAP_OPTION_POST_SNIPPET = [==[
+    if down == false then owner:Hide() end
+]==]
+
+local function CreateSwapOption(index)
+    local option = CreateFrame("Button", swapMenu:GetName() .. "Option" .. index,
+        swapMenu, "SecureActionButtonTemplate")
+    option:SetSize(SWAP_OPTION_SIZE, SWAP_OPTION_SIZE)
+    option:RegisterForClicks("AnyUp", "AnyDown")
+    option:SetAttribute("type1", "macro")
+
+    local border = option:CreateTexture(nil, "BACKGROUND")
+    border:SetPoint("TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetColorTexture(0, 0, 0, 0.9)
+    option.border = border
+
+    local icon = option:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    option.icon = icon
+
+    local highlight = option:CreateTexture(nil, "OVERLAY")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.2)
+    option:SetHighlightTexture(highlight)
+
+    UI.AddTooltip(option, function(self)
+        if not self.spell then return end
+        local spellId = select(7, GetSpellInfo(self.spell.name)) or self.spell.spellId
+        if GameTooltip.SetSpellByID then
+            GameTooltip:SetSpellByID(spellId)
+        else
+            GameTooltip:SetHyperlink("spell:" .. spellId)
+        end
+        return true
+    end)
+    -- The cast is the option's own macro; this only remembers the pick.
+    option:SetScript("PostClick", function(self, _, down)
+        if down == true or not self.spell then return end
+        Picks()[swapMenu.kind] = self.spell.key
+        if not InCombatLockdown() then swapMenu:Hide() end
+        WhoDoesWhat:RefreshBuffChecklist()
+    end)
+    SecureHandlerWrapScript(option, "OnClick", swapMenu, "", SWAP_OPTION_POST_SNIPPET)
+    swapMenu.options[index] = option
+    return option
+end
+
+local function EnsureSwapMenu()
+    if swapMenu then return swapMenu end
+    swapMenu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistSwapMenu", frame,
+        "SecureHandlerShowHideTemplate, BackdropTemplate")
+    swapMenu:SetFrameStrata("DIALOG")
+    swapMenu:SetClampedToScreen(true)
+    swapMenu:EnableMouse(true)
+    swapMenu:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 16,
+        insets = { left = INSET, right = INSET, top = INSET, bottom = INSET },
+    })
+    swapMenu:SetBackdropColor(0.14, 0.14, 0.16, 0.97)
+    swapMenu:SetBackdropBorderColor(0.4, 0.4, 0.4)
+    local hint = swapMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    hint:SetPoint("TOPLEFT", INSET + SWAP_PAD, -(INSET + 3))
+    hint:SetTextColor(0.4, 0.7, 1)
+    swapMenu.hint = hint
+    swapMenu.options = {}
+    swapMenu:Hide()
+    return swapMenu
+end
+
+-- Lay the swapper's spells out and bake each option's cast. Out of combat
+-- only; mid-fight the menu keeps what it last had.
+local function ConfigureSwapMenu(entry)
+    if InCombatLockdown() then return end
+    EnsureSwapMenu()
+    local keys = {}
+    for i, spell in ipairs(entry.swapOptions) do keys[i] = spell.key end
+    local stamp = entry.swap.key .. ":" .. table.concat(keys, ",")
+    if swapMenu.stamp == stamp then return end
+    swapMenu.stamp = stamp
+    swapMenu.kind = entry.swap.key
+    swapMenu.hint:SetText("Click to cast an " .. entry.swap.noun)
+    local count = #entry.swapOptions
+    for i, spell in ipairs(entry.swapOptions) do
+        local option = swapMenu.options[i] or CreateSwapOption(i)
+        option.spell = spell
+        option.icon:SetTexture(spell.icon)
+        option:SetAttribute("macrotext1", "/cast " .. spell.name)
+        local col, row = (i - 1) % SWAP_COLUMNS, math.floor((i - 1) / SWAP_COLUMNS)
+        option:ClearAllPoints()
+        option:SetPoint("TOPLEFT", INSET + SWAP_PAD + col * (SWAP_OPTION_SIZE + GAP),
+            -(INSET + SWAP_HEADER_H + row * (SWAP_OPTION_SIZE + GAP)))
+        option:Show()
+    end
+    for i = count + 1, #swapMenu.options do
+        swapMenu.options[i].spell = nil
+        swapMenu.options[i]:Hide()
+    end
+    local columns = math.min(count, SWAP_COLUMNS)
+    local rows = math.ceil(count / SWAP_COLUMNS)
+    swapMenu:SetSize(math.max(INSET * 2 + SWAP_PAD * 2 + columns * SWAP_OPTION_SIZE
+            + (columns - 1) * GAP, math.ceil(swapMenu.hint:GetStringWidth())
+            + INSET * 2 + SWAP_PAD * 2),
+        INSET * 2 + SWAP_HEADER_H + rows * SWAP_OPTION_SIZE + (rows - 1) * GAP + SWAP_PAD)
+end
+
+-- Repaint the menu's icons: full colour on what is running, a gold border on
+-- the pick. Safe in combat.
+local function PaintSwapMenu(entry)
+    if not swapMenu then return end
+    for _, option in ipairs(swapMenu.options) do
+        if option.spell then
+            option.icon:SetDesaturated(option.spell ~= entry.running)
+            if option.spell == entry.selected then
+                option.border:SetColorTexture(1, 0.82, 0.2, 1)
+            else
+                option.border:SetColorTexture(0, 0, 0, 0.9)
+            end
+        end
+    end
+end
+
+-- Point the button's secure actions at its entry. Right-click: the picked
+-- item (a macro for a weapon, since an oil has to be used and then aimed at
+-- the slot -- "/use item" + "/use 16"; food, pet food and elixirs are a plain
+-- use), the picked aura or aspect, or a self-buff spell. Left-click opens the
+-- swap menu when the entry is a swapper. Out of combat only, and only written
+-- when it changed -- the same button can be any entry from one repaint to the
+-- next.
 local function ConfigureUse(btn, entry)
     if InCombatLockdown() then return end
     local kind, value
-    if CanUse(entry) then
+    if entry.castSpell then
+        kind, value = "spell", entry.castSpell
+    elseif entry.swap then
+        if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
+    elseif CanUse(entry) then
         if entry.slot then
             kind = "macro"
             value = string.format("/use item:%d\n/use %d", entry.useItem, entry.slot)
@@ -760,12 +1210,20 @@ local function ConfigureUse(btn, entry)
             kind, value = "item", "item:" .. entry.useItem
         end
     end
-    local stamp = kind and (kind .. value) or ""
+    local right = WhoDoesWhat:GetBuffChecklistAlign() == "RIGHT"
+    local stamp = (kind and (kind .. value) or "") .. (entry.swap and "|swap" or "")
+        .. (entry.useUnit and ("|" .. entry.useUnit) or "")
+        .. (right and "|R" or "")
     if btn.useStamp == stamp then return end
     btn.useStamp = stamp
     btn:SetAttribute("type2", kind)
     btn:SetAttribute("macrotext2", kind == "macro" and value or nil)
     btn:SetAttribute("item2", kind == "item" and value or nil)
+    btn:SetAttribute("spell2", kind == "spell" and value or nil)
+    btn:SetAttribute("unit2", kind and entry.useUnit or nil)
+    btn:SetAttribute("swapper", entry.swap and true or nil)
+    btn:SetAttribute("swapPoint", right and "TOPRIGHT" or "TOPLEFT")
+    btn:SetAttribute("swapRelPoint", right and "BOTTOMRIGHT" or "BOTTOMLEFT")
 end
 
 local function CreateButton(index)
@@ -778,6 +1236,14 @@ local function CreateButton(index)
     -- Shift-right-click is the settings shortcut, so it must not also eat the
     -- food: a type with no handler behind it does nothing.
     btn:SetAttribute("shift-type2", "none")
+    SecureHandlerWrapScript(btn, "OnClick", EnsureSwapMenu(), SWAP_TOGGLE_SNIPPET)
+
+    -- How many of the picked consumable are left, in the corner.
+    local stock = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    stock:SetPoint("BOTTOMRIGHT", -1, 2)
+    stock:SetJustifyH("RIGHT")
+    stock:Hide()
+    btn.stock = stock
 
     local border = btn:CreateTexture(nil, "BACKGROUND")
     border:SetAllPoints()
@@ -792,8 +1258,6 @@ local function CreateButton(index)
     local timer = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     timer:SetPoint("CENTER")
     timer:SetFont(GameFontNormal:GetFont() or FALLBACK_FONT, 16, "OUTLINE")
-    timer:SetTextColor(EXPIRING_GLOW_COLOR.r, EXPIRING_GLOW_COLOR.g,
-        EXPIRING_GLOW_COLOR.b)
     timer:Hide()
     btn.timer = timer
 
@@ -803,6 +1267,12 @@ local function CreateButton(index)
     btn:SetScript("PostClick", function(self, mouseButton, down)
         local entry = self.entry
         if down or not entry or IsAltKeyDown() then return end
+        if mouseButton == "RightButton" and not IsShiftKeyDown() then
+            -- Whatever that used lands shortly; follow it, then once more in
+            -- case the aura or the bag count took its time.
+            RequestChecklistRefresh(0.3)
+            C_Timer.After(1.5, function() WhoDoesWhat:RefreshBuffChecklist() end)
+        end
         if mouseButton == "RightButton" then
             if IsShiftKeyDown() then
                 WhoDoesWhat:OpenAddonSettingsView("Checklist")
@@ -833,15 +1303,26 @@ local function UpdateTimerAndGlow(btn)
     local entry = btn.entry
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     local expiring = entry.has == true and remaining ~= nil and remaining > 0
-        and remaining < EXPIRING_SECONDS
+        and remaining < WarnSeconds()
     if expiring then
-        btn.timer:SetFormattedText("%d", math.ceil(remaining))
+        -- Minutes while there are any, so a six-minute warning fits the icon.
+        if remaining >= 60 then
+            btn.timer:SetFormattedText("%dm", math.ceil(remaining / 60))
+        else
+            btn.timer:SetFormattedText("%d", math.ceil(remaining))
+        end
+        -- The countdown wears the expiring colour, like the Paladin Bar's.
+        local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+        btn.timer:SetTextColor(c.r, c.g, c.b)
     end
     btn.timer:SetShown(expiring)
-    local color = entry.missing and MISSING_GLOW_COLOR
-        or expiring and EXPIRING_GLOW_COLOR or nil
+    -- The wrong elixir or scroll rank up wears the expiring glow too, without
+    -- a countdown: it wants replacing, but nothing is missing.
+    local color = entry.missing and WhoDoesWhat:GetBuffChecklistGlowColor("missing")
+        or (expiring or entry.otherActive) and WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+        or nil
     WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, color ~= nil,
-        GLOW_STYLE, color)
+        WhoDoesWhat:GetBuffChecklistGlowStyle(), color)
 end
 
 local function PaintButton(btn, entry)
@@ -851,7 +1332,22 @@ local function PaintButton(btn, entry)
     -- Grey unless it is actually on you; unknown reads as not-yet rather than
     -- as missing, so it greys without glowing.
     btn.icon:SetDesaturated(entry.has ~= true or entry.missing)
+    if entry.useItem then
+        btn.stock:SetText(entry.useCount or 0)
+        if (entry.useCount or 0) > 0 then
+            btn.stock:SetTextColor(1, 1, 1)
+        else
+            btn.stock:SetTextColor(1, 0.3, 0.3)
+        end
+        btn.stock:Show()
+    else
+        btn.stock:Hide()
+    end
     ConfigureUse(btn, entry)
+    if entry.swap then
+        ConfigureSwapMenu(entry)
+        PaintSwapMenu(entry)
+    end
     UpdateTimerAndGlow(btn)
     if GameTooltip:IsShown() and GameTooltip:GetOwner() == btn then
         ShowTooltip(btn)
@@ -895,14 +1391,14 @@ local function EnsureFrame()
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("CENTER")
-    titleText:SetText("Buff Checklist")
+    titleText:SetText("Buff Checklist |cff808080(Beta)|r")
     title.text = titleText
     UI.AttachDrag(title, frame)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. "WhoDoesWhat Buff Checklist", 1, 1, 1)
+            .. "WhoDoesWhat Buff Checklist |cff808080(Beta)|r", 1, 1, 1)
         GameTooltip:AddLine("The buffs your character should have.", 0.6, 0.6, 0.6)
         GameTooltip:AddLine(" ")
         UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
@@ -946,6 +1442,92 @@ local function EnsureFrame()
     return frame
 end
 
+-- ---------------------------------------------------------------------------
+-- Pet divider (hunters)
+-- ---------------------------------------------------------------------------
+
+-- A rule across the grid between your buffs and your pet's, carrying the
+-- pet's coverage -- "Pet (2/4)" -- or a red "Pet Not Summoned". Clicking it
+-- collapses the pet's icons away (per character), leaving the count. An
+-- ordinary frame, so it repaints in combat; the collapse itself moves secure
+-- buttons, so it lands when the fight ends.
+local DIVIDER_H = 14
+local DIVIDER_ARROW = 10
+local DIVIDER_LINE_MIN = 10
+
+local function EnsureDivider()
+    if divider then return divider end
+    divider = CreateFrame("Button", nil, frame)
+    divider:SetHeight(DIVIDER_H)
+    divider:RegisterForClicks("LeftButtonUp")
+
+    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("CENTER", DIVIDER_ARROW / 2, 0)
+    divider.label = label
+    local arrow = divider:CreateTexture(nil, "ARTWORK")
+    arrow:SetSize(DIVIDER_ARROW, DIVIDER_ARROW)
+    arrow:SetPoint("RIGHT", label, "LEFT", -3, 0)
+    divider.arrow = arrow
+
+    local edge = WhoDoesWhat.Theme.mainBorder
+    local leftLine = divider:CreateTexture(nil, "ARTWORK")
+    leftLine:SetHeight(1)
+    leftLine:SetColorTexture(edge[1], edge[2], edge[3], 0.6)
+    leftLine:SetPoint("LEFT", 0, 0)
+    leftLine:SetPoint("RIGHT", arrow, "LEFT", -4, 0)
+    local rightLine = divider:CreateTexture(nil, "ARTWORK")
+    rightLine:SetHeight(1)
+    rightLine:SetColorTexture(edge[1], edge[2], edge[3], 0.6)
+    rightLine:SetPoint("LEFT", label, "RIGHT", 4, 0)
+    rightLine:SetPoint("RIGHT", 0, 0)
+
+    divider:SetScript("OnClick", function()
+        local char = WhoDoesWhat.db.char
+        char.buffChecklistPetCollapsed = not char.buffChecklistPetCollapsed
+        GameTooltip:Hide()
+        WhoDoesWhat:RefreshBuffChecklist()
+    end)
+    divider:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_NONE")
+        GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
+        GameTooltip:SetText("Pet Buffs", 1, 1, 1)
+        GameTooltip:AddLine("Your pet's buffs, counted as covered/total.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(" ")
+        UI.AddTooltipHint(GameTooltip, "Left-Click:",
+            WhoDoesWhat.db.char.buffChecklistPetCollapsed and "Expand" or "Collapse")
+        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+        GameTooltip:Show()
+    end)
+    divider:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI.AttachDrag(divider, frame)
+    divider:Hide()
+    return divider
+end
+
+-- `pet` is CollectEntries' second return: false for no pet out.
+local function PaintDivider(pet, collapsed)
+    if pet == false then
+        divider.label:SetText("Pet Not Summoned")
+        divider.label:SetTextColor(1, 0.25, 0.25)
+        divider.arrow:Hide()
+        return
+    end
+    local covered = 0
+    for _, entry in ipairs(pet) do
+        if entry.has == true and not entry.missing then covered = covered + 1 end
+    end
+    divider.label:SetFormattedText("Pet (%d/%d)", covered, #pet)
+    if covered >= #pet then
+        divider.label:SetTextColor(0.3, 1, 0.3)
+    else
+        local c = WhoDoesWhat:GetBuffChecklistGlowColor("missing")
+        divider.label:SetTextColor(c.r, c.g, c.b)
+    end
+    divider.arrow:SetTexture(collapsed and "Interface\\Buttons\\UI-PlusButton-Up"
+        or "Interface\\Buttons\\UI-MinusButton-Up")
+    divider.arrow:Show()
+end
+
 -- When the hidden-frame reveal timer below is due, or nil with none waiting.
 local pendingReveal = nil
 
@@ -954,7 +1536,8 @@ local function HideFrame()
     HidePicker()
     if not frame then return end
     for _, btn in ipairs(frame.buttons) do
-        WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, false, GLOW_STYLE)
+        WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, false,
+            WhoDoesWhat:GetBuffChecklistGlowStyle())
         btn:Hide()
     end
     frame:Hide()
@@ -971,7 +1554,8 @@ function WhoDoesWhat:RefreshBuffChecklist()
         return
     end
 
-    local entries = CollectEntries()
+    local entries, pet = CollectEntries()
+    local collapsed = self.db.char.buffChecklistPetCollapsed and true or false
 
     -- Mid-fight nothing secure can be shown, hidden or moved, so whatever is
     -- on screen stays where it is and just repaints from the fresh list;
@@ -980,25 +1564,50 @@ function WhoDoesWhat:RefreshBuffChecklist()
         if not frame or not frame:IsShown() then return end
         local byId = {}
         for _, entry in ipairs(entries) do byId[entry.id] = entry end
+        for _, entry in ipairs(pet or {}) do byId[entry.id] = entry end
         for _, btn in ipairs(frame.buttons) do
             local entry = btn:IsShown() and btn.entry and byId[btn.entry.id]
             if entry then PaintButton(btn, entry) end
         end
+        if divider and divider:IsShown() and pet ~= nil then
+            PaintDivider(pet, collapsed)
+        end
         return
     end
 
-    local shown, revealAt = {}, nil
-    for _, entry in ipairs(entries) do
-        local quiet = settings.buffChecklistHideHave and entry.has == true
-            and not entry.missing and not IsExpiring(entry)
-        if not quiet then
-            shown[#shown + 1] = entry
-        elseif entry.remaining then
-            local at = GetTime() + entry.remaining - EXPIRING_SECONDS
-            if not revealAt or at < revealAt then revealAt = at end
-        end
+    local revealAt = nil
+    -- "Hide completed buffs from other classes": a done buff somebody else
+    -- casts goes, while your own class's buffs and everything you supply
+    -- yourself (food, elixirs, weapons, aura/aspect) stay.
+    local _, classToken = UnitClass("player")
+    local myClass = Assign.GetClassInfoByToken(classToken)
+    myClass = myClass and myClass.name
+    local function Hideable(entry)
+        if settings.buffChecklistHideHave then return true end
+        return settings.buffChecklistHideOthersHave and not entry.selfSupplied
+            and entry.className ~= nil and entry.className ~= myClass
     end
-    if #shown == 0 then
+    local function Visible(list)
+        local out = {}
+        for _, entry in ipairs(list) do
+            local quiet = Hideable(entry) and entry.has == true
+                and not entry.missing and not IsExpiring(entry) and not entry.otherActive
+            if not quiet then
+                out[#out + 1] = entry
+            elseif entry.remaining then
+                local at = GetTime() + entry.remaining - WarnSeconds()
+                if not revealAt or at < revealAt then revealAt = at end
+            end
+        end
+        return out
+    end
+    local shown = Visible(entries)
+    local petShown = pet and Visible(pet) or {}
+    local petLaid = collapsed and {} or petShown
+    -- A hunter's divider stays up while it has something to say: no pet out,
+    -- or pet buffs on the list -- collapsed or not, it carries the count.
+    local showDivider = pet == false or #petShown > 0
+    if #shown == 0 and not showDivider then
         HideFrame()
         -- Nothing is on screen to tick, so a hidden buff running down would
         -- never be noticed: wait for it on a timer instead. One at a time --
@@ -1017,44 +1626,77 @@ function WhoDoesWhat:RefreshBuffChecklist()
     local f = EnsureFrame()
     f.revealAt = revealAt
     local size = self:GetBuffChecklistIconSize()
-    local columns = math.min(self:GetBuffChecklistColumns(), #shown)
-    local rows = math.ceil(#shown / columns)
+    local columns = math.max(1, math.min(self:GetBuffChecklistColumns(),
+        math.max(#shown, #petLaid)))
     local header = settings.buffChecklistShowHeader and true or false
     f.title:SetShown(header)
     f.titleBg:SetShown(header)
-    local top = INSET + (header and (TITLE_H + 2) or PAD)
+    local y = INSET + (header and (TITLE_H + 2) or PAD)
     local right = self:GetBuffChecklistAlign() == "RIGHT"
-    for i, entry in ipairs(shown) do
-        local btn = f.buttons[i] or CreateButton(i)
-        SizeButton(btn, size)
-        local col, row = (i - 1) % columns, math.floor((i - 1) / columns)
-        local y = -(top + row * (size + GAP))
-        btn:ClearAllPoints()
-        if right then
-            -- Still reads left to right; a short last row just sits against
-            -- the right edge instead of the left.
-            local inRow = math.min(columns, #shown - row * columns)
-            btn:SetPoint("TOPRIGHT", f, "TOPRIGHT",
-                -(INSET + PAD + (inRow - 1 - col) * (size + GAP)), y)
-        else
-            btn:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + PAD + col * (size + GAP), y)
+
+    -- One grid block, starting at y; the button pool runs straight on through
+    -- both sections.
+    local used = 0
+    local function PlaceGrid(list)
+        for i, entry in ipairs(list) do
+            used = used + 1
+            local btn = f.buttons[used] or CreateButton(used)
+            SizeButton(btn, size)
+            local col, row = (i - 1) % columns, math.floor((i - 1) / columns)
+            local by = -(y + row * (size + GAP))
+            btn:ClearAllPoints()
+            if right then
+                -- Mirrored: the first icon takes the top-right corner and
+                -- rows fill leftwards, so a short last row hugs the right.
+                btn:SetPoint("TOPRIGHT", f, "TOPRIGHT",
+                    -(INSET + PAD + col * (size + GAP)), by)
+            else
+                btn:SetPoint("TOPLEFT", f, "TOPLEFT",
+                    INSET + PAD + col * (size + GAP), by)
+            end
+            btn:Show()
+            PaintButton(btn, entry)
         end
-        btn:Show()
-        PaintButton(btn, entry)
+        local rows = math.ceil(#list / columns)
+        if rows > 0 then y = y + rows * (size + GAP) - GAP end
     end
-    for i = #shown + 1, #f.buttons do
-        self:ApplyStatusBarHighlight(f.buttons[i].highlightHost, false, GLOW_STYLE)
+
+    PlaceGrid(shown)
+    local dividerW = 0
+    if showDivider then
+        if #shown > 0 then y = y + GAP end
+        local d = EnsureDivider()
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + PAD, -y)
+        d:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET + PAD), -y)
+        PaintDivider(pet, collapsed)
+        d:Show()
+        y = y + DIVIDER_H
+        dividerW = INSET * 2 + PAD * 2 + math.ceil(d.label:GetStringWidth())
+            + DIVIDER_ARROW + 7 + DIVIDER_LINE_MIN * 2
+        if #petLaid > 0 then
+            y = y + GAP
+            PlaceGrid(petLaid)
+        end
+    elseif divider then
+        divider:Hide()
+    end
+
+    for i = used + 1, #f.buttons do
+        self:ApplyStatusBarHighlight(f.buttons[i].highlightHost, false,
+            WhoDoesWhat:GetBuffChecklistGlowStyle())
         f.buttons[i].entry = nil
         f.buttons[i]:Hide()
     end
-    -- A grid narrower than the header's name widens to fit it; the icons stay
-    -- against the aligned edge.
+    -- A grid narrower than the header's name or the divider's label widens to
+    -- fit it; the icons stay against the aligned edge.
     local width = INSET * 2 + PAD * 2 + columns * size + (columns - 1) * GAP
     if header then
         width = math.max(width, INSET * 2
             + math.ceil(f.title.text:GetStringWidth()) + TITLE_TEXT_PAD * 2)
     end
-    f:SetSize(width, top + rows * size + (rows - 1) * GAP + PAD + INSET)
+    width = math.max(width, dividerW)
+    f:SetSize(width, y + PAD + INSET)
     f:Show()
     if not f.moving then LoadPosition() end
 
@@ -1074,6 +1716,8 @@ end
 local RESET_SETTINGS = {
     "buffChecklistEnabled", "buffChecklistColumns", "buffChecklistIconSize",
     "buffChecklistHideHave", "buffChecklistAlign", "buffChecklistShowHeader",
+    "buffChecklistHideOthersHave", "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
+    "buffChecklistGlowMissingColor", "buffChecklistGlowExpiringColor",
 }
 
 -- Picks are left alone: they are this character's stock, not an option.
@@ -1081,6 +1725,7 @@ function WhoDoesWhat:ResetBuffChecklistSettings()
     self:RestoreDefaultSettings(RESET_SETTINGS)
     self.db.char.buffChecklistWeapons = true
     self.db.char.buffChecklistElixirs = true
+    self.db.char.buffChecklistScrolls = true
     self.db.profile.settings.buffChecklistPos = nil
     if frame and not InCombatLockdown() then LoadPosition() end
     self:RefreshBuffChecklist()
@@ -1096,19 +1741,46 @@ loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PLAYER_REGEN_ENABLED")
 loader:RegisterEvent("BAG_UPDATE_DELAYED")
 loader:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
--- Elixirs and flasks aren't BuffTracking auras, so nothing else repaints when
--- one lands or drops. Your own auras churn in a fight, so these collapse into
--- one refresh every half second.
-loader:RegisterUnitEvent("UNIT_AURA", "player")
+-- Elixirs, flasks, auras, aspects and Omen of Clarity aren't BuffTracking
+-- auras, so nothing else repaints when one lands or drops; and the pet's own
+-- changes (BuffTracking scans your pet on its UNIT_AURA) otherwise wait out
+-- the board's once-a-second notify. Auras churn in a fight, so a burst
+-- collapses into one refresh a moment later -- late enough that BuffTracking
+-- has already rescanned whatever fired it.
+loader:RegisterUnitEvent("UNIT_AURA", "player", "pet")
+-- A pet summoned, dismissed, dead or revived.
+loader:RegisterUnitEvent("UNIT_PET", "player")
+loader:RegisterUnitEvent("UNIT_HEALTH", "pet")
+-- A respec or a new rank: which auras, aspects and talents you have.
+loader:RegisterEvent("SPELLS_CHANGED")
+local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
+
+-- Also asked for by a click on the grid: the item or spell a right-click used
+-- lands a beat later, and the checklist should follow it without waiting.
+local function RefreshSoon(delay)
+    if auraRefreshPending then return end
+    auraRefreshPending = true
+    C_Timer.After(delay or AURA_REFRESH_DELAY, function()
+        auraRefreshPending = false
+        WhoDoesWhat:RefreshBuffChecklist()
+    end)
+end
+RequestChecklistRefresh = RefreshSoon
+
+local lastPetDead = nil
 loader:SetScript("OnEvent", function(_, event)
+    if event == "SPELLS_CHANGED" then omenTalented = nil end
+    if event == "UNIT_HEALTH" then
+        -- Only a death or a revive matters here, not every tick of damage.
+        local dead = UnitIsDead("pet") and true or false
+        if dead == lastPetDead then return end
+        lastPetDead = dead
+        RefreshSoon()
+        return
+    end
     if event == "UNIT_AURA" then
-        if auraRefreshPending or not WhoDoesWhat.ElixirItems then return end
-        auraRefreshPending = true
-        C_Timer.After(0.5, function()
-            auraRefreshPending = false
-            WhoDoesWhat:RefreshBuffChecklist()
-        end)
+        RefreshSoon()
         return
     end
     WhoDoesWhat:RefreshBuffChecklist()

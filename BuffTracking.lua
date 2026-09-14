@@ -433,7 +433,18 @@ driver:RegisterEvent("UNIT_HEALTH")
 -- separate sections because they do very different amounts of work --
 -- UNIT_AURA walks every aura on the unit, UNIT_HEALTH just checks death.
 driver:SetScript("OnEvent", function(_, event, unit)
-    if event == "UNIT_AURA" or event == "UNIT_HEALTH" then
+    if event == "UNIT_AURA" and unit == "pet" then
+        -- Your own pet, scanned now rather than on the sweep: feeding it or
+        -- buffing it is something you are watching for (the Buff Checklist's
+        -- pet section), and waiting up to a full cycle read as the click not
+        -- working. Other pets stay on the sweep, as UNIT_AURA is unreliable
+        -- for them and they are nobody's immediate business.
+        local owner = UnitToKey("player")
+        if owner and not WhoDoesWhat:IsIgnoredPetName(GetUnitName("pet", true)) then
+            if not nameToKey then BuildNameMap() end
+            if ScanUnit("pet", owner .. "'s Pet") then NotifyChanged() end
+        end
+    elseif event == "UNIT_AURA" or event == "UNIT_HEALTH" then
         local section = event == "UNIT_AURA"
             and "bufftracking.aura" or "bufftracking.health"
         PBegin(section)

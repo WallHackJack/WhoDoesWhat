@@ -338,14 +338,20 @@ end
 local defaults = {
     -- Per character: what one character carries and wields says nothing about
     -- the next. The Buff Checklist's picks -- mainHand / offHand as an item id,
-    -- "none" (keep the weapon bare for Windfury) or nil (nothing picked), and
-    -- food as an item id or nil -- and whether it tracks weapon enchants.
+    -- "none" (keep the weapon bare for Windfury) or nil (nothing picked); food,
+    -- petFood, battleElixir and guardianElixir as an item id or nil; aura and
+    -- aspect as a spell key -- and whether it tracks weapon enchants.
     char = {
         buffChecklistItems = {},
         buffChecklistWeapons = true,
         -- The battle / guardian elixir icons (TBC only); their picks share
         -- buffChecklistItems as battleElixir / guardianElixir.
         buffChecklistElixirs = true,
+        -- The Scroll of Agility / Strength icons, for physical damage roles;
+        -- picks as agilityScroll / strengthScroll in buffChecklistItems.
+        buffChecklistScrolls = true,
+        -- A hunter's pet section folded down to its divider.
+        buffChecklistPetCollapsed = false,
     },
     global = {
         shoutBar = {
@@ -591,7 +597,17 @@ local defaults = {
             buffChecklistColumns = 6,
             buffChecklistIconSize = 28,
             buffChecklistHideHave = false,
-            buffChecklistAlign = "LEFT",
+            -- Narrower: hide only done buffs another class casts on you.
+            buffChecklistHideOthersHave = true,
+            -- The checklist's glow: a status-bar highlight style in two
+            -- colours, amber for missing and blue for expiring, like the
+            -- Paladin Bar's.
+            buffChecklistGlowStyle = "flash",
+            -- Minutes left at which a buff starts to glow and count down.
+            buffChecklistWarnMinutes = 6,
+            buffChecklistGlowMissingColor = { r = 0.949, g = 0.71, b = 0 },
+            buffChecklistGlowExpiringColor = { r = 0.157, g = 0.561, b = 1 },
+            buffChecklistAlign = "RIGHT",
             -- The "Buff Checklist" title strip across the top of the grid.
             buffChecklistShowHeader = true,
             buffChecklistPos = nil,
