@@ -10,7 +10,7 @@ local UI = select(2, ...).UI
 --
 -- Marker toggles route through the unit-menu setters (SetTankMarkerPlayer /
 -- RemoveTankMarker, AssignmentsActions.lua), which enforce one-tank-per-
--- marker and pull the misdirects along; they end in a full window refresh,
+-- marker (Custom excepted) and pull the misdirects along; they end in a full window refresh,
 -- so this file never repaints other sections itself. The header [x] clears
 -- every marker assignment while the scanned tank rows remain auto-populated.
 
@@ -87,7 +87,7 @@ local function CreateRow(f, index)
             info.checked = selected
             info.func = function()
                 if HasMarkerValue(entry, value) then
-                    WhoDoesWhat:RemoveTankMarker(value)
+                    WhoDoesWhat:RemoveTankMarker(value, entry.player)
                 else
                     WhoDoesWhat:SetTankMarkerPlayer(value, entry.player)
                     if value == "custom" then row.customEdit:SetFocus() end

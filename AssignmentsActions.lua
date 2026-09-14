@@ -37,7 +37,8 @@ end
 
 -- Tank rows are one-per-tank with a `markers` array (1..8 / "all" /
 -- "custom"); a marker value lives on at most one row -- the setters below
--- enforce that. The row holding a value, or nil.
+-- enforce that -- except "custom", whose free text differs per tank, so any
+-- number of tanks can hold it. The row holding a value, or nil.
 local function TankEntryForMarker(value)
     for _, entry in ipairs(GetEntries(SectionByKey("tank"))) do
         if HasMarkerValue(entry, value) then return entry end
@@ -118,13 +119,16 @@ function WhoDoesWhat:SetTankMarkerPlayer(value, playerName)
     local section = SectionByKey("tank")
     local entries = GetEntries(section)
 
-    -- One tank per marker: strip the value from its current holder.
+    -- One tank per marker: strip the value from its current holder. Custom
+    -- is shared, so it only checks the player doesn't already hold it.
     local displaced
     for _, entry in ipairs(entries) do
         if HasMarkerValue(entry, value) then
             if entry.player == playerName then return end -- already theirs
-            RemoveMarkerValue(entry, value)
-            displaced = entry.player
+            if value ~= "custom" then
+                RemoveMarkerValue(entry, value)
+                displaced = entry.player
+            end
         end
     end
 
@@ -156,13 +160,15 @@ end
 
 -- Take a marker value off whichever tank row holds it. Only the value clears
 -- -- the rows themselves are roster-managed (a stray row emptied of markers
--- is reconciled away on the next repaint). No-op without edit rights or when
--- nobody holds the value.
-function WhoDoesWhat:RemoveTankMarker(value)
+-- is reconciled away on the next repaint). playerName limits it to that
+-- tank's row, which "custom" needs since several tanks can hold it. No-op
+-- without edit rights or when nobody holds the value.
+function WhoDoesWhat:RemoveTankMarker(value, playerName)
     if not self:RequireEditPermission() then return end
     local section = SectionByKey("tank")
     for _, entry in ipairs(GetEntries(section)) do
-        if HasMarkerValue(entry, value) then
+        if HasMarkerValue(entry, value)
+            and (not playerName or entry.player == playerName) then
             RemoveMarkerValue(entry, value)
             self:SyncMisdirectsForTank(entry.player)
             WhoDoesWhat:LogOperation(section.title .. ": " .. MarkerValuePlain(value, entry.custom)
