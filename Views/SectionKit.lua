@@ -10,9 +10,11 @@ local UI = select(2, ...).UI
 --
 -- The `f` passed around is the main window frame (MainAssignmentsView.lua),
 -- which carries the shared state the kit needs:
---   f.columns    { [COL_LEFT] = { boxes, x, width }, [COL_RIGHT] = ... }
---   f.headerMail registry of header mass-mail buttons (AddHeaderMailButton)
---   f.content / f.scroll   the scroll child + scroll frame
+--   f.sectionTabs  { [TAB_BLESSINGS] = { boxes, stack, scroll, top, flat,
+--                  accent, rowColors }, ... } -- one scroll area per Raid
+--                  sub-tab, its boxes hung from `stack` (as wide as they are)
+--                  `top` below the scroll's top; see CreateSectionBox for flat
+--   f.headerMail   registry of header mass-mail buttons (AddHeaderMailButton)
 --
 -- Section files register themselves on WhoDoesWhat.SectionViews (Build /
 -- Refresh pairs); the main view builds and refreshes them in its fixed order.
@@ -32,7 +34,9 @@ WhoDoesWhat.SectionKit = K
 -- Geometry + icons, shared so every section box and row lines up
 -- ---------------------------------------------------------------------------
 
-K.COL_LEFT, K.COL_RIGHT = 1, 2
+-- The Raid page's sub-tabs, by page key. A section names the one it sits on.
+K.TAB_BLESSINGS, K.TAB_TANKING, K.TAB_CC, K.TAB_WARLOCKS =
+    "blessings", "tanking", "cc", "warlocks"
 
 K.ROW_ICON_SIZE = 20
 K.DROPDOWN_ICON_SIZE = 14
@@ -365,11 +369,20 @@ function K.ClassTint(tintClass)
     return K.ColorTint(tint.r, tint.g, tint.b)
 end
 
-local function CreateSectionBox(f, content, titleText, column, tintClass)
-    local col = f.columns[column]
-    local box = UI.CreateSectionBox(content, titleText, K.ClassTint(tintClass))
-    box:SetWidth(col.width)
-    col.boxes[#col.boxes + 1] = box
+-- A tab whose sections sit straight on its page (`flat`, with its `accent` and
+-- `rowColors`) gets divider-headed sections instead of boxes; there a section
+-- may also leave its title out, for a block of controls with no heading.
+local function CreateSectionBox(f, titleText, tab, tintClass)
+    local sectionTab = f.sectionTabs[tab]
+    local box
+    if sectionTab.flat then
+        box = UI.CreateFlatSection(sectionTab.stack, titleText, sectionTab.accent,
+            sectionTab.rowColors)
+    else
+        box = UI.CreateSectionBox(sectionTab.stack, titleText, K.ClassTint(tintClass))
+    end
+    box:SetWidth(sectionTab.stack:GetWidth())
+    sectionTab.boxes[#sectionTab.boxes + 1] = box
     return box
 end
 
@@ -444,15 +457,15 @@ end
 -- Build a section's standard chrome in one call: the box shell plus the
 -- header strip.
 --   opts.title       box title
---   opts.column      K.COL_LEFT / K.COL_RIGHT
+--   opts.tab         the sub-tab it sits on, K.TAB_*
 --   opts.tintClass   optional class name for a subtle panel/row tint
 --   opts.mailCollect optional whisper collector; adds the header mail button
 -- Returns { box, mailBtn, headerChain }. headerChain is the box's own chain and
 -- starts with the mail button (rightmost); sections add their own buttons in
 -- right-to-left order and call UI.LayoutHeaderChain(box) on refresh.
-function K.CreateSectionChrome(f, content, opts)
-    WhoDoesWhat:LogUiBuilding("Building assignment section: " .. opts.title)
-    local box = CreateSectionBox(f, content, opts.title, opts.column, opts.tintClass)
+function K.CreateSectionChrome(f, opts)
+    WhoDoesWhat:LogUiBuilding("Building assignment section: " .. (opts.title or "(untitled)"))
+    local box = CreateSectionBox(f, opts.title, opts.tab, opts.tintClass)
     local chrome = { box = box, headerChain = box.headerChain }
     if opts.mailCollect then
         chrome.mailBtn = AddHeaderMailButton(f, box, opts.title, opts.mailCollect)
@@ -467,19 +480,18 @@ function K.ChainHeaderButton(chrome, btn)
 end
 
 -- ---------------------------------------------------------------------------
--- Column layout + shared confirm popups
+-- Tab layout + shared confirm popups
 -- ---------------------------------------------------------------------------
 
--- Re-anchor each column's VISIBLE section boxes top-to-bottom, so a hidden box
--- leaves no gap, and size the scroll child to the taller
--- column. Section boxes grow and shrink with their rows, so every section runs
--- this after settling its own height.
-function K.LayoutColumns(f)
-    local tallest = 0
-    for _, col in ipairs(f.columns) do
-        tallest = math.max(tallest, UI.StackSections(f.content, col.boxes, col.x))
+-- Re-anchor each tab's VISIBLE section boxes top-to-bottom, so a hidden box
+-- leaves no gap, and size that tab's scroll area to them. Section boxes grow
+-- and shrink with their rows, so every section runs this after settling its
+-- own height.
+function K.LayoutSections(f)
+    for _, sectionTab in pairs(f.sectionTabs) do
+        UI.SetScrollHeight(sectionTab.scroll, sectionTab.top
+            + UI.StackSections(sectionTab.stack, sectionTab.boxes, 0))
     end
-    UI.SetScrollHeight(f.scroll, tallest)
 end
 
 -- Clear-a-whole-section confirm. The `data` passed to StaticPopup_Show is the

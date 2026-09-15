@@ -952,9 +952,59 @@ function UI.CreateSectionBox(parent, titleText, color, borderColor)
     return box
 end
 
+-- A heading rule: a label near the left end, a short rule before it and a long
+-- one after, both in the label's colour, faded. Width comes from where the
+-- caller places it. `color` is { r, g, b }, a dark gold when left out.
+-- The label and the two rules are `label`, `left` and `right` on the frame.
+function UI.CreateDivider(parent, text, color)
+    local r, g, b = 0.8, 0.65, 0.12
+    if color then r, g, b = color[1], color[2], color[3] end
+    local divider = CreateFrame("Frame", nil, parent)
+    divider:SetHeight(10)
+    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 36, 0)
+    label:SetText(text)
+    label:SetTextColor(r, g, b)
+    local left = divider:CreateTexture(nil, "ARTWORK")
+    left:SetHeight(1)
+    left:SetPoint("LEFT")
+    left:SetPoint("RIGHT", label, "LEFT", -6, 0)
+    left:SetColorTexture(r, g, b, 0.3)
+    local right = divider:CreateTexture(nil, "ARTWORK")
+    right:SetHeight(1)
+    right:SetPoint("LEFT", label, "RIGHT", 6, 0)
+    right:SetPoint("RIGHT")
+    right:SetColorTexture(r, g, b, 0.3)
+    divider.label, divider.left, divider.right = label, left, right
+    return divider
+end
+
+-- The same section without the box: no panel or border, and its title is a
+-- divider rule across the header strip, for sections sitting straight on a
+-- page. Same geometry, fields and header chain as a boxed one, so a section
+-- lays itself out identically either way. `color` tints the title and rule;
+-- `rowColors` is the { odd, even } row stripes, which a box would derive from
+-- its panel.
+function UI.CreateFlatSection(parent, titleText, color, rowColors)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetFrameLevel(parent:GetFrameLevel() + 1)
+    box.rowColors = rowColors
+    box.headerChain, box.rows = {}, {}
+    if not titleText then return box end
+
+    local divider = UI.CreateDivider(box, titleText, color)
+    local midline = -(UI.HEADER_STRIP_TOP + UI.HEADER_BTN_SIZE / 2)
+    divider:SetPoint("LEFT", box, "TOPLEFT", 0, midline)
+    divider:SetPoint("RIGHT", box, "TOPRIGHT", 0, midline)
+    box.divider = divider
+    box.title = divider.label
+    return box
+end
+
 -- Re-anchor a box's header buttons right to left, skipping hidden ones, so the
 -- rightmost VISIBLE button hugs the corner instead of leaving a hole. The chain
--- is stored rightmost-first. Run after anything that changes visibility.
+-- is stored rightmost-first. Run after anything that changes visibility. A
+-- flat section's title rule stops short of the leftmost button.
 function UI.LayoutHeaderChain(box)
     local prev
     for _, btn in ipairs(box.headerChain) do
@@ -967,6 +1017,16 @@ function UI.LayoutHeaderChain(box)
                     -UI.BOX_PAD, -UI.HEADER_STRIP_TOP)
             end
             prev = btn
+        end
+    end
+    if box.divider then
+        local rule = box.divider.right
+        rule:ClearAllPoints()
+        rule:SetPoint("LEFT", box.divider.label, "RIGHT", 6, 0)
+        if prev then
+            rule:SetPoint("RIGHT", prev, "LEFT", -6, 0)
+        else
+            rule:SetPoint("RIGHT", box.divider, "RIGHT")
         end
     end
 end

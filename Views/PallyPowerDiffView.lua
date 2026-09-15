@@ -6,28 +6,34 @@ local UI = select(2, ...).UI
 -- columns sits a per-paladin overview strip -- the blessings that paladin
 -- mostly carries in that plan, count-descending -- the same shape as the
 -- Paladin Buffs rows in the main window.
+--
+-- It lives in the right-hand panel of the Raid page's Blessings tab, beside
+-- the sections it compares against: a heading with Fix All, then the grids.
+-- The grids stretch across the panel; the role picker shows just the role's icon, and
+-- a raid with enough paladins to outgrow it has the grids scaled down to fit
+-- rather than cut off. With nothing to compare -- PallyPower agrees, or a
+-- simulated raid it can't see -- it shows the overview strip of the running
+-- plan alone (RenderPlan).
 
 local K = WhoDoesWhat.SectionKit
 local A = WhoDoesWhat.Assign
-local diffFrame = nil
+local diffPanel = nil
 local RenderDiffs
 
-local FRAME_MAX_H = 470
-local FRAME_MIN_H = 150
-local COMPACT_W = 390
-local COMPACT_H = 54
-local MARGIN = 10
-local BOTTOM_STRIP = 30
+local BAR_H = 38
+local MARGIN = 6
 local WARNING_H = 34
 local SCROLLBAR_W = UI.SCROLLBAR_W
-local SCROLLBAR_GAP = 8
+local SCROLLBAR_GAP = 4
 local GRID_GAP = 6
-local PLAYER_COL_W = 116
-local ROLE_COL_W = 112
-local ROLE_GRID_GAP = 16
+local PLAYER_COL_W = 104
+-- An icon-only dropdown: the template's floor, plus its ~15px overhang.
+local ROLE_DD_W = K.MARKER_DD_WIDTH
+local ROLE_COL_W = 66
+local ROLE_GRID_GAP = 8
 local LEFT_PREFIX_W = PLAYER_COL_W + ROLE_COL_W + ROLE_GRID_GAP
 local FIX_GAP = 6
-local FIX_W = 38
+local FIX_W = 34
 local TITLE_H = 22
 local HEADER_H = 26
 local ROW_H = 24
@@ -38,6 +44,12 @@ local SUMMARY_MAX_BUFFS = 3
 local SUMMARY_ICON = 16
 local SUMMARY_SLOT_W = 20
 local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
+-- The line above the grids: the fix warning in red, the plan view's note grey.
+local FIX_WARNING = "PallyPower is this raid's buff source and you have no edit"
+    .. " rights. Use fixes sparingly; they rely on paladins who enabled"
+    .. " Free Assignment."
+local WARNING_COLOR = { 1, 0.2, 0.2 }
+local NOTE_COLOR = { 0.7, 0.7, 0.7 }
 local COL_W = K.PALADIN_GRID_COL_W
 
 StaticPopupDialogs["WHODOESWHAT_FIX_ALL_PALLYPOWER"] = {
@@ -71,6 +83,11 @@ end
 local function RoleText(role, classInfo)
     return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
         .. classInfo.colorHex .. role.name .. "|r"
+end
+
+-- The rows' picker shows only this; the menu and the tooltip carry the name.
+local function RoleIcon(role)
+    return WhoDoesWhat:RoleIconMarkup(role.icon, 14)
 end
 
 local function AssignedRole(data, member)
@@ -214,19 +231,28 @@ local function CreateComparisonRow(content, side, index)
     row.cells = {}
 
     if side == 1 then
-        local roleIcon = row:CreateTexture(nil, "ARTWORK")
-        roleIcon:SetSize(ROLE_ICON_SIZE, ROLE_ICON_SIZE)
-        roleIcon:SetPoint("LEFT", 4, 0)
-        row.roleIcon = roleIcon
-
         local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        name:SetPoint("LEFT", roleIcon, "RIGHT", 6, 0)
-        name:SetWidth(PLAYER_COL_W - ROLE_ICON_SIZE - 12)
+        name:SetPoint("LEFT", 6, 0)
+        name:SetWidth(PLAYER_COL_W - 10)
         name:SetJustifyH("LEFT")
         row.name = name
 
-        local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatPpDiffRoleDD" .. index, ROLE_COL_W - 14)
-        dropdown:SetPoint("LEFT", row, "LEFT", PLAYER_COL_W - 16, -2)
+        -- In the role column: the picker, or for a row with no role to pick
+        -- (a pet, a raider who left) just the icon.
+        local roleIcon = row:CreateTexture(nil, "ARTWORK")
+        roleIcon:SetSize(ROLE_ICON_SIZE, ROLE_ICON_SIZE)
+        roleIcon:SetPoint("LEFT", PLAYER_COL_W + 8, 0)
+        row.roleIcon = roleIcon
+
+        local dropdown = UI.CreateMenuDropdown(row, "WhoDoesWhatPpDiffRoleDD" .. index, ROLE_DD_W)
+        dropdown:SetPoint("LEFT", row, "LEFT", PLAYER_COL_W - 15, -2)
+        UI.AddDropdownTooltip(dropdown, nil, function()
+            local member = row.member
+            if not (member and member.classInfo) then return end
+            local role = AssignedRole(row.data, member)
+            return member.displayName, role and RoleText(role, member.classInfo)
+                or "No role yet."
+        end)
         UIDropDownMenu_Initialize(dropdown, function(_, level)
             local member, data, frame = row.member, row.data, row.ownerFrame
             if not member or not member.classInfo then return end
@@ -486,8 +512,9 @@ local function RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabel
         row.name:SetText("|cff" .. colorHex .. paladin.name .. "|r")
 
         for side = 1, 2 do
-            local x = gridX[side] + columnStart[side]
-            local spread = BuffSpread(plans[side], paladin.name)
+            -- The plan view (RenderPlan) paints one side only.
+            local x = gridX[side] and (gridX[side] + columnStart[side])
+            local spread = x and BuffSpread(plans[side], paladin.name) or {}
             local shown = 0
             for i, slot in ipairs(row.sides[side].slots) do
                 local entry = spread[i]
@@ -507,13 +534,15 @@ local function RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabel
                 end
             end
             local more = row.sides[side].more
-            more:ClearAllPoints()
-            more:SetPoint("LEFT", row, "LEFT", x + shown * SUMMARY_SLOT_W + 1, 0)
-            more:SetShown(#spread > SUMMARY_MAX_BUFFS)
             local none = row.sides[side].none
+            more:ClearAllPoints()
             none:ClearAllPoints()
-            none:SetPoint("LEFT", row, "LEFT", x, 0)
-            none:SetShown(#spread == 0)
+            if x then
+                more:SetPoint("LEFT", row, "LEFT", x + shown * SUMMARY_SLOT_W + 1, 0)
+                none:SetPoint("LEFT", row, "LEFT", x, 0)
+            end
+            more:SetShown(x and #spread > SUMMARY_MAX_BUFFS or false)
+            none:SetShown(x and #spread == 0 or false)
         end
         row:Show()
     end
@@ -522,50 +551,97 @@ local function RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabel
     end
 end
 
+-- No paladins at all: a line in the middle of the panel says so.
 local function SetCompact(f)
-    f:SetSize(COMPACT_W, COMPACT_H)
-    f.warning:Hide()
-    f.header:Hide()
-    f.scroll:Hide()
+    f.canvas:Hide()
     f.sendBtn:Hide()
-    f.secondaryBtn:Hide()
+    f.emptyText:SetText("No paladins in the group.")
+    f.emptyText:Show()
 end
 
-local function SetExpanded(f, width, summaryHeight, bodyHeight, showWarning)
-    local headerTop = f.titleBarHeight + 10
-    if showWarning then
-        f.warning:ClearAllPoints()
-        f.warning:SetPoint("TOPLEFT", MARGIN, -headerTop)
-        f.warning:SetPoint("TOPRIGHT", -MARGIN, -headerTop)
+local function PallyPowerMode()
+    return (WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw") == "pallypower"
+end
+
+-- The room a block `contentW` wide leaves across the panel, which the grids
+-- take up between the names and the paladin columns so they always span it.
+-- None when the block is already too wide -- FitCanvas scales that down.
+local function StretchRoom(f, contentW)
+    local width = f:GetWidth() or 0
+    return math.max(0, math.floor(width
+        - (contentW + SCROLLBAR_GAP + SCROLLBAR_W + MARGIN * 2)))
+end
+
+-- The heading names what the panel is showing, and its rule runs up to the
+-- leftmost button shown beside it.
+local function SetHeading(f, text)
+    local heading = f.heading
+    heading.label:SetText(text)
+    local rule = heading.right
+    rule:ClearAllPoints()
+    rule:SetPoint("LEFT", heading.label, "RIGHT", 6, 0)
+    local leftmost = (f.closeDemoBtn:IsShown() and f.closeDemoBtn)
+        or (f.sendBtn:IsShown() and f.sendBtn) or nil
+    if leftmost then
+        rule:SetPoint("RIGHT", leftmost, "LEFT", -6, 0)
+    else
+        rule:SetPoint("RIGHT", heading, "RIGHT")
+    end
+end
+
+-- Fit the grids to the panel: the canvas under the title bar is scaled down
+-- only when the grids and their scrollbar are wider than the panel, and then
+-- stretched back to fill it at that scale. Re-run whenever the panel resizes.
+local function FitCanvas(f)
+    local width, height = f:GetWidth(), f:GetHeight()
+    if not (f.neededW and width and width > 0) then return end
+    local scale = math.min(1, width / f.neededW)
+    local canvas = f.canvas
+    canvas:SetScale(scale)
+    canvas:ClearAllPoints()
+    canvas:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -BAR_H / scale)
+    canvas:SetSize(width / scale, math.max(1, height - BAR_H) / scale)
+    -- Centred when there is room to spare.
+    local x = math.max(MARGIN, (width / scale - f.neededW) / 2 + MARGIN)
+    f.header:ClearAllPoints()
+    f.header:SetPoint("TOPLEFT", canvas, "TOPLEFT", x, -f.headerTop)
+    f.scroll:ClearAllPoints()
+    f.scroll:SetPoint("TOPLEFT", f.header, "BOTTOMLEFT")
+    f.scroll:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", x, MARGIN)
+    f.warning:SetWidth(width / scale - MARGIN * 2)
+end
+
+-- `note`, when given, is a line above the grids in `noteColor`.
+local function SetExpanded(f, contentW, note, noteColor)
+    f.emptyText:Hide()
+    f.headerTop = MARGIN
+    f.warning:ClearAllPoints()
+    if note then
+        f.warning:SetPoint("TOP", f.canvas, "TOP", 0, -MARGIN)
+        f.warning:SetText(note)
+        f.warning:SetTextColor(noteColor[1], noteColor[2], noteColor[3])
         f.warning:Show()
-        headerTop = headerTop + WARNING_H
+        f.headerTop = f.headerTop + WARNING_H
     else
         f.warning:Hide()
     end
-    f.header:ClearAllPoints()
-    f.header:SetPoint("TOPLEFT", MARGIN, -headerTop)
-    f.scroll:ClearAllPoints()
-    f.scroll:SetPoint("TOPLEFT", f.header, "BOTTOMLEFT")
-    f.scroll:SetPoint("BOTTOMRIGHT", -(MARGIN + SCROLLBAR_W),
-        MARGIN + BOTTOM_STRIP)
-    local height = headerTop + TITLE_H + summaryHeight + HEADER_H + bodyHeight
-        + MARGIN + BOTTOM_STRIP
-    f:SetSize(width, math.min(FRAME_MAX_H, math.max(FRAME_MIN_H, height)))
-    f.header:Show()
-    f.scroll:Show()
+    f.neededW = contentW + SCROLLBAR_GAP + SCROLLBAR_W + MARGIN * 2
+    f.scroll:SetWidth(contentW + SCROLLBAR_GAP)
+    FitCanvas(f)
+    f.canvas:Show()
     f.sendBtn:Show()
-    f.secondaryBtn:Show()
 end
 
 local function RenderGrid(f, data)
     local paladins = VisiblePaladins(data)
     local paladinW = K.PaladinColumnsWidth(paladins, COL_W, 3)
-    local leftW = LEFT_PREFIX_W + paladinW
+    local extra = StretchRoom(f, LEFT_PREFIX_W + paladinW * 2 + GRID_GAP
+        + FIX_GAP + FIX_W)
+    local leftW = LEFT_PREFIX_W + extra + paladinW
     local rightW = paladinW
     local rightX = leftW + GRID_GAP
     local fixX = rightX + rightW + FIX_GAP
     local contentW = fixX + FIX_W
-    local frameW = contentW + MARGIN * 2 + SCROLLBAR_GAP + SCROLLBAR_W
     local bodyHeight = #data.members * ROW_H
     -- The overview strip keeps a gap between itself and the column headers so
     -- it reads as its own block rather than the grid's first rows.
@@ -575,18 +651,20 @@ local function RenderGrid(f, data)
     -- hold no board rights, so pushing over it is stepping on someone else's
     -- plan. With WDW as the source, or with edit rights, the fixes ARE the
     -- plan and the warning was just noise.
-    SetExpanded(f, frameW, summaryHeight, bodyHeight,
-        not data.isDemo
-        and (WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw") == "pallypower"
-        and not WhoDoesWhat:CanEditAssignments())
+    local warn = not data.isDemo and PallyPowerMode()
+        and not WhoDoesWhat:CanEditAssignments()
+    SetExpanded(f, contentW, warn and FIX_WARNING or nil, WARNING_COLOR)
     f.header:SetSize(contentW, TITLE_H + summaryHeight + HEADER_H)
     f.content:SetWidth(contentW)
 
     local gridX = { 0, rightX }
     local gridW = { leftW, rightW }
-    local columnStart = { LEFT_PREFIX_W, 0 }
+    local columnStart = { LEFT_PREFIX_W + extra, 0 }
     local plans = { data.current, data.suggested }
-    local sourceLabels = { "Current", "Suggested" }
+    -- In PallyPower mode its board IS the plan, and WDW's is only the better
+    -- one on offer.
+    local sourceLabels = PallyPowerMode() and { "PallyPower", "Optimized" }
+        or { "Current", "Suggested" }
     local headerIconsTop = TITLE_H + summaryHeight
 
     RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabels)
@@ -667,17 +745,17 @@ local function RenderGrid(f, data)
                 rowColor and math.max(rowColor.a or 0, 0.12) or 0.12)
             if side == 1 then
                 local role, roleId = AssignedRole(data, member)
-                local roleIcon = (role and role.icon) or RoleIconFor(member)
-                if roleIcon then WhoDoesWhat:SetRoleIconTexture(row.roleIcon, roleIcon) end
-                row.roleIcon:SetShown(roleIcon ~= nil)
                 local colorHex = member.classInfo and member.classInfo.colorHex or "c0c0c0"
                 row.name:SetText("|cff" .. colorHex .. member.displayName .. "|r")
 
-                if row.dropdown and member.classInfo and not member.isPet then
+                local picks = row.dropdown and member.classInfo and not member.isPet
+                local roleIcon = not picks and ((role and role.icon) or RoleIconFor(member))
+                if roleIcon then WhoDoesWhat:SetRoleIconTexture(row.roleIcon, roleIcon) end
+                row.roleIcon:SetShown(roleIcon and true or false)
+                if picks then
                     row.dropdown:SetShown(true)
-                    UIDropDownMenu_SetText(row.dropdown, role
-                        and RoleText(role, member.classInfo)
-                        or (roleId and "|cff909090?|r" or "|cff909090None|r"))
+                    UIDropDownMenu_SetText(row.dropdown, role and RoleIcon(role)
+                        or (roleId and "|cff909090?|r" or "|cff909090--|r"))
                     if data.isDemo or WhoDoesWhat:CanEditRoleOf(member.name) then
                         UIDropDownMenu_EnableDropDown(row.dropdown)
                     else
@@ -745,8 +823,43 @@ local function RenderGrid(f, data)
         f.content.fixButtons[index].member = nil
     end
 
-    f.scroll:SetVerticalScroll(0)
     UI.SetScrollHeight(f.scroll, bodyHeight)
+end
+
+-- Nothing to compare -- PallyPower agrees with the plan, or it's a simulated
+-- raid PallyPower can't see -- still shows who casts what: the overview strip
+-- alone, one column of the plan WDW is running, under a line saying why there
+-- are no grids.
+local function RenderPlan(f, paladins, plan, note)
+    local buffsW = SUMMARY_MAX_BUFFS * SUMMARY_SLOT_W + 12
+    local buffsX = LEFT_PREFIX_W + StretchRoom(f, LEFT_PREFIX_W + buffsW)
+    local contentW = buffsX + buffsW
+    SetExpanded(f, contentW, note, NOTE_COLOR)
+    f.sendBtn:Hide()
+    f.header:SetSize(contentW, TITLE_H + #paladins * SUMMARY_ROW_H)
+    f.content:SetWidth(contentW)
+
+    local title = f.gridTitles[1]
+    title:ClearAllPoints()
+    title:SetPoint("TOPLEFT", f.header, "TOPLEFT", buffsX, 0)
+    title:SetWidth(buffsW)
+    title:SetJustifyH("LEFT")
+    title:SetText("Assigned")
+    title:Show()
+    f.gridTitles[2]:Hide()
+    RenderSummary(f, paladins, { 0 }, { buffsX }, { plan }, { "Assigned" })
+
+    for side = 1, 2 do
+        for _, header in ipairs(f.header.headers[side]) do header:Hide() end
+        f.headerPaladinStripes[side]:Hide()
+        f.bodyPaladinStripes[side]:Hide()
+        for _, row in ipairs(f.content.rows[side]) do row:Hide() end
+    end
+    for _, button in ipairs(f.content.fixButtons) do
+        button:Hide()
+        button.member = nil
+    end
+    UI.SetScrollHeight(f.scroll, 0)
 end
 
 RenderDiffs = function(f)
@@ -756,51 +869,72 @@ RenderDiffs = function(f)
     else
         data = LiveComparisonData()
     end
+    f.closeDemoBtn:SetShown(data and data.isDemo or false)
     if not data then
-        SetCompact(f)
+        local paladins = GroupPaladins()
+        if #paladins == 0 then
+            SetCompact(f)
+        else
+            RenderPlan(f, paladins, A.GetActivePaladinBuffPlan(),
+                WhoDoesWhat:IsFakeRaidEnabled()
+                    and "Simulated raid: PallyPower can't see these paladins,"
+                        .. " so there is nothing to compare."
+                    or PallyPowerMode()
+                        and "No unoptimized buffs: every PallyPower blessing is"
+                            .. " already the best pick."
+                    or "PallyPower matches WDW's plan.")
+        end
+        SetHeading(f, "Paladin Assignments")
         return false
     end
 
     RenderGrid(f, data)
     f.diffCount = data.fixableCount or data.diffCount
     f.sendBtn:SetText("Fix All (" .. f.diffCount .. ")")
+    f.sendBtn:SetWidth(f.sendBtn:GetTextWidth() + 24)
     if data.isDemo then
         f.sendBtn:Disable()
-        f.secondaryBtn:SetText("Close")
     else
         f.sendBtn.canFix, f.sendBtn.blockedPaladin =
             WhoDoesWhat:CanFixAllPallyPowerAssignments()
         f.sendBtn.noneFixable = f.diffCount == 0
         f.sendBtn:SetEnabled(f.sendBtn.canFix and not f.sendBtn.noneFixable)
-        f.secondaryBtn:SetText("Ignore")
     end
-    -- The window repaints itself on every plan change (RefreshBoardViews
-    -- is the "buff plan changed" hook and reaches us), so the second button
-    -- only exists to dismiss the two modes that aren't live diffs.
-    f.secondaryBtn:SetShown(data.isDemo or f.warningText ~= nil)
+    SetHeading(f, PallyPowerMode() and "Unoptimized Buffs" or "PallyPower Differences")
     return true
 end
 
-local function EnsureFrame()
-    if diffFrame then return diffFrame end
+-- Build the panel into the Blessings tab's right-hand frame (MainAssignmentsView):
+-- a pink heading rule like the sections beside it -- its title following what
+-- is shown, Fix All at its right end -- over a canvas holding the grids, which
+-- stretch across the panel and FitCanvas scales down when they can't fit.
+-- It repaints whenever it comes on screen, and from RefreshBoardViews while it
+-- is up.
+function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
+    local THEME = WhoDoesWhat.Theme
 
-    local f = UI.CreateWindow("WhoDoesWhatPallyPowerDiffFrame",
-        COMPACT_W, COMPACT_H, "Paladin Assignment Differences", WhoDoesWhat.Theme.window)
+    local bar = CreateFrame("Frame", nil, f)
+    bar:SetPoint("TOPLEFT")
+    bar:SetPoint("TOPRIGHT")
+    bar:SetHeight(BAR_H)
+    local heading = UI.CreateDivider(bar, "Paladin Assignments", THEME.blessings.accent)
+    heading:SetPoint("LEFT")
+    heading:SetPoint("RIGHT")
+    f.heading = heading
 
-    local sendBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    sendBtn:SetSize(130, 22)
-    sendBtn:SetPoint("BOTTOMRIGHT", -MARGIN, MARGIN)
+    local sendBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+    sendBtn:SetHeight(22)
+    sendBtn:SetPoint("RIGHT", -MARGIN, 0)
     sendBtn:SetText("Fix All (0)")
     sendBtn:SetScript("OnClick", function()
         if f.demoData then return end
         StaticPopup_Hide("WHODOESWHAT_FIX_ALL_PALLYPOWER")
         StaticPopup_Show("WHODOESWHAT_FIX_ALL_PALLYPOWER", f.diffCount, nil,
             function()
-                f.warningText = nil
                 if WhoDoesWhat:SyncToPallyPower() then
                     WhoDoesWhat:RefreshMainAssignmentsView()
-                    f:Hide()
                 end
+                RenderDiffs(f)
             end)
     end)
     UI.AddTooltip(sendBtn, function(self)
@@ -826,30 +960,35 @@ local function EnsureFrame()
     end)
     f.sendBtn = sendBtn
 
-    local secondary = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    secondary:SetSize(80, 22)
-    secondary:SetPoint("RIGHT", sendBtn, "LEFT", -6, 0)
-    secondary:SetText("Ignore")
-    secondary:SetScript("OnClick", function()
+    -- Demo data (/wdw ppdifftest) replaces the live comparison until closed.
+    local closeDemoBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+    closeDemoBtn:SetSize(80, 22)
+    closeDemoBtn:SetPoint("RIGHT", sendBtn, "LEFT", -4, 0)
+    closeDemoBtn:SetText("End Demo")
+    closeDemoBtn:SetScript("OnClick", function()
         f.demoData = nil
-        f.warningText = nil
-        f:Hide()
+        RenderDiffs(f)
     end)
-    f.secondaryBtn = secondary
+    closeDemoBtn:Hide()
+    f.closeDemoBtn = closeDemoBtn
 
-    local warning = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local emptyText = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", 0, -BAR_H / 2)
+    emptyText:Hide()
+    f.emptyText = emptyText
+
+    local canvas = CreateFrame("Frame", nil, f)
+    f.canvas = canvas
+
+    local warning = canvas:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     warning:SetHeight(WARNING_H)
     warning:SetJustifyH("CENTER")
     warning:SetJustifyV("TOP")
-    warning:SetTextColor(1, 0.2, 0.2)
-    warning:SetText("PallyPower is this raid's buff source and you have no edit"
-        .. " rights. Use fixes sparingly; they rely on paladins who enabled"
-        .. " Free Assignment.")
     warning:Hide()
     f.warning = warning
 
-    local header = CreateFrame("Frame", nil, f)
-    local scroll, content = UI.CreateScroll(f,
+    local header = CreateFrame("Frame", nil, canvas)
+    local scroll, content = UI.CreateScroll(canvas,
         "WhoDoesWhatPallyPowerDiffScroll", true)
     f.header = header
     f.scroll = scroll
@@ -863,16 +1002,30 @@ local function EnsureFrame()
     f.headerPaladinStripes = {}
     f.bodyPaladinStripes = {}
     for side = 1, 2 do
-        local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        title:Hide()
-        f.gridTitles[side] = title
+        local gridTitle = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        gridTitle:Hide()
+        f.gridTitles[side] = gridTitle
         f.headerPaladinStripes[side] = K.CreateLocalPaladinStripe(header)
         f.bodyPaladinStripes[side] = K.CreateLocalPaladinStripe(content)
     end
 
+    -- A shadow along the bottom, as the Settings wells have, over everything
+    -- the canvas draws.
+    local level = scroll:GetFrameLevel() + 20
+    bar:SetFrameLevel(level)
+    local bottomEdge = UI.CreateEdgeShadow(f, level, false)
+    bottomEdge:SetPoint("BOTTOMLEFT")
+    bottomEdge:SetPoint("BOTTOMRIGHT")
+    UI.InsetScrollBar(scroll, 4)
+
+    -- The stretch is worked out at paint time, so a new size repaints.
+    f:SetScript("OnSizeChanged", function(self)
+        if self:IsVisible() then RenderDiffs(self) else FitCanvas(self) end
+    end)
+    f:SetScript("OnShow", RenderDiffs)
+
     WhoDoesWhat:LogUiBuilding("Building PallyPower diff grids.")
-    diffFrame = f
-    return f
+    diffPanel = f
 end
 
 local function DummyPlan(paladins, members, assignments)
@@ -1023,36 +1176,25 @@ local function ValidateDummyData(data)
     assert(red > 0 and yellow > 0 and changed == data.diffCount)
 end
 
-function WhoDoesWhat:OpenPallyPowerDiffView(warningText)
-    local f = EnsureFrame()
-    f.demoData = nil
-    f.warningText = warningText
-    local hasDiffs = RenderDiffs(f)
-    if not warningText then self:RefreshMainAssignmentsView() end
-    if warningText and not hasDiffs then return end
+-- Open the main window on the Blessings tab, where the differences sit.
+function WhoDoesWhat:OpenPallyPowerDiffView()
     self:LogUiBuilding("Opening PallyPower Differences...")
-    f:Show()
-    f:Raise()
+    self:ShowRaidTab(K.TAB_BLESSINGS)
 end
 
 function WhoDoesWhat:OpenPallyPowerDiffTestView()
-    local f = EnsureFrame()
-    f.warningText = nil
-    f.demoData = DummyData()
-    ValidateDummyData(f.demoData)
-    RenderDiffs(f)
+    self:ShowRaidTab(K.TAB_BLESSINGS)
+    diffPanel.demoData = DummyData()
+    ValidateDummyData(diffPanel.demoData)
+    RenderDiffs(diffPanel)
     self:LogUiBuilding("Opening PallyPower Differences test data...")
-    f:Show()
-    f:Raise()
 end
 
--- Repainted from RefreshBoardViews, the addon's "board changed" hook,
--- so the open window tracks PallyPower traffic, role changes, buffing rules
--- and talent arrivals without the user asking. Nothing left to differ means
--- nothing left to show, so the window gets out of the way.
+-- Repainted from RefreshBoardViews, the addon's "board changed" hook, so the
+-- panel tracks PallyPower traffic, role changes, buffing rules and talent
+-- arrivals while it is on screen. Off screen it catches up when it is shown.
 function WhoDoesWhat:RefreshPallyPowerDiffView()
-    if diffFrame and diffFrame:IsShown() and not diffFrame.demoData then
-        diffFrame.warningText = nil
-        if not RenderDiffs(diffFrame) then diffFrame:Hide() end
+    if diffPanel and diffPanel:IsVisible() and not diffPanel.demoData then
+        RenderDiffs(diffPanel)
     end
 end

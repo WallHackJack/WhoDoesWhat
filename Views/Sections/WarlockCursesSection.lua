@@ -227,7 +227,7 @@ local function Refresh(f)
     state.box:SetHeight(showEmpty
         and (UI.BOX_PAD + UI.SECTION_TITLE_H + UI.EMPTY_ROWS_H + UI.BOX_PAD)
         or state.fullHeight)
-    K.LayoutColumns(f)
+    K.LayoutSections(f)
 
     -- Auto rewrites the whole section, so hide it without edit permission.
     state.autoBtn:SetShown(editable)
@@ -242,10 +242,10 @@ local function Refresh(f)
     UI.LayoutHeaderChain(state.box)
 end
 
-local function Build(f, content)
-    local chrome = K.CreateSectionChrome(f, content, {
+local function Build(f)
+    local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        column = K.COL_LEFT,
+        tab = K.TAB_WARLOCKS,
         tintClass = "Warlock",
         mailCollect = CollectWarlockWhispers,
     })

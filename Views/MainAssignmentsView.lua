@@ -11,26 +11,28 @@ local UI = select(2, ...).UI
 -- old per-page openers (OpenMembersView, OpenAddonSettingsView...) now open
 -- this window on their tab through ShowMainTab.
 --
--- The Raid page is the permission strip over two scrollable columns of boxed
--- assignment sections. Every section is hard-coded in its own file under
--- Views/Sections/ (registered on WhoDoesWhat.SectionViews as Build/Refresh
--- pairs, built from the shared primitives in Views/SectionKit.lua):
+-- The Raid page is laid out like Settings: a second row of tabs over one title
+-- strip (the permission picker hard right, where Settings has Reset), and each
+-- tab's page in a navy well. A page scrolls one centred column of boxed
+-- assignment sections; Blessings splits its well, sections on the left and the
+-- PallyPower differences (PallyPowerDiffView.lua) on the right. Every section is
+-- hard-coded in its own file under Views/Sections/ (registered on
+-- WhoDoesWhat.SectionViews as Build/Refresh pairs, built from the shared
+-- primitives in Views/SectionKit.lua) and names the tab it sits on:
 --
---   left column   PaladinBuffsSection  computed summary + buff rules
---                 CustomRolesSection   the raid's shared + overridden roles
---                 WarlockCursesSection fixed row per curse
---   right column  TankSection          one auto row per marked tank
---                 CCSection            user-grown rows (the template for future
---                                      sections -- see its header comment)
---                 MisdirectSection     one auto row per hunter
+--   Blessings       PaladinBuffsSection  computed summary + buff rules
+--                   CustomRolesSection   the raid's shared + overridden roles
+--   Tanking         TankSection          one auto row per marked tank
+--                   MisdirectSection     one auto row per hunter
+--   Crowd Control   CCSection            user-grown rows (the template for
+--                                        future sections -- see its header)
+--   Warlocks        WarlockCursesSection fixed row per curse
 --
--- The columns are deliberately uneven: the right one carries Tanks and the
--- wide dynamic rows (CC, Misdirect), while the left carries Paladin Buffs and
--- Warlocks. Boxes are anchor-chained
--- within their column, so a section that changes height pushes the ones under
--- it down on its own. The model -- section defs, member/text helpers, whisper
--- collectors, demand math, auto-assigns, and storage -- lives in
--- Assignments.lua.
+-- Boxes are anchor-chained within their tab, so a section that changes height
+-- pushes the ones under it down on its own. Every tab's sections are built and
+-- refreshed together, whichever one is up. The model -- section defs,
+-- member/text helpers, whisper collectors, demand math, auto-assigns, and
+-- storage -- lives in Assignments.lua.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -39,15 +41,13 @@ local Sync = WhoDoesWhat:GetModule("Sync")
 local mainFrame = nil
 
 local SCROLLBAR_W = UI.SCROLLBAR_W
--- Fixed width: wide enough for the Raid board's two columns and its scrollbar
--- inside the tab panel. WINDOW_H is the height every page gets unless it asks
--- for more (SetMainPageHeight); pages taller than the panel scroll.
+-- Fixed width: wide enough for the widest page (Members, the Buff Grid) inside
+-- the tab panel. WINDOW_H is the height every page gets unless it asks for more
+-- (SetMainPageHeight); pages taller than the panel scroll.
 local WINDOW_W = 900
 local WINDOW_H = 560
 -- Page key -> the content height that page asked for.
 local pageHeights = {}
--- Room above the Raid page's columns for the permission picker.
-local PERMISSION_STRIP_H = 30
 
 local SETTINGS_LABEL = "|T" .. UI.GEAR_ICON .. ":14:14:0:0|t Settings"
 local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
@@ -63,24 +63,41 @@ local PAGE_COLORS = {
     logs = PAGE_DARK, settings = PAGE_DARK,
 }
 
--- Column geometry (widths only live here; the kit reads them off f.columns).
--- Left is the narrow column (Paladin Buffs / Warlocks); right is wider for
--- Tanks, the busy dynamic rows (CC, Misdirect), and future custom-assignment
--- sections that match them.
-local COLUMN_GAP = 12
-local LEFT_COLUMN_W = 330
-local RIGHT_COLUMN_W = 500
-local CONTENT_W = LEFT_COLUMN_W + COLUMN_GAP + RIGHT_COLUMN_W
+-- The Raid page's sub-tabs, left to right. Sections pick theirs by key.
+-- `title` heads the page, as Settings' sections do, in gold or the accent of
+-- the tab's `palette` (panel, well and accent colours; Theme.lua), which
+-- otherwise keeps the Settings slate and navy. Blessings is split: its
+-- sections flat on a narrow panel on the left, the PallyPower differences on
+-- the right.
+local RAID_TABS = {
+    { label = "Blessings", page = K.TAB_BLESSINGS, title = "Paladin Blessings",
+        palette = THEME.blessings, split = true },
+    { label = "Tanking", page = K.TAB_TANKING, title = "Tanking" },
+    { label = "Crowd Control", page = K.TAB_CC, title = "Crowd Control" },
+    { label = "Warlocks", page = K.TAB_WARLOCKS, title = "Warlocks",
+        palette = { accent = { 0.58, 0.51, 0.79 } } },
+}
 
--- Build + refresh order: left column top-to-bottom, then right column.
--- Within a column this is also the anchor-chain order.
+-- Sub-tab geometry. Every section is SECTION_W wide, bar the split Blessings
+-- panel's, which keep the compact Paladin Buffs minimum. The shared title strip
+-- sits above each page's well, and a split well's two panels keep a gap of the
+-- slate between them.
+local SECTION_W = 500
+local SPLIT_SECTION_W = 330
+local HEADER_H = 34
+local WELL_INSET = 10
+local STACK_TOP = 10
+local SPLIT_LEFT_W = SPLIT_SECTION_W + 8 + SCROLLBAR_W
+local SPLIT_GAP = 8
+
+-- Build + refresh order. Within a tab this is also the anchor-chain order.
 local function OrderedSections()
     local SV = WhoDoesWhat.SectionViews
     local sections = {
         SV.Tank, SV.PaladinBuffs, SV.CustomRoles, SV.WarlockCurses, SV.CC,
     }
     if WhoDoesWhat.ClientFeatures.misdirectAssignments then
-        sections[#sections + 1] = SV.Misdirect
+        table.insert(sections, 2, SV.Misdirect) -- under Tanks
     end
     return sections
 end
@@ -150,7 +167,7 @@ local function InitPermissionsDropdown(_, level)
     end
 end
 
--- The strip at the Raid page's top-left: the raid leader gets the picker
+-- The strip at the right of the Raid page's title: the raid leader gets the picker
 -- dropdown, every other raid member a note: the rule if they may edit under it,
 -- otherwise just "Read Only Mode". Hidden outside raids -- parties and solo are
 -- always open, nothing to say.
@@ -185,16 +202,6 @@ end
 -- ---------------------------------------------------------------------------
 -- Refresh coordinator + window
 -- ---------------------------------------------------------------------------
-
--- The Raid page's scroll area starts under the permission strip while the strip
--- has something to say, and takes its room back when it doesn't (outside raids).
-local function LayoutRaidPage(f)
-    local stripShown = f.permDD:IsShown() or f.permNote:IsShown()
-    f.scroll:ClearAllPoints()
-    f.scroll:SetPoint("TOPLEFT", f.raidPage, "TOPLEFT", 0,
-        stripShown and -PERMISSION_STRIP_H or 0)
-    f.scroll:SetPoint("BOTTOMRIGHT", f.raidPage, "BOTTOMRIGHT", -SCROLLBAR_W, 0)
-end
 
 local function UpdateVersionWarning(f)
     local current = Sync:GetReportedAddonVersion()
@@ -250,7 +257,6 @@ end
 -- collectors) so every section lays out its header chain against it.
 local function RefreshRaidPage(f)
     UpdatePermissionControls(f)
-    LayoutRaidPage(f)
     K.UpdateHeaderMailVisibility(f)
     for _, section in ipairs(f.sections) do
         section.Refresh(f)
@@ -258,41 +264,133 @@ local function RefreshRaidPage(f)
     K.UpdateHeaderMailButtons(f)
 end
 
--- The Raid page: the permission strip over the two scrollable columns.
+-- Top and bottom edge shadows across one panel of a well, over its scroll area.
+local function AddWellShadows(well, scroll, left, right)
+    local level = scroll:GetFrameLevel() + 20
+    local topEdge = UI.CreateEdgeShadow(well, level, true)
+    topEdge:SetPoint("TOPLEFT", left, "TOPLEFT")
+    topEdge:SetPoint("TOPRIGHT", right, "TOPRIGHT")
+    local bottomEdge = UI.CreateEdgeShadow(well, level, false)
+    bottomEdge:SetPoint("BOTTOMLEFT", left, "BOTTOMLEFT")
+    bottomEdge:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT")
+    -- Its arrows otherwise sit right at the ends, under the shadows.
+    UI.InsetScrollBar(scroll, 12)
+end
+
+-- The Raid page, laid out like Settings: a row of sub-tabs over one title
+-- strip, and under it each tab's page in a well of its own. The strip carries
+-- the permission picker where Settings has its Reset button. A page scrolls
+-- one centred column of sections; Blessings splits its well in two.
 local function BuildRaidPage(f, page)
     f.raidPage = page
 
-    -- Editing-permission strip: the raid leader sees the picker, other raid
-    -- members a read-only note, and outside raids both hide
+    local tabs = CreateFrame("Frame", nil, page)
+    tabs:SetAllPoints(page)
+    tabs.titleBarHeight = 0
+    local subPages = UI.AddTabs(tabs, RAID_TABS,
+        { colors = THEME.TabsWith({ panel = THEME.panelSlate }, THEME.subTabs) })
+    local panel = tabs.tabPanel
+
+    WhoDoesWhat:LogUiBuilding("Building main assignments content.")
+
+    -- ---- Title strip ----
+    local header = CreateFrame("Frame", nil, panel)
+    header:SetPoint("TOPLEFT", WELL_INSET, -WELL_INSET)
+    header:SetPoint("TOPRIGHT", -WELL_INSET, -WELL_INSET)
+    header:SetHeight(HEADER_H)
+    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("CENTER", 0, 3)
+
+    -- Editing-permission picker, hard right: the raid leader sees the picker,
+    -- other raid members a read-only note, and outside raids both hide
     -- (UpdatePermissionControls decides each refresh).
-    local permDD = UI.CreateMenuDropdown(page, "WhoDoesWhatPermissionsDD", 170)
-    -- The template overhangs ~15px left of its visible box.
-    permDD:SetPoint("LEFT", page, "TOPLEFT", -15, -(PERMISSION_STRIP_H / 2) - 2)
+    local permDD = UI.CreateMenuDropdown(header, "WhoDoesWhatPermissionsDD", 170)
+    -- The template overhangs ~15px past each side of its visible box.
+    permDD:SetPoint("RIGHT", header, "RIGHT", 15, 1)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
     permDD:Hide()
     f.permDD = permDD
 
-    local permNote = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    permNote:SetPoint("LEFT", page, "TOPLEFT", 0, -(PERMISSION_STRIP_H / 2))
+    local permNote = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    permNote:SetPoint("RIGHT", header, "RIGHT", 0, 3)
     permNote:Hide()
     f.permNote = permNote
 
-    local scroll, content = UI.CreateScroll(page, "WhoDoesWhatMainScroll", true)
-    content:SetWidth(CONTENT_W)
-    f.content = content
-    f.scroll = scroll
+    -- The strip's title, and the panel around it in the tab's own colour.
+    -- AddTabs has already selected the first tab, before anyone listened.
+    local function ShowTitle(index)
+        local spec = RAID_TABS[index]
+        local color = spec.palette and spec.palette.accent or THEME.gold
+        title:SetText(spec.title)
+        title:SetTextColor(color[1], color[2], color[3])
+        local fill = spec.palette and spec.palette.panel or THEME.panelSlate
+        panel:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    end
+    tabs:OnTabSelected(ShowTitle)
+    ShowTitle(tabs.selectedTab)
 
-    WhoDoesWhat:LogUiBuilding("Building main assignments content.")
+    -- ---- Wells ----
+    -- Each tab's page is its well, below the strip. One scroll area of
+    -- sections in it, whose boxes hang from a stack: centred across the well
+    -- (scrollbar gutter included), or in the split's left panel.
+    f.sectionTabs = {}
+    for _, spec in ipairs(RAID_TABS) do
+        local well = subPages[spec.page]
+        local wellColor = spec.palette and spec.palette.well or THEME.pageWell
+        well:ClearAllPoints()
+        well:SetPoint("TOPLEFT", panel, "TOPLEFT", WELL_INSET, -(WELL_INSET + HEADER_H))
+        well:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -WELL_INSET, WELL_INSET)
+
+        local scroll, content = UI.CreateScroll(well, "WhoDoesWhatRaidScroll_" .. spec.page)
+        local stack = CreateFrame("Frame", nil, content)
+        stack:SetHeight(1)
+        if spec.split then
+            local leftFill = well:CreateTexture(nil, "BACKGROUND")
+            leftFill:SetPoint("TOPLEFT")
+            leftFill:SetPoint("BOTTOMLEFT")
+            leftFill:SetWidth(SPLIT_LEFT_W)
+            local rightFill = well:CreateTexture(nil, "BACKGROUND")
+            rightFill:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
+            rightFill:SetPoint("BOTTOMRIGHT")
+            for _, fill in ipairs({ leftFill, rightFill }) do
+                fill:SetColorTexture(wellColor[1], wellColor[2], wellColor[3], wellColor[4])
+            end
+
+            scroll:SetPoint("TOPLEFT")
+            scroll:SetPoint("BOTTOMLEFT")
+            scroll:SetWidth(SPLIT_LEFT_W - SCROLLBAR_W)
+            stack:SetPoint("TOP", content, "TOP", 0, -STACK_TOP)
+            stack:SetWidth(SPLIT_SECTION_W)
+            AddWellShadows(well, scroll, leftFill, leftFill)
+
+            local right = CreateFrame("Frame", nil, well)
+            right:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
+            right:SetPoint("BOTTOMRIGHT")
+            WhoDoesWhat:BuildPallyPowerDiffPanel(right)
+        else
+            local fill = well:CreateTexture(nil, "BACKGROUND")
+            fill:SetAllPoints()
+            fill:SetColorTexture(wellColor[1], wellColor[2], wellColor[3], wellColor[4])
+
+            scroll:SetPoint("TOPLEFT")
+            scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR_W, 0)
+            stack:SetPoint("TOP", content, "TOP", SCROLLBAR_W / 2, -STACK_TOP)
+            stack:SetWidth(SECTION_W)
+            AddWellShadows(well, scroll, well, well)
+        end
+        -- The split panel's sections sit straight on the well, Settings-style.
+        f.sectionTabs[spec.page] = {
+            boxes = {}, stack = stack, scroll = scroll, top = STACK_TOP,
+            flat = spec.split, accent = spec.palette and spec.palette.accent,
+            rowColors = spec.palette and spec.palette.rows,
+        }
+    end
+    f.raidTabs = tabs
 
     f.headerMail = {} -- section-header mass-mail buttons (SectionKit)
-    f.columns = {
-        [K.COL_LEFT] = { boxes = {}, x = 0, width = LEFT_COLUMN_W },
-        [K.COL_RIGHT] = { boxes = {}, x = LEFT_COLUMN_W + COLUMN_GAP, width = RIGHT_COLUMN_W },
-    }
-
     f.sections = OrderedSections()
     for _, section in ipairs(f.sections) do
-        section.Build(f, content)
+        section.Build(f)
     end
 
     -- Every time the page comes up, whether by tab or by the window opening.
@@ -438,4 +536,11 @@ end
 -- Toggle the main window on the Raid page.
 function WhoDoesWhat:OpenMainAssignmentsView()
     self:ShowMainTab("raid")
+end
+
+-- Open the main window on one of the Raid page's sub-tabs (K.TAB_*), never
+-- closing it.
+function WhoDoesWhat:ShowRaidTab(key)
+    self:ShowMainTab("raid", true)
+    mainFrame.raidTabs:SelectTab(key)
 end

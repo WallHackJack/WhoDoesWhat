@@ -1606,11 +1606,14 @@ end
 --   "inactive"  grey text, no icon   (PallyPower absent / you're not grouped)
 --   "ok"        green text + check   (in sync / nothing to fix)
 --   "attention" orange text + warning, and the row becomes clickable
--- -- so only the icon, the tooltip wording and the target window differ.
+-- -- so only the icon, the tooltip wording and the target window differ. A
+-- type with `alwaysOpens` is clickable in every bucket: PallyPower's opens the
+-- Blessings page, which is worth reaching whether or not anything is wrong.
 local STATE_ROW_TYPES = {
     pallyPower = {
         title = "PallyPower status",
-        openHint = "Click to open PallyPower Differences.",
+        openHint = "Click to open Paladin Blessings.",
+        alwaysOpens = true,
         Open = function() WhoDoesWhat:OpenPallyPowerDiffView() end,
         CreateIcon = function(row)
             return K.CreatePallyPowerBadge(row, ICON_SIZE)
@@ -1747,7 +1750,7 @@ local function CreateStateRow(key)
         -- Shift-left-click belongs to the window shortcut below and Alt to the
         -- drag, so a plain click is the only one that opens anything.
         if IsShiftKeyDown() or IsAltKeyDown() then return end
-        if self.bucket == "attention" then kind.Open() end
+        if self.bucket == "attention" or kind.alwaysOpens then kind.Open() end
     end)
     row:SetScript("OnMouseUp", StatusBarsClick)
     row.FillTooltip = function(self)
@@ -1757,7 +1760,7 @@ local function CreateStateRow(key)
         else
             GameTooltip:AddLine(self.label or "", 1, 0.55, 0, true)
         end
-        if self.bucket == "attention" then
+        if self.bucket == "attention" or kind.alwaysOpens then
             GameTooltip:AddLine(kind.openHint, 0.8, 0.8, 0.8, true)
         end
     end

@@ -27,17 +27,13 @@ local PAGE_FIELD_OFFSET = 146
 -- choice any of them has ("Pulsing wings (right)").
 local PAGE_DROPDOWN_W = 140
 local PAGE_DROPDOWN_ROW_H = 32
--- Behind each section, inside the Settings tab's near-black: a dark navy well,
--- just light enough for its edge shadows to show.
-local PAGE_WELL = { 0.045, 0.06, 0.10, 1 }
--- Around the header and those wells, inside the section tabs' border - a step
--- lighter, so each well reads as sunk into it.
-local PANEL_SLATE = { 0.075, 0.095, 0.16, 1 }
--- The Buffs row options' title bar: a deep navy, darker and bluer than both,
--- so it stands apart without shouting over the options under it.
-local OPTIONS_HEADER_BLUE = { 0.025, 0.035, 0.085, 1 }
+-- Behind each section its well, around the header and wells the slate panel,
+-- and over the Buffs row options the deep navy title bar (Theme.lua).
+local PAGE_WELL = WhoDoesWhat.Theme.pageWell
+local PANEL_SLATE = WhoDoesWhat.Theme.panelSlate
+local OPTIONS_HEADER_BLUE = WhoDoesWhat.Theme.wellHeaderBlue
 -- Settings table rows, over the well: odd, even.
-local ROW_STRIPES = { { 0.14, 0.17, 0.26 }, { 0.085, 0.10, 0.17 } }
+local ROW_STRIPES = WhoDoesWhat.Theme.wellRows
 -- The shared title and Reset Defaults strip above every section.
 local HEADER_H = 34
 local BUFF_OPTIONS_W = 242
@@ -362,30 +358,7 @@ local function DefaultStatusBarColor(definition)
     return { r = 0.96, g = 0.55, b = 0.73 }
 end
 
--- `color` is { r, g, b }, gold when left out.
-local function CreateMiniDivider(parent, text, color)
-    local r, g, b = 0.8, 0.65, 0.12
-    if color then r, g, b = color[1], color[2], color[3] end
-    -- Width comes from where it is placed: it spans the options panel.
-    local divider = CreateFrame("Frame", nil, parent)
-    divider:SetHeight(10)
-    -- Near the left end, a short rule before it and the long one after.
-    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetPoint("LEFT", 36, 0)
-    label:SetText(text)
-    label:SetTextColor(r, g, b)
-    local left = divider:CreateTexture(nil, "ARTWORK")
-    left:SetHeight(1)
-    left:SetPoint("LEFT")
-    left:SetPoint("RIGHT", label, "LEFT", -6, 0)
-    left:SetColorTexture(r, g, b, 0.3)
-    local right = divider:CreateTexture(nil, "ARTWORK")
-    right:SetHeight(1)
-    right:SetPoint("LEFT", label, "RIGHT", 6, 0)
-    right:SetPoint("RIGHT")
-    right:SetColorTexture(r, g, b, 0.3)
-    return divider
-end
+local CreateMiniDivider = UI.CreateDivider
 
 local function RefreshBuffOptionsFrame()
     local f = buffOptionsFrame

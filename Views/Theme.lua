@@ -56,6 +56,27 @@ local T = {
     -- tints were picked against, with just enough navy to belong to the window.
     pageDark = { 0.014, 0.018, 0.03, 1 },
 
+    -- Pages with a second tab row (Settings, Raid): each page's content sits
+    -- in a dark navy well, just light enough for its edge shadows to show, on
+    -- a slate panel a step lighter, so the well reads as sunk into it. The
+    -- deep navy is a title bar over a well, darker and bluer than both.
+    pageWell = { 0.045, 0.06, 0.10, 1 },
+    panelSlate = { 0.075, 0.095, 0.16, 1 },
+    wellHeaderBlue = { 0.025, 0.035, 0.085, 1 },
+    -- Row stripes over a well: odd, even.
+    wellRows = { { 0.14, 0.17, 0.26 }, { 0.085, 0.10, 0.17 } },
+
+    -- The Raid page's Blessings tab: its panel pulled toward Paladin pink, and
+    -- everything on it kept quiet so that one colour carries the page - the
+    -- wells and row stripes only a touch warmer than the Settings navy, and
+    -- the pink itself for its headings.
+    blessings = {
+        panel = { 0.115, 0.075, 0.14, 1 },
+        well = { 0.055, 0.052, 0.09, 1 },
+        rows = { { 0.155, 0.15, 0.225 }, { 0.095, 0.09, 0.15 } },
+        accent = { 0.96, 0.55, 0.73 },
+    },
+
     -- Hairline rules under headings.
     divider = { 0.40, 0.48, 0.64, 0.6 },
     -- The dark gold of the Settings pages' section dividers, for the roster

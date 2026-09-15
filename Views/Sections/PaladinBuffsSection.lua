@@ -12,8 +12,12 @@ local UI = select(2, ...).UI
 -- (ComputePaladinBuffSummary). Row mail whispers one paladin's missing live
 -- coverage. A second "Buffing Rules" header below the paladin rows owns the
 -- "Add (+)" and clear-all buttons and hides with its rows in PallyPower mode.
--- Buff Grid is its own main-window tab. PallyBuffSource sits in the main
--- header; its compact sync/action row leads the summary rows.
+-- Buff Grid is its own main-window tab; PallyPower status and fixes live in
+-- the Differences panel beside this one (PallyPowerDiffView.lua).
+--
+-- It sits flat on the Blessings tab's left panel (divider headings, no box),
+-- under a titleless block of its own at the top of the page: the Source of
+-- Truth dropdown (PallyBuffSource) and a grey line explaining it.
 --
 -- Below the summary sit the custom rule rows (the model docs the semantics
 -- above CompileBuffRules in Assignments.lua):
@@ -63,28 +67,56 @@ local PaladinBuffSlots = A.PaladinBuffSlots
 local ShortAssignmentName = A.ShortAssignmentName
 
 local PALLY_ROW_H = UI.ROW_H
-local PALLY_STATUS_GAP = 6
 local PALLY_MAX_BUFFS = 3
 local PALLY_BUFF_ICON = K.ROW_ICON_SIZE
 local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
 local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local RULE_ROW_H = UI.ROW_H
 local RULE_HEADER_H = 30
+-- Room above the Buffing Rules heading, as between Settings page groups.
+local RULE_HEADER_GAP = 14
 local AUTO_RULE_H = 18
 
 local PALLY_BUFF_SOURCES = {
-    { key = "wdw", text = "WDW Assignments", short = "WDW" },
-    { key = "pallypower", text = "PallyPower", short = "PallyPower" },
+    { key = "wdw", text = "WDW Assignments" },
+    { key = "pallypower", text = "PallyPower" },
 }
 
 local function GetPallyBuffSource()
     return WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw"
 end
 
-local function SetActionButtonText(button, label)
-    button:SetText(label)
-    button:SetWidth(math.max(44, button:GetTextWidth() + 18))
+local function PallyBuffSourceText(key)
+    for _, option in ipairs(PALLY_BUFF_SOURCES) do
+        if option.key == key then return option.text end
+    end
+    return PALLY_BUFF_SOURCES[1].text
 end
+
+-- The grey line under the Source of Truth dropdown, one per choice.
+local SOURCE_BLURB_LEAD = "A raid-wide setting that sets the source of truth for"
+    .. " Paladin blessings. "
+local SOURCE_BLURBS = {
+    wdw = SOURCE_BLURB_LEAD .. "With |cffffd100WDW Assignments|r selected, all"
+        .. " blessings are optimized for every raider based on the rules below."
+        .. " All UI elements are powered by the blessings assigned by WDW, and"
+        .. " many updates are auto-synced to PallyPower.",
+    pallypower = SOURCE_BLURB_LEAD .. "With |cffffd100PallyPower|r selected, all"
+        .. " UI elements are powered by the assignments made within the"
+        .. " PallyPower board. WDW will not make any changes automatically."
+        .. " Useful in legacy raids that insist on using PallyPower and don't"
+        .. " know what they're missing.",
+}
+
+-- The grey line describes only the choice that is up, so it is rewritten, and
+-- the block re-fitted to it, on every refresh.
+local function RefreshSourceBlock(state, source)
+    state.sourceBlurb:SetText(SOURCE_BLURBS[source] or SOURCE_BLURBS.wdw)
+    state.sourceBlock:SetHeight(36 + math.ceil(state.sourceBlurb:GetStringHeight()) + 6)
+end
+
+-- The page's pink, for the section and Buffing Rules headings (Theme.lua).
+local ACCENT = WhoDoesWhat.Theme.blessings.accent
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
 
@@ -735,9 +767,7 @@ local function CreatePallyRow(state, index)
     row:SetFrameLevel(state.box:GetFrameLevel() + 1)
     row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, PALLY_ROW_H)
     row:SetPoint("TOPLEFT", UI.BOX_PAD,
-        -(UI.BOX_PAD + UI.SECTION_TITLE_H + PALLY_ROW_H
-            + PALLY_STATUS_GAP
-            + (index - 1) * PALLY_ROW_H))
+        -(UI.BOX_PAD + UI.SECTION_TITLE_H + (index - 1) * PALLY_ROW_H))
     UI.AddRowBackground(state.box, row, index)
 
     local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -818,16 +848,8 @@ function Refresh(f) -- forward declared above
     local _, _, byPaladin = ComputePaladinBuffCoverage(buffPlan)
     local editable = WhoDoesWhat:CanEditAssignments()
     local source = GetPallyBuffSource()
-    local awaiting = {}
-    if source == "wdw" then
-        for _, paladin in ipairs(summary) do
-            if paladin.awaitingTalents then
-                awaiting[#awaiting + 1] = paladin.name
-            end
-        end
-    end
-    UIDropDownMenu_SetText(state.pallyBuffSourceDD,
-        source == "pallypower" and "PallyPower" or "WDW")
+    UIDropDownMenu_SetText(state.pallyBuffSourceDD, PallyBuffSourceText(source))
+    RefreshSourceBlock(state, source)
     if editable then
         UIDropDownMenu_EnableDropDown(state.pallyBuffSourceDD)
     else
@@ -895,103 +917,32 @@ function Refresh(f) -- forward declared above
         state.rows[i].paladinName = nil
     end
 
-    local ppRowTop = UI.BOX_PAD + UI.SECTION_TITLE_H
+
+    local rowsTop = UI.BOX_PAD + UI.SECTION_TITLE_H
     state.emptyHint:ClearAllPoints()
     state.emptyHint:SetPoint("TOPLEFT", state.box, "TOPLEFT", UI.BOX_PAD + 4,
-        -(ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + 4))
+        -(rowsTop + 4))
     state.emptyHint:SetShown(#summary == 0)
     local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or UI.EMPTY_ROWS_H
-
-    -- PallyPower leads the body as a compact, right-aligned status row.
-    state.ppArea:ClearAllPoints()
-    state.ppArea:SetPoint("TOPLEFT", state.box, "TOPLEFT", UI.BOX_PAD, -ppRowTop)
-    state.ppArea:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -UI.BOX_PAD, -ppRowTop)
-
-    local ppState, ppText, ppDiffCount
-    if #awaiting == 0 then
-        ppState, ppText, ppDiffCount = K.GetPallyPowerState(#summary)
-    end
-    state.ppArea.tooltipTitle = nil
-    state.ppArea.tooltipText = nil
-    state.ppIcon:ClearAllPoints()
-    state.ppStatus:ClearAllPoints()
-    state.ppDiffBtn:ClearAllPoints()
-    state.ppApplyBtn:ClearAllPoints()
-    if #awaiting > 0 then
-        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
-        state.ppIcon:Show()
-        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
-        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
-        state.ppStatus:SetTextColor(1, 0.62, 0.25)
-        state.ppDiffBtn:Hide()
-        state.ppApplyBtn:Hide()
-        ppText = "Awaiting Paladin talents"
-        state.ppArea.tooltipTitle = ppText
-        state.ppArea.tooltipText = "WDW will not assign blessings to "
-            .. table.concat(awaiting, ", ") .. " until talent data arrives."
-            .. " Target them once while in range to pull it, or mark a paladin"
-            .. " as Non-raider if they are sitting out."
-    elseif ppState == "inactive" then
-        state.ppIcon:Hide()
-        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
-        state.ppStatus:SetTextColor(0.5, 0.5, 0.5)
-        state.ppDiffBtn:Hide()
-        state.ppApplyBtn:Hide()
-    elseif ppState == "synced" then
-        state.ppIcon:SetTexture(COVERAGE_OK_ICON)
-        state.ppIcon:Show()
-        state.ppStatus:SetPoint("RIGHT", state.ppArea, "RIGHT", -2, 0)
-        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
-        state.ppStatus:SetTextColor(0.3, 1, 0.3)
-        state.ppDiffBtn:Hide()
-        state.ppApplyBtn:Hide()
-    else
-        state.ppIcon:SetTexture(WhoDoesWhat.WARNING_ICON)
-        state.ppIcon:Show()
-        if source == "pallypower" then
-            ppText = ppDiffCount .. " unoptimized buff"
-                .. (ppDiffCount == 1 and "" or "s")
-            SetActionButtonText(state.ppDiffBtn, "Examine")
-            state.ppDiffBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
-            state.ppStatus:SetTextColor(1, 0.82, 0)
-            state.ppApplyBtn:Hide()
-        else
-            ppText = ppDiffCount .. " Buff" .. (ppDiffCount == 1 and "" or "s")
-                .. " in PP " .. (ppDiffCount == 1 and "doesn't" or "don't")
-                .. " match the plan"
-            SetActionButtonText(state.ppDiffBtn, "Diffs")
-            SetActionButtonText(state.ppApplyBtn, "Fix")
-            if editable then
-                state.ppApplyBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
-                state.ppDiffBtn:SetPoint("RIGHT", state.ppApplyBtn, "LEFT", -2, 0)
-                state.ppApplyBtn:Show()
-            else
-                state.ppDiffBtn:SetPoint("RIGHT", state.ppArea, "RIGHT", 0, 0)
-                state.ppApplyBtn:Hide()
-            end
-            state.ppStatus:SetTextColor(1, 0.4, 0.4)
-        end
-        state.ppStatus:SetPoint("RIGHT", state.ppDiffBtn, "LEFT", -4, -1)
-        state.ppIcon:SetPoint("RIGHT", state.ppStatus, "LEFT", -4, 0)
-        state.ppDiffBtn:Show()
-    end
-    state.ppStatus:SetText(ppText)
 
     -- The rules area below the summary has its own header, then one editable
     -- row per rule (or an empty-state line). Everything is re-anchored every
     -- pass because its y depends on how many summary rows sit above it.
     local rules = GetBuffRules()
     local showRules = source ~= "pallypower"
-    local ruleHeaderTop = ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + 4
-    state.ruleTitle:ClearAllPoints()
-    state.ruleTitle:SetPoint("LEFT", state.box, "TOPLEFT", UI.BOX_PAD + 2,
+    local ruleHeaderTop = rowsTop + rowsH
+        + RULE_HEADER_GAP
+    state.ruleDivider:ClearAllPoints()
+    state.ruleDivider:SetPoint("LEFT", state.box, "TOPLEFT", 0,
+        -(ruleHeaderTop + UI.HEADER_BTN_SIZE / 2 + 3))
+    state.ruleDivider:SetPoint("RIGHT", state.box, "TOPRIGHT", 0,
         -(ruleHeaderTop + UI.HEADER_BTN_SIZE / 2 + 3))
     state.clearRulesBtn:ClearAllPoints()
     state.clearRulesBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -UI.BOX_PAD,
         -(ruleHeaderTop + 3))
     state.ruleBtn:ClearAllPoints()
     state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
-    state.ruleTitle:SetShown(showRules)
+    state.ruleDivider:SetShown(showRules)
     state.ruleBtn:SetShown(showRules and editable)
     state.clearRulesBtn:SetShown(showRules and editable)
 
@@ -1005,10 +956,17 @@ function Refresh(f) -- forward declared above
     if #unhandled > 0 then
         state.ruleWarn.tooltipText = DisabledPaladinTooltip(unhandled)
     end
-    state.ruleDivider:ClearAllPoints()
-    state.ruleDivider:SetPoint("TOPLEFT", UI.BOX_PAD, -(ruleHeaderTop + 28))
-    state.ruleDivider:SetPoint("TOPRIGHT", -UI.BOX_PAD, -(ruleHeaderTop + 28))
-    state.ruleDivider:SetShown(showRules)
+    -- The heading's rule runs up to the leftmost thing shown beside it.
+    local rule = state.ruleDivider.right
+    local ruleEnd = state.ruleWarn:IsShown() and state.ruleWarn
+        or (state.ruleBtn:IsShown() and state.ruleBtn) or nil
+    rule:ClearAllPoints()
+    rule:SetPoint("LEFT", state.ruleDivider.label, "RIGHT", 6, 0)
+    if ruleEnd then
+        rule:SetPoint("RIGHT", ruleEnd, "LEFT", -6, 0)
+    else
+        rule:SetPoint("RIGHT", state.ruleDivider, "RIGHT")
+    end
 
     local rulesTop = ruleHeaderTop + RULE_HEADER_H
 
@@ -1044,21 +1002,18 @@ function Refresh(f) -- forward declared above
         or (autoSalv and 2 or UI.EMPTY_ROWS_H)
 
     state.box:SetHeight(showRules and (rulesTop + rulesH + UI.BOX_PAD)
-        or (ppRowTop + PALLY_ROW_H + PALLY_STATUS_GAP + rowsH + UI.BOX_PAD))
-    K.LayoutColumns(f)
+        or (rowsTop + rowsH + UI.BOX_PAD))
+    K.LayoutSections(f)
 
     -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
     -- gray title. Developer Mode keeps everything live, same as it
     -- lifts class filters. Runs last so it wins over the states above.
     local enabled = DevMode() or HasMemberOfClass("Paladin")
     local reason = not enabled and "No paladins in the group." or nil
-    if enabled then
-        state.box.title:SetTextColor(0.95, 0.95, 0.95)
-        state.ruleTitle:SetTextColor(1, 0.82, 0)
-    else
-        state.box.title:SetTextColor(0.5, 0.5, 0.5)
-        state.ruleTitle:SetTextColor(0.5, 0.5, 0.5)
-    end
+    local r, g, b = 0.5, 0.5, 0.5
+    if enabled then r, g, b = ACCENT[1], ACCENT[2], ACCENT[3] end
+    state.box.title:SetTextColor(r, g, b)
+    state.ruleDivider.label:SetTextColor(r, g, b)
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = reason
@@ -1069,113 +1024,63 @@ function Refresh(f) -- forward declared above
     UI.LayoutHeaderChain(state.box)
 end
 
-local function PallyBuffSourceTooltip()
-    local selected = GetPallyBuffSource()
-    local wdwColor = selected == "wdw" and "|cffffffff" or "|cff909090"
-    local ppColor = selected == "pallypower" and "|cffffffff" or "|cff909090"
-    GameTooltip:SetText("Pally Buff Source", unpack(UI.TOOLTIP_TITLE))
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("|cffffd100WDW:|r " .. wdwColor
-        .. "WhoDoesWhat's auto-assignments are the source of truth for this raid."
-        .. " Auto-assignments power all of WDW's visual elements and are pushed"
-        .. " to PallyPower automatically.|r", 1, 1, 1, true)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("|cffffd100PP:|r " .. ppColor
-        .. "Assignments set in PallyPower are the source of truth for this raid."
-        .. " Assignments made there will power all of WDW's visual elements."
-        .. " Buff assignments will not be changed automatically. Useful when WDW"
-        .. " is |cffff4040NOT|r " .. ppColor
-        .. "the primary controller of buffs in this raid.|r", 1, 1, 1, true)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("This affects WDW Status Bars, WDW buffing buttons, and"
-        .. " the buff progress shown above.", 0.8, 0.8, 0.8, true)
-    return true
-end
-
 local function CreatePallyBuffSourceDropdown(parent)
-    local sourceDD = UI.CreateMenuDropdown(parent, "WhoDoesWhatPallyBuffSourceDD", 90)
-    sourceDD:SetPoint("LEFT", parent, "LEFT", -15, -3)
+    local sourceDD = UI.CreateMenuDropdown(parent, "WhoDoesWhatPallyBuffSourceDD", 130)
     UIDropDownMenu_Initialize(sourceDD, function(_, level)
         local saved = GetPallyBuffSource()
         for _, option in ipairs(PALLY_BUFF_SOURCES) do
-            local key, label, short = option.key, option.text, option.short
+            local key, label = option.key, option.text
             local info = UIDropDownMenu_CreateInfo()
             info.text = label
             info.checked = saved == key
             info.func = function()
                 if not WhoDoesWhat:RequireEditPermission() then return end
                 WhoDoesWhat.db.profile.settings.pallyBuffSource = key
-                UIDropDownMenu_SetText(sourceDD, short)
+                UIDropDownMenu_SetText(sourceDD, label)
                 WhoDoesWhat:RefreshMainAssignmentsView()
                 WhoDoesWhat:RefreshBoardViews()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(sourceDD, nil, PallyBuffSourceTooltip)
     return sourceDD
 end
 
-local function CreatePallyPowerArea(box)
-    local area = CreateFrame("Frame", nil, box)
-    area:SetHeight(PALLY_ROW_H)
-    area:SetFrameLevel(box:GetFrameLevel() + 1)
-    UI.AddTooltip(area, function(self)
-        if not self.tooltipText then return end
-        return self.tooltipTitle or "Paladin Buffs", self.tooltipText
-    end)
+-- The page's first option, above every heading: the Source of Truth dropdown
+-- and a grey line under it saying what it decides, as Settings pages open
+-- with. A titleless section, so it stacks with the rest.
+local function BuildSourceBlock(f)
+    local block = K.CreateSectionChrome(f, { tab = K.TAB_BLESSINGS }).box
 
-    local icon = area:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(16, 16)
+    local label = block:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    label:SetPoint("TOPLEFT", 4, -8)
+    label:SetText("Source of Truth:")
+    local sourceDD = CreatePallyBuffSourceDropdown(block)
+    -- The template draws its box ~17px in from its own left edge.
+    sourceDD:SetPoint("LEFT", label, "RIGHT", -8, -2)
 
-    local status = area:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-
-    local apply = UI.CreateTextButton(area, "Fix",
-        "Send fixes to PallyPower",
-        "Broadcast the optimized WDW blessing plan and update the local PP mirror.", function()
-            WhoDoesWhat:SyncToPallyPower()
-            WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:RefreshStatusBarsView()
-        end)
-
-    local diff = UI.CreateTextButton(area, "Diffs",
-        "Show PallyPower differences",
-        "Open the detailed comparison between WDW and PallyPower.", function()
-            WhoDoesWhat:OpenPallyPowerDiffView()
-        end)
-    diff:ClearAllPoints()
-    diff:SetPoint("RIGHT", apply, "LEFT", -2, 0)
-    apply:ClearAllPoints()
-    apply:SetPoint("RIGHT", area, "RIGHT", 0, 0)
-
-    return area, icon, status, diff, apply
+    local blurb = block:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    blurb:SetPoint("TOPLEFT", 4, -36)
+    blurb:SetWidth(block:GetWidth() - 8)
+    blurb:SetJustifyH("LEFT")
+    blurb:SetTextColor(0.7, 0.7, 0.7)
+    return sourceDD, block, blurb
 end
 
-local function Build(f, content)
-    local chrome = K.CreateSectionChrome(f, content, {
+
+local function Build(f)
+    local sourceDD, sourceBlock, sourceBlurb = BuildSourceBlock(f)
+
+    local chrome = K.CreateSectionChrome(f, {
         title = "Paladin Buffs",
-        column = K.COL_LEFT,
+        tab = K.TAB_BLESSINGS,
         tintClass = "Paladin",
     })
     local box = chrome.box
 
-    local sourceArea = CreateFrame("Frame", nil, box)
-    sourceArea:SetFrameLevel(box:GetFrameLevel() + 1)
-    sourceArea:SetSize(145, UI.HEADER_BTN_SIZE)
-    local sourceLabel = sourceArea:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sourceLabel:SetPoint("LEFT", sourceArea, "LEFT", 0, 0)
-    sourceLabel:SetText("Mode:")
-    local sourceDD = CreatePallyBuffSourceDropdown(sourceArea)
-    sourceDD:ClearAllPoints()
-    sourceDD:SetPoint("LEFT", sourceLabel, "RIGHT", -14, -3)
-    K.ChainHeaderButton(chrome, sourceArea)
-
-    local ruleTitle = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    ruleTitle:SetText("Buffing Rules")
-
-    local ruleDivider = box:CreateTexture(nil, "ARTWORK")
-    ruleDivider:SetColorTexture(unpack(WhoDoesWhat.Theme.divider))
-    ruleDivider:SetHeight(1)
+    -- The Buffing Rules heading, drawn like the section's own; Refresh places
+    -- it under the paladin rows and runs its rule up to the buttons beside it.
+    local ruleDivider = UI.CreateDivider(box, "Buffing Rules", ACCENT)
 
     local clearRulesBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearRulesBtn:SetScript("OnClick", function()
@@ -1209,15 +1114,11 @@ local function Build(f, content)
     autoRuleText:SetTextColor(0.75, 0.75, 0.75)
     autoRuleText:Hide()
 
-    local ppArea, ppIcon, ppStatus, ppDiffBtn, ppApplyBtn =
-        CreatePallyPowerArea(box)
-
     f.pallySection = {
         box = box,
         headerChain = chrome.headerChain,
         buttons = { ruleBtn, clearRulesBtn },
         emptyHint = hint,
-        ruleTitle = ruleTitle,
         ruleDivider = ruleDivider,
         ruleBtn = ruleBtn,
         ruleWarn = ruleWarn,
@@ -1225,11 +1126,8 @@ local function Build(f, content)
         rulesEmptyHint = rulesEmptyHint,
         autoRuleText = autoRuleText,
         pallyBuffSourceDD = sourceDD,
-        ppArea = ppArea,
-        ppIcon = ppIcon,
-        ppStatus = ppStatus,
-        ppDiffBtn = ppDiffBtn,
-        ppApplyBtn = ppApplyBtn,
+        sourceBlock = sourceBlock,
+        sourceBlurb = sourceBlurb,
         rows = {},
         ruleRows = {},
     }

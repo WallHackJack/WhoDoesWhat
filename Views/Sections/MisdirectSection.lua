@@ -207,13 +207,13 @@ function Refresh(f) -- forward declared above
     local rowsH = (#visible > 0) and (#visible * UI.ROW_H) or UI.EMPTY_ROWS_H
     state.box:SetHeight(UI.BOX_PAD + UI.SECTION_TITLE_H + rowsH + UI.BOX_PAD)
     K.UpdateHeaderMailButtons(f)
-    K.LayoutColumns(f)
+    K.LayoutSections(f)
 end
 
-local function Build(f, content)
-    local chrome = K.CreateSectionChrome(f, content, {
+local function Build(f)
+    local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        column = K.COL_RIGHT,
+        tab = K.TAB_TANKING,
         tintClass = "Hunter",
         mailCollect = A.CollectMisdirectWhispers,
     })

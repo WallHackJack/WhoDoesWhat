@@ -399,13 +399,13 @@ function Refresh(f) -- forward declared above
     local rowsH = (#customRoles > 0) and (#customRoles * ROW_H) or UI.EMPTY_ROWS_H
 
     state.box:SetHeight(rowsTop + rowsH + UI.BOX_PAD)
-    K.LayoutColumns(f)
+    K.LayoutSections(f)
 end
 
-local function Build(f, content)
-    local chrome = K.CreateSectionChrome(f, content, {
+local function Build(f)
+    local chrome = K.CreateSectionChrome(f, {
         title = "Custom Roles",
-        column = K.COL_LEFT,
+        tab = K.TAB_BLESSINGS,
     })
     local box = chrome.box
 
