@@ -734,9 +734,14 @@ local function RenderSummary(f, paladins, columnX, plans, sourceLabels, columnW,
     return TITLE_H + #paladins * SUMMARY_ROW_H
 end
 
--- No paladins at all: a line in the middle of the panel says so.
+-- No paladins at all: a line in the middle of the panel says so. With no rows
+-- to span, the heading runs across the panel inside its margins -- FitCanvas
+-- never places it until there are grids.
 local function SetCompact(f)
     f.canvas:Hide()
+    f.heading:ClearAllPoints()
+    f.heading:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -BAR_H / 2)
+    f.heading:SetPoint("RIGHT", f, "TOPRIGHT", -MARGIN, -BAR_H / 2)
     f.emptyText:SetText("No paladins in the group.")
     f.emptyText:Show()
 end
@@ -1119,8 +1124,8 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     bar:SetHeight(BAR_H)
     -- Spans the rows under it, not the whole panel; FitCanvas places it.
     local heading = UI.CreateDivider(bar, "Blessing Assignments", accent)
-    heading:SetPoint("LEFT")
-    heading:SetPoint("RIGHT")
+    heading:SetPoint("LEFT", MARGIN, 0)
+    heading:SetPoint("RIGHT", -MARGIN, 0)
     f.heading = heading
 
     local emptyText = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")

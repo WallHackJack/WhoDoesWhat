@@ -762,9 +762,7 @@ function Refresh(f) -- forward declared above
     -- lifts class filters. Runs last so it wins over the states above.
     local enabled = DevMode() or HasMemberOfClass("Paladin")
     local reason = not enabled and "No paladins in the group." or nil
-    local r, g, b = 0.5, 0.5, 0.5
-    if enabled then r, g, b = ACCENT[1], ACCENT[2], ACCENT[3] end
-    state.box.title:SetTextColor(r, g, b)
+    UI.SetSectionTitleColor(state.box, enabled and ACCENT or { 0.5, 0.5, 0.5 })
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = reason

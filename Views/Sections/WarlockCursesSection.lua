@@ -228,8 +228,8 @@ local function Refresh(f)
     -- Auto rewrites the whole section, so hide it without edit permission.
     state.autoBtn:SetShown(editable)
     -- Its own heading colour while live, grey while there are no warlocks.
-    local titleColor = enabled and state.box.titleColor or { 0.5, 0.5, 0.5 }
-    state.box.title:SetTextColor(titleColor[1], titleColor[2], titleColor[3])
+    UI.SetSectionTitleColor(state.box,
+        enabled and state.box.titleColor or { 0.5, 0.5, 0.5 })
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = not enabled and "No warlocks in the group."

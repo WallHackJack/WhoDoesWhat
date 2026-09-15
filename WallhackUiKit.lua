@@ -988,6 +988,7 @@ function UI.CreateDivider(parent, text, color, ruleAlpha)
     right:SetPoint("RIGHT")
     right:SetColorTexture(r, g, b, ruleAlpha)
     divider.label, divider.left, divider.right = label, left, right
+    divider.ruleAlpha = ruleAlpha
     return divider
 end
 
@@ -1015,10 +1016,23 @@ function UI.CreateFlatSection(parent, titleText, color, rowColors)
     return box
 end
 
+-- Recolour a section's title, `color` { r, g, b } -- and on a flat section its
+-- rules too, at their own fade, so a greyed-out heading greys out whole.
+function UI.SetSectionTitleColor(box, color)
+    local r, g, b = color[1], color[2], color[3]
+    box.title:SetTextColor(r, g, b)
+    local divider = box.divider
+    if divider then
+        divider.left:SetColorTexture(r, g, b, divider.ruleAlpha)
+        divider.right:SetColorTexture(r, g, b, divider.ruleAlpha)
+    end
+end
+
 -- Re-anchor a box's header buttons right to left, skipping hidden ones, so the
 -- rightmost VISIBLE button hugs the corner instead of leaving a hole. The chain
 -- is stored rightmost-first. Run after anything that changes visibility. A
--- flat section's title rule stops short of the leftmost button. `box.endPad`,
+-- flat section's title rule stops short of the leftmost button, or with none
+-- showing, where the chain would end, not at the box's edge. `box.endPad`,
 -- when set, holds the chain that far in from the rows' right edge, for rows
 -- that keep the same gap after their own last button.
 function UI.LayoutHeaderChain(box)
@@ -1042,7 +1056,8 @@ function UI.LayoutHeaderChain(box)
         if prev then
             rule:SetPoint("RIGHT", prev, "LEFT", -6, 0)
         else
-            rule:SetPoint("RIGHT", box.divider, "RIGHT")
+            rule:SetPoint("RIGHT", box.divider, "RIGHT",
+                -(UI.BOX_PAD + (box.endPad or 0)), 0)
         end
     end
 end
