@@ -8,6 +8,30 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.0",
+        date = "2026-09-15",
+        notes = {
+            "WhoDoesWhat is one tabbed window now: Members, Blessings, Assignments, Buff Grid, Calculator and Settings. The old separate windows and toolbar are gone.",
+            "A new navy-and-gold look across the main window and every bar.",
+            "Blizzard's Raid tab shows each member's role in place of level and class.",
+            "Blessings get their own tab, with PallyPower differences in plain view.",
+            "Added the Buff Checklist (Beta): every buff your character should have, from blessings to weapon enchants. Pick consumables from your bags even in combat, swap auras and aspects, and keep your hunter pet buffed.",
+            "Battle Elixir and Guardian Elixir status rows on TBC; a flask fills both.",
+            "The Curse Calculator has been updated and moved to its own tab.",
+            "Settings are split into tabs, each with its own Reset Defaults. Roles moved in as a tab, and a buff's options open beside the table.",
+            "Drag rows to reorder buff lists.",
+            "The Paladin Bar and Warrior Shout Bar each get an icon size, glow style and glow colours.",
+            "The Warrior Shout Bar keeps separate settings for non-warriors, who click a shout to ask for it in party chat. New: hide when I have it, hide coverage numbers, and a countdown timer.",
+            "Raid frame role icons can be outlined in tank, healer and DPS colours.",
+            "Food whispers say whether a hunter or their pet is unfed, and whispers and announces rescan first. Announces only name buffers when talents narrow it down.",
+            "Healthstone tooltips name the warlocks who can make you one.",
+            "Saving a raid role pushes its blessings to PallyPower right away.",
+            "Shift-Right-Click the PallyPower status row to open its blessings window.",
+            "No more popup when the leader's board replaces yours on joining. Thorns is off the Buff Grid by default.",
+            "WoW Forever is treated as Classic Era without buff talents.",
+        },
+    },
+    {
         version = "1.2.0",
         date = "2026-09-08",
         notes = {
