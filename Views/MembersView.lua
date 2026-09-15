@@ -61,16 +61,17 @@ local CLASS_ICON_SIZE = 20
 -- shorter any other way. The grid header tightens a little alongside. Picked
 -- off the whole roster, not per bucket, so every grid on the page matches.
 local DENSITIES = {
-    { minMembers = 30, rowH = 22, iconSize = 16, tickSize = 12,
+    { minMembers = 30, label = "Compact", rowH = 22, iconSize = 16, tickSize = 12,
       headerH = 42, headingsY = 24, nameFont = "GameFontHighlightSmall",
       controlScale = 0.76, buttonSize = 18, buttonIcon = 12 },
-    { minMembers = 20, rowH = 26, iconSize = 18, tickSize = 14,
+    { minMembers = 20, label = "Condensed", rowH = 26, iconSize = 18, tickSize = 14,
       headerH = 45, headingsY = 26, nameFont = "GameFontHighlight",
       controlScale = 0.88, buttonSize = 21, buttonIcon = 14 },
-    { minMembers = 0, rowH = 30, iconSize = 20, tickSize = 16,
+    { minMembers = 0, label = "Roomy", rowH = 30, iconSize = 20, tickSize = 16,
       headerH = 48, headingsY = 28, nameFont = "GameFontHighlight",
       controlScale = 1, buttonSize = 24, buttonIcon = 16 },
 }
+local GEAR_SIZE = 16
 
 local function DensityFor(memberCount)
     for _, density in ipairs(DENSITIES) do
@@ -696,7 +697,15 @@ function RefreshRoster(f)
     for _, section in ipairs(SECTIONS) do
         memberCount = memberCount + #buckets[section.key]
     end
-    local density = DensityFor(memberCount)
+    -- A size picked from the gear holds only while the roster stays in the
+    -- tier it was picked in; crossing into another hands the page back to the
+    -- automatic size for its new headcount.
+    local autoDensity = DensityFor(memberCount)
+    f.autoDensity = autoDensity
+    if f.pickedDensity and f.pickedInTier ~= autoDensity then
+        f.pickedDensity, f.pickedInTier = nil, nil
+    end
+    local density = f.pickedDensity or autoDensity
 
     for _, section in ipairs(SECTIONS) do
         local state = f.sections[section.key]
@@ -757,6 +766,47 @@ function RefreshRoster(f)
     UpdateContentHeight(f)
 end
 
+-- Created on first open, not at load: see PaladinBuffsSection's note on
+-- DropDownList frames.
+local sizeMenu
+
+local function OpenSizeMenu(f, button)
+    if not sizeMenu then
+        sizeMenu = CreateFrame("Frame", "WhoDoesWhatMembersSizeMenu",
+            UIParent, "UIDropDownMenuTemplate")
+    end
+    UIDropDownMenu_Initialize(sizeMenu, function(_, level)
+        local title = UIDropDownMenu_CreateInfo()
+        title.text = "Row Size"
+        title.isTitle = true
+        title.notCheckable = true
+        UIDropDownMenu_AddButton(title, level)
+
+        local auto = UIDropDownMenu_CreateInfo()
+        auto.text = "Automatic"
+        auto.checked = f.pickedDensity == nil
+        auto.func = function()
+            f.pickedDensity, f.pickedInTier = nil, nil
+            RefreshRoster(f)
+        end
+        UIDropDownMenu_AddButton(auto, level)
+
+        -- Roomiest first, the order the page steps down through as it fills.
+        for i = #DENSITIES, 1, -1 do
+            local density = DENSITIES[i]
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = density.label
+            info.checked = f.pickedDensity == density
+            info.func = function()
+                f.pickedDensity, f.pickedInTier = density, f.autoDensity
+                RefreshRoster(f)
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end, "MENU")
+    ToggleDropDownMenu(1, nil, sizeMenu, button, 0, 0)
+end
+
 -- Build the page into the Members tab: the four role grids (rows come from
 -- RefreshRoster) scrolling under a fixed overview strip, stretched across the
 -- page. The columns keep their places from the left; the rescan button rides the
@@ -778,6 +828,22 @@ function WhoDoesWhat:BuildMembersPage(page)
     detail:SetJustifyH("CENTER")
     detail:SetTextColor(0.65, 0.65, 0.65)
     f.overviewDetail = detail
+
+    -- The row-size picker, in the corner over the scrollbar's gutter like the
+    -- Buff Grid's source gear.
+    local gear = UI.CreateBareIconButton(f, UI.GEAR_ICON, GEAR_SIZE,
+        function()
+            GameTooltip:SetText("Row Size", unpack(UI.TOOLTIP_TITLE))
+            GameTooltip:AddLine(f.pickedDensity
+                and (f.pickedDensity.label .. ", until the group grows or"
+                    .. " shrinks into another size.")
+                or "Automatic: rows tighten as the group grows.",
+                0.8, 0.8, 0.8, true)
+            return true
+        end, nil,
+        function(self) OpenSizeMenu(f, self) end)
+    gear:SetPoint("CENTER", f, "TOPRIGHT", -(MARGIN + SCROLLBAR_W / 2),
+        -(f.titleBarHeight + OVERVIEW_TOP_PAD + GEAR_SIZE / 2))
 
     local rule = f:CreateTexture(nil, "ARTWORK")
     rule:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))
