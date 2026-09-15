@@ -4,8 +4,9 @@ local UI = select(2, ...).UI
 -- Paladin blessing strategy on the Blessings tab's left panel, flat on the page
 -- (divider headings, no box): a titleless block at the top with the Source of
 -- Truth dropdown (PallyBuffSource) and a grey line describing the choice, then
--- the Buffing Rules section, whose header owns "Add (+)" and clear-all and
--- which steps out of the stack entirely in PallyPower mode. What each paladin
+-- the Buffing Rules section, whose header owns "Add (+)" and clear-all. It
+-- stays up in PallyPower mode, where the rules still decide what counts as an
+-- unoptimized buff on PallyPower's board. What each paladin
 -- casts and how far along they are lives in the Blessing Assignments block of the
 -- panel beside it (PallyPowerDiffView.lua), with the PallyPower fixes.
 --
@@ -81,7 +82,8 @@ local SOURCE_BLURBS = {
         .. " many updates are auto-synced to PallyPower.",
     pallypower = SOURCE_BLURB_LEAD .. "With |cffffd100PallyPower|r selected, all"
         .. " UI elements are powered by the assignments made within the"
-        .. " PallyPower board. WDW will not make any changes automatically."
+        .. " PallyPower board. WDW will not make any changes automatically, but"
+        .. " the rules below still decide which buffs count as unoptimized."
         .. " Useful in legacy raids that insist on using PallyPower and don't"
         .. " know what they're missing.",
 }
@@ -704,18 +706,16 @@ function Refresh(f) -- forward declared above
         UIDropDownMenu_DisableDropDown(state.pallyBuffSourceDD)
     end
 
-    -- Rules only steer WDW's own plan, so in PallyPower mode there is nothing
-    -- to show and the section steps out of the stack.
+    -- Shown in both modes: in PallyPower mode WDW's rule-driven plan is still
+    -- what PallyPower's board is judged against ("unoptimized" buffs).
     local rules = GetBuffRules()
-    local showRules = source ~= "pallypower"
-    state.box:SetShown(showRules)
     state.ruleBtn:SetShown(editable)
     state.clearRulesBtn:SetShown(editable)
 
     -- (!) beside "Add (+)": paladins nothing can reach and no rule speaks for.
     -- It sits on the button that fixes them, and the same mark repeats inside
     -- the menu on the branch to walk down.
-    local unhandled = showRules and editable and UnhandledDisabledPaladins() or {}
+    local unhandled = editable and UnhandledDisabledPaladins() or {}
     state.ruleWarn:SetShown(#unhandled > 0)
     if #unhandled > 0 then
         state.ruleWarn.tooltipText = K.DisabledPaladinTooltip(unhandled)
@@ -725,7 +725,7 @@ function Refresh(f) -- forward declared above
 
     -- The one rule WDW writes itself, shown as a read-only line above the
     -- user's rules so a missing Salvation in a battleground isn't a mystery.
-    local autoSalv = showRules and PvpSalvationIgnored()
+    local autoSalv = PvpSalvationIgnored()
     state.autoRuleText:ClearAllPoints()
     state.autoRuleText:SetPoint("TOPLEFT", UI.BOX_PAD + 4, -(rulesTop + 2))
     state.autoRuleText:SetShown(autoSalv)
@@ -736,7 +736,7 @@ function Refresh(f) -- forward declared above
         local row = state.ruleRows[i] or CreateRuleRow(f, i)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", UI.BOX_PAD, -(rulesTop + (i - 1) * RULE_ROW_H))
-        row:SetShown(showRules)
+        row:Show()
         row.text:SetText(RuleBuffText(rule) .. " " .. RuleDetailText(rule))
         row.tooltipTitle, row.tooltipText = RuleTooltip(rule)
         row.delBtn:SetShown(editable)
@@ -750,7 +750,7 @@ function Refresh(f) -- forward declared above
 
     state.rulesEmptyHint:ClearAllPoints()
     state.rulesEmptyHint:SetPoint("TOPLEFT", UI.BOX_PAD + 4, -(rulesTop + 4))
-    state.rulesEmptyHint:SetShown(showRules and #rules == 0 and not autoSalv)
+    state.rulesEmptyHint:SetShown(#rules == 0 and not autoSalv)
     local rulesH = (#rules > 0) and (#rules * RULE_ROW_H)
         or (autoSalv and 2 or UI.EMPTY_ROWS_H)
 
