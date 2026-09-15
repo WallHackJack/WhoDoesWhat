@@ -913,6 +913,16 @@ end
 -- The neutral section panel colour, for a caller deriving a tint from it.
 UI.SECTION_COLOR = { 0.16, 0.16, 0.18 }
 
+-- The { odd, even } row stripes a section derives from a panel colour
+-- { r, g, b }: both nudged toward white, the odd rows more.
+function UI.RowColorsFor(color)
+    local r, g, b = color[1], color[2], color[3]
+    return {
+        { TowardWhite(r, 0.09), TowardWhite(g, 0.09), TowardWhite(b, 0.09) },
+        { TowardWhite(r, 0.04), TowardWhite(g, 0.04), TowardWhite(b, 0.04) },
+    }
+end
+
 -- Boxed section shell: a lighter inset panel with a title on the header strip's
 -- midline, so the title text and the header buttons share a line.
 --
@@ -932,14 +942,12 @@ function UI.CreateSectionBox(parent, titleText, color, borderColor)
     box:SetBackdropColor(r, g, b, 1)
     local edge = borderColor or { 0.4, 0.4, 0.4 }
     box:SetBackdropBorderColor(edge[1], edge[2], edge[3])
-    box.rowColors = {
-        { TowardWhite(r, 0.09), TowardWhite(g, 0.09), TowardWhite(b, 0.09) },
-        { TowardWhite(r, 0.04), TowardWhite(g, 0.04), TowardWhite(b, 0.04) },
-    }
+    box.rowColors = UI.RowColorsFor(color)
 
     local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     local font, size = title:GetFont()
     if font and size then title:SetFont(font, size + 2, "OUTLINE") end
+    box.titleColor = { 0.95, 0.95, 0.95 }
     title:SetTextColor(0.95, 0.95, 0.95)
     -- Anchored by LEFT, which vertically centers a FontString, onto the header
     -- strip's midline. Move HEADER_STRIP_TOP and the title follows the buttons.
@@ -954,12 +962,16 @@ end
 
 -- A heading rule: a label near the left end, a short rule before it and a long
 -- one after, both in the label's colour, faded. Width comes from where the
--- caller places it. `color` is { r, g, b }, a dark gold when left out.
--- The label and the two rules are `label`, `left` and `right` on the frame.
-function UI.CreateDivider(parent, text, color)
+-- caller places it. `color` is { r, g, b }, a dark gold when left out;
+-- `ruleAlpha` how faded the rules are, 0.3 when left out. The label and the two
+-- rules are `label`, `left` and `right` on the frame, and `color` the label's
+-- colour, for a caller that greys the label out and has to put it back.
+function UI.CreateDivider(parent, text, color, ruleAlpha)
     local r, g, b = 0.8, 0.65, 0.12
     if color then r, g, b = color[1], color[2], color[3] end
+    ruleAlpha = ruleAlpha or 0.3
     local divider = CreateFrame("Frame", nil, parent)
+    divider.color = { r, g, b }
     divider:SetHeight(10)
     local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("LEFT", 36, 0)
@@ -969,12 +981,12 @@ function UI.CreateDivider(parent, text, color)
     left:SetHeight(1)
     left:SetPoint("LEFT")
     left:SetPoint("RIGHT", label, "LEFT", -6, 0)
-    left:SetColorTexture(r, g, b, 0.3)
+    left:SetColorTexture(r, g, b, ruleAlpha)
     local right = divider:CreateTexture(nil, "ARTWORK")
     right:SetHeight(1)
     right:SetPoint("LEFT", label, "RIGHT", 6, 0)
     right:SetPoint("RIGHT")
-    right:SetColorTexture(r, g, b, 0.3)
+    right:SetColorTexture(r, g, b, ruleAlpha)
     divider.label, divider.left, divider.right = label, left, right
     return divider
 end
@@ -982,9 +994,10 @@ end
 -- The same section without the box: no panel or border, and its title is a
 -- divider rule across the header strip, for sections sitting straight on a
 -- page. Same geometry, fields and header chain as a boxed one, so a section
--- lays itself out identically either way. `color` tints the title and rule;
--- `rowColors` is the { odd, even } row stripes, which a box would derive from
--- its panel.
+-- lays itself out identically either way. `color` tints the title and rule --
+-- the rule less faded than a plain divider's, since it heads a whole section
+-- -- and is kept as `box.titleColor`; `rowColors` is the { odd, even } row
+-- stripes, which a box would derive from its panel.
 function UI.CreateFlatSection(parent, titleText, color, rowColors)
     local box = CreateFrame("Frame", nil, parent)
     box:SetFrameLevel(parent:GetFrameLevel() + 1)
@@ -992,7 +1005,8 @@ function UI.CreateFlatSection(parent, titleText, color, rowColors)
     box.headerChain, box.rows = {}, {}
     if not titleText then return box end
 
-    local divider = UI.CreateDivider(box, titleText, color)
+    local divider = UI.CreateDivider(box, titleText, color, 0.6)
+    box.titleColor = divider.color
     local midline = -(UI.HEADER_STRIP_TOP + UI.HEADER_BTN_SIZE / 2)
     divider:SetPoint("LEFT", box, "TOPLEFT", 0, midline)
     divider:SetPoint("RIGHT", box, "TOPRIGHT", 0, midline)
@@ -1004,7 +1018,9 @@ end
 -- Re-anchor a box's header buttons right to left, skipping hidden ones, so the
 -- rightmost VISIBLE button hugs the corner instead of leaving a hole. The chain
 -- is stored rightmost-first. Run after anything that changes visibility. A
--- flat section's title rule stops short of the leftmost button.
+-- flat section's title rule stops short of the leftmost button. `box.endPad`,
+-- when set, holds the chain that far in from the rows' right edge, for rows
+-- that keep the same gap after their own last button.
 function UI.LayoutHeaderChain(box)
     local prev
     for _, btn in ipairs(box.headerChain) do
@@ -1014,7 +1030,7 @@ function UI.LayoutHeaderChain(box)
                 btn:SetPoint("RIGHT", prev, "LEFT", -2, 0)
             else
                 btn:SetPoint("TOPRIGHT", box, "TOPRIGHT",
-                    -UI.BOX_PAD, -UI.HEADER_STRIP_TOP)
+                    -(UI.BOX_PAD + (box.endPad or 0)), -UI.HEADER_STRIP_TOP)
             end
             prev = btn
         end

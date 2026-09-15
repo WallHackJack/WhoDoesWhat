@@ -2,10 +2,11 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 
 -- Misdirect Assignments section: one row per hunter, auto-managed from the
--- roster (EnsureAutoRows) -- no Add/per-row [x], the hunter cell is a fixed label;
--- you only fill in each hunter's tank:
+-- roster (EnsureAutoRows) -- no Add, the hunter cell is a fixed label, and the
+-- row [x] clears the hunter's picks rather than the row; you only fill in each
+-- hunter's tank:
 --
---   [hunter]  for  [tank v]  on  [marker v] (!) [mail]
+--   [hunter]  for  [tank v]  on  [marker v] (!) [mail] [x]
 --
 -- The marker defaults to (and follows) the tank's first tank-marker -- the
 -- setters in AssignmentsActions.lua keep it synced when tank markers move --
@@ -111,7 +112,24 @@ local function CreateRow(f, index)
     end)
     row.markerDD = markerDD
 
-    -- Mail at the far right so it lines up with every section's mail column.
+    -- Clear this hunter's tank and marker without removing their auto row.
+    local clearBtn = UI.CreateCloseButton(row, nil, 0.25)
+    clearBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
+    clearBtn:SetScript("OnClick", function()
+        if not WhoDoesWhat:RequireEditPermission() then return end
+        local entry = Entry()
+        if not entry then return end
+        entry.target, entry.marker = nil, nil
+        WhoDoesWhat:LogOperation(SECTION.title .. ": " .. tostring(entry.player)
+            .. "'s misdirect cleared.")
+        Refresh(f)
+    end)
+    clearBtn.disabledReason = "Nothing to clear."
+    UI.AddTooltip(clearBtn, "Clear this misdirect",
+        "Clear the tank and marker. The hunter's row stays.")
+    row.clearBtn = clearBtn
+
+    -- Mail immediately left of the row [x], matching the Tank and CC rows.
     row.mailBtn = K.CreateMailButton(row, function()
         local entry = Entry()
         if entry and entry.player then
@@ -120,7 +138,7 @@ local function CreateRow(f, index)
                 SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
         end
     end)
-    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.mailBtn:SetPoint("RIGHT", clearBtn, "LEFT", -2, 0)
 
     -- Warning (!) left of mail; anchored off the button rather than the row
     -- so it holds its column while hidden and nothing shifts.
@@ -187,6 +205,9 @@ function Refresh(f) -- forward declared above
         row.warnIcon.tooltipText = warning
         row.warnIcon:SetShown(warning ~= nil)
 
+        row.clearBtn:SetShown(editable)
+        row.clearBtn:SetEnabled((entry.target or entry.marker) ~= nil)
+
         -- A misdirect row only has a job to whisper once its tank is picked.
         local hasJob = EntryHasJob(SECTION, entry)
         row.mailBtn:SetShown(editable)
@@ -213,7 +234,7 @@ end
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        tab = K.TAB_TANKING,
+        stack = K.STACK_ASSIGN_RIGHT,
         tintClass = "Hunter",
         mailCollect = A.CollectMisdirectWhispers,
     })

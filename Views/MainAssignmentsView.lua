@@ -3,36 +3,38 @@ local UI = select(2, ...).UI
 
 -- Main /wdw window: one fixed-size window, one tab per page.
 --
---   Raid  Members  Buff Grid  Calculator  Settings              Logs  About
+--   Members  Blessings  Assignments  Buff Grid  Calculator  Settings   Logs  About
 --
--- This file owns the window, its tab row and the Raid page. Every other page is
--- built by its own view file (BuildMembersPage and friends) the first time its
--- tab is opened, and repaints itself whenever it comes back on screen. The
--- old per-page openers (OpenMembersView, OpenAddonSettingsView...) now open
--- this window on their tab through ShowMainTab.
+-- This file owns the window, its tab row and the two board pages, Blessings and
+-- Assignments. Every other page is built by its own view file (BuildMembersPage
+-- and friends). Every page is built the first time its tab is opened and
+-- repaints itself whenever it comes back on screen. The old per-page openers
+-- (OpenMembersView, OpenAddonSettingsView...) open this window on their tab
+-- through ShowMainTab.
 --
--- The Raid page is laid out like Settings: a second row of tabs over one title
--- strip (the permission picker hard right, where Settings has Reset), and each
--- tab's page in a navy well. A page scrolls one centred column of boxed
--- assignment sections; Blessings splits its well, sections on the left and the
--- PallyPower differences (PallyPowerDiffView.lua) on the right. Every section is
--- hard-coded in its own file under Views/Sections/ (registered on
+-- Both board pages are laid out like a Settings section: a title strip (the
+-- permission picker hard right, where Settings has Reset) over a well, the
+-- sections flat on it under divider headings. Blessings, in Paladin pink,
+-- splits its well: its sections in a narrow column on the left, the PallyPower
+-- panel (PallyPowerDiffView.lua) on the right. Assignments is two columns in
+-- one scroll area, each section headed and striped in its class's colour. Every
+-- section is hard-coded in its own file under Views/Sections/ (registered on
 -- WhoDoesWhat.SectionViews as Build/Refresh pairs, built from the shared
--- primitives in Views/SectionKit.lua) and names the tab it sits on:
+-- primitives in Views/SectionKit.lua) and names the column it sits in:
 --
---   Blessings       PaladinBuffsSection  computed summary + buff rules
---                   CustomRolesSection   the raid's shared + overridden roles
---   Tanking         TankSection          one auto row per marked tank
---                   MisdirectSection     one auto row per hunter
---   Crowd Control   CCSection            user-grown rows (the template for
---                                        future sections -- see its header)
---   Warlocks        WarlockCursesSection fixed row per curse
+--   Blessings     PaladinBuffsSection  Source of Truth + Buffing Rules
+--                 CustomRolesSection   the raid's shared + overridden roles
+--   Assignments   WarlockCursesSection fixed row per curse          (left)
+--                 TankSection          one auto row per marked tank (right)
+--                 MisdirectSection     one auto row per hunter
+--                 CCSection            user-grown rows (the template for
+--                                      future sections -- see its header)
 --
--- Boxes are anchor-chained within their tab, so a section that changes height
--- pushes the ones under it down on its own. Every tab's sections are built and
--- refreshed together, whichever one is up. The model -- section defs,
--- member/text helpers, whisper collectors, demand math, auto-assigns, and
--- storage -- lives in Assignments.lua.
+-- Sections are anchor-chained within their column, so one that changes height
+-- pushes the ones under it down on its own. A page's sections are built with
+-- it; every built section refreshes whenever either board page is up. The
+-- model -- section defs, member/text helpers, whisper collectors, demand math,
+-- auto-assigns, and storage -- lives in Assignments.lua.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -59,48 +61,36 @@ local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
 local THEME = WhoDoesWhat.Theme
 local PAGE_DARK = THEME.pageDark
 local PAGE_COLORS = {
-    raid = PAGE_DARK, members = PAGE_DARK, grid = PAGE_DARK, calculator = PAGE_DARK,
-    logs = PAGE_DARK, settings = PAGE_DARK,
+    members = PAGE_DARK, blessings = PAGE_DARK, assignments = PAGE_DARK,
+    grid = PAGE_DARK, calculator = PAGE_DARK, logs = PAGE_DARK, settings = PAGE_DARK,
 }
 
--- The Raid page's sub-tabs, left to right. Sections pick theirs by key.
--- `title` heads the page, as Settings' sections do, in gold or the accent of
--- the tab's `palette` (panel, well and accent colours; Theme.lua), which
--- otherwise keeps the Settings slate and navy. Blessings is split: its
--- sections flat on a narrow panel on the left, the PallyPower differences on
--- the right.
-local RAID_TABS = {
-    { label = "Blessings", page = K.TAB_BLESSINGS, title = "Paladin Blessings",
-        palette = THEME.blessings, split = true },
-    { label = "Tanking", page = K.TAB_TANKING, title = "Tanking" },
-    { label = "Crowd Control", page = K.TAB_CC, title = "Crowd Control" },
-    { label = "Warlocks", page = K.TAB_WARLOCKS, title = "Warlocks",
-        palette = { accent = { 0.58, 0.51, 0.79 } } },
+-- The two board pages, by page key. `title` heads the page in gold; `palette`
+-- (panel, border, well, rows, accent; Theme.lua) otherwise keeps the Settings
+-- slate and navy, and page-wide rows and heading accent override the sections'
+-- own class tints. `sections` lists what the page
+-- builds, in anchor-chain order within each column.
+local BOARD_PAGES = {
+    blessings = { title = "Paladin Blessings", palette = THEME.blessings,
+        sections = { "PaladinBuffs", "CustomRoles" } },
+    assignments = { title = "Assignments",
+        sections = { "WarlockCurses", "Tank", "Misdirect", "CC" } },
 }
 
--- Sub-tab geometry. Every section is SECTION_W wide, bar the split Blessings
--- panel's, which keep the compact Paladin Buffs minimum. The shared title strip
--- sits above each page's well, and a split well's two panels keep a gap of the
--- slate between them.
-local SECTION_W = 500
-local SPLIT_SECTION_W = 330
+-- Geometry. The title strip sits above each page's well. Blessings' sections
+-- keep the compact Paladin Buffs minimum on the left of a split well, with a
+-- gap of the panel between its two halves. Assignments' two columns fill its
+-- well's width: the narrow one for Warlocks, the wide one for the busy dynamic
+-- rows.
 local HEADER_H = 34
 local WELL_INSET = 10
 local STACK_TOP = 10
+local SPLIT_SECTION_W = 330
 local SPLIT_LEFT_W = SPLIT_SECTION_W + 8 + SCROLLBAR_W
 local SPLIT_GAP = 8
-
--- Build + refresh order. Within a tab this is also the anchor-chain order.
-local function OrderedSections()
-    local SV = WhoDoesWhat.SectionViews
-    local sections = {
-        SV.Tank, SV.PaladinBuffs, SV.CustomRoles, SV.WarlockCurses, SV.CC,
-    }
-    if WhoDoesWhat.ClientFeatures.misdirectAssignments then
-        table.insert(sections, 2, SV.Misdirect) -- under Tanks
-    end
-    return sections
-end
+local LEFT_COLUMN_W = 340
+local RIGHT_COLUMN_W = 440
+local COLUMN_GAP = 10
 
 -- ---------------------------------------------------------------------------
 -- Editing-permission strip (Permissions.lua)
@@ -167,35 +157,35 @@ local function InitPermissionsDropdown(_, level)
     end
 end
 
--- The strip at the right of the Raid page's title: the raid leader gets the picker
--- dropdown, every other raid member a note: the rule if they may edit under it,
--- otherwise just "Read Only Mode". Hidden outside raids -- parties and solo are
--- always open, nothing to say.
-local function UpdatePermissionControls(f)
+-- The strip at the right of a board page's title: the raid leader gets the
+-- picker dropdown, every other raid member a note: the rule if they may edit
+-- under it, otherwise just "Read Only Mode". Hidden outside raids -- parties
+-- and solo are always open, nothing to say.
+local function UpdatePermissionStrip(dd, note)
     if not IsInRaid() then
-        f.permDD:Hide()
-        f.permNote:Hide()
+        dd:Hide()
+        note:Hide()
         return
     end
     -- Rule stood down (battleground, or the leader doesn't run the addon):
     -- everyone edits, and the note says why -- the picker would be a lie.
     local openReason = WhoDoesWhat:PermissionsOpenReason()
     if openReason then
-        f.permDD:Hide()
-        f.permNote:SetText("|cff909090Editing: everyone (" .. openReason .. ")|r")
-        f.permNote:Show()
+        dd:Hide()
+        note:SetText("|cff909090Editing: everyone (" .. openReason .. ")|r")
+        note:Show()
         return
     end
     if UnitIsGroupLeader("player") then
-        UIDropDownMenu_SetText(f.permDD, "Editing: " .. WhoDoesWhat:PermissionModeLabel())
-        f.permDD:Show()
-        f.permNote:Hide()
+        UIDropDownMenu_SetText(dd, "Editing: " .. WhoDoesWhat:PermissionModeLabel())
+        dd:Show()
+        note:Hide()
     else
-        f.permDD:Hide()
-        f.permNote:SetText("|cff909090" .. (WhoDoesWhat:CanEditAssignments()
+        dd:Hide()
+        note:SetText("|cff909090" .. (WhoDoesWhat:CanEditAssignments()
             and ("Editing: " .. WhoDoesWhat:PermissionModeLabel())
             or "Read Only Mode") .. "|r")
-        f.permNote:Show()
+        note:Show()
     end
 end
 
@@ -251,17 +241,27 @@ local function UpdateTabs(f)
     UpdateVersionWarning(f)
 end
 
--- Repaint the Raid page: the permission strip, then every section (each owns
--- its rows, warnings, header buttons and box height), then the header mail
--- buttons' enabled states. Mail visibility settles first (cheap, no
--- collectors) so every section lays out its header chain against it.
-local function RefreshRaidPage(f)
-    UpdatePermissionControls(f)
+-- Repaint the board pages built so far: their permission strips, then every
+-- section (each owns its rows, warnings, header buttons and height), then the
+-- header mail buttons' enabled states. Mail visibility settles first (cheap,
+-- no collectors) so every section lays out its header chain against it.
+local function RefreshBoard(f)
+    for _, strip in ipairs(f.permissionStrips) do
+        UpdatePermissionStrip(strip.dd, strip.note)
+    end
     K.UpdateHeaderMailVisibility(f)
     for _, section in ipairs(f.sections) do
         section.Refresh(f)
     end
     K.UpdateHeaderMailButtons(f)
+end
+
+-- Whether a board page is the one on screen.
+local function BoardVisible(f)
+    for key in pairs(BOARD_PAGES) do
+        if f.pages[key]:IsVisible() then return true end
+    end
+    return false
 end
 
 -- Top and bottom edge shadows across one panel of a well, over its scroll area.
@@ -277,21 +277,37 @@ local function AddWellShadows(well, scroll, left, right)
     UI.InsetScrollBar(scroll, 12)
 end
 
--- The Raid page, laid out like Settings: a row of sub-tabs over one title
--- strip, and under it each tab's page in a well of its own. The strip carries
--- the permission picker where Settings has its Reset button. A page scrolls
--- one centred column of sections; Blessings splits its well in two.
-local function BuildRaidPage(f, page)
-    f.raidPage = page
+local function FillColor(texture, color)
+    texture:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
+end
 
-    local tabs = CreateFrame("Frame", nil, page)
-    tabs:SetAllPoints(page)
-    tabs.titleBarHeight = 0
-    local subPages = UI.AddTabs(tabs, RAID_TABS,
-        { colors = THEME.TabsWith({ panel = THEME.panelSlate }, THEME.subTabs) })
-    local panel = tabs.tabPanel
+-- One column of flat sections, registered on f.stacks under `key`: a frame
+-- `width` wide hung from the scroll content at `anchorX` (the content's TOP
+-- plus that offset), which the sections' boxes stack in.
+local function AddStack(f, key, content, scroll, anchorX, width, palette)
+    local frame = CreateFrame("Frame", nil, content)
+    frame:SetSize(width, 1)
+    frame:SetPoint("TOP", content, "TOP", anchorX, -STACK_TOP)
+    f.stacks[key] = {
+        boxes = {}, frame = frame, scroll = scroll, top = STACK_TOP, flat = true,
+        accent = palette.accent, rowColors = palette.rows,
+    }
+end
 
-    WhoDoesWhat:LogUiBuilding("Building main assignments content.")
+-- A board page, laid out like a Settings section: a bordered panel in the
+-- page's colours, the title strip across its top with the permission picker
+-- where Settings has Reset, and below it the well its sections sit in.
+local function BuildBoardPage(f, page, key)
+    local spec = BOARD_PAGES[key]
+    local palette = spec.palette or {}
+    WhoDoesWhat:LogUiBuilding("Building the " .. spec.title .. " page.")
+
+    local panel = CreateFrame("Frame", nil, page, UI.TEMPLATE)
+    panel:SetAllPoints(page)
+    panel:SetBackdrop(UI.BACKDROP)
+    panel:SetBackdropColor(unpack(palette.panel or THEME.panelSlate))
+    local edge = palette.border or THEME.subTabs.panelBorder
+    panel:SetBackdropBorderColor(edge[1], edge[2], edge[3])
 
     -- ---- Title strip ----
     local header = CreateFrame("Frame", nil, panel)
@@ -300,101 +316,82 @@ local function BuildRaidPage(f, page)
     header:SetHeight(HEADER_H)
     local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("CENTER", 0, 3)
+    title:SetText(spec.title)
+    title:SetTextColor(THEME.gold[1], THEME.gold[2], THEME.gold[3])
 
     -- Editing-permission picker, hard right: the raid leader sees the picker,
     -- other raid members a read-only note, and outside raids both hide
-    -- (UpdatePermissionControls decides each refresh).
-    local permDD = UI.CreateMenuDropdown(header, "WhoDoesWhatPermissionsDD", 170)
+    -- (UpdatePermissionStrip decides each refresh). One per page.
+    local permDD = UI.CreateMenuDropdown(header, "WhoDoesWhatPermissionsDD_" .. key, 170)
     -- The template overhangs ~15px past each side of its visible box.
     permDD:SetPoint("RIGHT", header, "RIGHT", 15, 1)
     UIDropDownMenu_Initialize(permDD, InitPermissionsDropdown)
     permDD:Hide()
-    f.permDD = permDD
-
     local permNote = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     permNote:SetPoint("RIGHT", header, "RIGHT", 0, 3)
     permNote:Hide()
-    f.permNote = permNote
+    f.permissionStrips[#f.permissionStrips + 1] = { dd = permDD, note = permNote }
 
-    -- The strip's title, and the panel around it in the tab's own colour.
-    -- AddTabs has already selected the first tab, before anyone listened.
-    local function ShowTitle(index)
-        local spec = RAID_TABS[index]
-        local color = spec.palette and spec.palette.accent or THEME.gold
-        title:SetText(spec.title)
-        title:SetTextColor(color[1], color[2], color[3])
-        local fill = spec.palette and spec.palette.panel or THEME.panelSlate
-        panel:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
+    -- ---- Well ----
+    local well = CreateFrame("Frame", nil, panel)
+    well:SetPoint("TOPLEFT", WELL_INSET, -(WELL_INSET + HEADER_H))
+    well:SetPoint("BOTTOMRIGHT", -WELL_INSET, WELL_INSET)
+    local wellColor = palette.well or THEME.pageWell
+    local scroll, content = UI.CreateScroll(well, "WhoDoesWhatBoardScroll_" .. key)
+
+    if key == "blessings" then
+        -- Split: the sections' column on the left, the PallyPower panel right.
+        local leftFill = well:CreateTexture(nil, "BACKGROUND")
+        leftFill:SetPoint("TOPLEFT")
+        leftFill:SetPoint("BOTTOMLEFT")
+        leftFill:SetWidth(SPLIT_LEFT_W)
+        local rightFill = well:CreateTexture(nil, "BACKGROUND")
+        rightFill:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
+        rightFill:SetPoint("BOTTOMRIGHT")
+        FillColor(leftFill, wellColor)
+        FillColor(rightFill, wellColor)
+
+        scroll:SetPoint("TOPLEFT")
+        scroll:SetPoint("BOTTOMLEFT")
+        scroll:SetWidth(SPLIT_LEFT_W - SCROLLBAR_W)
+        AddStack(f, K.STACK_BLESSINGS, content, scroll, 0, SPLIT_SECTION_W, palette)
+        AddWellShadows(well, scroll, leftFill, leftFill)
+
+        local right = CreateFrame("Frame", nil, well)
+        right:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
+        right:SetPoint("BOTTOMRIGHT")
+        WhoDoesWhat:BuildPallyPowerDiffPanel(right)
+    else
+        -- Two columns in one scroll area, centred as a pair across the well
+        -- (the scrollbar gutter included). The pair is kept narrow enough that
+        -- centring it that way still leaves its right edge inside the scroll
+        -- area, which clips anything past it.
+        local fill = well:CreateTexture(nil, "BACKGROUND")
+        fill:SetAllPoints()
+        FillColor(fill, wellColor)
+
+        scroll:SetPoint("TOPLEFT")
+        scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR_W, 0)
+        local pairW = LEFT_COLUMN_W + COLUMN_GAP + RIGHT_COLUMN_W
+        local pairCentre = SCROLLBAR_W / 2
+        AddStack(f, K.STACK_ASSIGN_LEFT, content, scroll,
+            pairCentre - pairW / 2 + LEFT_COLUMN_W / 2, LEFT_COLUMN_W, palette)
+        AddStack(f, K.STACK_ASSIGN_RIGHT, content, scroll,
+            pairCentre + pairW / 2 - RIGHT_COLUMN_W / 2, RIGHT_COLUMN_W, palette)
+        AddWellShadows(well, scroll, well, well)
     end
-    tabs:OnTabSelected(ShowTitle)
-    ShowTitle(tabs.selectedTab)
 
-    -- ---- Wells ----
-    -- Each tab's page is its well, below the strip. One scroll area of
-    -- sections in it, whose boxes hang from a stack: centred across the well
-    -- (scrollbar gutter included), or in the split's left panel.
-    f.sectionTabs = {}
-    for _, spec in ipairs(RAID_TABS) do
-        local well = subPages[spec.page]
-        local wellColor = spec.palette and spec.palette.well or THEME.pageWell
-        well:ClearAllPoints()
-        well:SetPoint("TOPLEFT", panel, "TOPLEFT", WELL_INSET, -(WELL_INSET + HEADER_H))
-        well:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -WELL_INSET, WELL_INSET)
-
-        local scroll, content = UI.CreateScroll(well, "WhoDoesWhatRaidScroll_" .. spec.page)
-        local stack = CreateFrame("Frame", nil, content)
-        stack:SetHeight(1)
-        if spec.split then
-            local leftFill = well:CreateTexture(nil, "BACKGROUND")
-            leftFill:SetPoint("TOPLEFT")
-            leftFill:SetPoint("BOTTOMLEFT")
-            leftFill:SetWidth(SPLIT_LEFT_W)
-            local rightFill = well:CreateTexture(nil, "BACKGROUND")
-            rightFill:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
-            rightFill:SetPoint("BOTTOMRIGHT")
-            for _, fill in ipairs({ leftFill, rightFill }) do
-                fill:SetColorTexture(wellColor[1], wellColor[2], wellColor[3], wellColor[4])
-            end
-
-            scroll:SetPoint("TOPLEFT")
-            scroll:SetPoint("BOTTOMLEFT")
-            scroll:SetWidth(SPLIT_LEFT_W - SCROLLBAR_W)
-            stack:SetPoint("TOP", content, "TOP", 0, -STACK_TOP)
-            stack:SetWidth(SPLIT_SECTION_W)
-            AddWellShadows(well, scroll, leftFill, leftFill)
-
-            local right = CreateFrame("Frame", nil, well)
-            right:SetPoint("TOPLEFT", SPLIT_LEFT_W + SPLIT_GAP, 0)
-            right:SetPoint("BOTTOMRIGHT")
-            WhoDoesWhat:BuildPallyPowerDiffPanel(right)
-        else
-            local fill = well:CreateTexture(nil, "BACKGROUND")
-            fill:SetAllPoints()
-            fill:SetColorTexture(wellColor[1], wellColor[2], wellColor[3], wellColor[4])
-
-            scroll:SetPoint("TOPLEFT")
-            scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR_W, 0)
-            stack:SetPoint("TOP", content, "TOP", SCROLLBAR_W / 2, -STACK_TOP)
-            stack:SetWidth(SECTION_W)
-            AddWellShadows(well, scroll, well, well)
+    local SV = WhoDoesWhat.SectionViews
+    for _, name in ipairs(spec.sections) do
+        if name ~= "Misdirect" or WhoDoesWhat.ClientFeatures.misdirectAssignments then
+            local section = SV[name]
+            f.sections[#f.sections + 1] = section
+            section.Build(f)
         end
-        -- The split panel's sections sit straight on the well, Settings-style.
-        f.sectionTabs[spec.page] = {
-            boxes = {}, stack = stack, scroll = scroll, top = STACK_TOP,
-            flat = spec.split, accent = spec.palette and spec.palette.accent,
-            rowColors = spec.palette and spec.palette.rows,
-        }
-    end
-    f.raidTabs = tabs
-
-    f.headerMail = {} -- section-header mass-mail buttons (SectionKit)
-    f.sections = OrderedSections()
-    for _, section in ipairs(f.sections) do
-        section.Build(f)
     end
 
     -- Every time the page comes up, whether by tab or by the window opening.
-    page:HookScript("OnShow", function() RefreshRaidPage(f) end)
+    page:HookScript("OnShow", function() RefreshBoard(f) end)
 end
 
 -- Size the window to the selected page's request. It resizes from the top: the
@@ -416,8 +413,9 @@ local function ApplyWindowHeight(f)
     f:SetHeight(math.max(WINDOW_H, height))
 end
 
--- Build the window once and reuse it: the chrome, the tab row, and the Raid
--- page. Every other page is built by its own view the first time it is opened.
+-- Build the window once and reuse it: the chrome and the tab row. Every page is
+-- built the first time it is opened -- the board pages here, the rest by their
+-- own views.
 local function EnsureMainFrame()
     if mainFrame then return mainFrame end
 
@@ -435,19 +433,29 @@ local function EnsureMainFrame()
     f.versionWarn = versionWarn
     mainFrame = f
 
+    -- What the board pages share as they are built (SectionKit reads these).
+    f.stacks, f.sections, f.headerMail, f.permissionStrips = {}, {}, {}, {}
+
     local function ViewPage(builder)
         return function(page) WhoDoesWhat[builder](WhoDoesWhat, page) end
+    end
+    local function BoardPage(key)
+        return function(page) BuildBoardPage(f, page, key) end
     end
     -- Left to right, then the right-hand run from the window's right edge
     -- inward: About is outermost.
     local pages = UI.AddTabs(f, {
-        { label = "Raid & Assignments", page = "raid",
-            tooltip = "The assignment board: paladin buffs, roles, curses, tanks, CC and misdirects.",
-            build = function(page) BuildRaidPage(f, page) end },
         { label = "Members", page = "members",
             tooltip = "A list of all members in your group, sorted by role. Used to assign"
                 .. " roles, get an overview of your raiders, and address issues",
             build = ViewPage("BuildMembersPage") },
+        { label = "Blessings", page = "blessings",
+            tooltip = "Paladin blessings: the source of truth, buffing rules, custom"
+                .. " roles, each paladin's progress, and PallyPower differences.",
+            build = BoardPage("blessings") },
+        { label = "Assignments", page = "assignments",
+            tooltip = "Tanks, crowd control, misdirects and warlock curses.",
+            build = BoardPage("assignments") },
         { label = "Buff Grid", page = "grid",
             tooltip = "The raid-wide paladin blessing plan and live buff status.",
             build = ViewPage("BuildBuffingGridPage") },
@@ -463,7 +471,7 @@ local function EnsureMainFrame()
         { label = "Logs", page = "logs", right = true, hidden = true,
             tooltip = "The combined WhoDoesWhat and PallyPower addon-message logs.",
             build = ViewPage("BuildSyncLogPage") },
-    }, { initial = "raid", colors = THEME.tabs })
+    }, { initial = "members", colors = THEME.tabs })
     for key, color in pairs(PAGE_COLORS) do UI.SetTabPageColor(pages[key], color) end
 
     f:OnTabSelected(function() ApplyWindowHeight(f) end)
@@ -477,20 +485,20 @@ local function EnsureMainFrame()
     f:SetScript("OnEvent", function(self)
         if not self:IsShown() then return end
         UpdateTabs(self)
-        if self.raidPage:IsVisible() then RefreshRaidPage(self) end
+        if BoardVisible(self) then RefreshBoard(self) end
     end)
 
     return f
 end
 
--- Repaint if the window is up: the tab row always, the Raid page only while it
--- is the page on screen - it repaints itself when it comes back. Called from
--- outside the view when something board-relevant changes (setters, sync, role
--- assignments in UnitMenu).
+-- Repaint if the window is up: the tab row always, the board only while one of
+-- its pages is on screen - they repaint themselves when they come back. Called
+-- from outside the view when something board-relevant changes (setters, sync,
+-- role assignments in UnitMenu).
 function WhoDoesWhat:RefreshMainAssignmentsView()
     if not (mainFrame and mainFrame:IsShown()) then return end
     UpdateTabs(mainFrame)
-    if mainFrame.raidPage:IsVisible() then RefreshRaidPage(mainFrame) end
+    if BoardVisible(mainFrame) then RefreshBoard(mainFrame) end
 end
 
 -- A page asks for the height its content needs (nil: the default). The window
@@ -533,14 +541,7 @@ function WhoDoesWhat:ShowMainTab(key, stayOpen)
     return true
 end
 
--- Toggle the main window on the Raid page.
+-- Toggle the main window on its opening page, Members.
 function WhoDoesWhat:OpenMainAssignmentsView()
-    self:ShowMainTab("raid")
-end
-
--- Open the main window on one of the Raid page's sub-tabs (K.TAB_*), never
--- closing it.
-function WhoDoesWhat:ShowRaidTab(key)
-    self:ShowMainTab("raid", true)
-    mainFrame.raidTabs:SelectTab(key)
+    self:ShowMainTab("members")
 end

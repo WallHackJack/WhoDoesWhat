@@ -69,6 +69,32 @@ function WhoDoesWhat:LeaderRunsAddon()
     return false
 end
 
+-- Whether this client is the one that does the group's roster housekeeping
+-- (a row per hunter and marked tank, dropping players who left). One writer,
+-- so permitted clients don't all send the same board change: the leader when
+-- they run WDW. When they don't, nobody would, so the job falls to the
+-- highest-ranked WDW client allowed to edit, ties broken by name -- every
+-- client works that out from the same roster and peer list and elects the
+-- same one. Until peers have been heard from, each client may elect itself;
+-- that only repeats identical housekeeping.
+function WhoDoesWhat:IsRosterHousekeeper()
+    if UnitIsGroupLeader("player") then return true end
+    if self:LeaderRunsAddon() then return false end
+    local me = UnitName("player")
+    local bestName, bestRank
+    for i = 1, GetNumGroupMembers() do
+        local name, rank = GetRaidRosterInfo(i)
+        rank = rank or 0
+        if name and (name == me or self.syncPeers[name])
+            and self:PlayerCanEditAssignments(name)
+            and (not bestName or rank > bestRank
+                or (rank == bestRank and name < bestName)) then
+            bestName, bestRank = name, rank
+        end
+    end
+    return bestName == me
+end
+
 -- Why the permission rule is currently bypassed wholesale (everyone edits),
 -- or nil when it's in force. Shown in the main view's note so a raider knows
 -- why the board is suddenly open.

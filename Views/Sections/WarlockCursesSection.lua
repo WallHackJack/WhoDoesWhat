@@ -126,7 +126,7 @@ local function AddAssignmentRow(f, box, y, def)
             return name, def.label .. " (" .. SECTION.title .. ")"
         end
     end)
-    mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    mailBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
 
     -- UIDropDownMenu carries ~15px of transparent padding each side; overhang
     -- toward the mail button so the visible box sits a few px left of it.
@@ -151,7 +151,7 @@ local function AddAssignmentRow(f, box, y, def)
     -- (class colors survive, unlike a disabled dropdown's gray-out). Runs to
     -- the row edge -- the mail button is hidden whenever this shows.
     local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    roText:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    roText:SetPoint("RIGHT", row, "RIGHT", -(K.ROW_END_PAD + 2), 0)
     roText:SetJustifyH("RIGHT")
     roText:Hide()
 
@@ -231,8 +231,9 @@ local function Refresh(f)
 
     -- Auto rewrites the whole section, so hide it without edit permission.
     state.autoBtn:SetShown(editable)
-    state.box.title:SetTextColor(enabled and 0.95 or 0.5,
-        enabled and 0.95 or 0.5, enabled and 0.95 or 0.5)
+    -- Its own heading colour while live, grey while there are no warlocks.
+    local titleColor = enabled and state.box.titleColor or { 0.5, 0.5, 0.5 }
+    state.box.title:SetTextColor(titleColor[1], titleColor[2], titleColor[3])
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = not enabled and "No warlocks in the group."
@@ -245,7 +246,7 @@ end
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        tab = K.TAB_WARLOCKS,
+        stack = K.STACK_ASSIGN_LEFT,
         tintClass = "Warlock",
         mailCollect = CollectWarlockWhispers,
     })

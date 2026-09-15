@@ -106,8 +106,8 @@ local function CreateRow(f, index)
     row.markerDD = markerDD
 
     -- Clear this tank's markers without removing its auto-populated row.
-    local clearBtn = UI.CreateCloseButton(row)
-    clearBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local clearBtn = UI.CreateCloseButton(row, nil, 0.25)
+    clearBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
     clearBtn:SetScript("OnClick", function()
         local entry = Entry()
         if entry then WhoDoesWhat:ClearTankMarkers(entry.player) end
@@ -139,7 +139,7 @@ local function CreateRow(f, index)
     -- Read-only stand-in for the whole widget strip (Permissions.lua).
     local roText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     roText:SetPoint("LEFT", playerLabel, "RIGHT", -8, 0)
-    roText:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    roText:SetPoint("RIGHT", row, "RIGHT", -(K.ROW_END_PAD + 2), 0)
     roText:SetJustifyH("LEFT")
     roText:Hide()
     row.roText = roText
@@ -214,7 +214,8 @@ end
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        tab = K.TAB_TANKING,
+        stack = K.STACK_ASSIGN_RIGHT,
+        tintClass = "Warrior",
         mailCollect = A.CollectTankWhispers,
     })
 

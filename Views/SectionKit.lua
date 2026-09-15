@@ -10,10 +10,11 @@ local UI = select(2, ...).UI
 --
 -- The `f` passed around is the main window frame (MainAssignmentsView.lua),
 -- which carries the shared state the kit needs:
---   f.sectionTabs  { [TAB_BLESSINGS] = { boxes, stack, scroll, top, flat,
---                  accent, rowColors }, ... } -- one scroll area per Raid
---                  sub-tab, its boxes hung from `stack` (as wide as they are)
---                  `top` below the scroll's top; see CreateSectionBox for flat
+--   f.stacks       { [STACK_*] = { boxes, frame, scroll, top, flat, accent,
+--                  rowColors }, ... } -- one column of sections each, its boxes
+--                  hung from `frame` (as wide as they are) `top` below the top
+--                  of `scroll`, which several stacks may share side by side;
+--                  see CreateSectionBox for flat
 --   f.headerMail   registry of header mass-mail buttons (AddHeaderMailButton)
 --
 -- Section files register themselves on WhoDoesWhat.SectionViews (Build /
@@ -34,11 +35,16 @@ WhoDoesWhat.SectionKit = K
 -- Geometry + icons, shared so every section box and row lines up
 -- ---------------------------------------------------------------------------
 
--- The Raid page's sub-tabs, by page key. A section names the one it sits on.
-K.TAB_BLESSINGS, K.TAB_TANKING, K.TAB_CC, K.TAB_WARLOCKS =
-    "blessings", "tanking", "cc", "warlocks"
+-- The columns sections stack in, by key. A section names the one it sits on:
+-- the Blessings page's single column, or one of the Assignments page's two.
+K.STACK_BLESSINGS, K.STACK_ASSIGN_LEFT, K.STACK_ASSIGN_RIGHT =
+    "blessings", "assignLeft", "assignRight"
 
 K.ROW_ICON_SIZE = 20
+-- The gap a row keeps after its right-most button, so the buttons don't sit
+-- hard against the end of the row stripe. The header buttons above (box.endPad)
+-- keep the same gap, so each row button stays under its header button.
+K.ROW_END_PAD = 6
 K.DROPDOWN_ICON_SIZE = 14
 K.DROPDOWN_WIDTH = 100 -- player picker; sized for a name, not a sentence
 
@@ -83,6 +89,24 @@ end
 function K.IsLocalPaladin(paladin)
     local name, player = ShortName(PaladinName(paladin)), ShortName(UnitName("player"))
     return name ~= nil and player ~= nil and name == player
+end
+
+-- What every (!) for a paladin running neither WDW nor PallyPower says -- the
+-- one beside Buffing Rules' Add (+) and the one on their own Paladin Buffs row
+-- -- so the two can't drift apart.
+function K.DisabledPaladinTooltip(names)
+    local hex = "f58cba"
+    for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+        if classInfo.name == "Paladin" then hex = classInfo.colorHex end
+    end
+    local who = {}
+    for i, name in ipairs(names) do
+        who[i] = "|cff" .. hex .. A.ShortAssignmentName(name) .. "|r"
+    end
+    return table.concat(who, ", ") .. (#names == 1 and " is" or " are")
+        .. " running neither WhoDoesWhat nor PallyPower, so no board can reach"
+        .. " them. Assign them one blessing (Add (+) > Assign a Paladin) and"
+        .. " whisper it over."
 end
 
 function K.OrderPaladinsLocalFirst(paladins)
@@ -363,26 +387,44 @@ function K.ColorTint(r, g, b)
         { 0.4 + (r - 0.4) * 0.35, 0.4 + (g - 0.4) * 0.35, 0.4 + (b - 0.4) * 0.35 }
 end
 
+-- Row stripes for a flat section in a class colour { r, g, b = } (colorRGB).
+-- Nearly twice the class mix of a box's derived stripes: with no panel around
+-- them, the stripes are all that carries the colour, and the box's mix reads
+-- washed out on the dark well.
+function K.FlatRowColors(tint)
+    local function Mix(base, amount)
+        return { base + tint.r * amount, base + tint.g * amount, base + tint.b * amount }
+    end
+    return { Mix(0.05, 0.30), Mix(0.03, 0.20) }
+end
+
 function K.ClassTint(tintClass)
     local tint = tintClass and classColors[tintClass]
     if not tint then return end
     return K.ColorTint(tint.r, tint.g, tint.b)
 end
 
--- A tab whose sections sit straight on its page (`flat`, with its `accent` and
--- `rowColors`) gets divider-headed sections instead of boxes; there a section
--- may also leave its title out, for a block of controls with no heading.
-local function CreateSectionBox(f, titleText, tab, tintClass)
-    local sectionTab = f.sectionTabs[tab]
+-- A stack whose sections sit straight on its page (`flat`) gets divider-headed
+-- sections instead of boxes; there a section may also leave its title out, for
+-- a block of controls with no heading. A flat section's heading and row stripes
+-- take the page's own colours when its stack has them (`accent`, `rowColors`),
+-- otherwise its class tint, otherwise the Settings gold and well stripes.
+local function CreateSectionBox(f, titleText, stackKey, tintClass)
+    local stack = f.stacks[stackKey]
     local box
-    if sectionTab.flat then
-        box = UI.CreateFlatSection(sectionTab.stack, titleText, sectionTab.accent,
-            sectionTab.rowColors)
+    if stack.flat then
+        local tint = tintClass and classColors[tintClass]
+        local accent = stack.accent or (tint and { tint.r, tint.g, tint.b })
+        local rowColors = stack.rowColors
+            or (tint and K.FlatRowColors(tint))
+            or WhoDoesWhat.Theme.wellRows
+        box = UI.CreateFlatSection(stack.frame, titleText, accent, rowColors)
+        box.endPad = K.ROW_END_PAD
     else
-        box = UI.CreateSectionBox(sectionTab.stack, titleText, K.ClassTint(tintClass))
+        box = UI.CreateSectionBox(stack.frame, titleText, K.ClassTint(tintClass))
     end
-    box:SetWidth(sectionTab.stack:GetWidth())
-    sectionTab.boxes[#sectionTab.boxes + 1] = box
+    box:SetWidth(stack.frame:GetWidth())
+    stack.boxes[#stack.boxes + 1] = box
     return box
 end
 
@@ -457,7 +499,7 @@ end
 -- Build a section's standard chrome in one call: the box shell plus the
 -- header strip.
 --   opts.title       box title
---   opts.tab         the sub-tab it sits on, K.TAB_*
+--   opts.stack       the column it sits in, K.STACK_*
 --   opts.tintClass   optional class name for a subtle panel/row tint
 --   opts.mailCollect optional whisper collector; adds the header mail button
 -- Returns { box, mailBtn, headerChain }. headerChain is the box's own chain and
@@ -465,7 +507,7 @@ end
 -- right-to-left order and call UI.LayoutHeaderChain(box) on refresh.
 function K.CreateSectionChrome(f, opts)
     WhoDoesWhat:LogUiBuilding("Building assignment section: " .. (opts.title or "(untitled)"))
-    local box = CreateSectionBox(f, opts.title, opts.tab, opts.tintClass)
+    local box = CreateSectionBox(f, opts.title, opts.stack, opts.tintClass)
     local chrome = { box = box, headerChain = box.headerChain }
     if opts.mailCollect then
         chrome.mailBtn = AddHeaderMailButton(f, box, opts.title, opts.mailCollect)
@@ -483,14 +525,18 @@ end
 -- Tab layout + shared confirm popups
 -- ---------------------------------------------------------------------------
 
--- Re-anchor each tab's VISIBLE section boxes top-to-bottom, so a hidden box
--- leaves no gap, and size that tab's scroll area to them. Section boxes grow
--- and shrink with their rows, so every section runs this after settling its
--- own height.
+-- Re-anchor each stack's VISIBLE section boxes top-to-bottom, so a hidden box
+-- leaves no gap, and size each scroll area to the tallest stack in it. Section
+-- boxes grow and shrink with their rows, so every section runs this after
+-- settling its own height.
 function K.LayoutSections(f)
-    for _, sectionTab in pairs(f.sectionTabs) do
-        UI.SetScrollHeight(sectionTab.scroll, sectionTab.top
-            + UI.StackSections(sectionTab.stack, sectionTab.boxes, 0))
+    local tallest = {}
+    for _, stack in pairs(f.stacks) do
+        local height = stack.top + UI.StackSections(stack.frame, stack.boxes, 0)
+        tallest[stack.scroll] = math.max(tallest[stack.scroll] or 0, height)
+    end
+    for scroll, height in pairs(tallest) do
+        UI.SetScrollHeight(scroll, height)
     end
 end
 

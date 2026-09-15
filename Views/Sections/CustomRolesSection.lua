@@ -302,8 +302,8 @@ local function CreateCustomRoleRow(f, index)
     row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, ROW_H)
     UI.AddRowBackground(state.box, row, index)
 
-    local delBtn = UI.CreateCloseButton(row)
-    delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local delBtn = UI.CreateCloseButton(row, nil, 0.25)
+    delBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
     delBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
         local def = GetRaidCustomRoles()[index]
@@ -387,7 +387,7 @@ function Refresh(f) -- forward declared above
         if editable then
             row.detail:SetPoint("RIGHT", row.editBtn, "LEFT", -6, 0)
         else
-            row.detail:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+            row.detail:SetPoint("RIGHT", row, "RIGHT", -(K.ROW_END_PAD + 4), 0)
         end
     end
     for i = #customRoles + 1, #state.customRows do
@@ -405,7 +405,7 @@ end
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
         title = "Custom Roles",
-        tab = K.TAB_BLESSINGS,
+        stack = K.STACK_BLESSINGS,
     })
     local box = chrome.box
 

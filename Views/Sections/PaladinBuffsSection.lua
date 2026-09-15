@@ -1,26 +1,16 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 
--- Paladin Buffs section. Blessings come from the synchronized raid's selected
--- WDW/PallyPower source, and this section shows the result as one pooled
--- read-only row per paladin,
+-- Paladin blessing strategy on the Blessings tab's left panel, flat on the page
+-- (divider headings, no box): a titleless block at the top with the Source of
+-- Truth dropdown (PallyBuffSource) and a grey line describing the choice, then
+-- the Buffing Rules section, whose header owns "Add (+)" and clear-all and
+-- which steps out of the stack entirely in PallyPower mode. What each paladin
+-- casts and how far along they are lives in the Blessing Assignments block of the
+-- panel beside it (PallyPowerDiffView.lua), with the PallyPower fixes.
 --
---   [role icon] Name  [buff icon][buff icon][buff icon]  [!] n of n [mail]
---
--- the first three buffs each (count-desc), with an ellipsis when more exist;
--- paladins are sorted by workload
--- (ComputePaladinBuffSummary). Row mail whispers one paladin's missing live
--- coverage. A second "Buffing Rules" header below the paladin rows owns the
--- "Add (+)" and clear-all buttons and hides with its rows in PallyPower mode.
--- Buff Grid is its own main-window tab; PallyPower status and fixes live in
--- the Differences panel beside this one (PallyPowerDiffView.lua).
---
--- It sits flat on the Blessings tab's left panel (divider headings, no box),
--- under a titleless block of its own at the top of the page: the Source of
--- Truth dropdown (PallyBuffSource) and a grey line explaining it.
---
--- Below the summary sit the custom rule rows (the model docs the semantics
--- above CompileBuffRules in Assignments.lua):
+-- The rule rows (the model docs the semantics above CompileBuffRules in
+-- Assignments.lua):
 --
 --   [icon] Salvation is guaranteed for [icon] Healers           (!) [x]
 --   [icon] Sanctuary is all <paladin> casts                     (!) [x]
@@ -36,8 +26,8 @@ local UI = select(2, ...).UI
 -- a read-only line. Rules are shared strategy config in the synced board, so
 -- the same assignment permission applies to adding and removing them.
 --
--- A (!) beside "Add (+)", inside its menu, and on a paladin's summary row all
--- point at the same thing: a paladin running neither WDW nor PallyPower, who
+-- A (!) beside "Add (+)", inside its menu, and on a paladin's Paladin Buffs
+-- row beside this panel all point at the same thing: a paladin running neither WDW nor PallyPower, who
 -- no board can reach and who needs an assign rule to be useful.
 --
 -- The raid's shared custom-role list is board state like these rules, but it
@@ -55,10 +45,6 @@ local DevMode = A.DevMode
 local MembersOfClass = A.MembersOfClass
 local HasMemberOfClass = A.HasMemberOfClass
 local PlayerTextWithRole = A.PlayerTextWithRole
-local GetActivePaladinBuffPlan = A.GetActivePaladinBuffPlan
-local ComputePaladinBuffCoverage = A.ComputePaladinBuffCoverage
-local ComputePaladinBuffSummary = A.ComputePaladinBuffSummary
-local GetPaladinBuffWhisper = A.GetPaladinBuffWhisper
 local GetBuffRules = A.GetBuffRules
 local BuffTalents = A.BuffTalents
 local PvpSalvationIgnored = A.PvpSalvationIgnored
@@ -66,15 +52,7 @@ local UnhandledDisabledPaladins = A.UnhandledDisabledPaladins
 local PaladinBuffSlots = A.PaladinBuffSlots
 local ShortAssignmentName = A.ShortAssignmentName
 
-local PALLY_ROW_H = UI.ROW_H
-local PALLY_MAX_BUFFS = 3
-local PALLY_BUFF_ICON = K.ROW_ICON_SIZE
-local PALLY_SLOT_W = PALLY_BUFF_ICON + 2
-local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local RULE_ROW_H = UI.ROW_H
-local RULE_HEADER_H = 30
--- Room above the Buffing Rules heading, as between Settings page groups.
-local RULE_HEADER_GAP = 14
 local AUTO_RULE_H = 18
 
 local PALLY_BUFF_SOURCES = {
@@ -115,7 +93,7 @@ local function RefreshSourceBlock(state, source)
     state.sourceBlock:SetHeight(36 + math.ceil(state.sourceBlurb:GetStringHeight()) + 6)
 end
 
--- The page's pink, for the section and Buffing Rules headings (Theme.lua).
+-- The page's heading colour, for the Buffing Rules heading (Theme.lua).
 local ACCENT = WhoDoesWhat.Theme.blessings.accent
 
 local WOW_ROLE_LABELS = { tank = "Tanks", healer = "Healers", dps = "DPS" }
@@ -337,16 +315,6 @@ local function RuleWarningText(rule)
             .. buff .. " alone."
     end
     return nil
-end
-
--- What the three (!) marks for an unreachable paladin all say.
-local function DisabledPaladinTooltip(names)
-    local who = {}
-    for i, name in ipairs(names) do who[i] = PaladinName(name) end
-    return table.concat(who, ", ") .. (#names == 1 and " is" or " are")
-        .. " running neither WhoDoesWhat nor PallyPower, so no board can reach"
-        .. " them. Assign them one blessing (Add (+) > Assign a Paladin) and"
-        .. " whisper it over."
 end
 
 -- ---------------------------------------------------------------------------
@@ -683,8 +651,8 @@ local function CreateRuleRow(f, index)
         return self.tooltipTitle, self.tooltipText
     end, nil, nil, true)
 
-    local delBtn = UI.CreateCloseButton(row)
-    delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local delBtn = UI.CreateCloseButton(row, nil, 0.25)
+    delBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
     delBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
         table.remove(GetBuffRules(), index)
@@ -721,131 +689,11 @@ local function CreateRuleRow(f, index)
 end
 
 -- ---------------------------------------------------------------------------
--- Summary rows: name column + condensed buff icons + live-status mail
--- ---------------------------------------------------------------------------
-
-local function PallyBuffSlotTooltip(self)
-    if not self.buffKey then return end
-    return WhoDoesWhat.PaladinBuffs[self.buffKey].name_long,
-        "Casting on " .. self.buffCount
-            .. (self.buffCount == 1 and " raider" or " raiders")
-end
-
-local function CoverageTextColor(correct, total)
-    if total == 0 then return 0.5, 0.5, 0.5 end
-    local ratio = correct / total
-    if ratio >= 1 then return 0.3, 1, 0.3 end
-    local t = math.min(ratio / 0.95, 1)
-    return 1, 0.2 + 0.62 * t, 0.2
-end
-
-local function CoverageText(correct, total)
-    if total == 0 then return "|cff909090No assignments|r", "" end
-    local r, g, b = CoverageTextColor(correct, total)
-    local color = string.format("%02x%02x%02x",
-        math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
-        math.floor(b * 255 + 0.5))
-    local percent = math.floor(correct / total * 100 + 0.5)
-    return "|cff" .. color .. correct .. "|r |cff909090of|r |cffffffff"
-        .. total .. "|r",
-        "(" .. percent .. "%)"
-end
-
-function WhoDoesWhat:TestPaladinCoverageText()
-    assert(CoverageText(0, 0):find("No assignments", 1, true))
-    assert(CoverageText(0, 10):find("|cffff33330|r", 1, true))
-    local text, percent = CoverageText(19, 20)
-    assert(text:find("|cffffd13319|r", 1, true) and percent == "(95%)")
-    assert(CoverageText(10, 10):find("|cff4dff4d10|r", 1, true))
-    self:Print("Paladin coverage-text check passed.")
-end
-
--- Pooled summary row #index: role/name owns the shared paladin tooltip; each
--- adjacent buff icon keeps its blessing-specific tooltip.
-local function CreatePallyRow(state, index)
-    local row = CreateFrame("Frame", nil, state.box)
-    row:SetFrameLevel(state.box:GetFrameLevel() + 1)
-    row:SetSize(state.box:GetWidth() - UI.BOX_PAD * 2, PALLY_ROW_H)
-    row:SetPoint("TOPLEFT", UI.BOX_PAD,
-        -(UI.BOX_PAD + UI.SECTION_TITLE_H + (index - 1) * PALLY_ROW_H))
-    UI.AddRowBackground(state.box, row, index)
-
-    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    name:SetPoint("LEFT", 4, 0)
-    name:SetWidth(K.NAME_LABEL_W)
-    name:SetJustifyH("LEFT")
-    row.nameText = name
-
-    local nameHover = CreateFrame("Frame", nil, row)
-    nameHover:SetSize(K.NAME_LABEL_W, PALLY_ROW_H)
-    nameHover:SetPoint("LEFT", 4, 0)
-    nameHover:EnableMouse(true)
-    nameHover:SetScript("OnEnter", function(self)
-        WhoDoesWhat:ShowRaiderTooltip(self, row.paladinName)
-    end)
-    nameHover:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
-
-    row.slots = {}
-    for i = 1, PALLY_MAX_BUFFS do
-        local slot = CreateFrame("Frame", nil, row)
-        slot:SetSize(PALLY_SLOT_W, PALLY_ROW_H)
-        slot:SetPoint("LEFT", 4 + K.NAME_LABEL_W + (i - 1) * PALLY_SLOT_W, 0)
-        local icon = slot:CreateTexture(nil, "OVERLAY")
-        icon:SetSize(PALLY_BUFF_ICON, PALLY_BUFF_ICON)
-        icon:SetPoint("LEFT", 0, 0)
-        slot.icon = icon
-        UI.AddTooltip(slot, PallyBuffSlotTooltip)
-        slot:Hide()
-        row.slots[i] = slot
-    end
-
-    row.mailBtn = K.CreateMailButton(row, function()
-        if not row.paladinName then return end
-        local msg = GetPaladinBuffWhisper(row.paladinName)
-        if msg then return row.paladinName, msg, msg, true end
-    end)
-    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-
-    local coverageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.coverageText = coverageText
-
-    local coveragePercent = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    local percentFont, percentSize, percentFlags = coveragePercent:GetFont()
-    if percentFont then
-        coveragePercent:SetFont(percentFont, math.max(percentSize - 2, 8), percentFlags)
-    end
-    coveragePercent:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
-    coverageText:SetPoint("RIGHT", coveragePercent, "LEFT", -2, 0)
-    row.coveragePercent = coveragePercent
-
-    local coverageIcon = row:CreateTexture(nil, "OVERLAY")
-    coverageIcon:SetSize(16, 16)
-    coverageIcon:SetPoint("RIGHT", coverageText, "LEFT", -4, 0)
-    row.coverageIcon = coverageIcon
-
-    -- (!) for a paladin running neither WDW nor PallyPower: their column of
-    -- the plan is being computed for someone who has no way to read it.
-    local warn = UI.CreateWarningIcon(row)
-    warn:SetPoint("RIGHT", coverageIcon, "LEFT", -2, -1)
-    row.warnIcon = warn
-
-    local more = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    more:SetPoint("LEFT", 4 + K.NAME_LABEL_W + PALLY_MAX_BUFFS * PALLY_SLOT_W, 0)
-    more:SetText("...")
-    more:Hide()
-    row.moreText = more
-    return row
-end
-
--- ---------------------------------------------------------------------------
--- Refresh: summary rows, rule rows, box height, no-paladin gray-out
+-- Refresh: the Source of Truth block, rule rows, box height, no-paladin gray-out
 -- ---------------------------------------------------------------------------
 
 function Refresh(f) -- forward declared above
     local state = f.pallySection
-    local buffPlan = GetActivePaladinBuffPlan()
-    local summary = ComputePaladinBuffSummary(buffPlan)
-    local _, _, byPaladin = ComputePaladinBuffCoverage(buffPlan)
     local editable = WhoDoesWhat:CanEditAssignments()
     local source = GetPallyBuffSource()
     UIDropDownMenu_SetText(state.pallyBuffSourceDD, PallyBuffSourceText(source))
@@ -856,119 +704,24 @@ function Refresh(f) -- forward declared above
         UIDropDownMenu_DisableDropDown(state.pallyBuffSourceDD)
     end
 
-    for i, p in ipairs(summary) do
-        local row = state.rows[i] or CreatePallyRow(state, i)
-        state.rows[i] = row
-        row.paladinName = p.name
-        row:Show()
-        local awaitingTalents = source == "wdw" and p.awaitingTalents
-        row.mailBtn:SetShown(editable and not awaitingTalents)
-        row.coveragePercent:ClearAllPoints()
-        if editable then
-            row.coveragePercent:SetPoint("RIGHT", row.mailBtn, "LEFT", -10, 0)
-        else
-            row.coveragePercent:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-        end
-        row.moreText:SetShown(not awaitingTalents and #p.buffs > PALLY_MAX_BUFFS)
-        -- Realm tags eat the narrow name column here; the paladin's full
-        -- name still identifies them everywhere it matters (tooltips, the
-        -- diffs window, whispers).
-        row.nameText:SetText(PlayerTextWithRole(p.name, K.ROW_ICON_SIZE,
-            ShortAssignmentName(p.name)))
-        local coverage = byPaladin[p.name] or { correct = 0, total = 0 }
-        local complete = coverage.total > 0 and coverage.correct == coverage.total
-        local hasMissing = coverage.correct < coverage.total
-        row.mailBtn:SetEnabled(hasMissing)
-        row.mailBtn.icon:SetDesaturated(not hasMissing)
-        row.coverageIcon:SetTexture(awaitingTalents and WhoDoesWhat.WARNING_ICON
-            or COVERAGE_OK_ICON)
-        row.coverageIcon:SetShown(awaitingTalents or complete)
-        local disabled = source == "wdw" and WhoDoesWhat:IsPaladinDisabled(p.name)
-        row.warnIcon:SetShown(disabled and true or false)
-        if disabled then
-            row.warnIcon.tooltipText = DisabledPaladinTooltip({ p.name })
-        end
-        if awaitingTalents then
-            row.coverageText:SetText("Awaiting talents")
-            row.coveragePercent:SetText("")
-            row.coverageText:SetTextColor(1, 0.62, 0.25)
-        else
-            local coverageText, coveragePercent = CoverageText(
-                coverage.correct, coverage.total)
-            row.coverageText:SetText(coverageText)
-            row.coveragePercent:SetText(coveragePercent)
-            row.coverageText:SetTextColor(1, 1, 1)
-        end
-        for bi, slot in ipairs(row.slots) do
-            local b = not awaitingTalents and p.buffs[bi]
-            if b then
-                slot.icon:SetTexture(WhoDoesWhat.PaladinBuffs[b.key].iconId)
-                slot.buffKey = b.key
-                slot.buffCount = b.count
-                slot:Show()
-            else
-                slot.buffKey = nil
-                slot:Hide()
-            end
-        end
-    end
-    for i = #summary + 1, #state.rows do
-        state.rows[i]:Hide()
-        state.rows[i].paladinName = nil
-    end
-
-
-    local rowsTop = UI.BOX_PAD + UI.SECTION_TITLE_H
-    state.emptyHint:ClearAllPoints()
-    state.emptyHint:SetPoint("TOPLEFT", state.box, "TOPLEFT", UI.BOX_PAD + 4,
-        -(rowsTop + 4))
-    state.emptyHint:SetShown(#summary == 0)
-    local rowsH = (#summary > 0) and (#summary * PALLY_ROW_H) or UI.EMPTY_ROWS_H
-
-    -- The rules area below the summary has its own header, then one editable
-    -- row per rule (or an empty-state line). Everything is re-anchored every
-    -- pass because its y depends on how many summary rows sit above it.
+    -- Rules only steer WDW's own plan, so in PallyPower mode there is nothing
+    -- to show and the section steps out of the stack.
     local rules = GetBuffRules()
     local showRules = source ~= "pallypower"
-    local ruleHeaderTop = rowsTop + rowsH
-        + RULE_HEADER_GAP
-    state.ruleDivider:ClearAllPoints()
-    state.ruleDivider:SetPoint("LEFT", state.box, "TOPLEFT", 0,
-        -(ruleHeaderTop + UI.HEADER_BTN_SIZE / 2 + 3))
-    state.ruleDivider:SetPoint("RIGHT", state.box, "TOPRIGHT", 0,
-        -(ruleHeaderTop + UI.HEADER_BTN_SIZE / 2 + 3))
-    state.clearRulesBtn:ClearAllPoints()
-    state.clearRulesBtn:SetPoint("TOPRIGHT", state.box, "TOPRIGHT", -UI.BOX_PAD,
-        -(ruleHeaderTop + 3))
-    state.ruleBtn:ClearAllPoints()
-    state.ruleBtn:SetPoint("RIGHT", state.clearRulesBtn, "LEFT", -2, 0)
-    state.ruleDivider:SetShown(showRules)
-    state.ruleBtn:SetShown(showRules and editable)
-    state.clearRulesBtn:SetShown(showRules and editable)
+    state.box:SetShown(showRules)
+    state.ruleBtn:SetShown(editable)
+    state.clearRulesBtn:SetShown(editable)
 
     -- (!) beside "Add (+)": paladins nothing can reach and no rule speaks for.
     -- It sits on the button that fixes them, and the same mark repeats inside
     -- the menu on the branch to walk down.
     local unhandled = showRules and editable and UnhandledDisabledPaladins() or {}
-    state.ruleWarn:ClearAllPoints()
-    state.ruleWarn:SetPoint("RIGHT", state.ruleBtn, "LEFT", -2, 0)
     state.ruleWarn:SetShown(#unhandled > 0)
     if #unhandled > 0 then
-        state.ruleWarn.tooltipText = DisabledPaladinTooltip(unhandled)
-    end
-    -- The heading's rule runs up to the leftmost thing shown beside it.
-    local rule = state.ruleDivider.right
-    local ruleEnd = state.ruleWarn:IsShown() and state.ruleWarn
-        or (state.ruleBtn:IsShown() and state.ruleBtn) or nil
-    rule:ClearAllPoints()
-    rule:SetPoint("LEFT", state.ruleDivider.label, "RIGHT", 6, 0)
-    if ruleEnd then
-        rule:SetPoint("RIGHT", ruleEnd, "LEFT", -6, 0)
-    else
-        rule:SetPoint("RIGHT", state.ruleDivider, "RIGHT")
+        state.ruleWarn.tooltipText = K.DisabledPaladinTooltip(unhandled)
     end
 
-    local rulesTop = ruleHeaderTop + RULE_HEADER_H
+    local rulesTop = UI.BOX_PAD + UI.SECTION_TITLE_H
 
     -- The one rule WDW writes itself, shown as a read-only line above the
     -- user's rules so a missing Salvation in a battleground isn't a mystery.
@@ -1001,8 +754,7 @@ function Refresh(f) -- forward declared above
     local rulesH = (#rules > 0) and (#rules * RULE_ROW_H)
         or (autoSalv and 2 or UI.EMPTY_ROWS_H)
 
-    state.box:SetHeight(showRules and (rulesTop + rulesH + UI.BOX_PAD)
-        or (rowsTop + rowsH + UI.BOX_PAD))
+    state.box:SetHeight(rulesTop + rulesH + UI.BOX_PAD)
     K.LayoutSections(f)
 
     -- No-paladin gray-out: dead buttons (with the tooltip saying why) and a
@@ -1013,7 +765,6 @@ function Refresh(f) -- forward declared above
     local r, g, b = 0.5, 0.5, 0.5
     if enabled then r, g, b = ACCENT[1], ACCENT[2], ACCENT[3] end
     state.box.title:SetTextColor(r, g, b)
-    state.ruleDivider.label:SetTextColor(r, g, b)
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
         btn.disabledReason = reason
@@ -1050,7 +801,7 @@ end
 -- and a grey line under it saying what it decides, as Settings pages open
 -- with. A titleless section, so it stacks with the rest.
 local function BuildSourceBlock(f)
-    local block = K.CreateSectionChrome(f, { tab = K.TAB_BLESSINGS }).box
+    local block = K.CreateSectionChrome(f, { stack = K.STACK_BLESSINGS }).box
 
     local label = block:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     label:SetPoint("TOPLEFT", 4, -8)
@@ -1072,16 +823,14 @@ local function Build(f)
     local sourceDD, sourceBlock, sourceBlurb = BuildSourceBlock(f)
 
     local chrome = K.CreateSectionChrome(f, {
-        title = "Paladin Buffs",
-        tab = K.TAB_BLESSINGS,
+        title = "Buffing Rules",
+        stack = K.STACK_BLESSINGS,
         tintClass = "Paladin",
     })
     local box = chrome.box
 
-    -- The Buffing Rules heading, drawn like the section's own; Refresh places
-    -- it under the paladin rows and runs its rule up to the buttons beside it.
-    local ruleDivider = UI.CreateDivider(box, "Buffing Rules", ACCENT)
-
+    -- The header strip, right to left: clear-all, Add (+), and the (!) for
+    -- paladins no rule speaks for yet.
     local clearRulesBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearRulesBtn:SetScript("OnClick", function()
         if not WhoDoesWhat:RequireEditPermission() then return end
@@ -1100,9 +849,9 @@ local function Build(f)
         end)
 
     local ruleWarn = UI.CreateWarningIcon(box)
-
-    local hint = UI.CreateEmptyHint(box)
-    hint:SetText("No paladins in the group.")
+    K.ChainHeaderButton(chrome, clearRulesBtn)
+    K.ChainHeaderButton(chrome, ruleBtn)
+    K.ChainHeaderButton(chrome, ruleWarn)
 
     local rulesEmptyHint = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     rulesEmptyHint:SetText("No rules exist")
@@ -1118,8 +867,6 @@ local function Build(f)
         box = box,
         headerChain = chrome.headerChain,
         buttons = { ruleBtn, clearRulesBtn },
-        emptyHint = hint,
-        ruleDivider = ruleDivider,
         ruleBtn = ruleBtn,
         ruleWarn = ruleWarn,
         clearRulesBtn = clearRulesBtn,
@@ -1128,7 +875,6 @@ local function Build(f)
         pallyBuffSourceDD = sourceDD,
         sourceBlock = sourceBlock,
         sourceBlurb = sourceBlurb,
-        rows = {},
         ruleRows = {},
     }
 end

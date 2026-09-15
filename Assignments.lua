@@ -2614,7 +2614,7 @@ end
 
 -- Keep all roster-derived board storage current without involving a view.
 -- Explicit model actions may call this on any permitted editor; the automatic
--- roster event below elects the group leader as the sole housekeeping writer.
+-- roster event below elects one housekeeping writer (IsRosterHousekeeper).
 local function ReconcileRosterAssignments()
     PruneDepartedAssignments()
     EnsureAutoRows(SectionByKey("tank"))
@@ -2889,8 +2889,10 @@ WhoDoesWhat.Assign = {
 }
 
 -- Rendering must never mutate or synchronize the board. Roster events settle
--- here instead; one group writer prevents every permitted client from sending
--- the same housekeeping STATE. Fake Raid is the intentional solo exception.
+-- here instead; one group writer (IsRosterHousekeeper: the leader, or a WDW
+-- client standing in for a leader without it) prevents every permitted client
+-- from sending the same housekeeping STATE. Fake Raid is the intentional solo
+-- exception.
 local rosterReconcileFrame = CreateFrame("Frame")
 rosterReconcileFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 rosterReconcileFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -2903,7 +2905,7 @@ rosterReconcileFrame:SetScript("OnEvent", function()
         if generation ~= rosterReconcileGeneration or not WhoDoesWhat.db then return end
         local fake = WhoDoesWhat.FakeRaid and WhoDoesWhat:IsFakeRaidEnabled()
         if not IsInGroup() and not fake then return end
-        if IsInGroup() and not UnitIsGroupLeader("player") then return end
+        if IsInGroup() and not WhoDoesWhat:IsRosterHousekeeper() then return end
         ReconcileRosterAssignments()
         WhoDoesWhat:RefreshMainAssignmentsView()
     end)

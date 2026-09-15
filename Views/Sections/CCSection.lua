@@ -181,8 +181,8 @@ local function CreateRow(f, index)
 
     -- Right-hand controls, left to right: (!) [mail] [x]. The delete X sits at
     -- the far right (its own column, matching the rule rows' X).
-    local delBtn = UI.CreateCloseButton(row)
-    delBtn:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    local delBtn = UI.CreateCloseButton(row, nil, 0.25)
+    delBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
     delBtn:SetScript("OnClick", function()
         table.remove(GetEntries(SECTION), row.entryIndex)
         WhoDoesWhat:LogOperation(SECTION.title .. ": " .. SECTION.noun .. " removed.")
@@ -302,7 +302,7 @@ end
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
         title = SECTION.title,
-        tab = K.TAB_CC,
+        stack = K.STACK_ASSIGN_RIGHT,
         mailCollect = A.CollectCCWhispers,
     })
     local box = chrome.box

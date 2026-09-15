@@ -7,7 +7,7 @@ local UI = select(2, ...).UI
 -- mostly carries in that plan, count-descending -- the same shape as the
 -- Paladin Buffs rows in the main window.
 --
--- It lives in the right-hand panel of the Raid page's Blessings tab, beside
+-- It lives in the right-hand panel of the main window's Blessings page, beside
 -- the sections it compares against: a heading with Fix All, then the grids.
 -- The grids stretch across the panel; the role picker shows just the role's icon, and
 -- a raid with enough paladins to outgrow it has the grids scaled down to fit
@@ -17,6 +17,7 @@ local UI = select(2, ...).UI
 
 local K = WhoDoesWhat.SectionKit
 local A = WhoDoesWhat.Assign
+local THEME = WhoDoesWhat.Theme
 local diffPanel = nil
 local RenderDiffs
 
@@ -38,18 +39,33 @@ local TITLE_H = 22
 local HEADER_H = 26
 local ROW_H = 24
 local ROLE_ICON_SIZE = 18
-local SUMMARY_ROW_H = 20
-local SUMMARY_GAP = 10
+-- The Paladin Buffs rows: the full-height row style of the sections, big buff
+-- icons, and a Progress column right-aligned just before the first plan column,
+-- which needs PROGRESS_ROOM more than the grids' own name prefix leaves.
+local SUMMARY_ROW_H = UI.ROW_H
 local SUMMARY_MAX_BUFFS = 3
-local SUMMARY_ICON = 16
-local SUMMARY_SLOT_W = 20
+local SUMMARY_ICON = K.ROW_ICON_SIZE
+local SUMMARY_SLOT_W = SUMMARY_ICON + 2
+local PROGRESS_ROOM = 80
+local PROGRESS_W = 124
+local PROGRESS_GAP = 10
+local COVERAGE_OK_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
+-- The PallyPower Differences heading between those rows and the grids.
+local DIFF_GAP = 10
+local DIFF_HEADING_H = 30
 local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
--- The line above the grids: the fix warning in red, the plan view's note grey.
+-- The line under the Differences heading, in one of three styles: the fix
+-- warning in small red, a plain note in small grey, and "all in sync" in large
+-- green behind a tick, since that one is the good news the panel exists for.
 local FIX_WARNING = "PallyPower is this raid's buff source and you have no edit"
     .. " rights. Use fixes sparingly; they rely on paladins who enabled"
     .. " Free Assignment."
-local WARNING_COLOR = { 1, 0.2, 0.2 }
-local NOTE_COLOR = { 0.7, 0.7, 0.7 }
+local WARNING_STYLE = { font = "GameFontHighlightSmall", color = { 1, 0.2, 0.2 } }
+local NOTE_STYLE = { font = "GameFontHighlightSmall", color = { 0.7, 0.7, 0.7 } }
+local SYNCED_STYLE = { font = "GameFontNormalLarge", color = { 0.3, 1, 0.3 },
+    icon = "Interface\\RaidFrame\\ReadyCheck-Ready", padTop = 12, padBottom = 12 }
+local NOTE_ICON_SIZE = 22
+local NOTE_ICON_GAP = 6
 local COL_W = K.PALADIN_GRID_COL_W
 
 StaticPopupDialogs["WHODOESWHAT_FIX_ALL_PALLYPOWER"] = {
@@ -105,6 +121,10 @@ local function NeedsRole(data, member)
     if not member.classInfo or member.isPet then return false end
     if data.isDemo then return member.testRoleId == nil end
     return WhoDoesWhat:PallyPowerRowNeedsRole(member.planName)
+end
+
+local function PallyPowerMode()
+    return (WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw") == "pallypower"
 end
 
 local function GroupPaladins()
@@ -399,11 +419,64 @@ local function CellOutline(data, member, paladin, buffKey)
 end
 
 -- ---------------------------------------------------------------------------
--- Per-paladin overview strip (mirrors the Paladin Buffs rows in the main
--- window): which blessings each paladin mostly carries, count-descending,
--- for both plans. Computed straight off the plan grids so it also works for
--- the demo data's simulated paladins.
+-- Paladin Buffs rows, above the grids: each paladin's live progress on the
+-- plan WDW is running, then which blessings they mostly carry in each plan
+-- shown (count-descending, under that plan's grid), and the whisper for what
+-- they are missing at the far right, over the Fix column. The blessings are
+-- computed straight off the plan grids so they also work for the demo data's
+-- simulated paladins.
 -- ---------------------------------------------------------------------------
+
+local function CoverageTextColor(correct, total)
+    if total == 0 then return 0.5, 0.5, 0.5 end
+    local ratio = correct / total
+    if ratio >= 1 then return 0.3, 1, 0.3 end
+    local t = math.min(ratio / 0.95, 1)
+    return 1, 0.2 + 0.62 * t, 0.2
+end
+
+local function CoverageText(correct, total)
+    if total == 0 then return "|cff909090No assignments|r", "" end
+    local r, g, b = CoverageTextColor(correct, total)
+    local color = string.format("%02x%02x%02x",
+        math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
+        math.floor(b * 255 + 0.5))
+    local percent = math.floor(correct / total * 100 + 0.5)
+    return "|cff" .. color .. correct .. "|r |cff909090of|r |cffffffff"
+        .. total .. "|r",
+        "(" .. percent .. "%)"
+end
+
+function WhoDoesWhat:TestPaladinCoverageText()
+    assert(CoverageText(0, 0):find("No assignments", 1, true))
+    assert(CoverageText(0, 10):find("|cffff33330|r", 1, true))
+    local text, percent = CoverageText(19, 20)
+    assert(text:find("|cffffd13319|r", 1, true) and percent == "(95%)")
+    assert(CoverageText(10, 10):find("|cff4dff4d10|r", 1, true))
+    self:Print("Paladin coverage-text check passed.")
+end
+
+-- What the Progress column reads, worked out once per paint: live coverage on
+-- the active plan, who is still waiting on talent data (WDW mode only -- in
+-- PallyPower mode their board assigns them regardless), and whether edits
+-- are this client's to make.
+local function PaladinProgress()
+    local plan = A.GetActivePaladinBuffPlan()
+    local _, _, byPaladin = A.ComputePaladinBuffCoverage(plan)
+    local wdw = not PallyPowerMode()
+    local awaiting = {}
+    if wdw then
+        for _, paladin in ipairs(A.ComputePaladinBuffSummary(plan)) do
+            if paladin.awaitingTalents then awaiting[paladin.name] = true end
+        end
+    end
+    return {
+        byPaladin = byPaladin or {},
+        awaiting = awaiting,
+        wdw = wdw,
+        editable = WhoDoesWhat:CanEditAssignments(),
+    }
+end
 
 local function BuffSpread(plan, paladinName)
     local counts = {}
@@ -435,20 +508,73 @@ local function CreateSummaryRow(f, index)
     local row = CreateFrame("Frame", nil, f.header)
     row:SetHeight(SUMMARY_ROW_H)
 
+    local stripe = THEME.blessings.rows[index % 2 == 1 and 1 or 2]
     local bg = row:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.72, 0.72, 0.72, index % 2 == 1 and 0.07 or 0.03)
+    bg:SetColorTexture(stripe[1], stripe[2], stripe[3], 1)
 
-    local roleIcon = row:CreateTexture(nil, "ARTWORK")
-    roleIcon:SetSize(SUMMARY_ICON, SUMMARY_ICON)
-    roleIcon:SetPoint("LEFT", 4, 0)
-    row.roleIcon = roleIcon
-
-    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    name:SetPoint("LEFT", roleIcon, "RIGHT", 6, 0)
-    name:SetWidth(LEFT_PREFIX_W - SUMMARY_ICON - 14)
+    -- Role icon and name as one string; the paladin's own tooltip over it.
+    local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    name:SetPoint("LEFT", 4, 0)
+    name:SetWidth(K.NAME_LABEL_W)
     name:SetJustifyH("LEFT")
+    name:SetWordWrap(false)
     row.name = name
+
+    local nameHover = CreateFrame("Frame", nil, row)
+    nameHover:SetSize(K.NAME_LABEL_W, SUMMARY_ROW_H)
+    nameHover:SetPoint("LEFT", 4, 0)
+    nameHover:EnableMouse(true)
+    nameHover:SetScript("OnEnter", function(self)
+        local paladin = row.paladin
+        if not paladin then return end
+        if paladin.isTestFallback then
+            UI.ShowTooltip(self, paladin.name, "Simulated Paladin")
+        else
+            WhoDoesWhat:ShowRaiderTooltip(self, paladin.name)
+        end
+    end)
+    nameHover:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
+
+    -- Far right, over the grids' Fix column: whisper the paladin what they
+    -- still have to cast.
+    row.mailBtn = K.CreateMailButton(row, function()
+        local paladin = row.paladin
+        if not paladin then return end
+        local msg = A.GetPaladinBuffWhisper(paladin.name)
+        if msg then return paladin.name, msg, msg, true end
+    end)
+    row.mailBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+
+    -- Progress, right to left from where RenderSummary puts the percentage:
+    -- the percentage, "n of n", a tick (or the awaiting-talents mark), and a (!)
+    -- for a paladin running neither addon. Hovering the column explains the
+    -- awaiting-talents state, which the short text can't.
+    local percent = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local percentFont, percentSize, percentFlags = percent:GetFont()
+    if percentFont then
+        percent:SetFont(percentFont, math.max(percentSize - 2, 8), percentFlags)
+    end
+    row.coveragePercent = percent
+    local coverage = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    coverage:SetPoint("RIGHT", percent, "LEFT", -2, 0)
+    row.coverageText = coverage
+    local coverageIcon = row:CreateTexture(nil, "OVERLAY")
+    coverageIcon:SetSize(16, 16)
+    coverageIcon:SetPoint("RIGHT", coverage, "LEFT", -4, 0)
+    row.coverageIcon = coverageIcon
+
+    local progressHover = CreateFrame("Frame", nil, row)
+    progressHover:SetSize(PROGRESS_W, SUMMARY_ROW_H)
+    progressHover:SetPoint("RIGHT", percent, "RIGHT")
+    UI.AddTooltip(progressHover, function()
+        if row.progressTip then return "Awaiting talents", row.progressTip end
+    end)
+
+    local warn = UI.CreateWarningIcon(row)
+    warn:SetPoint("RIGHT", coverageIcon, "LEFT", -2, -1)
+    warn:SetFrameLevel(progressHover:GetFrameLevel() + 1)
+    row.warnIcon = warn
 
     row.sides = {}
     for side = 1, 2 do
@@ -498,22 +624,77 @@ local function VisiblePaladins(data)
     return #shown > 0 and shown or data.paladins
 end
 
-local function RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabels)
+-- Paint the column titles and one row per paladin, `contentW` wide. Plan side
+-- N's blessings start at columnX[N], `columnW` wide under its title; the plan
+-- view (RenderPlan) passes one side only. Returns the height painted.
+local function RenderSummary(f, paladins, columnX, plans, sourceLabels, columnW, contentW)
+    local progressRight = columnX[1] - PROGRESS_GAP
+    f.progressTitle:ClearAllPoints()
+    f.progressTitle:SetPoint("RIGHT", f.header, "TOPLEFT", progressRight, -TITLE_H / 2)
+    f.progressTitle:Show()
+    for side = 1, 2 do
+        local title = f.gridTitles[side]
+        title:ClearAllPoints()
+        if columnX[side] then
+            title:SetPoint("TOPLEFT", f.header, "TOPLEFT", columnX[side], 0)
+            title:SetSize(columnW, TITLE_H)
+            title:SetJustifyH("CENTER")
+            title:SetText(sourceLabels[side])
+        end
+        title:SetShown(columnX[side] ~= nil)
+    end
+
+    local progress = PaladinProgress()
     for index, paladin in ipairs(paladins) do
         local row = f.summaryRows[index] or CreateSummaryRow(f, index)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", f.header, "TOPLEFT", 0, -(TITLE_H + (index - 1) * SUMMARY_ROW_H))
-        row:SetWidth(f.header:GetWidth())
+        row:SetWidth(contentW)
+        row.paladin = paladin
 
-        local icon = RoleIconFor(paladin)
-        if icon then WhoDoesWhat:SetRoleIconTexture(row.roleIcon, icon) end
-        row.roleIcon:SetShown(icon ~= nil)
-        local colorHex = paladin.classInfo and paladin.classInfo.colorHex or "f58cba"
-        row.name:SetText("|cff" .. colorHex .. paladin.name .. "|r")
+        -- Realm tags would eat the name column; tooltips and whispers still
+        -- carry the full name.
+        if paladin.isTestFallback then
+            row.name:SetText(WhoDoesWhat:RoleIconMarkup(RoleIconFor(paladin), SUMMARY_ICON)
+                .. " |cfff58cba" .. paladin.name .. "|r")
+        else
+            row.name:SetText(A.PlayerTextWithRole(paladin.name, SUMMARY_ICON,
+                A.ShortAssignmentName(paladin.name)))
+        end
+
+        local name = paladin.name
+        local awaiting = progress.awaiting[name]
+        local coverage = progress.byPaladin[name] or { correct = 0, total = 0 }
+        local complete = coverage.total > 0 and coverage.correct == coverage.total
+        local missing = coverage.correct < coverage.total
+        row.coveragePercent:ClearAllPoints()
+        row.coveragePercent:SetPoint("RIGHT", row, "LEFT", progressRight, 0)
+        row.coverageIcon:SetTexture(awaiting and WhoDoesWhat.WARNING_ICON or COVERAGE_OK_ICON)
+        row.coverageIcon:SetShown(awaiting or complete)
+        if awaiting then
+            row.coverageText:SetText("Awaiting talents")
+            row.coverageText:SetTextColor(1, 0.62, 0.25)
+            row.coveragePercent:SetText("")
+            row.progressTip = "WDW will not assign blessings to " .. name
+                .. " until talent data arrives. Target them once while in range"
+                .. " to pull it, or mark them Non-raider if they are sitting out."
+        else
+            local text, percent = CoverageText(coverage.correct, coverage.total)
+            row.coverageText:SetText(text)
+            row.coverageText:SetTextColor(1, 1, 1)
+            row.coveragePercent:SetText(percent)
+            row.progressTip = nil
+        end
+        local disabled = progress.wdw and not paladin.isTestFallback
+            and WhoDoesWhat:IsPaladinDisabled(name)
+        row.warnIcon:SetShown(disabled and true or false)
+        if disabled then row.warnIcon.tooltipText = K.DisabledPaladinTooltip({ name }) end
+        row.mailBtn:SetShown(progress.editable and not awaiting)
+        row.mailBtn:SetEnabled(missing)
+        row.mailBtn.icon:SetDesaturated(not missing)
 
         for side = 1, 2 do
-            -- The plan view (RenderPlan) paints one side only.
-            local x = gridX[side] and (gridX[side] + columnStart[side])
+            local x = columnX[side]
             local spread = x and BuffSpread(plans[side], paladin.name) or {}
             local shown = 0
             for i, slot in ipairs(row.sides[side].slots) do
@@ -548,19 +729,16 @@ local function RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabel
     end
     for index = #paladins + 1, #f.summaryRows do
         f.summaryRows[index]:Hide()
+        f.summaryRows[index].paladin = nil
     end
+    return TITLE_H + #paladins * SUMMARY_ROW_H
 end
 
 -- No paladins at all: a line in the middle of the panel says so.
 local function SetCompact(f)
     f.canvas:Hide()
-    f.sendBtn:Hide()
     f.emptyText:SetText("No paladins in the group.")
     f.emptyText:Show()
-end
-
-local function PallyPowerMode()
-    return (WhoDoesWhat.db.profile.settings.pallyBuffSource or "wdw") == "pallypower"
 end
 
 -- The room a block `contentW` wide leaves across the panel, which the grids
@@ -572,21 +750,65 @@ local function StretchRoom(f, contentW)
         - (contentW + SCROLLBAR_GAP + SCROLLBAR_W + MARGIN * 2)))
 end
 
--- The heading names what the panel is showing, and its rule runs up to the
--- leftmost button shown beside it.
-local function SetHeading(f, text)
-    local heading = f.heading
-    heading.label:SetText(text)
+-- The PallyPower Differences heading, `y` down the header under the Paladin
+-- Buffs rows: named for the mode, Fix All (and End Demo) at its right end with
+-- its rule running up to them, and `note` under it when given, in `noteStyle`
+-- (one of the *_STYLE tables). Returns the y below it all.
+local function PlaceDiffHeading(f, y, contentW, note, noteStyle, showFix)
+    y = y + DIFF_GAP
+    local heading = f.diffHeading
+    local mid = -(y + DIFF_HEADING_H / 2)
+    heading:ClearAllPoints()
+    heading:SetPoint("LEFT", f.header, "TOPLEFT", 0, mid)
+    heading:SetPoint("RIGHT", f.header, "TOPLEFT", contentW, mid)
+    heading.label:SetText(PallyPowerMode() and "Unoptimized Buffs"
+        or "PallyPower Differences")
+    f.sendBtn:SetShown(showFix)
+
     local rule = heading.right
     rule:ClearAllPoints()
     rule:SetPoint("LEFT", heading.label, "RIGHT", 6, 0)
     local leftmost = (f.closeDemoBtn:IsShown() and f.closeDemoBtn)
-        or (f.sendBtn:IsShown() and f.sendBtn) or nil
+        or (showFix and f.sendBtn) or nil
     if leftmost then
         rule:SetPoint("RIGHT", leftmost, "LEFT", -6, 0)
     else
         rule:SetPoint("RIGHT", heading, "RIGHT")
     end
+    y = y + DIFF_HEADING_H
+
+    f.warning:ClearAllPoints()
+    f.noteIcon:Hide()
+    if note then
+        -- The font object first: setting one resets the colour.
+        f.warning:SetFontObject(noteStyle.font)
+        f.warning:SetText(note)
+        local color = noteStyle.color
+        f.warning:SetTextColor(color[1], color[2], color[3])
+        y = y + (noteStyle.padTop or 0)
+        if noteStyle.icon then
+            -- One line, sized to its text and centred across the rows, with the
+            -- icon as a texture of its own on the text's midline: an inline
+            -- |T|t icon sits on the baseline and hangs below a large font.
+            f.warning:SetSize(0, 0)
+            f.warning:SetPoint("TOP", f.header, "TOPLEFT",
+                contentW / 2 + (NOTE_ICON_SIZE + NOTE_ICON_GAP) / 2, -y)
+            f.noteIcon:SetTexture(noteStyle.icon)
+            f.noteIcon:ClearAllPoints()
+            f.noteIcon:SetPoint("RIGHT", f.warning, "LEFT", -NOTE_ICON_GAP, 0)
+            f.noteIcon:Show()
+            y = y + math.max(NOTE_ICON_SIZE, math.ceil(f.warning:GetStringHeight()))
+                + (noteStyle.padBottom or 0)
+        else
+            f.warning:SetSize(contentW - MARGIN * 2, WARNING_H)
+            f.warning:SetPoint("TOPLEFT", f.header, "TOPLEFT", MARGIN, -y)
+            y = y + WARNING_H
+        end
+        f.warning:Show()
+    else
+        f.warning:Hide()
+    end
+    return y
 end
 
 -- Fit the grids to the panel: the canvas under the title bar is scaled down
@@ -608,44 +830,35 @@ local function FitCanvas(f)
     f.scroll:ClearAllPoints()
     f.scroll:SetPoint("TOPLEFT", f.header, "BOTTOMLEFT")
     f.scroll:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", x, MARGIN)
-    f.warning:SetWidth(width / scale - MARGIN * 2)
+    -- The heading above, outside the canvas and so in the panel's own units,
+    -- runs exactly as far as the rows: not into the scrollbar's gutter.
+    local rowsW = f.neededW - SCROLLBAR_GAP - SCROLLBAR_W - MARGIN * 2
+    f.heading:ClearAllPoints()
+    f.heading:SetPoint("LEFT", f, "TOPLEFT", x * scale, -BAR_H / 2)
+    f.heading:SetPoint("RIGHT", f, "TOPLEFT", (x + rowsW) * scale, -BAR_H / 2)
 end
 
--- `note`, when given, is a line above the grids in `noteColor`.
-local function SetExpanded(f, contentW, note, noteColor)
+local function SetExpanded(f, contentW)
     f.emptyText:Hide()
-    f.headerTop = MARGIN
-    f.warning:ClearAllPoints()
-    if note then
-        f.warning:SetPoint("TOP", f.canvas, "TOP", 0, -MARGIN)
-        f.warning:SetText(note)
-        f.warning:SetTextColor(noteColor[1], noteColor[2], noteColor[3])
-        f.warning:Show()
-        f.headerTop = f.headerTop + WARNING_H
-    else
-        f.warning:Hide()
-    end
     f.neededW = contentW + SCROLLBAR_GAP + SCROLLBAR_W + MARGIN * 2
     f.scroll:SetWidth(contentW + SCROLLBAR_GAP)
     FitCanvas(f)
     f.canvas:Show()
-    f.sendBtn:Show()
 end
 
 local function RenderGrid(f, data)
     local paladins = VisiblePaladins(data)
     local paladinW = K.PaladinColumnsWidth(paladins, COL_W, 3)
-    local extra = StretchRoom(f, LEFT_PREFIX_W + paladinW * 2 + GRID_GAP
-        + FIX_GAP + FIX_W)
-    local leftW = LEFT_PREFIX_W + extra + paladinW
+    -- Between the role pickers and the first grid: room for the Progress
+    -- column in the rows above, plus whatever width the panel has to spare.
+    local gap = PROGRESS_ROOM + StretchRoom(f, LEFT_PREFIX_W + PROGRESS_ROOM
+        + paladinW * 2 + GRID_GAP + FIX_GAP + FIX_W)
+    local leftW = LEFT_PREFIX_W + gap + paladinW
     local rightW = paladinW
     local rightX = leftW + GRID_GAP
     local fixX = rightX + rightW + FIX_GAP
     local contentW = fixX + FIX_W
     local bodyHeight = #data.members * ROW_H
-    -- The overview strip keeps a gap between itself and the column headers so
-    -- it reads as its own block rather than the grid's first rows.
-    local summaryHeight = #paladins * SUMMARY_ROW_H + SUMMARY_GAP
     -- The "your fixes may upset the raid" note is only true in the one case it
     -- describes: PallyPower is the controller of record for this raid and you
     -- hold no board rights, so pushing over it is stepping on someone else's
@@ -653,21 +866,25 @@ local function RenderGrid(f, data)
     -- plan and the warning was just noise.
     local warn = not data.isDemo and PallyPowerMode()
         and not WhoDoesWhat:CanEditAssignments()
-    SetExpanded(f, contentW, warn and FIX_WARNING or nil, WARNING_COLOR)
-    f.header:SetSize(contentW, TITLE_H + summaryHeight + HEADER_H)
+    SetExpanded(f, contentW)
     f.content:SetWidth(contentW)
 
     local gridX = { 0, rightX }
     local gridW = { leftW, rightW }
-    local columnStart = { LEFT_PREFIX_W + extra, 0 }
+    local columnStart = { LEFT_PREFIX_W + gap, 0 }
     local plans = { data.current, data.suggested }
     -- In PallyPower mode its board IS the plan, and WDW's is only the better
     -- one on offer.
     local sourceLabels = PallyPowerMode() and { "PallyPower", "Optimized" }
         or { "Current", "Suggested" }
-    local headerIconsTop = TITLE_H + summaryHeight
 
-    RenderSummary(f, paladins, gridX, columnStart, plans, sourceLabels)
+    -- Every paladin gets a row, including any VisiblePaladins left out of the
+    -- grids: their progress still counts.
+    local headerIconsTop = RenderSummary(f, data.paladins, { columnStart[1], rightX },
+        plans, sourceLabels, paladinW, contentW)
+    headerIconsTop = PlaceDiffHeading(f, headerIconsTop, contentW,
+        warn and FIX_WARNING or nil, WARNING_STYLE, true)
+    f.header:SetSize(contentW, headerIconsTop + HEADER_H)
 
     -- A raider with no role yet only gets the canonical fallback order, so the
     -- "suggested" column is a guess rather than a plan. Show it greyed out and
@@ -679,14 +896,6 @@ local function RenderGrid(f, data)
 
     for side = 1, 2 do
         local x = gridX[side]
-        local title = f.gridTitles[side]
-        title:ClearAllPoints()
-        title:SetPoint("TOPLEFT", f.header, "TOPLEFT", x + columnStart[side], 0)
-        title:SetWidth(paladinW)
-        title:SetJustifyH("CENTER")
-        title:SetText(sourceLabels[side])
-        title:Show()
-
         for column, paladin in ipairs(paladins) do
             local header = f.header.headers[side][column]
                 or CreatePaladinHeader(f.header, side, column)
@@ -714,8 +923,8 @@ local function RenderGrid(f, data)
         if paladins[1] and K.IsLocalPaladin(paladins[1]) then
             headerStripe:ClearAllPoints()
             headerStripe:SetPoint("TOPLEFT", f.header, "TOPLEFT",
-                x + columnStart[side], -TITLE_H)
-            headerStripe:SetSize(COL_W, summaryHeight + HEADER_H)
+                x + columnStart[side], -headerIconsTop)
+            headerStripe:SetSize(COL_W, HEADER_H)
             headerStripe:Show()
             bodyStripe:ClearAllPoints()
             bodyStripe:SetPoint("TOPLEFT", f.content, "TOPLEFT",
@@ -827,27 +1036,21 @@ local function RenderGrid(f, data)
 end
 
 -- Nothing to compare -- PallyPower agrees with the plan, or it's a simulated
--- raid PallyPower can't see -- still shows who casts what: the overview strip
--- alone, one column of the plan WDW is running, under a line saying why there
--- are no grids.
-local function RenderPlan(f, paladins, plan, note)
+-- raid PallyPower can't see -- still shows the Paladin Buffs rows, with one
+-- column of the plan WDW is running, and under the Differences heading a line
+-- saying why there are no grids.
+local function RenderPlan(f, paladins, plan, note, noteStyle)
     local buffsW = SUMMARY_MAX_BUFFS * SUMMARY_SLOT_W + 12
-    local buffsX = LEFT_PREFIX_W + StretchRoom(f, LEFT_PREFIX_W + buffsW)
-    local contentW = buffsX + buffsW
-    SetExpanded(f, contentW, note, NOTE_COLOR)
-    f.sendBtn:Hide()
-    f.header:SetSize(contentW, TITLE_H + #paladins * SUMMARY_ROW_H)
+    local buffsX = LEFT_PREFIX_W + PROGRESS_ROOM + StretchRoom(f, LEFT_PREFIX_W
+        + PROGRESS_ROOM + buffsW + FIX_GAP + FIX_W)
+    local contentW = buffsX + buffsW + FIX_GAP + FIX_W
+    SetExpanded(f, contentW)
     f.content:SetWidth(contentW)
 
-    local title = f.gridTitles[1]
-    title:ClearAllPoints()
-    title:SetPoint("TOPLEFT", f.header, "TOPLEFT", buffsX, 0)
-    title:SetWidth(buffsW)
-    title:SetJustifyH("LEFT")
-    title:SetText("Assigned")
-    title:Show()
-    f.gridTitles[2]:Hide()
-    RenderSummary(f, paladins, { 0 }, { buffsX }, { plan }, { "Assigned" })
+    local y = RenderSummary(f, paladins, { buffsX }, { plan }, { "Assigned" },
+        buffsW, contentW)
+    y = PlaceDiffHeading(f, y, contentW, note, noteStyle, false)
+    f.header:SetSize(contentW, y)
 
     for side = 1, 2 do
         for _, header in ipairs(f.header.headers[side]) do header:Hide() end
@@ -874,17 +1077,15 @@ RenderDiffs = function(f)
         local paladins = GroupPaladins()
         if #paladins == 0 then
             SetCompact(f)
+        elseif WhoDoesWhat:IsFakeRaidEnabled() then
+            RenderPlan(f, paladins, A.GetActivePaladinBuffPlan(),
+                "Simulated raid: PallyPower can't see these paladins, so there is"
+                    .. " nothing to compare.", NOTE_STYLE)
         else
             RenderPlan(f, paladins, A.GetActivePaladinBuffPlan(),
-                WhoDoesWhat:IsFakeRaidEnabled()
-                    and "Simulated raid: PallyPower can't see these paladins,"
-                        .. " so there is nothing to compare."
-                    or PallyPowerMode()
-                        and "No unoptimized buffs: every PallyPower blessing is"
-                            .. " already the best pick."
-                    or "PallyPower matches WDW's plan.")
+                PallyPowerMode() and "No unoptimized buffs."
+                    or "PallyPower matches WDW's plan.", SYNCED_STYLE)
         end
-        SetHeading(f, "Paladin Assignments")
         return false
     end
 
@@ -900,31 +1101,55 @@ RenderDiffs = function(f)
         f.sendBtn.noneFixable = f.diffCount == 0
         f.sendBtn:SetEnabled(f.sendBtn.canFix and not f.sendBtn.noneFixable)
     end
-    SetHeading(f, PallyPowerMode() and "Unoptimized Buffs" or "PallyPower Differences")
     return true
 end
 
 -- Build the panel into the Blessings tab's right-hand frame (MainAssignmentsView):
--- a pink heading rule like the sections beside it -- its title following what
--- is shown, Fix All at its right end -- over a canvas holding the grids, which
--- stretch across the panel and FitCanvas scales down when they can't fit.
--- It repaints whenever it comes on screen, and from RefreshBoardViews while it
--- is up.
+-- a gold Blessing Assignments heading like the sections beside it, over a canvas
+-- holding the paladin rows, the PallyPower Differences heading with Fix All,
+-- and the grids -- which stretch across the panel, and FitCanvas scales down
+-- when they can't fit. It repaints whenever it comes on screen, and from
+-- RefreshBoardViews while it is up.
 function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
-    local THEME = WhoDoesWhat.Theme
+    local accent = THEME.blessings.accent
 
     local bar = CreateFrame("Frame", nil, f)
     bar:SetPoint("TOPLEFT")
     bar:SetPoint("TOPRIGHT")
     bar:SetHeight(BAR_H)
-    local heading = UI.CreateDivider(bar, "Paladin Assignments", THEME.blessings.accent)
+    -- Spans the rows under it, not the whole panel; FitCanvas places it.
+    local heading = UI.CreateDivider(bar, "Blessing Assignments", accent)
     heading:SetPoint("LEFT")
     heading:SetPoint("RIGHT")
     f.heading = heading
 
-    local sendBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+    local emptyText = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    emptyText:SetPoint("CENTER", 0, -BAR_H / 2)
+    emptyText:Hide()
+    f.emptyText = emptyText
+
+    local canvas = CreateFrame("Frame", nil, f)
+    f.canvas = canvas
+    f.headerTop = MARGIN
+
+    local header = CreateFrame("Frame", nil, canvas)
+    local scroll, content = UI.CreateScroll(canvas,
+        "WhoDoesWhatPallyPowerDiffScroll", true)
+    f.header = header
+    f.scroll = scroll
+    f.content = content
+
+    local progressTitle = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    progressTitle:SetText("Progress")
+    progressTitle:Hide()
+    f.progressTitle = progressTitle
+
+    -- Placed by PlaceDiffHeading under the paladin rows.
+    f.diffHeading = UI.CreateDivider(header, "PallyPower Differences", accent)
+
+    local sendBtn = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
     sendBtn:SetHeight(22)
-    sendBtn:SetPoint("RIGHT", -MARGIN, 0)
+    sendBtn:SetPoint("RIGHT", f.diffHeading, "RIGHT", 0, 0)
     sendBtn:SetText("Fix All (0)")
     sendBtn:SetScript("OnClick", function()
         if f.demoData then return end
@@ -961,7 +1186,7 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     f.sendBtn = sendBtn
 
     -- Demo data (/wdw ppdifftest) replaces the live comparison until closed.
-    local closeDemoBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+    local closeDemoBtn = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
     closeDemoBtn:SetSize(80, 22)
     closeDemoBtn:SetPoint("RIGHT", sendBtn, "LEFT", -4, 0)
     closeDemoBtn:SetText("End Demo")
@@ -972,27 +1197,18 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     closeDemoBtn:Hide()
     f.closeDemoBtn = closeDemoBtn
 
-    local emptyText = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    emptyText:SetPoint("CENTER", 0, -BAR_H / 2)
-    emptyText:Hide()
-    f.emptyText = emptyText
-
-    local canvas = CreateFrame("Frame", nil, f)
-    f.canvas = canvas
-
-    local warning = canvas:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    -- The line under the Differences heading: the fix warning, or why there
+    -- are no grids.
+    local warning = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     warning:SetHeight(WARNING_H)
     warning:SetJustifyH("CENTER")
     warning:SetJustifyV("TOP")
     warning:Hide()
     f.warning = warning
-
-    local header = CreateFrame("Frame", nil, canvas)
-    local scroll, content = UI.CreateScroll(canvas,
-        "WhoDoesWhatPallyPowerDiffScroll", true)
-    f.header = header
-    f.scroll = scroll
-    f.content = content
+    local noteIcon = header:CreateTexture(nil, "OVERLAY")
+    noteIcon:SetSize(NOTE_ICON_SIZE, NOTE_ICON_SIZE)
+    noteIcon:Hide()
+    f.noteIcon = noteIcon
 
     header.headers = { {}, {} }
     content.rows = { {}, {} }
@@ -1179,11 +1395,11 @@ end
 -- Open the main window on the Blessings tab, where the differences sit.
 function WhoDoesWhat:OpenPallyPowerDiffView()
     self:LogUiBuilding("Opening PallyPower Differences...")
-    self:ShowRaidTab(K.TAB_BLESSINGS)
+    self:ShowMainTab("blessings", true)
 end
 
 function WhoDoesWhat:OpenPallyPowerDiffTestView()
-    self:ShowRaidTab(K.TAB_BLESSINGS)
+    self:ShowMainTab("blessings", true)
     diffPanel.demoData = DummyData()
     ValidateDummyData(diffPanel.demoData)
     RenderDiffs(diffPanel)
