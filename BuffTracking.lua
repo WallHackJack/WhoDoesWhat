@@ -71,9 +71,10 @@ local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 -- rebuilt when it arrives (GET_ITEM_INFO_RECEIVED below).
 --
 -- `flaskSpells` marks the flasks among them, for the grid: it draws a flask
--- once, in the battle column.
+-- once, in the battle column. `elixirItems` is the item each spell came from,
+-- for the grid's tooltip.
 local nameToKey, debuffNameToKey, spellIdToKeys
-local pendingElixirItems, flaskSpells = {}, {}
+local pendingElixirItems, flaskSpells, elixirItems = {}, {}, {}
 local function AddElixirSpells(key, ids, isFlask)
     for _, id in ipairs(ids or {}) do
         local _, spellId = GetItemSpell(id)
@@ -82,6 +83,7 @@ local function AddElixirSpells(key, ids, isFlask)
             keys[#keys + 1] = key
             spellIdToKeys[spellId] = keys
             if isFlask then flaskSpells[spellId] = true end
+            elixirItems[spellId] = id
             pendingElixirItems[id] = nil
         else
             pendingElixirItems[id] = true
@@ -238,6 +240,7 @@ local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
             if key then
                 StoreAura(key, aura.sourceUnit, aura.expirationTime,
                     buffs, sources, expirations, previous)
+                if key == "food" then spellIds.food = aura.spellId end
             end
             local keys = spellMap and aura.spellId and spellMap[aura.spellId]
             if keys then
@@ -259,6 +262,7 @@ local function ScanAuraList(unit, harmful, map, spellMap, buffs, sources,
             if key then
                 StoreAura(key, sourceUnit, expirationTime,
                     buffs, sources, expirations, previous)
+                if key == "food" then spellIds.food = spellId end
             end
             local keys = spellMap and spellId and spellMap[spellId]
             if keys then
@@ -447,12 +451,14 @@ function WhoDoesWhat:IsBuffFromOutsideRaid(name, key)
     return IsInRaid() and true or false
 end
 
--- The spell an elixir check matched on a raider, and whether it is a flask
--- (which fills both elixir checks); nil when none is recorded.
+-- The spell an elixir or food check matched on a raider, whether it is a
+-- flask (which fills both elixir checks), and the elixir's item id; nil when
+-- none is recorded.
 function WhoDoesWhat:GetElixirSpell(name, key)
     local s = state[name]
     local spellId = s and s.spellIds and s.spellIds[key]
-    return spellId, spellId ~= nil and flaskSpells[spellId] == true
+    return spellId, spellId ~= nil and flaskSpells[spellId] == true,
+        spellId and elixirItems[spellId]
 end
 
 -- Seconds left on the last observed timed aura, or nil for permanent,

@@ -238,6 +238,49 @@ local function PositionPaladinCell(cell, row, coreCount, paladinColumn, paladins
             + (COL_W - CELL_SIZE) / 2, 0)
 end
 
+-- The description on a raider's food aura ("Agility and Spirit increased by
+-- 20."), or nil when it can't be read. Taken from the aura's tooltip data or
+-- a hidden tooltip rather than by loading the aura into GameTooltip, which
+-- would also pick up its own time left and whatever other addons hook onto
+-- aura tooltips (Leatrix Plus's spell id).
+local scanTip
+local function FoodAuraText(raider, spellId)
+    local unit = WhoDoesWhat:UnitForPlayer(raider)
+    if not unit then return nil end
+    local index
+    for i = 1, 40 do
+        local name, auraSpellId, _
+        if C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+            local aura = C_UnitAuras.GetBuffDataByIndex(unit, i)
+            name, auraSpellId = aura and aura.name, aura and aura.spellId
+        else
+            name, _, _, _, _, _, _, _, _, auraSpellId = UnitBuff(unit, i)
+        end
+        if not name then return nil end
+        if auraSpellId == spellId then
+            index = i
+            break
+        end
+    end
+    if not index then return nil end
+    if C_TooltipInfo and C_TooltipInfo.GetUnitBuff then
+        local data = C_TooltipInfo.GetUnitBuff(unit, index)
+        local line = data and data.lines and data.lines[2]
+        if line and line.leftText and line.leftText ~= "" then
+            return line.leftText
+        end
+    end
+    if not scanTip then
+        scanTip = CreateFrame("GameTooltip", "WhoDoesWhatGridScanTip", nil,
+            "GameTooltipTemplate")
+    end
+    scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    scanTip:ClearLines()
+    scanTip:SetUnitBuff(unit, index)
+    local text = scanTip:NumLines() >= 2 and WhoDoesWhatGridScanTipTextLeft2:GetText()
+    return text ~= "" and text or nil
+end
+
 local function CreateCoreCell(row, column)
     local cell = CreateFrame("Button", nil, row)
     cell:SetSize(CELL_SIZE, CELL_SIZE)
@@ -267,11 +310,24 @@ local function CreateCoreCell(row, column)
         -- A flask's guardian cell is blank, and so is its tooltip; the battle
         -- cell speaks for it.
         if self.flaskCovered and self.connected then return false end
-        -- An elixir on the raider gets the spell's own tooltip.
+        -- An elixir on the raider gets the spell's own tooltip, titled with the
+        -- item it came from. Food gets the aura's description off the raider
+        -- instead: the Well Fed spell's own tooltip is blank.
         if self.elixirSpell and self.connected and GameTooltip.SetSpellByID then
-            GameTooltip:SetSpellByID(self.elixirSpell)
+            local foodText = self.buffKey == "food"
+                and FoodAuraText(self.raider, self.elixirSpell)
+            if foodText then
+                GameTooltip:SetText(GetSpellInfo(self.elixirSpell) or buff.name,
+                    unpack(UI.TOOLTIP_TITLE))
+                GameTooltip:AddLine(foodText, 1, 1, 1, true)
+            else
+                GameTooltip:SetSpellByID(self.elixirSpell)
+            end
+            local itemName = self.elixirItem and GetItemInfo(self.elixirItem)
+            if itemName then GameTooltipTextLeft1:SetText(itemName) end
             local remaining = WhoDoesWhat:GetBuffTimeRemaining(
                 self.raider, self.buffKey)
+            GameTooltip:AddLine(" ")
             GameTooltip:AddLine("On " .. WhoDoesWhat:DisplayName(self.raider)
                 .. (remaining and (", " .. RemainingText(remaining)
                     .. " remaining.") or "."), 1, 0.82, 0)
@@ -667,11 +723,12 @@ local function RefreshGrid(f)
             -- An elixir cell wears the elixir actually on the raider. A flask
             -- is drawn once, in the battle column; its guardian cell stays
             -- empty rather than repeating it.
-            local elixirSpell, isFlask
-            if buff.elixirCategory and has == true then
-                elixirSpell, isFlask = WhoDoesWhat:GetElixirSpell(m.name, key)
+            local elixirSpell, isFlask, elixirItem
+            if (buff.elixirCategory or key == "food") and has == true then
+                elixirSpell, isFlask, elixirItem = WhoDoesWhat:GetElixirSpell(m.name, key)
             end
             cell.elixirSpell = elixirSpell
+            cell.elixirItem = elixirItem
             cell.flaskCovered = isFlask and buff.elixirCategory == "guardian"
             cell.icon:SetTexture(elixirSpell and GetSpellTexture(elixirSpell)
                 or buff.icon)
