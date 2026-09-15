@@ -7,7 +7,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- Improved Healthstone rank decides which item a warlock makes, so a stone
 -- is matched against each warlock's known rank. Warlocks whose rank we
--- haven't learned yet are listed after, marked "?".
+-- haven't learned yet are left out.
 
 local A = WhoDoesWhat.Assign
 
@@ -17,16 +17,11 @@ local function AddHealthstoneLine(tooltip, itemId)
     if not wantRank or GetItemCount(itemId) > 0 then return end
 
     local names = {}
-    local unknown = {}
     for _, name in ipairs(A.MembersOfClass("Warlock")) do
-        local rank = WhoDoesWhat:GetWarlockHealthstoneTalent(name)
-        if rank == wantRank then
+        if WhoDoesWhat:GetWarlockHealthstoneTalent(name) == wantRank then
             names[#names + 1] = A.PlayerText(name)
-        elseif rank == nil then
-            unknown[#unknown + 1] = A.PlayerText(name) .. "|cff909090?|r"
         end
     end
-    for _, text in ipairs(unknown) do names[#names + 1] = text end
     if #names == 0 then return end
 
     tooltip:AddLine("|cffffd100Provided by:|r " .. table.concat(names, ", "), 1, 1, 1, true)

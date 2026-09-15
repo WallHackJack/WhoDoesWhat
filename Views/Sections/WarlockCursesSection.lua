@@ -59,10 +59,6 @@ local function HealthstoneTooltip(self)
     elseif #unknownNames == 0 then
         GameTooltip:AddLine("No warlocks have this talent", 1, 0.35, 0.35, true)
     end
-    if #unknownNames > 0 then
-        GameTooltip:AddLine("Unscanned: " .. table.concat(unknownNames, ", "),
-            0.6, 0.6, 0.6, true)
-    end
     return true
 end
 
