@@ -41,6 +41,8 @@ function WhoDoesWhat:RefreshBoardViews()
     -- side would ever repaint them. Throttled at its end, since this call
     -- rides the buff-tracking notify (RaidFrameExtensions.lua).
     self:RefreshRaidFrameRoleIcons()
+    -- Same story for the role column on the Raid tab rows (RaidMenuExtensions.lua).
+    self:RefreshRaidMenuRoles()
 end
 
 -- Ask for a repaint of everything, without insisting on one right now.

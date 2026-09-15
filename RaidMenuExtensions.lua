@@ -286,3 +286,142 @@ rankWatcher:SetScript("OnEvent", function()
     end
     couldPromote = now
 end)
+
+
+-- ---------------------------------------------------------------------------
+-- Role column on the Raid tab rows. Blizzard's row reads Name | Level | Class;
+-- out of combat the Level fontstring is stretched across both the Level and
+-- Class columns and shows the member's role icon and role name instead (a
+-- question mark and their class name when the board has no role for them),
+-- nudged right a little so it clears the name. It keeps Blizzard's own
+-- colouring: class colour, red when dead, grey when offline.
+--
+-- The Class button's text is only hidden, never changed -- dragging it spawns
+-- a class pullout titled with that text. Regions only: no new frames and
+-- nothing re-parented (see the taint note in ShowHighlight). Combat gets
+-- Blizzard's layout back, since RaidGroupFrame_Update keeps writing level
+-- numbers into these rows through a fight.
+-- ---------------------------------------------------------------------------
+
+local LEVEL_WIDTH, LEVEL_HEIGHT, LEVEL_GAP = 23, 8, 2 -- Blizzard_RaidUI.xml
+local ROLE_COLUMN_SHIFT = 8 -- ~10% further right; the right edge stays put
+local ROLE_COLUMN_WIDTH = 75 - ROLE_COLUMN_SHIFT -- Level (23) + gap (2) + Class (50)
+local ROLE_ICON_SIZE = 11
+local UNKNOWN_ICON = 134400 -- INV_Misc_QuestionMark
+
+local roleColumnInstalled = false
+local taken = {}   -- row index -> true while the row wears the role column
+local painted = {} -- row index -> text we last wrote into its Level string
+
+-- Same name(-realm) key the board's assignments are stored under.
+local function RosterKey(unit)
+    local name, realm = UnitName(unit)
+    if name and realm and realm ~= "" then
+        return name .. "-" .. realm
+    end
+    return name
+end
+
+local function RoleColumnText(i)
+    local unit = "raid" .. i
+    local key = RosterKey(unit)
+    local roleId = key and WhoDoesWhat:GetAssignedRole(key)
+    if roleId then
+        local _, role = WhoDoesWhat:FindRoleById(roleId)
+        if role and role.name then
+            local icon = role.icon and (WhoDoesWhat:RoleIconMarkup(role.icon, ROLE_ICON_SIZE) .. " ") or ""
+            return icon .. role.name
+        end
+    end
+    return WhoDoesWhat:RoleIconMarkup(UNKNOWN_ICON, ROLE_ICON_SIZE) .. " " .. (UnitClass(unit) or "")
+end
+
+-- Level hangs off the Name string; only the x offset changes.
+local function AnchorLevel(i, level, x)
+    level:ClearAllPoints()
+    level:SetPoint("LEFT", _G["RaidGroupButton" .. i .. "Name"], "RIGHT", x, 0)
+end
+
+-- `force` rewrites the text even when it matches what we last painted, for
+-- the paths where Blizzard has just overwritten it with a level.
+local function PaintRow(i, force)
+    local level = _G["RaidGroupButton" .. i .. "Level"]
+    local class = _G["RaidGroupButton" .. i .. "Class"]
+    if not (level and class and class.text) then return end
+    if not taken[i] then
+        taken[i] = true
+        AnchorLevel(i, level, LEVEL_GAP + ROLE_COLUMN_SHIFT)
+        level:SetSize(ROLE_COLUMN_WIDTH, 14)
+        level:SetJustifyH("LEFT")
+        class.text:SetAlpha(0)
+        force = true
+    end
+    local text = RoleColumnText(i)
+    if force or painted[i] ~= text then
+        level:SetText(text)
+        painted[i] = text
+    end
+end
+
+local function RestoreRow(i)
+    local level = _G["RaidGroupButton" .. i .. "Level"]
+    local class = _G["RaidGroupButton" .. i .. "Class"]
+    taken[i], painted[i] = nil, nil
+    if not (level and class and class.text) then return end
+    AnchorLevel(i, level, LEVEL_GAP)
+    level:SetSize(LEVEL_WIDTH, LEVEL_HEIGHT)
+    level:SetJustifyH("CENTER")
+    local lvl = UnitLevel("raid" .. i)
+    level:SetText(lvl and lvl > 0 and lvl or "")
+    class.text:SetAlpha(1)
+end
+
+local function PaintRoleColumn(force)
+    if not (roleColumnInstalled and WhoDoesWhat.db) or InCombatLockdown() then return end
+    if not IsInRaid() then return end
+    for i = 1, GetNumGroupMembers() do
+        PaintRow(i, force)
+    end
+end
+
+-- Board edits (roles, syncs, talent scans) ride RefreshBoardViews, which can
+-- fire at 10Hz; a hidden Raid tab costs one visibility check, and a shown one
+-- only rewrites rows whose text actually changed. OnShow catches up on edits
+-- made while it was closed.
+function WhoDoesWhat:RefreshRaidMenuRoles()
+    if not (RaidFrame and RaidFrame:IsVisible()) then return end
+    PaintRoleColumn(false)
+end
+
+local function InstallRoleColumn()
+    if roleColumnInstalled or type(RaidGroupFrame_Update) ~= "function" then return end
+    roleColumnInstalled = true
+    hooksecurefunc("RaidGroupFrame_Update", function() PaintRoleColumn(true) end)
+    hooksecurefunc("RaidGroupFrame_UpdateLevel", function(id)
+        local i = tonumber(id)
+        if i and taken[i] and not InCombatLockdown() then PaintRow(i, true) end
+    end)
+    if RaidFrame then
+        RaidFrame:HookScript("OnShow", function() PaintRoleColumn(true) end)
+    end
+    PaintRoleColumn(true)
+end
+
+-- Blizzard_RaidUI is load-on-demand: it arrives the first time the Raid tab
+-- opens. PLAYER_REGEN_DISABLED still runs before the lockdown starts, so the
+-- rows are handed back while that's allowed.
+local roleColumnWatcher = CreateFrame("Frame")
+roleColumnWatcher:RegisterEvent("ADDON_LOADED")
+roleColumnWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+roleColumnWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+roleColumnWatcher:SetScript("OnEvent", function(_, event, addon)
+    if event == "ADDON_LOADED" then
+        if addon == "Blizzard_RaidUI" or type(RaidGroupFrame_Update) == "function" then
+            InstallRoleColumn()
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        for i in pairs(taken) do RestoreRow(i) end
+    else
+        PaintRoleColumn(true)
+    end
+end)
