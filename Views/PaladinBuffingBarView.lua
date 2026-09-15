@@ -2375,7 +2375,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     if bar.auraButton:IsShown() then PositionAuraMenu(bar.auraButton) end
 end
 
--- Everything the Paladin Bar settings page owns. The Developer page's test
+-- Everything the Paladin Bar settings page owns. The Test + Dev page's test
 -- mode and its paladin pick are not this page's to undo, and neither is the
 -- aura the swapper happens to be offering -- that is live state, not a setting.
 local RESET_SETTINGS = {

@@ -1442,8 +1442,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         { label = "Paladin Bar", title = "Paladin Buffing Bar",
             color = { 0.96, 0.55, 0.73 },
             description = "Puts every option on this page back and moves the bar"
-                .. " to where a fresh install finds it. Test mode on the Testing"
-                .. " page is left alone.",
+                .. " to where a fresh install finds it. Test mode on the Test +"
+                .. " Dev page is left alone.",
             reset = WithReload(function() WhoDoesWhat:ResetPaladinBarSettings() end) },
         { label = "Warrior Bar", title = "Warrior Shouts", color = { 0.78, 0.61, 0.43 },
             description = "Puts every option on this page back and re-centres the"
@@ -1453,13 +1453,14 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             description = "Puts every option on this page back and re-centres the"
                 .. " checklist.",
             reset = WithReload(function() WhoDoesWhat:ResetBuffChecklistSettings() end) },
-        { label = "Developer", title = "Developer Options", right = true,
-            description = "Turns Developer Mode, the Logs tab and every logging"
-                .. " option off.",
-            reset = WithReload(ResetDeveloper) },
-        { label = "Testing", title = "Testing", right = true,
-            description = "Resets the testing settings to their defaults.",
-            reset = WithReload(ResetTesting) },
+        { label = "Test + Dev", title = "Test + Dev", right = true,
+            description = "Turns the fake raid and the buffing bar preview off,"
+                .. " and Developer Mode, the Logs tab and every logging option"
+                .. " with them.",
+            reset = WithReload(function()
+                ResetTesting()
+                ResetDeveloper()
+            end) },
     }
 
     local specs = {}
@@ -2768,77 +2769,10 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             OnChange = function() WhoDoesWhat:RefreshBuffChecklist() end,
         })
 
-    -- ---- Developer ----
-    local developerPage = pages.Developer
-    local yR = y0
-    f.devModeCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Developer Mode",
-        "Assignment dropdowns list every group member, not just the eligible class.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.developerMode = value
-            WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
-        end)
-    f.showLogsCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Show Logs tab",
-        "Show the combined WhoDoesWhat and PallyPower traffic logs as a tab in the main window.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.showLogsButton = value
-            WhoDoesWhat:RefreshMainAssignmentsView()
-        end)
-    f.logUiCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log UI Updates",
-        "Print verbose UI build and layout logging to chat.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.logUiUpdates = value
-            WhoDoesWhat.LOG_UI_BUILDING = value
-            WhoDoesWhat:LogUiBuilding("Log UI Updates " .. (value and "enabled." or "disabled."))
-        end)
-    f.logOperationsCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log Operations",
-        "Print routine assignment, reset, auto-assign, role, and whisper confirmations to chat.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.logOperations = value
-            WhoDoesWhat.LOG_OPERATIONS = value
-            WhoDoesWhat:LogUiBuilding("Log Operations " .. (value and "enabled." or "disabled."))
-        end)
-    f.logSyncStatusCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log sync status",
-        "Print automatic board updates, role syncs, and group-clear notices to chat.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.logSyncStatus = value
-            WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
-        end)
-    f.logSyncTrafficCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log sync details",
-        "Capture WDW/PallyPower traffic and print WDW sync diagnostics to chat. Session-only; resets off on reload.",
-        function(value)
-            WhoDoesWhat:SetSyncLoggingEnabled(value)
-            WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
-        end)
-    f.logBuffingClicksCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log buffing bar clicks",
-        "Print each recognized left/right buffing-bar click and its castable target count.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
-            WhoDoesWhat:LogUiBuilding("Log buffing bar clicks "
-                .. (value and "enabled." or "disabled."))
-        end)
-    f.logRolePromotionCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR, "Log role/promotion flow",
-        "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
-        function(value)
-            WhoDoesWhat.db.profile.settings.logRolePromotion = value
-            WhoDoesWhat:LogUiBuilding("Log role/promotion flow "
-                .. (value and "enabled." or "disabled."))
-        end)
---@do-not-package@
-    f.newerVersionTestCheck, yR = AddCompactCheckboxRow(developerPage, PAGE_X, yR,
-        "|cffff2020Simulate newer addon version|r",
-        "|cffff2020WARNING: This feature should never be turned on. It falsely reports the next addon version to your group.|r",
-        function(value)
-            WhoDoesWhat.db.profile.settings.simulateNewerAddonVersion = value
-            WhoDoesWhat:RefreshMainAssignmentsView()
-            WhoDoesWhat:LogUiBuilding("Addon version simulation "
-                .. (value and "enabled." or "disabled."))
-        end)
---@end-do-not-package@
-
-    -- ---- Testing ----
-    local testingPage = pages.Testing
-    yR = y0
-    f.fakeRaidCheck, yR = AddCompactCheckboxRow(testingPage, PAGE_X, yR, "Populate Fake Raid",
+    -- ---- Test + Dev ----
+    local testDevPage = pages["Test + Dev"]
+    local yR = AddPageDivider(testDevPage, y0, "Testing")
+    f.fakeRaidCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Populate Fake Raid",
         "Fill the roster with fake raiders to develop buff strategies solo. Wipes the assignment board on toggle.",
         function(value)
             WhoDoesWhat:SetFakeRaidEnabled(value)
@@ -2846,10 +2780,10 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
 
-    local sizeLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local sizeLabel = testDevPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     sizeLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
     sizeLabel:SetText("Fake raiders:")
-    local sizeDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatFakeRaidSizeDD", 40)
+    local sizeDD = UI.CreateMenuDropdown(testDevPage, "WhoDoesWhatFakeRaidSizeDD", 40)
     sizeDD:SetPoint("LEFT", sizeLabel, "RIGHT", -8, -2)
     UIDropDownMenu_Initialize(sizeDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.fakeRaidSize
@@ -2869,10 +2803,10 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.fakeRaidSizeDD = sizeDD
     yR = yR + 40
 
-    local palLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local palLabel = testDevPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     palLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
     palLabel:SetText("Fake paladins:")
-    local palDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatFakePaladinCountDD", 40)
+    local palDD = UI.CreateMenuDropdown(testDevPage, "WhoDoesWhatFakePaladinCountDD", 40)
     palDD:SetPoint("LEFT", palLabel, "RIGHT", -8, -2)
     UIDropDownMenu_Initialize(palDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.fakeRaidPaladinCount or 3
@@ -2892,7 +2826,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.fakePaladinDD = palDD
     yR = yR + 40
 
-    f.buffingTestCheck, yR = AddCompactCheckboxRow(testingPage, PAGE_X, yR, "Show buffing bar as non-paladin",
+    f.buffingTestCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Show buffing bar as non-paladin",
         "Render the Paladin Buffing Bar even when you're not a paladin, as the paladin picked below (real or fake). Preview only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarTestMode = value
@@ -2900,10 +2834,10 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:UpdatePaladinBuffingBarVisibility()
         end)
 
-    local testLabel = testingPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local testLabel = testDevPage:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     testLabel:SetPoint("TOPLEFT", PAGE_X + 4, -(yR + 6))
     testLabel:SetText("Test as paladin:")
-    local testDD = UI.CreateMenuDropdown(testingPage, "WhoDoesWhatBuffingTestPaladinDD", 120)
+    local testDD = UI.CreateMenuDropdown(testDevPage, "WhoDoesWhatBuffingTestPaladinDD", 120)
     testDD:SetPoint("LEFT", testLabel, "RIGHT", -6, -2)
     UIDropDownMenu_Initialize(testDD, function(_, level)
         RefreshBuffingTestPaladinDropdown(f)
@@ -2930,6 +2864,72 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         end
     end)
     f.buffingTestDD = testDD
+    yR = yR + 40
+
+    yR = AddNextPageDivider(testDevPage, yR, "Developer")
+    f.devModeCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Developer Mode",
+        "Assignment dropdowns list every group member, not just the eligible class.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.developerMode = value
+            WhoDoesWhat:LogUiBuilding("Developer Mode " .. (value and "enabled." or "disabled."))
+        end)
+    f.showLogsCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Show Logs tab",
+        "Show the combined WhoDoesWhat and PallyPower traffic logs as a tab in the main window.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.showLogsButton = value
+            WhoDoesWhat:RefreshMainAssignmentsView()
+        end)
+    f.logUiCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log UI Updates",
+        "Print verbose UI build and layout logging to chat.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logUiUpdates = value
+            WhoDoesWhat.LOG_UI_BUILDING = value
+            WhoDoesWhat:LogUiBuilding("Log UI Updates " .. (value and "enabled." or "disabled."))
+        end)
+    f.logOperationsCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log Operations",
+        "Print routine assignment, reset, auto-assign, role, and whisper confirmations to chat.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logOperations = value
+            WhoDoesWhat.LOG_OPERATIONS = value
+            WhoDoesWhat:LogUiBuilding("Log Operations " .. (value and "enabled." or "disabled."))
+        end)
+    f.logSyncStatusCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log sync status",
+        "Print automatic board updates, role syncs, and group-clear notices to chat.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logSyncStatus = value
+            WhoDoesWhat:LogUiBuilding("Log sync status " .. (value and "enabled." or "disabled."))
+        end)
+    f.logSyncTrafficCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log sync details",
+        "Capture WDW/PallyPower traffic and print WDW sync diagnostics to chat. Session-only; resets off on reload.",
+        function(value)
+            WhoDoesWhat:SetSyncLoggingEnabled(value)
+            WhoDoesWhat:LogUiBuilding("Log sync details " .. (value and "enabled." or "disabled."))
+        end)
+    f.logBuffingClicksCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log buffing bar clicks",
+        "Print each recognized left/right buffing-bar click and its castable target count.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logBuffingBarClicks = value
+            WhoDoesWhat:LogUiBuilding("Log buffing bar clicks "
+                .. (value and "enabled." or "disabled."))
+        end)
+    f.logRolePromotionCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR, "Log role/promotion flow",
+        "Trace role picks, Blizzard role writes, promotion gating, Raid-tab opening, and row highlighting.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.logRolePromotion = value
+            WhoDoesWhat:LogUiBuilding("Log role/promotion flow "
+                .. (value and "enabled." or "disabled."))
+        end)
+--@do-not-package@
+    f.newerVersionTestCheck, yR = AddCompactCheckboxRow(testDevPage, PAGE_X, yR,
+        "|cffff2020Simulate newer addon version|r",
+        "|cffff2020WARNING: This feature should never be turned on. It falsely reports the next addon version to your group.|r",
+        function(value)
+            WhoDoesWhat.db.profile.settings.simulateNewerAddonVersion = value
+            WhoDoesWhat:RefreshMainAssignmentsView()
+            WhoDoesWhat:LogUiBuilding("Addon version simulation "
+                .. (value and "enabled." or "disabled."))
+        end)
+--@end-do-not-package@
 
     f:SelectTab(1)
     f:HookScript("OnHide", UI.CancelColorPicker)
