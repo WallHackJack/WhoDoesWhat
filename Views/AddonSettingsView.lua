@@ -339,8 +339,17 @@ end
 -- The raid-frame master switch owns the style and combat rows under it: with
 -- it off we touch Blizzard's frames at all, so neither has anything to say.
 local function RefreshRaidFrameOptionStates(f)
-    local on = WhoDoesWhat.db.profile.settings.raidFrameRoleIcons ~= false
+    local settings = WhoDoesWhat.db.profile.settings
+    local on = settings.raidFrameRoleIcons ~= false
     SetOptionAvailable(f.raidFrameCombatCheck, f.raidFrameCombatLabel, on)
+    -- The outlines edge the corner icon and the two opaque bands; a faded band
+    -- has no edge to draw them on.
+    local style = settings.raidFrameRoleIconStyle or "corner"
+    local outlined = on and (style == "corner" or style == "band"
+        or style == "bandRight")
+    SetOptionAvailable(f.raidFrameOutlineCheck, f.raidFrameOutlineLabel, outlined)
+    SetOptionAvailable(f.raidFrameOutlineDpsCheck, f.raidFrameOutlineDpsLabel,
+        outlined and settings.raidFrameRoleOutline and true or false)
     local shade = on and 1 or 0.45
     f.raidStyleLabel:SetTextColor(shade, shade, shade)
     if on then
@@ -1604,6 +1613,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                 WhoDoesWhat.db.profile.settings.raidFrameRoleIconStyle = mode
                 UIDropDownMenu_SetText(raidStyleDD, raidStyleLabels[mode])
                 WhoDoesWhat:LogUiBuilding("Raid frame role icon style: " .. mode)
+                RefreshRaidFrameOptionStates(f)
                 WhoDoesWhat:RefreshRaidFrameRoleIcons()
             end
             UIDropDownMenu_AddButton(info, level)
@@ -1611,6 +1621,27 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     end)
     f.raidStyleDD = raidStyleDD
     f.raidStyleLabel = raidStyleLabel
+
+    f.raidFrameOutlineCheck, yL, f.raidFrameOutlineLabel = AddCompactCheckboxRow(
+        generalPage, PAGE_X, yL,
+        "Add outline by role",
+        "Edge each raid frame role icon in its role colour: blue for tanks, "
+            .. "green for healers. DPS get theirs from the option below."
+            .. "\n\nReplace WoW Icon, Left band and Right band styles only.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.raidFrameRoleOutline = value
+            RefreshRaidFrameOptionStates(f)
+            WhoDoesWhat:RefreshRaidFrameRoleIcons()
+        end)
+    f.raidFrameOutlineDpsCheck, yL, f.raidFrameOutlineDpsLabel = AddCompactCheckboxRow(
+        generalPage, PAGE_X, yL,
+        "Add outline to DPS",
+        "Also edge DPS role icons, in red. Needs Add outline by role."
+            .. "\n\nReplace WoW Icon, Left band and Right band styles only.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.raidFrameRoleOutlineDps = value
+            WhoDoesWhat:RefreshRaidFrameRoleIcons()
+        end)
 
     f.raidFrameCombatCheck, yL, f.raidFrameCombatLabel = AddCompactCheckboxRow(
         generalPage, PAGE_X, yL,
@@ -2927,6 +2958,8 @@ function LoadSettings(f)
     f.unitTooltipDetailCheck:SetChecked(settings.unitTooltipDetail)
     f.raidFrameRoleCheck:SetChecked(settings.raidFrameRoleIcons ~= false)
     f.raidFrameCombatCheck:SetChecked(settings.raidFrameRoleIconsInCombat ~= false)
+    f.raidFrameOutlineCheck:SetChecked(settings.raidFrameRoleOutline)
+    f.raidFrameOutlineDpsCheck:SetChecked(settings.raidFrameRoleOutlineDps)
     UIDropDownMenu_SetText(f.raidStyleDD,
         f.raidStyleLabels[settings.raidFrameRoleIconStyle or "corner"]
             or f.raidStyleLabels.corner)

@@ -107,16 +107,25 @@ local UNKNOWN_ICON = 134400 -- INV_Misc_QuestionMark
 -- `nameLeft`  absolute inset for the name's left anchor; absent leaves it.
 -- `nameRight` the same for its right anchor, to keep a name off an opaque
 --             strip running down that side.
+-- `nameCenter` centre the name between those insets: the middle of the frame
+--             under a faded band, which washes under the text, and the middle
+--             of the free area beside an opaque one.
+-- `outline`   honours the role outline settings.
 local STYLES = {
-    corner = { circle = true },
-    band = { width = 12, edge = true, unknown = UNKNOWN_ICON, nameLeft = 15 },
+    corner = { circle = true, outline = true },
+    band = { width = 12, edge = true, outline = true,
+        unknown = UNKNOWN_ICON, nameLeft = 15, nameRight = -NAME_CLEAR_X,
+        nameCenter = true },
     bandFaded = { width = 30, fadeFrom = 0.6, fadeTo = 0,
-        unknown = UNKNOWN_ICON, nameLeft = NAME_CLEAR_X },
-    bandRight = { width = 12, side = "RIGHT", edge = true,
-        unknown = UNKNOWN_ICON, nameLeft = NAME_CLEAR_X, nameRight = -15 },
+        unknown = UNKNOWN_ICON, nameLeft = NAME_CLEAR_X,
+        nameRight = -NAME_CLEAR_X, nameCenter = true },
+    bandRight = { width = 12, side = "RIGHT", edge = true, outline = true,
+        unknown = UNKNOWN_ICON, nameLeft = NAME_CLEAR_X, nameRight = -15,
+        nameCenter = true },
     bandRightFaded = {
         width = 30, side = "RIGHT", fadeFrom = 0.6, fadeTo = 0,
         unknown = UNKNOWN_ICON, nameLeft = NAME_CLEAR_X,
+        nameRight = -NAME_CLEAR_X, nameCenter = true,
     },
 }
 
@@ -248,9 +257,13 @@ end
 
 local icons = {} -- frame -> the texture we draw the spec icon into
 local rings = {} -- frame -> the dark disc behind a circled corner icon
+local outlines = {} -- frame -> the black disc behind a role-coloured ring
 local edges = {} -- frame -> the hairline down a narrow band's inner side
+local bandBacks = {} -- frame -> the black plate under an outlined band
+local bandOutlines = {} -- frame -> the role-coloured plate just inside that
 local taken = {} -- frame -> true while our stand-in is up
 local shown = {} -- frame -> the icon we last drew there
+local outlined = {} -- frame -> the outline role we last drew there, if any
 
 local BAND_EDGE_WIDTH = 1
 local BAND_EDGE_COLOR = { 0.15, 0.15, 0.15, 1 }
@@ -265,6 +278,33 @@ local BAND_EDGE_COLOR = { 0.15, 0.15, 0.15, 1 }
 local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local RING_WIDTH = 1
 local RING_COLOR = { 0.15, 0.15, 0.15, 1 }
+
+-- The optional role outline turns the ring into two concentric hairlines: the
+-- inner one takes the role's colour, and a black one a pixel wider sits a
+-- sublevel under it, so the colour has something to contrast against whatever
+-- the frame behind is. Styles marked `outline` only (the corner and the two
+-- opaque bands; see SetBandEdge for theirs); the two settings split it so a
+-- raid can outline tanks and healers without painting every DPS red.
+local OUTLINE_WIDTH = 1
+local OUTLINE_EDGE_COLOR = { 0, 0, 0, 1 }
+local OUTLINE_COLORS = {
+    tank = { 0.31, 0.55, 0.91, 1 },
+    healer = { 0.31, 0.83, 0.35, 1 },
+    dps = { 0.87, 0.27, 0.27, 1 },
+}
+
+-- Which outline this role gets under the current settings, or nil for the
+-- plain dark ring.
+local function OutlineFor(wowRole)
+    if not (wowRole and OUTLINE_COLORS[wowRole]) then return nil end
+    local settings = WhoDoesWhat.db.profile.settings
+    if not settings.raidFrameRoleOutline then return nil end
+    -- DPS is an extension of the role outline, not a switch of its own.
+    if wowRole == "dps" and not settings.raidFrameRoleOutlineDps then
+        return nil
+    end
+    return wowRole
+end
 
 -- Masks are per-texture, since each one is sized to the texture it cuts, and a
 -- pooled texture switching to a band style has to put the square back.
@@ -296,28 +336,37 @@ local function SetCircleMask(texture, wanted)
     end
 end
 
-local function SetCornerRing(frame, style, icon, size)
-    local ring = rings[frame]
+-- One masked disc of `width` past the icon on each side, created on demand.
+local function Disc(pool, frame, icon, size, width, subLevel, color)
+    local disc = pool[frame]
+    if not disc then
+        disc = frame:CreateTexture(nil, "ARTWORK", nil, subLevel)
+        disc:SetTexture("Interface\\Buttons\\WHITE8X8")
+        pool[frame] = disc
+    end
+    disc:SetVertexColor(unpack(color))
+    disc:ClearAllPoints()
+    disc:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    disc:SetSize(size + width * 2, size + width * 2)
+    SetCircleMask(disc, true)
+    disc:Show()
+end
+
+local function SetCornerRing(frame, style, icon, size, outline)
     if not (style.circle and size) then
-        if ring then ring:Hide() end
+        if rings[frame] then rings[frame]:Hide() end
+        if outlines[frame] then outlines[frame]:Hide() end
         return
     end
-    if not ring then
-        -- A sublevel below the icon: same layer, so it tracks it, but behind.
-        ring = frame:CreateTexture(nil, "ARTWORK", nil, 0)
-        if ring.SetColorTexture then
-            ring:SetColorTexture(unpack(RING_COLOR))
-        else
-            ring:SetTexture("Interface\\Buttons\\WHITE8X8")
-            ring:SetVertexColor(unpack(RING_COLOR))
-        end
-        rings[frame] = ring
+    -- Sublevels below the icon: same layer, so they track it, but behind.
+    Disc(rings, frame, icon, size, RING_WIDTH, 0,
+        outline and OUTLINE_COLORS[outline] or RING_COLOR)
+    if outline then
+        Disc(outlines, frame, icon, size, RING_WIDTH + OUTLINE_WIDTH, -1,
+            OUTLINE_EDGE_COLOR)
+    elseif outlines[frame] then
+        outlines[frame]:Hide()
     end
-    ring:ClearAllPoints()
-    ring:SetPoint("CENTER", icon, "CENTER", 0, 0)
-    ring:SetSize(size + RING_WIDTH * 2, size + RING_WIDTH * 2)
-    SetCircleMask(ring, true)
-    ring:Show()
 end
 
 -- ARTWORK one sublevel up: the same layer the client's own role icon and name
@@ -331,34 +380,67 @@ local function IconTexture(frame)
     return texture
 end
 
-local function SetBandEdge(frame, style)
-    local edge = edges[frame]
-    if not (style and style.width and style.edge) then
-        if edge then edge:Hide() end
-        return
+-- A one-pixel line down a band's inner side, created on demand. OVERLAY, a
+-- layer above the icon it edges: the same layer would leave which one wins to
+-- draw order, and the point of a line is that nothing covers it.
+local function BandLine(pool, frame, icon, point, relativePoint, color)
+    local line = pool[frame]
+    if not line then
+        line = frame:CreateTexture(nil, "OVERLAY")
+        line:SetTexture("Interface\\Buttons\\WHITE8X8")
+        pool[frame] = line
     end
-    if not edge then
-        -- OVERLAY, a layer above the icon it edges: the same layer would leave
-        -- which one wins to draw order, and the point of a line is that
-        -- nothing covers it.
-        edge = frame:CreateTexture(nil, "OVERLAY")
-        if edge.SetColorTexture then
-            edge:SetColorTexture(unpack(BAND_EDGE_COLOR))
-        else
-            edge:SetTexture("Interface\\Buttons\\WHITE8X8")
-            edge:SetVertexColor(unpack(BAND_EDGE_COLOR))
-        end
-        edges[frame] = edge
+    line:SetVertexColor(unpack(color))
+    line:ClearAllPoints()
+    line:SetPoint("TOP" .. point, icon, "TOP" .. relativePoint, 0, 0)
+    line:SetPoint("BOTTOM" .. point, icon, "BOTTOM" .. relativePoint, 0, 0)
+    line:SetWidth(BAND_EDGE_WIDTH)
+    line:Show()
+end
+
+-- A flat rectangle `grow` pixels past the icon on every side, under it.
+local function BandPlate(pool, frame, icon, grow, subLevel, color)
+    local plate = pool[frame]
+    if not plate then
+        plate = frame:CreateTexture(nil, "ARTWORK", nil, subLevel)
+        plate:SetTexture("Interface\\Buttons\\WHITE8X8")
+        pool[frame] = plate
+    end
+    plate:SetVertexColor(unpack(color))
+    plate:ClearAllPoints()
+    plate:SetPoint("TOPLEFT", icon, "TOPLEFT", -grow, grow)
+    plate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", grow, -grow)
+    plate:Show()
+end
+
+-- The band's version of the dual ring: two plates under the icon, a black one
+-- filling the band's whole footprint and the role colour a pixel inside it,
+-- with the icon shrunk (in Draw) to show both. Every side is wrapped, so it
+-- reads as a framed square rather than a stripe with a line beside it, and the
+-- band takes no more room than a plain one. The plain band's own hairline
+-- stands down for it -- the black plate is that edge now.
+local function SetBandEdge(frame, style, outline)
+    local band = style and style.width and style.edge
+    if not (band and outline) then
+        if bandBacks[frame] then bandBacks[frame]:Hide() end
+        if bandOutlines[frame] then bandOutlines[frame]:Hide() end
+    end
+    if not band or outline then
+        if edges[frame] then edges[frame]:Hide() end
+    end
+    if not band then return end
+    local icon = icons[frame]
+    if outline then
+        BandPlate(bandBacks, frame, icon, OUTLINE_WIDTH * 2, -1,
+            OUTLINE_EDGE_COLOR)
+        BandPlate(bandOutlines, frame, icon, OUTLINE_WIDTH, 0,
+            OUTLINE_COLORS[outline])
+        return
     end
     -- Always the strip's inner side, the one facing the middle of the frame.
     local mine, theirs = "LEFT", "RIGHT"
     if style.side == "RIGHT" then mine, theirs = "RIGHT", "LEFT" end
-    local icon = icons[frame]
-    edge:ClearAllPoints()
-    edge:SetPoint("TOP" .. mine, icon, "TOP" .. theirs, 0, 0)
-    edge:SetPoint("BOTTOM" .. mine, icon, "BOTTOM" .. theirs, 0, 0)
-    edge:SetWidth(BAND_EDGE_WIDTH)
-    edge:Show()
+    BandLine(edges, frame, icon, mine, theirs, BAND_EDGE_COLOR)
 end
 
 -- ---------------------------------------------------------------------------
@@ -378,6 +460,7 @@ end
 
 local namePoints = {} -- frame -> the client's own anchors for frame.name
 local nameStyle = {}  -- frame -> the style key those anchors are laid out for
+local nameJustify = {} -- frame -> the client's own horizontal justification
 
 -- Is the name currently hung off the role icon? That is the client's own
 -- doing and nothing else's -- we only ever anchor it to the frame -- which
@@ -415,6 +498,8 @@ local function ApplyNamePoints(frame, points, style)
         end
         name:SetPoint(point, relativeTo, relativePoint, x, y)
     end
+    local justify = style and style.nameCenter and "CENTER" or nameJustify[frame]
+    if justify then name:SetJustifyH(justify) end
 end
 
 local function SetNameLayout(frame, key, style)
@@ -438,6 +523,10 @@ local function SetNameLayout(frame, key, style)
     local fresh = NameHangsOffIcon(frame)
     if fresh then
         if name:GetNumPoints() == 0 then return end
+        -- Justification is captured once, not on every re-layout: the client
+        -- re-anchors without re-justifying, so a later read could be our own
+        -- CENTER coming back.
+        if not nameJustify[frame] then nameJustify[frame] = name:GetJustifyH() end
         local points = {}
         for i = 1, name:GetNumPoints() do
             local point, relativeTo, relativePoint, x, y = name:GetPoint(i)
@@ -483,7 +572,8 @@ end
 
 -- The role icon for a frame's unit, or nil when we have nothing to say about
 -- them: no unit, not a player, no role, or a saved role id that no longer
--- resolves. Auto-assignment writes a scanned spec into the same store a hand
+-- resolves. Second return is the role's wow role ("tank"/"healer"/"dps"), for
+-- the outline. Auto-assignment writes a scanned spec into the same store a hand
 -- pick uses (TalentScanning.lua), so both arrive here as one lookup.
 local function RoleIconFor(unit, style)
     if not (unit and UnitExists(unit) and UnitIsPlayer(unit)) then return nil end
@@ -498,7 +588,7 @@ local function RoleIconFor(unit, style)
     local roleId = key and WhoDoesWhat:GetAssignedRole(key)
     if roleId then
         local _, role = WhoDoesWhat:FindRoleById(roleId)
-        if role and role.icon then return role.icon end
+        if role and role.icon then return role.icon, role.wowRole end
     end
     -- Nothing on the board for them -- a raider without the addon, or one
     -- nobody has placed yet. A band marks them unknown; the corner style stands
@@ -510,7 +600,7 @@ end
 -- Draw and release
 -- ---------------------------------------------------------------------------
 
-local function Draw(frame, icon, key, style, bandHeight)
+local function Draw(frame, icon, key, style, bandHeight, outline)
     local roleIcon = frame.roleIcon
     local texture = IconTexture(frame)
     local cornerSize
@@ -522,13 +612,20 @@ local function Draw(frame, icon, key, style, bandHeight)
         -- worse than simply stopping at the whole icon.
         local width = math.min(style.width, bandHeight)
         local corner = style.side == "RIGHT" and "TOPRIGHT" or "TOPLEFT"
-        texture:SetPoint(corner, frame.healthBar, corner, 0, 0)
-        texture:SetSize(width, bandHeight)
+        -- An outline wraps the band from inside its own footprint: the icon
+        -- steps in by both hairlines on every side, and SetBandEdge fills the
+        -- gap it leaves.
+        local inset = outline and OUTLINE_WIDTH * 2 or 0
+        local height = bandHeight - inset * 2
+        width = width - inset * 2
+        texture:SetPoint(corner, frame.healthBar, corner,
+            corner == "TOPRIGHT" and -inset or inset, -inset)
+        texture:SetSize(width, height)
         WhoDoesWhat:SetRoleIconTexture(texture, icon)
         -- Trim first, mask second: the mask narrows whatever rect it finds, so
         -- the other way round would crop the band out of the bevel.
         TrimIconBorder(texture)
-        MaskToWidth(texture, width, bandHeight)
+        MaskToWidth(texture, width, height)
     else
         -- Sit where the client put its own icon, at our scale. Read, never
         -- written: its geometry stays its own, which is what makes these
@@ -542,7 +639,8 @@ local function Draw(frame, icon, key, style, bandHeight)
             texture:Hide()
             return
         end
-        local ring = style.circle and RING_WIDTH or 0
+        local ring = style.circle
+            and (RING_WIDTH + (outline and OUTLINE_WIDTH or 0)) or 0
         texture:SetPoint(point, relativeTo or frame, relativePoint,
             CornerOffset(x, theirSize, size, ring),
             CornerOffset(y, theirSize, size, ring))
@@ -557,9 +655,9 @@ local function Draw(frame, icon, key, style, bandHeight)
     -- undone by them -- but it has to be taken off again for a band, since
     -- this texture is pooled across styles.
     SetCircleMask(texture, style.circle and true or false)
-    SetCornerRing(frame, style, texture, cornerSize)
+    SetCornerRing(frame, style, texture, cornerSize, outline)
     SetFade(texture, style)
-    SetBandEdge(frame, style)
+    SetBandEdge(frame, style, outline)
     SetNameLayout(frame, key, style)
     texture:Show()
     -- The client's icon goes invisible, not away: it keeps its size, its
@@ -568,6 +666,7 @@ local function Draw(frame, icon, key, style, bandHeight)
     roleIcon:SetAlpha(0)
     taken[frame] = true
     shown[frame] = icon
+    outlined[frame] = outline
 end
 
 -- Give the corner straight back. Nothing here depends on the client redrawing
@@ -577,10 +676,13 @@ local function Release(frame)
     if not taken[frame] then return end
     taken[frame] = nil
     shown[frame] = nil
+    outlined[frame] = nil
     local texture = icons[frame]
     if texture then texture:Hide() end
     local ring = rings[frame]
     if ring then ring:Hide() end
+    local outline = outlines[frame]
+    if outline then outline:Hide() end
     SetBandEdge(frame, nil)
     SetNameLayout(frame, "corner", nil)
     if frame.roleIcon then frame.roleIcon:SetAlpha(1) end
@@ -601,9 +703,11 @@ local function OnUpdateRoleIcon(frame)
     if not (frame and frame.roleIcon) then return end
     frames[frame] = true
     local key, style, bandHeight = StyleFor(frame)
-    local icon = Enabled() and RoleIconFor(frame.unit, style)
+    local icon, wowRole
+    if Enabled() then icon, wowRole = RoleIconFor(frame.unit, style) end
     if icon then
-        Draw(frame, icon, key, style, bandHeight)
+        Draw(frame, icon, key, style, bandHeight,
+            style.outline and OutlineFor(wowRole) or nil)
         styleOf[frame] = key
     else
         Release(frame)
@@ -631,13 +735,18 @@ local function Sweep()
     for frame in pairs(frames) do
         if frame.roleIcon and frame.unit and frame:IsVisible() then
             local key, style, bandHeight = StyleFor(frame)
-            local icon = enabled and RoleIconFor(frame.unit, style) or nil
+            local icon, wowRole
+            if enabled then icon, wowRole = RoleIconFor(frame.unit, style) end
+            local outline = icon and style.outline and OutlineFor(wowRole) or nil
             -- The style counts as a change too. Comparing the icon alone meant
             -- switching style repainted nothing at all: the same player still
-            -- resolves to the same icon, so every frame looked untouched.
-            if icon ~= shown[frame] or (icon and key or nil) ~= styleOf[frame] then
+            -- resolves to the same icon, so every frame looked untouched. The
+            -- outline likewise, for a toggled outline setting or a role swap
+            -- that keeps the same icon.
+            if icon ~= shown[frame] or (icon and key or nil) ~= styleOf[frame]
+                or outline ~= outlined[frame] then
                 if icon then
-                    Draw(frame, icon, key, style, bandHeight)
+                    Draw(frame, icon, key, style, bandHeight, outline)
                     styleOf[frame] = key
                 else
                     Release(frame)

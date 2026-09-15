@@ -478,6 +478,12 @@ local defaults = {
             -- "bandRight"/"bandRightFaded" mirror the two onto the health
             -- bar's other edge. See RaidFrameExtensions.lua.
             raidFrameRoleIconStyle = "corner",
+            -- "corner", "band" and "bandRight" only: a role-coloured outline
+            -- on the icon's dark edge -- blue tanks and green healers, and red
+            -- DPS under the separate switch so the most common role can stay
+            -- unpainted.
+            raidFrameRoleOutline = false,
+            raidFrameRoleOutlineDps = false,
             -- Also append the roster hover summary (paladin blessing talents,
             -- warlock healthstone) to that tooltip. Off by default: it is
             -- several lines, and most hovers do not want them.
