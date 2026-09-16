@@ -523,6 +523,16 @@ for _, imbue in ipairs(WhoDoesWhat.ShamanImbues or {}) do
     for _, id in ipairs(imbue.enchantIDs) do imbueByEnchant[id] = imbue end
 end
 
+-- Whether a shaman is in your party -- your raid subgroup, or the whole group
+-- outside a raid -- the same scope the Shout Bar counts warriors in.
+local function PartyHasShaman()
+    local party = Assign.PartyNames()
+    for _, name in ipairs(Assign.MembersOfClass("Shaman")) do
+        if not party or party[name] then return true end
+    end
+    return false
+end
+
 local function ApplyPick(entry, pick)
     if not pick then return end
     entry.useItem = pick
@@ -783,7 +793,11 @@ local function CollectEntries()
                 entry.bare = true
                 entry.name = weapon.name .. ": No Enchant"
                 entry.windfury = enchanted and windfuryEnchants[state[3]] == true
-                entry.has = not enchanted or entry.windfury
+                -- Windfury Totem reaches the shaman's party and no further, like
+                -- a shout: with no shaman in yours, a bare weapon waits for
+                -- nothing, so it reads as wrong until Windfury is actually on.
+                entry.noShaman = not entry.windfury and not PartyHasShaman()
+                entry.has = entry.windfury or (not enchanted and not entry.noShaman)
             else
                 entry.name = weapon.name .. " Enchant"
                 entry.has = enchanted
@@ -1277,7 +1291,13 @@ end
 
 local function ShowTooltip(btn)
     local entry = btn.entry
-    if not entry or AnyPickerShown() then return end
+    if not entry then return end
+    -- A pop-out open over the grid wants the space: no tooltip, and not one
+    -- left behind from before it opened.
+    if AnyPickerShown() then
+        if GameTooltip:GetOwner() == btn then GameTooltip:Hide() end
+        return
+    end
     GameTooltip:SetOwner(btn, "ANCHOR_NONE")
     GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
     GameTooltip:SetText((entry.forPet and "Pet: " or "") .. entry.name, 1, 1, 1)
@@ -1295,8 +1315,14 @@ local function ShowTooltip(btn)
             GameTooltip:AddLine("Windfury is on it.", 0.3, 1, 0.3)
         elseif entry.enchanted then
             GameTooltip:AddLine("Has an enchant, so Windfury can't land.", 1, 0.3, 0.3)
+        elseif entry.noShaman then
+            GameTooltip:AddLine("Bare, but no shaman in your party to Windfury it.",
+                1, 0.3, 0.3)
         else
             GameTooltip:AddLine("Bare, ready for Windfury.", 0.3, 1, 0.3)
+        end
+        if entry.noShaman and entry.enchanted then
+            GameTooltip:AddLine("No shaman in your party either.", 1, 0.3, 0.3)
         end
     elseif entry.slot then
         if entry.enchanted then
@@ -1709,7 +1735,7 @@ local function CreateButton(index)
             end
         end
         -- Pickers open and close in the secure snippet (SWAP_TOGGLE_SNIPPET).
-        if entry.pick then GameTooltip:Hide() end
+        if entry.pick or entry.swap then GameTooltip:Hide() end
     end)
     btn:Hide()
     frame.buttons[index] = btn
