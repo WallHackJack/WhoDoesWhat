@@ -2648,6 +2648,29 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         function(value) checklistSettings().buffChecklistIconSize = value end,
         function() WhoDoesWhat:RefreshBuffChecklist() end)
 
+    local checklistSpacingLabel, checklistSpacingDD
+    checklistSpacingLabel, checklistSpacingDD, yL = AddDropdownRow(checklistPage, yL,
+        "Spacing:", "WhoDoesWhatBuffChecklistSpacingDD")
+    UIDropDownMenu_Initialize(checklistSpacingDD, function(_, level)
+        local saved = WhoDoesWhat:GetBuffChecklistSpacing()
+        for _, spacing in ipairs(WhoDoesWhat.BuffChecklistSpacings) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = spacing.label
+            info.checked = saved == spacing
+            info.func = function()
+                checklistSettings().buffChecklistSpacing = spacing.key
+                UIDropDownMenu_SetText(checklistSpacingDD, spacing.label)
+                WhoDoesWhat:RefreshBuffChecklist()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    UI.AddDropdownTooltip(checklistSpacingDD, checklistSpacingLabel, "Spacing",
+        "How tightly the checklist packs: the gap between icons, the padding"
+        .. " around them, and the size of the pet divider. Compact makes the"
+        .. " smallest checklist.")
+    f.checklistSpacingDD = checklistSpacingDD
+
     f.checklistHeaderCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, "Show header",
         "Puts a \"Buff Checklist\" title strip across the top. Alt-drag it to"
@@ -3012,6 +3035,8 @@ function LoadSettings(f)
         self:GetBuffChecklistPopoutDirection().label)
     f.RefreshChecklistColumns()
     f.RefreshChecklistIconSize()
+    UIDropDownMenu_SetText(f.checklistSpacingDD,
+        self:GetBuffChecklistSpacing().label)
     f.SetChecklistControlsEnabled(settings.buffChecklistEnabled and true or false)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)

@@ -55,7 +55,7 @@ local swapMenu = nil
 local divider = nil
 
 local INSET = 3
-local PAD = 3
+-- The pop-out menus' icon gap; the grid's own comes from the spacing preset.
 local GAP = 4
 -- The optional header strip, the Paladin Bar's height and colour.
 local TITLE_H = 12
@@ -122,6 +122,27 @@ end
 function WhoDoesWhat:GetBuffChecklistColumns()
     return Clamp(self.db.profile.settings.buffChecklistColumns,
         self.BUFF_CHECKLIST_COLUMNS)
+end
+
+-- How tightly the grid packs, as three presets: the padding inside the frame
+-- edge, the gap between icons, and the pet divider's height, label font size
+-- (nil: GameFontNormalSmall as it comes) and arrow. Roomy is the original
+-- layout.
+WhoDoesWhat.BuffChecklistSpacings = {
+    { key = "roomy",   label = "Roomy",   pad = 3, gap = 4, dividerH = 14,
+      dividerFont = nil, arrow = 10 },
+    { key = "snug",    label = "Snug",    pad = 2, gap = 2, dividerH = 11,
+      dividerFont = 9, arrow = 8 },
+    { key = "compact", label = "Compact", pad = 1, gap = 1, dividerH = 9,
+      dividerFont = 7, arrow = 6 },
+}
+
+function WhoDoesWhat:GetBuffChecklistSpacing()
+    local saved = self.db.profile.settings.buffChecklistSpacing
+    for _, spacing in ipairs(self.BuffChecklistSpacings) do
+        if spacing.key == saved then return spacing end
+    end
+    return self.BuffChecklistSpacings[1]
 end
 
 -- ---------------------------------------------------------------------------
@@ -1985,21 +2006,18 @@ end
 -- collapses the pet's icons away (per character), leaving the count. An
 -- ordinary frame, so it repaints in combat; the collapse itself moves secure
 -- buttons, so it lands when the fight ends.
-local DIVIDER_H = 14
-local DIVIDER_ARROW = 10
+-- Its height, label size and arrow come from the spacing preset
+-- (SizeDivider).
 local DIVIDER_LINE_MIN = 10
 
 local function EnsureDivider()
     if divider then return divider end
     divider = CreateFrame("Button", nil, frame)
-    divider:SetHeight(DIVIDER_H)
     divider:RegisterForClicks("LeftButtonUp")
 
     local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    label:SetPoint("CENTER", DIVIDER_ARROW / 2, 0)
     divider.label = label
     local arrow = divider:CreateTexture(nil, "ARTWORK")
-    arrow:SetSize(DIVIDER_ARROW, DIVIDER_ARROW)
     arrow:SetPoint("RIGHT", label, "LEFT", -3, 0)
     divider.arrow = arrow
 
@@ -2036,6 +2054,21 @@ local function EnsureDivider()
     UI.AttachDrag(divider, frame)
     divider:Hide()
     return divider
+end
+
+-- Fit the divider to a spacing preset: its height, the label's font size, and
+-- the arrow, which the label is offset by so the pair stays centred.
+local function SizeDivider(spacing)
+    divider:SetHeight(spacing.dividerH)
+    if spacing.dividerFont then
+        local font, _, flags = GameFontNormalSmall:GetFont()
+        divider.label:SetFont(font or FALLBACK_FONT, spacing.dividerFont, flags)
+    else
+        divider.label:SetFontObject(GameFontNormalSmall)
+    end
+    divider.label:ClearAllPoints()
+    divider.label:SetPoint("CENTER", spacing.arrow / 2, 0)
+    divider.arrow:SetSize(spacing.arrow, spacing.arrow)
 end
 
 -- `pet` is CollectEntries' second return: false for no pet out.
@@ -2161,12 +2194,14 @@ function WhoDoesWhat:RefreshBuffChecklist()
     local f = EnsureFrame()
     f.revealAt = revealAt
     local size = self:GetBuffChecklistIconSize()
+    local spacing = self:GetBuffChecklistSpacing()
+    local pad, gap = spacing.pad, spacing.gap
     local columns = math.max(1, math.min(self:GetBuffChecklistColumns(),
         math.max(#shown, #petLaid)))
     local header = settings.buffChecklistShowHeader and true or false
     f.title:SetShown(header)
     f.titleBg:SetShown(header)
-    local y = INSET + (header and (TITLE_H + 2) or PAD)
+    local y = INSET + (header and (TITLE_H + 2) or pad)
     local right = self:GetBuffChecklistAlign() == "RIGHT"
 
     -- One grid block, starting at y; the button pool runs straight on through
@@ -2178,39 +2213,40 @@ function WhoDoesWhat:RefreshBuffChecklist()
             local btn = f.buttons[used] or CreateButton(used)
             SizeButton(btn, size)
             local col, row = (i - 1) % columns, math.floor((i - 1) / columns)
-            local by = -(y + row * (size + GAP))
+            local by = -(y + row * (size + gap))
             btn:ClearAllPoints()
             if right then
                 -- Mirrored: the first icon takes the top-right corner and
                 -- rows fill leftwards, so a short last row hugs the right.
                 btn:SetPoint("TOPRIGHT", f, "TOPRIGHT",
-                    -(INSET + PAD + col * (size + GAP)), by)
+                    -(INSET + pad + col * (size + gap)), by)
             else
                 btn:SetPoint("TOPLEFT", f, "TOPLEFT",
-                    INSET + PAD + col * (size + GAP), by)
+                    INSET + pad + col * (size + gap), by)
             end
             btn:Show()
             PaintButton(btn, entry)
         end
         local rows = math.ceil(#list / columns)
-        if rows > 0 then y = y + rows * (size + GAP) - GAP end
+        if rows > 0 then y = y + rows * (size + gap) - gap end
     end
 
     PlaceGrid(shown)
     local dividerW = 0
     if showDivider then
-        if #shown > 0 then y = y + GAP end
+        if #shown > 0 then y = y + gap end
         local d = EnsureDivider()
+        SizeDivider(spacing)
         d:ClearAllPoints()
-        d:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + PAD, -y)
-        d:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET + PAD), -y)
+        d:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + pad, -y)
+        d:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET + pad), -y)
         PaintDivider(pet, collapsed)
         d:Show()
-        y = y + DIVIDER_H
-        dividerW = INSET * 2 + PAD * 2 + math.ceil(d.label:GetStringWidth())
-            + DIVIDER_ARROW + 7 + DIVIDER_LINE_MIN * 2
+        y = y + spacing.dividerH
+        dividerW = INSET * 2 + pad * 2 + math.ceil(d.label:GetStringWidth())
+            + spacing.arrow + 7 + DIVIDER_LINE_MIN * 2
         if #petLaid > 0 then
-            y = y + GAP
+            y = y + gap
             PlaceGrid(petLaid)
         end
     elseif divider then
@@ -2225,13 +2261,13 @@ function WhoDoesWhat:RefreshBuffChecklist()
     end
     -- A grid narrower than the header's name or the divider's label widens to
     -- fit it; the icons stay against the aligned edge.
-    local width = INSET * 2 + PAD * 2 + columns * size + (columns - 1) * GAP
+    local width = INSET * 2 + pad * 2 + columns * size + (columns - 1) * gap
     if header then
         width = math.max(width, INSET * 2
             + math.ceil(f.title.text:GetStringWidth()) + TITLE_TEXT_PAD * 2)
     end
     width = math.max(width, dividerW)
-    f:SetSize(width, y + PAD + INSET)
+    f:SetSize(width, y + pad + INSET)
     f:Show()
     if not f.moving then LoadPosition() end
 
@@ -2243,7 +2279,7 @@ end
 local RESET_SETTINGS = {
     "buffChecklistEnabled", "buffChecklistColumns", "buffChecklistIconSize",
     "buffChecklistHideHave", "buffChecklistAlign", "buffChecklistShowHeader",
-    "buffChecklistPopoutDirection",
+    "buffChecklistPopoutDirection", "buffChecklistSpacing",
     "buffChecklistHideOthersHave", "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
     "buffChecklistGlowMissingColor", "buffChecklistGlowExpiringColor",
 }

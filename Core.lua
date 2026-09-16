@@ -603,6 +603,9 @@ local defaults = {
             buffChecklistEnabled = false,
             buffChecklistColumns = 6,
             buffChecklistIconSize = 28,
+            -- How tightly the grid packs: "roomy", "snug" or "compact"
+            -- (BuffChecklistSpacings).
+            buffChecklistSpacing = "roomy",
             buffChecklistHideHave = false,
             -- Narrower: hide only done buffs another class casts on you.
             buffChecklistHideOthersHave = true,
