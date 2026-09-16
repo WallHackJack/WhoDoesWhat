@@ -745,6 +745,25 @@ local function CollectEntries()
         end
     end
 
+    -- A mage's mana gem: the highest one this mage can conjure, in the bags
+    -- or not. Right-click conjures it; the corner counts its charges.
+    if class == "MAGE" then
+        local gem
+        for _, known in ipairs(WhoDoesWhat.ManaGems) do
+            if GetSpellInfo(known.name) then gem = known end
+        end
+        if gem then
+            local charges = GetItemCount(gem.itemId, false, true)
+            entries[#entries + 1] = {
+                id = "self:manaGem", key = "manaGem", name = ItemName(gem.itemId),
+                icon = GetItemIcon(gem.itemId) or gem.icon, selfSupplied = true,
+                castSpell = gem.name, gem = gem,
+                useItem = gem.itemId, useCount = charges,
+                has = charges > 0, missing = charges == 0,
+            }
+        end
+    end
+
     local consumables = ActiveConsumables(buffs)
     local petConsumables = pet and ActiveConsumables((OwnBuffs("pet"))) or {}
     -- `forPet` builds the pet's copy of a slot: its own pick (slot.petKey),
@@ -1370,6 +1389,13 @@ local function ShowTooltip(btn)
             end
         else
             GameTooltip:AddLine("No enchant.", 1, 0.3, 0.3)
+        end
+    elseif entry.gem then
+        if entry.has then
+            GameTooltip:AddLine(string.format("In your bags, %d charge%s.",
+                entry.useCount, entry.useCount == 1 and "" or "s"), 0.3, 1, 0.3)
+        else
+            GameTooltip:AddLine("Not in your bags.", 1, 0.3, 0.3)
         end
     elseif entry.has == nil then
         GameTooltip:AddLine("Not scanned yet.", 0.6, 0.6, 0.6)

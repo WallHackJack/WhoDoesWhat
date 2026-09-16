@@ -425,6 +425,25 @@ WhoDoesWhat.InnerFire = {
     icon = GetSpellTexture(588),
 }
 
+-- A mage's mana gems, lowest first: the conjure spell and the gem it makes.
+-- The Buff Checklist tracks the highest one this mage can conjure.
+WhoDoesWhat.ManaGems = {
+    { spellId = 759,   itemId = 5514 },  -- Conjure Mana Agate
+    { spellId = 3552,  itemId = 5513 },  -- Conjure Mana Jade
+    { spellId = 10053, itemId = 8007 },  -- Conjure Mana Citrine
+    { spellId = 10054, itemId = 8008 },  -- Conjure Mana Ruby
+    { spellId = 27101, itemId = 22044 }, -- Conjure Mana Emerald (TBC)
+}
+do
+    local known = {}
+    for _, gem in ipairs(WhoDoesWhat.ManaGems) do
+        gem.name = GetSpellInfo(gem.spellId)
+        gem.icon = GetSpellTexture(gem.spellId)
+        if gem.name then known[#known + 1] = gem end
+    end
+    WhoDoesWhat.ManaGems = known
+end
+
 -- Shadowform: a Shadow talent, and lost on death like Inner Fire.
 WhoDoesWhat.Shadowform = {
     spellId = 15473,
