@@ -724,7 +724,7 @@ local function RefreshGrid(f)
             -- is drawn once, in the battle column; its guardian cell stays
             -- empty rather than repeating it.
             local elixirSpell, isFlask, elixirItem
-            if (buff.elixirCategory or key == "food") and has == true then
+            if (buff.elixirCategory or buff.itemSpells) and has == true then
                 elixirSpell, isFlask, elixirItem = WhoDoesWhat:GetElixirSpell(m.name, key)
             end
             cell.elixirSpell = elixirSpell

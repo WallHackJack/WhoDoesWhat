@@ -407,6 +407,70 @@ WhoDoesWhat.WeaponEnchantItems = {
     21835,
 }
 
+-- Buff food for the Buff Checklist's food picker, by item id: the raid-worthy
+-- ones from Wowhead's consumables guides. Curated rather than read off the
+-- tooltip, which took English text, loaded item data, and the words "well fed"
+-- (Skullfish Soup says "enlightened" instead). Classic's list works on both
+-- clients; TBC's is added on TBC.
+WhoDoesWhat.BuffFoodItems = {
+    13928, -- Grilled Squid
+    20452, -- Smoked Desert Dumplings
+    13931, -- Nightfin Soup
+    18254, -- Runn Tum Tuber Surprise
+    21023, -- Dirge's Kickin' Chimaerok Chops
+    13813, -- Blessed Sunfruit Juice
+    13810, -- Blessed Sunfruit
+}
+-- Drinks whose buff is an alcohol slot of its own on Classic Era. On TBC they
+-- compete with food instead, so there they join the food list.
+WhoDoesWhat.AlcoholItems = {
+    18284, -- Kreeg's Stout Beatdown
+    18269, -- Gordok Green Grog
+    21151, -- Rumsey Rum Black Label
+    17048, -- Rumsey Rum
+    21114, -- Rumsey Rum Dark
+}
+-- Consumed instantly, so their buff is their use-spell rather than "Well Fed":
+-- the food check matches these by spell id (BuffTracking's `itemSpells`).
+-- On TBC the drinks join them.
+local INSTANT_FOOD_ITEMS = {
+    13813, -- Blessed Sunfruit Juice
+    13810, -- Blessed Sunfruit
+}
+WhoDoesWhat.TBCBuffFoodItems = {
+    33052, -- Fisherman's Feast
+    27667, -- Spicy Crawdad
+    27660, -- Talbuk Steak
+    34411, -- Hot Apple Cider
+    27651, -- Buzzard Bites
+    30155, -- Clam Bar
+    31672, -- Mok'Nathal Shortribs
+    27662, -- Feltail Delight
+    27666, -- Golden Fish Sticks
+    27657, -- Blackened Basilisk
+    31673, -- Crunchy Serpent
+    27665, -- Poached Bluefish
+    27655, -- Ravager Dog
+    27664, -- Grilled Mudfish
+    27659, -- Warp Burger
+    27658, -- Roasted Clefthoof
+    33872, -- Spicy Hot Talbuk
+    33825, -- Skullfish Soup
+    27663, -- Blackened Sporefish
+    33867, -- Broiled Bloodfin
+    33866, -- Stormchops
+}
+if not features.isClassicEra then
+    local food = WhoDoesWhat.BuffFoodItems
+    for _, id in ipairs(WhoDoesWhat.TBCBuffFoodItems) do
+        food[#food + 1] = id
+    end
+    for _, id in ipairs(WhoDoesWhat.AlcoholItems) do
+        food[#food + 1] = id
+        INSTANT_FOOD_ITEMS[#INSTANT_FOOD_ITEMS + 1] = id
+    end
+end
+
 -- Battle and guardian elixirs for the Buff Checklist's two elixir pickers, by
 -- item id, TBC only: Classic Era has no elixir categories to fill. A flask
 -- fills both slots, so it is offered in both lists and its aura satisfies
@@ -422,8 +486,7 @@ WhoDoesWhat.WeaponEnchantItems = {
 -- Unstable Flasks.
 if not features.isClassicEra then
     -- Pet food that leaves a hunter's pet Well Fed (Kibler's Bits, Sporeling
-    -- Snack), for the pet section's food picker. Kept off the player's own
-    -- food list, whose tooltip scan would otherwise pick them up too.
+    -- Snack), for the pet section's food picker.
     WhoDoesWhat.PetBuffFoodItems = { 33874, 27656 }
     WhoDoesWhat.ElixirItems = {
         battle = {
@@ -530,6 +593,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         description = "Provides a Well Fed stat bonus from food.",
         icon = 136000, -- Spell_Misc_Food
         auraNames = { "Well Fed", "Enlightened" }, -- Enlightened: TBC Skullfish Soup
+        itemSpells = INSTANT_FOOD_ITEMS,
         colorRGB = { r = 1, g = 0.82, b = 0 },
         defaultHunterPets = not features.isClassicEra,
         -- Nobody casts this one for you, so "Glow when responsible" has no
@@ -770,6 +834,24 @@ if WhoDoesWhat.ElixirItems then
         hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
     }
 end
+-- Classic Era's alcohol slot: one drink buff at a time, stacking with food (on
+-- TBC the drinks count as food instead). Each drink's buff is its use-spell.
+if features.isClassicEra then
+    WhoDoesWhat.StatusBarChecks.alcohol = {
+        name = "Alcohol Buff",
+        description = "Shows who has a drink buff up: Kreeg's Stout Beatdown,"
+            .. " Gordok Green Grog or Rumsey Rum.",
+        icon = (GetItemIcon or C_Item.GetItemIconByID)(21151), -- Rumsey Rum Black Label
+        itemSpells = WhoDoesWhat.AlcoholItems,
+        colorRGB = { r = 0.80, g = 0.52, b = 0.20 },
+        selfSupplied = true,
+        -- Like the elixirs: nobody drinks one for you.
+        hiddenOptions = {
+            onlyManaUsers = true, onlyTanks = true, hunterPets = true,
+            flagOutsideRaid = true,
+        },
+    }
+end
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.drumsUsed = {
         name = "Tinnitus (drums)",
@@ -798,6 +880,9 @@ end
 
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "thorns"
 WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "food"
+if WhoDoesWhat.StatusBarChecks.alcohol then
+    WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "alcohol"
+end
 if WhoDoesWhat.ElixirItems then
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "battleElixir"
     WhoDoesWhat.StatusBarCheckOrder[#WhoDoesWhat.StatusBarCheckOrder + 1] = "guardianElixir"

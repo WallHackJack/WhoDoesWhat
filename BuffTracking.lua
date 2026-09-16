@@ -68,7 +68,9 @@ local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 -- Agility's are all "Agility"), and one flask fills both the battle and the
 -- guardian row. Each listed item's use-spell is its aura. An item the client
 -- hasn't loaded yet has no spell to give, so it is asked for and the map is
--- rebuilt when it arrives (GET_ITEM_INFO_RECEIVED below).
+-- rebuilt when it arrives (GET_ITEM_INFO_RECEIVED below). A check's
+-- `itemSpells` does the same for things consumed instantly, whose buff is
+-- their use-spell: Blessed Sunfruit and the drinks.
 --
 -- `flaskSpells` marks the flasks among them, for the grid: it draws a flask
 -- once, in the battle column. `elixirItems` is the item each spell came from,
@@ -103,6 +105,7 @@ local function BuildNameMap()
             AddElixirSpells(key, WhoDoesWhat.ElixirItems[check.elixirCategory])
             AddElixirSpells(key, WhoDoesWhat.ElixirItems.flask, true)
         end
+        AddElixirSpells(key, check.itemSpells)
     end
     -- Nil when there is nothing to match, so the scan skips the lookup.
     if not next(spellIdToKeys) then spellIdToKeys = nil end

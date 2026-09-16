@@ -216,7 +216,6 @@ local GetItemInfo = GetItemInfo or C_Item.GetItemInfo
 local GetItemIcon = GetItemIcon or C_Item.GetItemIconByID
 local GetItemCount = GetItemCount or C_Item.GetItemCount
 local GetItemSpell = GetItemSpell or C_Item.GetItemSpell
-local ITEM_CLASS_CONSUMABLE = 0
 local ITEM_CLASS_WEAPON = 2
 local WINDFURY_ICON = "Interface\\Icons\\Spell_Nature_Windfury"
 
@@ -264,22 +263,6 @@ local function TooltipContains(setter, needle)
     return false
 end
 
--- Food that makes you Well Fed, as opposed to food that only heals. Nothing in
--- the item data tells them apart, so it is read off the tooltip once per item.
-local buffFood = {}
-local function IsBuffFood(id, bag, slot)
-    if buffFood[id] == nil then
-        local _, _, _, _, _, classID = GetItemInfoInstant(id)
-        if classID ~= ITEM_CLASS_CONSUMABLE or not GetItemSpell(id) then
-            buffFood[id] = false
-        else
-            buffFood[id] = TooltipContains(function(tip)
-                tip:SetBagItem(bag, slot)
-            end, "well fed")
-        end
-    end
-    return buffFood[id] == true
-end
 
 -- The consumable slots that fill from an aura: two elixir slots (TBC only;
 -- ElixirItems is nil on Classic Era), whose pickers list their own category
@@ -420,12 +403,21 @@ local SWAPPERS = {
     },
 }
 
-local petFoodItems = {}
-for _, id in ipairs(WhoDoesWhat.PetBuffFoodItems or {}) do petFoodItems[id] = true end
+-- Item id sets for the food, pet food and alcohol pickers.
+local function ItemSet(ids)
+    local set = {}
+    for _, id in ipairs(ids or {}) do set[id] = true end
+    return set
+end
+local pickerItems = {
+    food = ItemSet(WhoDoesWhat.BuffFoodItems),
+    petFood = ItemSet(WhoDoesWhat.PetBuffFoodItems),
+    alcohol = ItemSet(WhoDoesWhat.AlcoholItems),
+}
 
 -- Distinct item ids in your bags a picker offers, by name. `kind` is "food",
--- "petFood", an elixir slot key, or a weapon slot key for the weapon enchant
--- list.
+-- "petFood", "alcohol", an elixir slot key, or a weapon slot key for the
+-- weapon enchant list.
 --
 -- The bags themselves are walked once and kept (bagItems) until they change:
 -- every picker is refilled on every refresh, and walking every slot once per
@@ -452,10 +444,8 @@ local function BagChoices(kind)
     for _, item in ipairs(BagItems()) do
         local id = item.id
         local wanted
-        if kind == "petFood" then
-            wanted = petFoodItems[id]
-        elseif kind == "food" then
-            wanted = not petFoodItems[id] and IsBuffFood(id, item.bag, item.slot)
+        if pickerItems[kind] then
+            wanted = pickerItems[kind][id]
         elseif consumableChoices[kind] then
             wanted = consumableChoices[kind][id]
         else
@@ -516,7 +506,7 @@ end
 local function EntryGroup(entry)
     if entry.swap or entry.castSpell then return 1 end
     if entry.slot then return 2 end
-    if entry.key == "food" then return 3 end
+    if entry.key == "food" or entry.key == "alcohol" then return 3 end
     if entry.id:find("elixir:", 1, true) then return 4 end
     if entry.id:find("scroll:", 1, true) then return 5 end
     if entry.id:find("blessing:", 1, true) then return 6 end
@@ -551,8 +541,8 @@ end
 -- entry per wielded weapon.
 --
 -- Extra fields on those entries:
---   pick      "food" / "petFood" / an elixir slot key / "mainHand" /
---             "offHand": left-click opens a picker
+--   pick      "food" / "petFood" / "alcohol" / an elixir slot key /
+--             "mainHand" / "offHand": left-click opens a picker
 --   pickNoun, useVerb   how the tooltip names the pick and its right-click
 --   useItem   the picked item id, useCount how many are in your bags
 --   activeName          the elixir or flask on you, when it isn't the pick
@@ -570,6 +560,9 @@ local function CollectEntries()
         if entry.key == "food" then
             entry.pick, entry.pickNoun, entry.useVerb = "food", "food", "Eat"
             ApplyPick(entry, picks.food)
+        elseif entry.key == "alcohol" then
+            entry.pick, entry.pickNoun, entry.useVerb = "alcohol", "drink", "Drink"
+            ApplyPick(entry, picks.alcohol)
         end
     end
 
@@ -845,7 +838,8 @@ function ItemUseAction(entry, itemID)
 end
 
 local PICKER_TITLES = {
-    food = "Food", mainHand = "Main Hand", offHand = "Off Hand",
+    food = "Food", alcohol = "Alcohol",
+    mainHand = "Main Hand", offHand = "Off Hand",
     battleElixir = "Battle Elixir", guardianElixir = "Guardian Elixir",
     petFood = "Pet Food",
     agilityScroll = "Scroll of Agility", strengthScroll = "Scroll of Strength",
@@ -853,7 +847,8 @@ local PICKER_TITLES = {
 }
 -- By the entry's pickNoun.
 local PICKER_EMPTY = {
-    food = "No Well Fed food in your bags.",
+    food = "No buff food in your bags.",
+    drink = "No Kreeg's, Gordok Green Grog or Rumsey Rum in your bags.",
     ["pet food"] = "No Kibler's Bits or Sporeling Snacks in your bags.",
     scroll = "No scrolls of this kind in your bags.",
     elixir = "No elixirs or flasks for this slot in your bags.",
