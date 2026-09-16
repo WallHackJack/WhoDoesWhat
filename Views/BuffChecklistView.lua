@@ -219,14 +219,20 @@ local GetItemSpell = GetItemSpell or C_Item.GetItemSpell
 local ITEM_CLASS_WEAPON = 2
 local WINDFURY_ICON = "Interface\\Icons\\Spell_Nature_Windfury"
 
--- hand is GetWeaponEnchantInfo's / CancelItemTempEnchantment's 1 or 2.
+-- hand is GetWeaponEnchantInfo's 1 or 2; slot is the inventory slot, which the
+-- secure "cancelaura" action takes as target-slot.
 local WEAPON_SLOTS = {
     { key = "mainHand", slot = 16, hand = 1, name = "Main Hand" },
     { key = "offHand", slot = 17, hand = 2, name = "Off Hand" },
 }
 
-local weaponItems = {}
-for _, id in ipairs(WhoDoesWhat.WeaponEnchantItems) do weaponItems[id] = true end
+-- Item id -> true for the weapon pickers, and the enchant id each puts on a
+-- weapon -> its item id.
+local weaponItems, itemByEnchant = {}, {}
+for _, pair in ipairs(WhoDoesWhat.WeaponEnchantItems) do
+    weaponItems[pair[1]] = true
+    itemByEnchant[pair[2]] = pair[1]
+end
 
 local function Picks()
     return WhoDoesWhat.db.char.buffChecklistItems
@@ -470,6 +476,12 @@ end
 local windfuryEnchants = {}
 for _, id in ipairs(WhoDoesWhat.WindfuryEnchantIDs) do windfuryEnchants[id] = true end
 
+-- Enchant id -> the shaman imbue it is.
+local imbueByEnchant = {}
+for _, imbue in ipairs(WhoDoesWhat.ShamanImbues or {}) do
+    for _, id in ipairs(imbue.enchantIDs) do imbueByEnchant[id] = imbue end
+end
+
 local function ApplyPick(entry, pick)
     if not pick then return end
     entry.useItem = pick
@@ -709,6 +721,21 @@ local function CollectEntries()
                 elseif type(pick) == "number" then
                     ApplyPick(entry, pick)
                 end
+                -- What is on the weapon shows as itself, and glows when it
+                -- isn't the pick: a second Flametongue lands on the off hand
+                -- you meant for Windfury, a lesser oil is still running. An
+                -- enchant id we don't list just counts as enchanted.
+                local enchantID = enchanted and state[3]
+                local onImbue = enchantID and imbueByEnchant[enchantID]
+                local onItem = enchantID and itemByEnchant[enchantID]
+                if onImbue then
+                    entry.icon, entry.activeName = onImbue.icon, onImbue.name
+                    entry.otherActive = pick ~= nil and onImbue.key ~= imbueKey
+                elseif onItem then
+                    entry.icon = GetItemIcon(onItem) or entry.icon
+                    entry.activeName = ItemName(onItem)
+                    entry.otherActive = pick ~= nil and onItem ~= pick
+                end
             end
             entry.missing = not entry.has
             entries[#entries + 1] = entry
@@ -923,19 +950,14 @@ local function PickerRow(p, index)
     text:SetWordWrap(false)
     row.text = text
 
-    -- The use is the row's own secure action; this remembers the pick, and a
-    -- right-click on "No enchant" strips the weapon as the icon would.
+    -- The use is the row's own secure action (a right-click on "No enchant"
+    -- strips the weapon, see FillPicker); this remembers the pick.
     row:SetScript("PostClick", function(self, mouseButton, down)
         if down or not self.spec then return end
         Picks()[p.kind] = self.spec.value
         -- Belt and braces on the post body: out of combat, where hiding the
         -- picker is ours to do, it closes whatever the snippet got.
         if not InCombatLockdown() then p:Hide() end
-        local entry = p.entry
-        if mouseButton == "RightButton" and self.spec.value == "none" and entry
-            and entry.hand and entry.enchanted and not entry.windfury then
-            CancelItemTempEnchantment(entry.hand)
-        end
         GameTooltip:Hide()
         WhoDoesWhat:RefreshBuffChecklist()
         if mouseButton == "RightButton" and RequestChecklistRefresh then
@@ -1040,7 +1062,11 @@ local function FillPicker(entry)
     local p = EnsurePicker(entry.pick)
     p.entry = entry
     local specs, empty = PickerSpecs(entry)
-    local parts = { tostring(entry.useUnit), tostring(empty) }
+    -- A right-click on "No enchant" strips the weapon, when there is something
+    -- other than Windfury on it to strip (the secure "cancelaura" action).
+    local stripSlot = entry.hand and entry.enchanted and not entry.windfury
+        and tostring(entry.slot) or nil
+    local parts = { tostring(entry.useUnit), tostring(empty), tostring(stripSlot) }
     for _, spec in ipairs(specs) do
         spec.usable = spec.spell ~= nil
             or (spec.itemID ~= nil and GetItemCount(spec.itemID) > 0)
@@ -1061,8 +1087,11 @@ local function FillPicker(entry)
                 kind, value = "spell", spec.spell.name
             elseif spec.itemID and spec.usable then
                 kind, value = ItemUseAction(entry, spec.itemID)
+            elseif spec.value == "none" and stripSlot then
+                kind, value = "cancelaura", stripSlot
             end
             row:SetAttribute("type2", kind)
+            row:SetAttribute("target-slot2", kind == "cancelaura" and value or nil)
             row:SetAttribute("macrotext2", kind == "macro" and value or nil)
             row:SetAttribute("item2", kind == "item" and value or nil)
             row:SetAttribute("spell2", kind == "spell" and value or nil)
@@ -1138,6 +1167,18 @@ local function CanUse(entry)
         or (entry.useItem ~= nil and (entry.useCount or 0) > 0)
 end
 
+-- Whether a right-click takes the weapon's enchant off rather than using
+-- anything: a weapon kept bare for Windfury with something else on it, or a
+-- shaman imbue picked where another enchant sits (an imbue can't land over
+-- one, so the next right-click casts). Done with the secure "cancelaura"
+-- action -- CancelItemTempEnchantment is protected, and from our own click
+-- scripts it was silently blocked.
+local function StripsEnchant(entry)
+    return entry.hand ~= nil and entry.enchanted
+        and ((entry.bare and not entry.windfury)
+            or (entry.useSpell ~= nil and entry.otherActive))
+end
+
 local function AddTimeLeftLine(btn, prefix)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     if remaining and remaining > 0 then
@@ -1176,7 +1217,12 @@ local function ShowTooltip(btn)
         end
     elseif entry.slot then
         if entry.enchanted then
-            AddTimeLeftLine(btn, "Enchanted")
+            AddTimeLeftLine(btn, entry.activeName
+                and ("On it: " .. entry.activeName) or "Enchanted")
+            if entry.otherActive then
+                local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+                GameTooltip:AddLine("Not the enchant you picked.", c.r, c.g, c.b)
+            end
         else
             GameTooltip:AddLine("No enchant.", 1, 0.3, 0.3)
         end
@@ -1235,11 +1281,10 @@ local function ShowTooltip(btn)
     end
     if entry.pick then
         UI.AddTooltipHint(GameTooltip, "Left-Click:", "Pick " .. noun)
-        if entry.bare then
-            if entry.enchanted and not entry.windfury then
-                UI.AddTooltipHint(GameTooltip, "Right-Click:", "Remove enchant")
-            end
-        elseif CanUse(entry) then
+        if StripsEnchant(entry) then
+            UI.AddTooltipHint(GameTooltip, "Right-Click:", "Remove "
+                .. (entry.activeName or "enchant"))
+        elseif CanUse(entry) and not entry.bare then
             UI.AddTooltipHint(GameTooltip, "Right-Click:", entry.useSpell
                 and ("Cast " .. entry.useSpell)
                 or (entry.useVerb .. " " .. ItemName(entry.useItem)))
@@ -1450,7 +1495,9 @@ end
 local function ConfigureUse(btn, entry)
     if InCombatLockdown() then return end
     local kind, value
-    if entry.castSpell then
+    if StripsEnchant(entry) then
+        kind, value = "cancelaura", tostring(entry.slot)
+    elseif entry.castSpell then
         kind, value = "spell", entry.castSpell
     elseif entry.swap then
         if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
@@ -1471,6 +1518,7 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("item2", kind == "item" and value or nil)
     btn:SetAttribute("spell2", kind == "spell" and value or nil)
     btn:SetAttribute("unit2", kind == "item" and entry.useUnit or nil)
+    btn:SetAttribute("target-slot2", kind == "cancelaura" and value or nil)
     btn:SetAttribute("swapper", entry.swap and true or nil)
     -- A slot with a picker: the snippet opens it on left-click, and on
     -- right-click while there is nothing to use (a bare weapon's right-click
@@ -1539,10 +1587,6 @@ local function CreateButton(index)
         if mouseButton == "RightButton" then
             if IsShiftKeyDown() then
                 WhoDoesWhat:OpenAddonSettingsView("Checklist")
-            elseif entry.bare then
-                if entry.enchanted and not entry.windfury then
-                    CancelItemTempEnchantment(entry.hand)
-                end
             end
         elseif IsShiftKeyDown() then
             if not entry.selfSupplied and (entry.missing or IsExpiring(entry)) then

@@ -324,11 +324,47 @@ WhoDoesWhat.HunterAspects = knownAspects
 -- A shaman's weapon imbues, offered in the Buff Checklist's weapon pickers
 -- beside the oils and stones. Base-rank ids, cast rank-less by name like the
 -- auras above; the view keeps only the ones in your spellbook.
+--
+-- `enchantIDs` are what GetWeaponEnchantInfo reports on the weapon, every
+-- rank, so the checklist can tell which imbue actually landed (a second cast
+-- goes to the off hand whatever you meant). Out of order in places; that's
+-- how the game numbers them. TBC's, from Wowhead and checked in game.
 WhoDoesWhat.ShamanImbues = {
-    { key = "windfury",    spellId = 8232 },
-    { key = "flametongue", spellId = 8024 },
-    { key = "frostbrand",  spellId = 8033 },
-    { key = "rockbiter",   spellId = 8017 },
+    { key = "windfury", spellId = 8232, enchantIDs = {
+        283,  -- Rank 1
+        284,  -- Rank 2
+        525,  -- Rank 3
+        1669, -- Rank 4
+        2636, -- Rank 5
+    } },
+    { key = "flametongue", spellId = 8024, enchantIDs = {
+        5,    -- Rank 1
+        4,    -- Rank 2
+        3,    -- Rank 3
+        523,  -- Rank 4
+        1665, -- Rank 5
+        1666, -- Rank 6
+        2634, -- Rank 7
+    } },
+    { key = "frostbrand", spellId = 8033, enchantIDs = {
+        2,    -- Rank 1
+        12,   -- Rank 2
+        524,  -- Rank 3
+        1667, -- Rank 4
+        1668, -- Rank 5
+        2635, -- Rank 6
+    } },
+    { key = "rockbiter", spellId = 8017, enchantIDs = {
+        3023, -- Rank 1
+        3026, -- Rank 2
+        3028, -- Rank 3
+        3031, -- Rank 4
+        3034, -- Rank 5
+        3037, -- Rank 6
+        3040, -- Rank 7
+        3043, -- Rank 8
+        3020, -- Rank 9
+    } },
 }
 local knownImbues = {}
 for _, imbue in ipairs(WhoDoesWhat.ShamanImbues) do
@@ -388,66 +424,70 @@ WhoDoesWhat.WarriorShouts = knownShouts
 -- stones and poisons under different classes, and the obvious generic bucket
 -- (Item Enhancement) also holds permanent armor kits. Only ids found in your
 -- bags are ever listed, so one this client doesn't have is simply never seen.
+--
+-- Each is { item id, enchant id }: the enchant id is what GetWeaponEnchantInfo
+-- reports once it is on the weapon, so the checklist can say which one is
+-- running. From each item's use-spell on Wowhead (TBC).
 WhoDoesWhat.WeaponEnchantItems = {
     -- Wizard oils
-    20744, -- Minor Wizard Oil
-    20746, -- Lesser Wizard Oil
-    20750, -- Wizard Oil
-    20749, -- Brilliant Wizard Oil
-    22522, -- Superior Wizard Oil
-    23123, -- Blessed Wizard Oil
+    { 20744, 2623 }, -- Minor Wizard Oil
+    { 20746, 2626 }, -- Lesser Wizard Oil
+    { 20750, 2627 }, -- Wizard Oil
+    { 20749, 2628 }, -- Brilliant Wizard Oil
+    { 22522, 2678 }, -- Superior Wizard Oil
+    { 23123, 2685 }, -- Blessed Wizard Oil
     -- Mana oils
-    20745, -- Minor Mana Oil
-    20747, -- Lesser Mana Oil
-    20748, -- Brilliant Mana Oil
-    22521, -- Superior Mana Oil
+    { 20745, 2624 }, -- Minor Mana Oil
+    { 20747, 2625 }, -- Lesser Mana Oil
+    { 20748, 2629 }, -- Brilliant Mana Oil
+    { 22521, 2677 }, -- Superior Mana Oil
     -- Sharpening stones
-    2862,  -- Rough Sharpening Stone
-    2863,  -- Coarse Sharpening Stone
-    2871,  -- Heavy Sharpening Stone
-    7964,  -- Solid Sharpening Stone
-    12404, -- Dense Sharpening Stone
-    18262, -- Elemental Sharpening Stone
-    23122, -- Consecrated Sharpening Stone
-    23528, -- Fel Sharpening Stone
-    23529, -- Adamantite Sharpening Stone
+    { 2862, 40 }, -- Rough Sharpening Stone
+    { 2863, 13 }, -- Coarse Sharpening Stone
+    { 2871, 14 }, -- Heavy Sharpening Stone
+    { 7964, 483 }, -- Solid Sharpening Stone
+    { 12404, 1643 }, -- Dense Sharpening Stone
+    { 18262, 2506 }, -- Elemental Sharpening Stone
+    { 23122, 2684 }, -- Consecrated Sharpening Stone
+    { 23528, 2712 }, -- Fel Sharpening Stone
+    { 23529, 2713 }, -- Adamantite Sharpening Stone
     -- Weightstones
-    3239,  -- Rough Weightstone
-    3240,  -- Coarse Weightstone
-    3241,  -- Heavy Weightstone
-    7965,  -- Solid Weightstone
-    12643, -- Dense Weightstone
-    28420, -- Fel Weightstone
-    28421, -- Adamantite Weightstone
+    { 3239, 19 }, -- Rough Weightstone
+    { 3240, 20 }, -- Coarse Weightstone
+    { 3241, 21 }, -- Heavy Weightstone
+    { 7965, 484 }, -- Solid Weightstone
+    { 12643, 1703 }, -- Dense Weightstone
+    { 28420, 2954 }, -- Fel Weightstone
+    { 28421, 2955 }, -- Adamantite Weightstone
     -- Sunwell weapon coatings
-    34538, -- Blessed Weapon Coating
-    34539, -- Righteous Weapon Coating
+    { 34538, 3265 }, -- Blessed Weapon Coating
+    { 34539, 3266 }, -- Righteous Weapon Coating
     -- Rogue poisons
-    6947,  -- Instant Poison
-    6949,  -- Instant Poison II
-    6950,  -- Instant Poison III
-    8926,  -- Instant Poison IV
-    8927,  -- Instant Poison V
-    8928,  -- Instant Poison VI
-    21927, -- Instant Poison VII
-    2892,  -- Deadly Poison
-    2893,  -- Deadly Poison II
-    8984,  -- Deadly Poison III
-    8985,  -- Deadly Poison IV
-    20844, -- Deadly Poison V
-    22053, -- Deadly Poison VI
-    22054, -- Deadly Poison VII
-    10918, -- Wound Poison
-    10920, -- Wound Poison II
-    10921, -- Wound Poison III
-    10922, -- Wound Poison IV
-    22055, -- Wound Poison V
-    3775,  -- Crippling Poison
-    3776,  -- Crippling Poison II
-    5237,  -- Mind-numbing Poison
-    6951,  -- Mind-numbing Poison II
-    9186,  -- Mind-numbing Poison III
-    21835, -- Anesthetic Poison
+    { 6947, 323 }, -- Instant Poison
+    { 6949, 324 }, -- Instant Poison II
+    { 6950, 325 }, -- Instant Poison III
+    { 8926, 623 }, -- Instant Poison IV
+    { 8927, 624 }, -- Instant Poison V
+    { 8928, 625 }, -- Instant Poison VI
+    { 21927, 2641 }, -- Instant Poison VII
+    { 2892, 7 }, -- Deadly Poison
+    { 2893, 8 }, -- Deadly Poison II
+    { 8984, 626 }, -- Deadly Poison III
+    { 8985, 627 }, -- Deadly Poison IV
+    { 20844, 2630 }, -- Deadly Poison V
+    { 22053, 2642 }, -- Deadly Poison VI
+    { 22054, 2643 }, -- Deadly Poison VII
+    { 10918, 703 }, -- Wound Poison
+    { 10920, 704 }, -- Wound Poison II
+    { 10921, 705 }, -- Wound Poison III
+    { 10922, 706 }, -- Wound Poison IV
+    { 22055, 2644 }, -- Wound Poison V
+    { 3775, 22 }, -- Crippling Poison
+    { 3776, 603 }, -- Crippling Poison II
+    { 5237, 35 }, -- Mind-numbing Poison
+    { 6951, 23 }, -- Mind-numbing Poison II
+    { 9186, 643 }, -- Mind-numbing Poison III
+    { 21835, 2640 }, -- Anesthetic Poison
 }
 
 -- Windfury's temporary weapon enchants, by the enchant id GetWeaponEnchantInfo
