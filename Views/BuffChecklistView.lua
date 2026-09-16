@@ -1587,6 +1587,14 @@ local function CreateButton(index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     btn.icon = icon
 
+    -- Nothing picked and nothing in your bags to pick (NothingToPick).
+    local nothing = btn:CreateTexture(nil, "OVERLAY")
+    nothing:SetPoint("TOPLEFT", 3, -3)
+    nothing:SetPoint("BOTTOMRIGHT", -3, 3)
+    nothing:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+    nothing:Hide()
+    btn.nothing = nothing
+
     local timer = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     timer:SetPoint("CENTER")
     timer:SetFont(GameFontNormal:GetFont() or FALLBACK_FONT, 16, "OUTLINE")
@@ -1662,8 +1670,20 @@ local function UpdateTimerAndGlow(btn)
         WhoDoesWhat:GetBuffChecklistGlowStyle(), color)
 end
 
+-- A picker slot that is down with nothing picked and nothing in your bags
+-- the picker could offer (for a weapon, no oils or stones and no imbue of
+-- your own either): there is nothing to do about it from here.
+local function NothingToPick(entry)
+    if not entry.pick or entry.has == true or Picks()[entry.pick] ~= nil then
+        return false
+    end
+    if #BagChoices(entry.pick) > 0 then return false end
+    return not (entry.slot and #KnownImbues() > 0)
+end
+
 local function PaintButton(btn, entry)
     btn.entry = entry
+    btn.nothing:SetShown(NothingToPick(entry))
     btn.expiresAt = entry.remaining and (GetTime() + entry.remaining) or nil
     btn.icon:SetTexture(entry.icon)
     -- Grey unless it is actually on you; unknown reads as not-yet rather than
