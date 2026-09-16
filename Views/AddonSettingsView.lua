@@ -2680,6 +2680,16 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
             WhoDoesWhat:RefreshBuffChecklist()
         end)
 
+    f.checklistSplitOthersCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, "Divide own buffs from others'",
+        "Draws a \"From Others\" line between the buffs you see to yourself"
+        .. " (auras, food, elixirs, weapons) and the ones other raiders cast on"
+        .. " you (blessings, Fortitude, shouts). The pet's section stays as it is.",
+        function(value)
+            checklistSettings().buffChecklistSplitOthers = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
     f.checklistHideHaveCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, "Hide buffs I have",
         "Shows only what you are missing or about to lose. With everything up"
@@ -3022,6 +3032,7 @@ function LoadSettings(f)
     f.checklistHideHaveCheck:SetChecked(settings.buffChecklistHideHave)
     f.checklistHideOthersCheck:SetChecked(settings.buffChecklistHideOthersHave)
     f.checklistHeaderCheck:SetChecked(settings.buffChecklistShowHeader)
+    f.checklistSplitOthersCheck:SetChecked(settings.buffChecklistSplitOthers)
     f.checklistWeaponsCheck:SetChecked(self.db.char.buffChecklistWeapons)
     f.RefreshChecklistWarn()
     f.RefreshChecklistHighlight()

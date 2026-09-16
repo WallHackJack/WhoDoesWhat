@@ -623,6 +623,9 @@ local defaults = {
             buffChecklistPopoutDirection = "BELOWLEFT",
             -- The "Buff Checklist" title strip across the top of the grid.
             buffChecklistShowHeader = true,
+            -- A "From Others" line between your own buffs and the ones other
+            -- raiders cast on you.
+            buffChecklistSplitOthers = false,
             buffChecklistPos = nil,
             -- Movable per-paladin live blessing coverage window. On out of the
             -- box: it is the view that says what still needs doing, and a fresh

@@ -2018,28 +2018,37 @@ end
 -- (SizeDivider).
 local DIVIDER_LINE_MIN = 10
 
-local function EnsureDivider()
-    if divider then return divider end
-    divider = CreateFrame("Button", nil, frame)
-    divider:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+-- A rule with a label on it, and a +/- arrow before the label: the pet
+-- divider and the split divider below are both one of these.
+local function CreateDividerFrame()
+    local d = CreateFrame("Button", nil, frame)
+    d:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    divider.label = label
-    local arrow = divider:CreateTexture(nil, "ARTWORK")
+    local label = d:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    d.label = label
+    local arrow = d:CreateTexture(nil, "ARTWORK")
     arrow:SetPoint("RIGHT", label, "LEFT", -3, 0)
-    divider.arrow = arrow
+    d.arrow = arrow
 
     local edge = WhoDoesWhat.Theme.mainBorder
-    local leftLine = divider:CreateTexture(nil, "ARTWORK")
+    local leftLine = d:CreateTexture(nil, "ARTWORK")
     leftLine:SetHeight(1)
     leftLine:SetColorTexture(edge[1], edge[2], edge[3], 0.6)
     leftLine:SetPoint("LEFT", 0, 0)
     leftLine:SetPoint("RIGHT", arrow, "LEFT", -4, 0)
-    local rightLine = divider:CreateTexture(nil, "ARTWORK")
+    local rightLine = d:CreateTexture(nil, "ARTWORK")
     rightLine:SetHeight(1)
     rightLine:SetColorTexture(edge[1], edge[2], edge[3], 0.6)
     rightLine:SetPoint("LEFT", label, "RIGHT", 4, 0)
     rightLine:SetPoint("RIGHT", 0, 0)
+    UI.AttachDrag(d, frame)
+    d:Hide()
+    return d
+end
+
+local function EnsureDivider()
+    if divider then return divider end
+    divider = CreateDividerFrame()
 
     divider:SetScript("OnClick", function(_, button)
         if button == "RightButton" then
@@ -2067,24 +2076,54 @@ local function EnsureDivider()
         GameTooltip:Show()
     end)
     divider:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    UI.AttachDrag(divider, frame)
-    divider:Hide()
     return divider
 end
 
--- Fit the divider to a spacing preset: its height, the label's font size, and
--- the arrow, which the label is offset by so the pair stays centred.
-local function SizeDivider(spacing)
-    divider:SetHeight(spacing.dividerH)
+-- The optional line between the buffs you see to yourself (listed first) and
+-- the ones raiders cast on you. Nothing to click but the settings shortcut.
+local splitDivider = nil
+local function EnsureSplitDivider()
+    if splitDivider then return splitDivider end
+    splitDivider = CreateDividerFrame()
+    splitDivider.label:SetText("From Others")
+    splitDivider.label:SetTextColor(0.62, 0.66, 0.75)
+    splitDivider.arrow:Hide()
+    splitDivider:SetScript("OnClick", function(_, button)
+        if button == "RightButton" and IsShiftKeyDown() then
+            GameTooltip:Hide()
+            WhoDoesWhat:OpenAddonSettingsView("Checklist")
+        end
+    end)
+    splitDivider:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_NONE")
+        GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
+        GameTooltip:SetText("From Others", 1, 1, 1)
+        GameTooltip:AddLine("Above: what you see to yourself. Below: what other"
+            .. " raiders cast on you.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(" ")
+        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
+        GameTooltip:Show()
+    end)
+    splitDivider:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return splitDivider
+end
+
+-- Fit a divider to a spacing preset: its height, the label's font size, and
+-- the arrow, which the label is offset by so the pair stays centred (a divider
+-- without one centres its label outright).
+local function SizeDivider(d, spacing)
+    d:SetHeight(spacing.dividerH)
     if spacing.dividerFont then
         local font, _, flags = GameFontNormalSmall:GetFont()
-        divider.label:SetFont(font or FALLBACK_FONT, spacing.dividerFont, flags)
+        d.label:SetFont(font or FALLBACK_FONT, spacing.dividerFont, flags)
     else
-        divider.label:SetFontObject(GameFontNormalSmall)
+        d.label:SetFontObject(GameFontNormalSmall)
     end
-    divider.label:ClearAllPoints()
-    divider.label:SetPoint("CENTER", spacing.arrow / 2, 0)
-    divider.arrow:SetSize(spacing.arrow, spacing.arrow)
+    local arrowShown = d ~= splitDivider
+    d.label:ClearAllPoints()
+    d.label:SetPoint("CENTER", arrowShown and spacing.arrow / 2 or 0, 0)
+    d.arrow:SetSize(arrowShown and spacing.arrow or 1, arrowShown and spacing.arrow or 1)
 end
 
 -- `pet` is CollectEntries' second return: false for no pet out.
@@ -2247,20 +2286,51 @@ function WhoDoesWhat:RefreshBuffChecklist()
         if rows > 0 then y = y + rows * (size + gap) - gap end
     end
 
-    PlaceGrid(shown)
     local dividerW = 0
+    -- Split (a setting): your own buffs, a "From Others" line, then what
+    -- raiders cast on you. The list is already in that order (EntryGroup), so
+    -- the split is where the self-supplied run ends; only drawn when both
+    -- sides have something.
+    local own, others = shown, {}
+    if settings.buffChecklistSplitOthers then
+        own = {}
+        for _, entry in ipairs(shown) do
+            if entry.selfSupplied then
+                own[#own + 1] = entry
+            else
+                others[#others + 1] = entry
+            end
+        end
+    end
+    PlaceGrid(own)
+    if #own > 0 and #others > 0 then
+        y = y + gap
+        local d = EnsureSplitDivider()
+        SizeDivider(d, spacing)
+        d:ClearAllPoints()
+        d:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + pad, -y)
+        d:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET + pad), -y)
+        d:Show()
+        y = y + spacing.dividerH + gap
+        dividerW = INSET * 2 + pad * 2 + math.ceil(d.label:GetStringWidth())
+            + 8 + DIVIDER_LINE_MIN * 2
+    elseif splitDivider then
+        splitDivider:Hide()
+    end
+    PlaceGrid(others)
     if showDivider then
         if #shown > 0 then y = y + gap end
         local d = EnsureDivider()
-        SizeDivider(spacing)
+        SizeDivider(d, spacing)
         d:ClearAllPoints()
         d:SetPoint("TOPLEFT", f, "TOPLEFT", INSET + pad, -y)
         d:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET + pad), -y)
         PaintDivider(pet, collapsed)
         d:Show()
         y = y + spacing.dividerH
-        dividerW = INSET * 2 + pad * 2 + math.ceil(d.label:GetStringWidth())
-            + spacing.arrow + 7 + DIVIDER_LINE_MIN * 2
+        dividerW = math.max(dividerW, INSET * 2 + pad * 2
+            + math.ceil(d.label:GetStringWidth()) + spacing.arrow + 7
+            + DIVIDER_LINE_MIN * 2)
         if #petLaid > 0 then
             y = y + gap
             PlaceGrid(petLaid)
@@ -2295,7 +2365,7 @@ end
 local RESET_SETTINGS = {
     "buffChecklistEnabled", "buffChecklistColumns", "buffChecklistIconSize",
     "buffChecklistHideHave", "buffChecklistAlign", "buffChecklistShowHeader",
-    "buffChecklistPopoutDirection", "buffChecklistSpacing",
+    "buffChecklistPopoutDirection", "buffChecklistSpacing", "buffChecklistSplitOthers",
     "buffChecklistHideOthersHave", "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
     "buffChecklistGlowMissingColor", "buffChecklistGlowExpiringColor",
 }
