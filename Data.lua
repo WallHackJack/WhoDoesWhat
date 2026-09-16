@@ -591,10 +591,10 @@ if not features.isClassicEra then
 end
 
 -- Scrolls of Agility and Strength for the Buff Checklist's scroll pickers, by
--- item id, lowest rank first. Ranks I-IV exist on every client; V and VI are
--- TBC's, and simply never turn up in an Era player's bags. Their auras share a
--- name with the Elixir of Agility's and friends, so the checklist tells them
--- apart by spell id.
+-- item id, lowest rank first. Ranks I-IV are Classic's, V is TBC's and VI is
+-- Wrath's; a rank a client doesn't have simply never turns up in anyone's
+-- bags. Their auras share a name with the Elixir of Agility's and friends, so
+-- the checklist tells them apart by spell id.
 WhoDoesWhat.ScrollItems = {
     agility = { 3012, 1477, 4425, 10309, 27498, 33457 },
     strength = { 954, 2289, 4426, 10310, 27503, 33462 },

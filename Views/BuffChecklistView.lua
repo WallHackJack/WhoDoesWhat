@@ -232,10 +232,25 @@ local function Picks()
     return WhoDoesWhat.db.char.buffChecklistItems
 end
 
-local function ItemName(id)
+-- Item ids whose names were asked for and haven't arrived; the checklist
+-- repaints when one does (GET_ITEM_INFO_RECEIVED).
+local pendingItemNames = {}
+
+local function KnownItemName(id)
     return GetItemInfo(id)
         or (C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id))
-        or ("item " .. id)
+end
+
+local function ItemName(id)
+    local name = KnownItemName(id)
+    if name then return name end
+    if not pendingItemNames[id] then
+        pendingItemNames[id] = true
+        if C_Item and C_Item.RequestLoadItemDataByID then
+            C_Item.RequestLoadItemDataByID(id)
+        end
+    end
+    return "Gathering Data... (" .. id .. ")"
 end
 
 -- The consumable slots that fill from an aura: two elixir slots (TBC only;
@@ -1029,7 +1044,10 @@ local function FillPicker(entry)
     for _, spec in ipairs(specs) do
         spec.usable = spec.spell ~= nil
             or (spec.itemID ~= nil and GetItemCount(spec.itemID) > 0)
+        -- "?" while the item's name is still loading, so the rows are
+        -- relaid once it arrives.
         parts[#parts + 1] = tostring(spec.value) .. (spec.usable and "+" or "-")
+            .. ((spec.itemID and not KnownItemName(spec.itemID)) and "?" or "")
     end
     local stamp = table.concat(parts, ",")
     if p.stamp ~= stamp then
@@ -2001,6 +2019,8 @@ loader:RegisterUnitEvent("UNIT_PET", "player")
 loader:RegisterUnitEvent("UNIT_HEALTH", "pet")
 -- A respec or a new rank: which auras, aspects and talents you have.
 loader:RegisterEvent("SPELLS_CHANGED")
+-- An item name the pickers are showing "Gathering Data..." for.
+loader:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
 
@@ -2017,7 +2037,15 @@ end
 RequestChecklistRefresh = RefreshSoon
 
 local lastPetDead = nil
-loader:SetScript("OnEvent", function(_, event)
+loader:SetScript("OnEvent", function(_, event, arg1)
+    if event == "GET_ITEM_INFO_RECEIVED" then
+        -- A burst of names on login collapses into one repaint.
+        if pendingItemNames[arg1] then
+            pendingItemNames[arg1] = nil
+            RefreshSoon()
+        end
+        return
+    end
     if event == "SPELLS_CHANGED" then omenTalented = nil end
     if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_ENTERING_WORLD" then
         bagItems = nil
