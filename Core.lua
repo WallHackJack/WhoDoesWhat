@@ -340,7 +340,8 @@ local defaults = {
     -- the next. The Buff Checklist's picks -- mainHand / offHand as an item id,
     -- "none" (keep the weapon bare for Windfury) or nil (nothing picked); food,
     -- petFood, alcohol, battleElixir and guardianElixir as an item id or nil;
-    -- aura and aspect as a spell key -- and whether it tracks weapon enchants.
+    -- aura, aspect, mageArmor and warlockArmor as a spell key -- and whether it
+    -- tracks weapon enchants.
     char = {
         buffChecklistItems = {},
         buffChecklistWeapons = true,

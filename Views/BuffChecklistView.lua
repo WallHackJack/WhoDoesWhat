@@ -379,6 +379,24 @@ local function ActiveConsumables(buffs)
     return active
 end
 
+-- The options in a spell list this character can cast, less any a known
+-- later spell `replaces` (Ice Armor over Frost Armor). A name lookup only
+-- answers for spells in your spellbook.
+local function KnownSpells(list)
+    local known, superseded = {}, {}
+    for _, spell in ipairs(list) do
+        if GetSpellInfo(spell.name) then
+            known[#known + 1] = spell
+            if spell.replaces then superseded[spell.replaces] = true end
+        end
+    end
+    local out = {}
+    for _, spell in ipairs(known) do
+        if not superseded[spell.key] then out[#out + 1] = spell end
+    end
+    return out
+end
+
 -- The swapper a class gets: one self-buff out of a set, where picking one
 -- casts it. `List` is what this character can cast right now.
 local SWAPPERS = {
@@ -388,13 +406,15 @@ local SWAPPERS = {
     },
     HUNTER = {
         key = "aspect", name = "Aspect", noun = "aspect",
-        List = function()
-            local out = {}
-            for _, aspect in ipairs(WhoDoesWhat.HunterAspects) do
-                if GetSpellInfo(aspect.name) then out[#out + 1] = aspect end
-            end
-            return out
-        end,
+        List = function() return KnownSpells(WhoDoesWhat.HunterAspects) end,
+    },
+    MAGE = {
+        key = "mageArmor", name = "Armor", noun = "armor",
+        List = function() return KnownSpells(WhoDoesWhat.MageArmors) end,
+    },
+    WARLOCK = {
+        key = "warlockArmor", name = "Armor", noun = "armor",
+        List = function() return KnownSpells(WhoDoesWhat.WarlockArmors) end,
     },
 }
 
@@ -586,8 +606,9 @@ local function CollectEntries()
         end
     end
 
-    -- Aura (paladin) or aspect (hunter): shows what is running, glows while
-    -- that isn't the one you picked. Nothing picked yet adopts what is up.
+    -- Aura (paladin), aspect (hunter) or armor (mage, warlock): shows what is
+    -- running, glows while that isn't the one you picked. Nothing picked yet
+    -- adopts what is up.
     local swapper = SWAPPERS[class]
     local swapOptions = swapper and swapper.List() or {}
     if #swapOptions > 0 then

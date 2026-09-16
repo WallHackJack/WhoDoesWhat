@@ -321,6 +321,32 @@ for _, aspect in ipairs(WhoDoesWhat.HunterAspects) do
 end
 WhoDoesWhat.HunterAspects = knownAspects
 
+-- Mage and warlock armors for the Buff Checklist's armor swapper: one runs at
+-- a time. Base-rank ids like the aspects; `replaces` names an option a later
+-- spell supersedes (Ice Armor is Frost Armor from level 30 on, Demon Armor is
+-- Demon Skin), so the swapper doesn't offer both once you know the newer one.
+WhoDoesWhat.MageArmors = {
+    { key = "frost",  spellId = 168 },                      -- Frost Armor
+    { key = "ice",    spellId = 7302, replaces = "frost" }, -- Ice Armor
+    { key = "mage",   spellId = 6117 },                     -- Mage Armor
+    { key = "molten", spellId = 30482 },                    -- Molten Armor (TBC)
+}
+WhoDoesWhat.WarlockArmors = {
+    { key = "demonSkin",  spellId = 687 },                           -- Demon Skin
+    { key = "demonArmor", spellId = 706, replaces = "demonSkin" },   -- Demon Armor
+    { key = "fel",        spellId = 28176 },                         -- Fel Armor (TBC)
+}
+-- Names and icons off the ids, dropping any spell this client doesn't have.
+for _, listKey in ipairs({ "MageArmors", "WarlockArmors" }) do
+    local known = {}
+    for _, armor in ipairs(WhoDoesWhat[listKey]) do
+        armor.name = GetSpellInfo(armor.spellId)
+        armor.icon = GetSpellTexture(armor.spellId)
+        if armor.name then known[#known + 1] = armor end
+    end
+    WhoDoesWhat[listKey] = known
+end
+
 -- A shaman's weapon imbues, offered in the Buff Checklist's weapon pickers
 -- beside the oils and stones. Base-rank ids, cast rank-less by name like the
 -- auras above; the view keeps only the ones in your spellbook.
