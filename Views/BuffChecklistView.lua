@@ -238,32 +238,6 @@ local function ItemName(id)
         or ("item " .. id)
 end
 
--- Whether a tooltip the setter fills has a line containing `needle`
--- (lowercase), or nil when it came back empty -- item data not loaded yet,
--- which is not an answer worth caching. English text, like BuffTracking's
--- aura-name matching.
-local scanTip
-local function TooltipContains(setter, needle)
-    if not scanTip then
-        scanTip = CreateFrame("GameTooltip", "WhoDoesWhatChecklistScanTip", nil,
-            "GameTooltipTemplate")
-    end
-    scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
-    scanTip:ClearLines()
-    setter(scanTip)
-    local lines = scanTip:NumLines()
-    if lines == 0 then return nil end
-    for i = 1, lines do
-        local fs = _G["WhoDoesWhatChecklistScanTipTextLeft" .. i]
-        local text = fs and fs:GetText()
-        if text and string.find(string.lower(text), needle, 1, true) then
-            return true
-        end
-    end
-    return false
-end
-
-
 -- The consumable slots that fill from an aura: two elixir slots (TBC only;
 -- ElixirItems is nil on Classic Era), whose pickers list their own category
 -- plus flasks, which fill both; and two scroll slots (ScrollItems), one per
@@ -477,20 +451,9 @@ local function WeaponEnchantState()
     return { a, b }, { d, e }
 end
 
--- Is the temporary enchant on this weapon Windfury? The totem's and the
--- shaman's own both put it in the weapon's tooltip by name. Cached by enchant
--- id where the client gives one, since this can run on every repaint.
+-- Enchant id -> true for the totem's and the shaman's own Windfury.
 local windfuryEnchants = {}
-local function IsWindfury(slot, enchantID)
-    if enchantID and windfuryEnchants[enchantID] ~= nil then
-        return windfuryEnchants[enchantID]
-    end
-    local found = TooltipContains(function(tip)
-        tip:SetInventoryItem("player", slot)
-    end, "windfury")
-    if enchantID and found ~= nil then windfuryEnchants[enchantID] = found end
-    return found == true
-end
+for _, id in ipairs(WhoDoesWhat.WindfuryEnchantIDs) do windfuryEnchants[id] = true end
 
 local function ApplyPick(entry, pick)
     if not pick then return end
@@ -713,7 +676,7 @@ local function CollectEntries()
             if pick == "none" then
                 entry.bare = true
                 entry.name = weapon.name .. ": No Enchant"
-                entry.windfury = enchanted and IsWindfury(weapon.slot, state[3])
+                entry.windfury = enchanted and windfuryEnchants[state[3]] == true
                 entry.has = not enchanted or entry.windfury
             else
                 entry.name = weapon.name .. " Enchant"

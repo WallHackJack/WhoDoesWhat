@@ -389,22 +389,82 @@ WhoDoesWhat.WarriorShouts = knownShouts
 -- (Item Enhancement) also holds permanent armor kits. Only ids found in your
 -- bags are ever listed, so one this client doesn't have is simply never seen.
 WhoDoesWhat.WeaponEnchantItems = {
-    -- Wizard and mana oils
-    20744, 20746, 20750, 20749, 22522, 23123,
-    20745, 20747, 20748, 22521,
+    -- Wizard oils
+    20744, -- Minor Wizard Oil
+    20746, -- Lesser Wizard Oil
+    20750, -- Wizard Oil
+    20749, -- Brilliant Wizard Oil
+    22522, -- Superior Wizard Oil
+    23123, -- Blessed Wizard Oil
+    -- Mana oils
+    20745, -- Minor Mana Oil
+    20747, -- Lesser Mana Oil
+    20748, -- Brilliant Mana Oil
+    22521, -- Superior Mana Oil
     -- Sharpening stones
-    2862, 2863, 2871, 7964, 12404, 18262, 23122, 23528, 23529,
+    2862,  -- Rough Sharpening Stone
+    2863,  -- Coarse Sharpening Stone
+    2871,  -- Heavy Sharpening Stone
+    7964,  -- Solid Sharpening Stone
+    12404, -- Dense Sharpening Stone
+    18262, -- Elemental Sharpening Stone
+    23122, -- Consecrated Sharpening Stone
+    23528, -- Fel Sharpening Stone
+    23529, -- Adamantite Sharpening Stone
     -- Weightstones
-    3239, 3240, 3241, 7965, 12643, 28420, 28421,
+    3239,  -- Rough Weightstone
+    3240,  -- Coarse Weightstone
+    3241,  -- Heavy Weightstone
+    7965,  -- Solid Weightstone
+    12643, -- Dense Weightstone
+    28420, -- Fel Weightstone
+    28421, -- Adamantite Weightstone
     -- Sunwell weapon coatings
-    34538, 34539,
-    -- Rogue poisons: Instant, Deadly, Wound, Crippling, Mind-numbing, Anesthetic
-    6947, 6949, 6950, 8926, 8927, 8928, 21927,
-    2892, 2893, 8984, 8985, 20844, 22053, 22054,
-    10918, 10920, 10921, 10922, 22055,
-    3775, 3776,
-    5237, 6951, 9186,
-    21835,
+    34538, -- Blessed Weapon Coating
+    34539, -- Righteous Weapon Coating
+    -- Rogue poisons
+    6947,  -- Instant Poison
+    6949,  -- Instant Poison II
+    6950,  -- Instant Poison III
+    8926,  -- Instant Poison IV
+    8927,  -- Instant Poison V
+    8928,  -- Instant Poison VI
+    21927, -- Instant Poison VII
+    2892,  -- Deadly Poison
+    2893,  -- Deadly Poison II
+    8984,  -- Deadly Poison III
+    8985,  -- Deadly Poison IV
+    20844, -- Deadly Poison V
+    22053, -- Deadly Poison VI
+    22054, -- Deadly Poison VII
+    10918, -- Wound Poison
+    10920, -- Wound Poison II
+    10921, -- Wound Poison III
+    10922, -- Wound Poison IV
+    22055, -- Wound Poison V
+    3775,  -- Crippling Poison
+    3776,  -- Crippling Poison II
+    5237,  -- Mind-numbing Poison
+    6951,  -- Mind-numbing Poison II
+    9186,  -- Mind-numbing Poison III
+    21835, -- Anesthetic Poison
+}
+
+-- Windfury's temporary weapon enchants, by the enchant id GetWeaponEnchantInfo
+-- returns: what a weapon kept bare for Windfury counts as covered by.
+WhoDoesWhat.WindfuryEnchantIDs = {
+    -- Windfury Totem
+    1783, -- Rank 1
+    563,  -- Rank 2
+    564,  -- Rank 3
+    2638, -- Rank 4
+    2639, -- Rank 5
+    -- Windfury Weapon (the shaman's own)
+    283,  -- Rank 1
+    284,  -- Rank 2
+    525,  -- Rank 3
+    1669, -- Rank 4
+    2636, -- Rank 5
 }
 
 -- Buff food for the Buff Checklist's food picker, by item id: the raid-worthy
