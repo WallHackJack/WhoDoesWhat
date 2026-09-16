@@ -8,6 +8,16 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.1",
+        date = "2026-09-16",
+        notes = {
+            "Buff Checklist: armor swappers for mages and warlocks, a warlock demon swapper, mana gems with cooldowns and self-buff reminders. Weapons show their actual enchant and suggest sharpening stones or weightstones to match.",
+            "Buff Checklist: Roomy, Snug and Compact spacing, an optional \"From Others\" line, and Shift-Right-Click anywhere to open settings.",
+            "Buffs are tracked by spell id rather than English names, so non-English clients work; food, Windfury and weapon enchants are matched by id, and Era gets an alcohol slot.",
+            "Fixes: dropdown menus stay open while views refresh, scrolls are cast on you instead of your target, tooltips no longer cover pop-outs, and pickers fill in once item names load.",
+        },
+    },
+    {
         version = "2.0.0",
         date = "2026-09-15",
         notes = {
