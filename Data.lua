@@ -600,8 +600,10 @@ WhoDoesWhat.ScrollItems = {
     strength = { 954, 2289, 4426, 10310, 27503, 33462 },
 }
 
--- Raid-wide status bars beyond paladin blessings. Aura names are deliberately
--- rank-independent and include both the single-target and group versions.
+-- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
+-- id per name (`auraSpellIds`), resolved to the client's own name at runtime:
+-- names are rank-independent and cover both the single-target and group
+-- versions.
 -- Core coverage is players-only unless a check explicitly includes hunter
 -- pets. Target filters are defaults that each check's cog options may change.
 WhoDoesWhat.CoreRaidBuffOrder = {
@@ -625,7 +627,10 @@ WhoDoesWhat.CoreRaidBuffs = {
         name = "Fortitude",
         description = "Increases Stamina and maximum health.",
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
-        auraNames = { "Power Word: Fortitude", "Prayer of Fortitude" },
+        auraSpellIds = {
+            1243,  -- Power Word: Fortitude
+            21562, -- Prayer of Fortitude
+        },
         className = "Priest",
         colorRGB = { r = 225 / 255, g = 1, b = 202 / 255 }, -- #E1FFCA
         defaultHunterPets = true,
@@ -639,7 +644,10 @@ WhoDoesWhat.CoreRaidBuffs = {
         gridName = "Mark / Gift of the Wild",
         description = "Increases armor, attributes, and resistances.",
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
-        auraNames = { "Mark of the Wild", "Gift of the Wild" },
+        auraSpellIds = {
+            1126,  -- Mark of the Wild
+            21849, -- Gift of the Wild
+        },
         className = "Druid",
         defaultHunterPets = true,
         improvedTalent = {
@@ -652,7 +660,10 @@ WhoDoesWhat.CoreRaidBuffs = {
         gridName = "Well Fed",
         description = "Provides a Well Fed stat bonus from food.",
         icon = 136000, -- Spell_Misc_Food
-        auraNames = { "Well Fed", "Enlightened" }, -- Enlightened: TBC Skullfish Soup
+        auraSpellIds = {
+            19705, -- Well Fed
+            43722, -- Enlightened (TBC Skullfish Soup)
+        },
         itemSpells = INSTANT_FOOD_ITEMS,
         colorRGB = { r = 1, g = 0.82, b = 0 },
         defaultHunterPets = not features.isClassicEra,
@@ -673,7 +684,10 @@ WhoDoesWhat.CoreRaidBuffs = {
         announceName = "Prayer of Shadow Protection",
         description = "Increases Shadow resistance.",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
-        auraNames = { "Shadow Protection", "Prayer of Shadow Protection" },
+        auraSpellIds = {
+            976,   -- Shadow Protection
+            27683, -- Prayer of Shadow Protection
+        },
         className = "Priest",
         colorRGB = { r = 109 / 255, g = 60 / 255, b = 129 / 255 }, -- #6D3C81
     },
@@ -682,7 +696,10 @@ WhoDoesWhat.CoreRaidBuffs = {
         gridName = "Arcane Intellect / Brilliance",
         description = "Increases Intellect, mana, and spell critical chance.",
         icon = "Interface\\Icons\\Spell_Holy_ArcaneIntellect",
-        auraNames = { "Arcane Intellect", "Arcane Brilliance" },
+        auraSpellIds = {
+            1459,  -- Arcane Intellect
+            23028, -- Arcane Brilliance
+        },
         className = "Mage",
         excludedClasses = WhoDoesWhat.ManaExcludedClasses,
         defaultOnlyManaUsers = true,
@@ -707,7 +724,10 @@ if not features.isClassicEra then
         description = "Increases Spirit, and spell power where the caster has"
             .. " Improved Divine Spirit.",
         icon = "Interface\\Icons\\Spell_Holy_PrayerofSpirit",
-        auraNames = { "Divine Spirit", "Prayer of Spirit" },
+        auraSpellIds = {
+            14752, -- Divine Spirit
+            27681, -- Prayer of Spirit
+        },
         className = "Priest",
         colorRGB = { r = 152 / 255, g = 214 / 255, b = 1 }, -- #98D6FF
         -- Spirit and the spell power off it are worth nothing to a warrior or
@@ -803,7 +823,9 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     name = "Thorns",
     description = "Deals Nature damage to attackers.",
     icon = "Interface\\Icons\\Spell_Nature_Thorns",
-    auraNames = { "Thorns" },
+    auraSpellIds = {
+        467, -- Thorns
+    },
     className = "Druid",
     colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
@@ -838,7 +860,10 @@ if not features.isClassicEra then
         name = "Sated (lust / hero)",
         description = "Shows Sated or Exhaustion after Bloodlust or Heroism.",
         icon = 136090, -- Spell_Nature_Sleep
-        auraNames = { "Sated", "Exhaustion" },
+        auraSpellIds = {
+            57724, -- Sated
+            57723, -- Exhaustion
+        },
         harmful = true,
         defaultNegative = true,
         defaultHideComplete = true,
@@ -917,7 +942,11 @@ if not features.isClassicEra then
         name = "Tinnitus (drums)",
         description = "Shows Tinnitus after a party receives a drums effect.",
         icon = 133854, -- INV_Misc_Ear_Human_01
-        auraNames = { "Tinnitus" },
+        -- Two spells share the name; whichever this client has resolves it.
+        auraSpellIds = {
+            51120,  -- Tinnitus
+            369770, -- Tinnitus
+        },
         harmful = true,
         defaultNegative = true,
         defaultHideComplete = true,

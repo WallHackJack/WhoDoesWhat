@@ -57,11 +57,11 @@ local sweepTargets, sweepCursor, sweepSeen = nil, 0, nil
 
 -- Built lazily from GetSpellInfo: the localized name of a blessing is
 -- rank-independent, so matching by name catches every rank a paladin might be
--- casting without listing spellIds. We register both the "Greater Blessing of
--- X" name (from our stored greater spellId) and the single-target "Blessing of
--- X" (the same name minus the "Greater " prefix), so a raider on either form
--- reads as covered. The prefix strip is English -- fine for the Anniversary
--- client; a localized build would need the normal-rank ids instead.
+-- casting without listing every rank's spellId. We register both the "Greater
+-- Blessing of X" name and the single-target "Blessing of X", each from its
+-- stored spellId, so a raider on either form reads as covered. The other
+-- checks' `auraSpellIds` resolve the same way, one id per name, so every name
+-- comes from the client in its own language.
 --
 -- The elixir checks (`elixirCategory`) match by spell id instead, as a list of
 -- keys: elixir auras collide by name (Elixir of Agility's and every Scroll of
@@ -110,16 +110,16 @@ local function BuildNameMap()
     -- Nil when there is nothing to match, so the scan skips the lookup.
     if not next(spellIdToKeys) then spellIdToKeys = nil end
     for key, buff in pairs(WhoDoesWhat.PaladinBuffs) do
-        local greaterName = GetSpellInfo(buff.spellId)
-        if greaterName then
-            nameToKey[greaterName] = key
-            nameToKey[(greaterName:gsub("^Greater ", ""))] = key
+        for _, spellId in ipairs({ buff.spellId, buff.normalSpellId }) do
+            local name = GetSpellInfo(spellId)
+            if name then nameToKey[name] = key end
         end
     end
     for key, check in pairs(WhoDoesWhat.StatusBarChecks) do
         local map = check.harmful and debuffNameToKey or nameToKey
-        for _, auraName in ipairs(check.auraNames or {}) do
-            map[auraName] = key
+        for _, spellId in ipairs(check.auraSpellIds or {}) do
+            local name = GetSpellInfo(spellId)
+            if name then map[name] = key end
         end
     end
     -- Warrior shouts (Data.lua). Rank-independent like the blessings above --
