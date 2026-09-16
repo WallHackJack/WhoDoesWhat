@@ -652,8 +652,9 @@ local function CollectEntries()
         local entry = {
             id = prefix .. slot.key, key = pickKey, pick = pickKey,
             pickNoun = noun, useVerb = verb, forPet = forPet,
-            -- A pet scroll is read onto the pet (unit2), not onto you.
-            useUnit = forPet and "pet" or nil,
+            -- A scroll reads onto a friendly target, so it is aimed (unit2): onto
+            -- the pet for its copy, onto you otherwise -- never whoever you target.
+            useUnit = forPet and "pet" or "player",
             name = slot.name, selfSupplied = true,
             has = active ~= nil, missing = active == nil,
             remaining = active and active.remaining,
@@ -834,7 +835,8 @@ end
 
 -- How right-click uses an item for this entry: a macro for a weapon (an oil is
 -- used, then aimed at the slot -- "/use item" + "/use 16"), a plain item use
--- otherwise. A pet scroll adds unit2 = "pet" on top of this (entry.useUnit).
+-- otherwise. Consumables add unit2 on top of this (entry.useUnit): "pet" for
+-- a pet scroll, "player" for yours, so a scroll never lands on your target.
 function ItemUseAction(entry, itemID)
     if entry.slot then
         return "macro", string.format("/use item:%d\n/use %d", itemID, entry.slot)
@@ -1492,7 +1494,7 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("macrotext2", kind == "macro" and value or nil)
     btn:SetAttribute("item2", kind == "item" and value or nil)
     btn:SetAttribute("spell2", kind == "spell" and value or nil)
-    btn:SetAttribute("unit2", kind and entry.useUnit or nil)
+    btn:SetAttribute("unit2", kind == "item" and entry.useUnit or nil)
     btn:SetAttribute("swapper", entry.swap and true or nil)
     -- A slot with a picker: the snippet opens it on left-click, and on
     -- right-click while there is nothing to use (a bare weapon's right-click
