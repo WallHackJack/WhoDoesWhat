@@ -239,6 +239,21 @@ local GetItemInfo = GetItemInfo or C_Item.GetItemInfo
 local GetItemIcon = GetItemIcon or C_Item.GetItemIconByID
 local GetItemCount = GetItemCount or C_Item.GetItemCount
 local GetItemSpell = GetItemSpell or C_Item.GetItemSpell
+local GetItemCooldown = C_Container and C_Container.GetItemCooldown or GetItemCooldown
+
+-- Put an item's cooldown (the mana gems' shared two minutes) on a cooldown
+-- swipe, or clear it with no item. The swipe carries no numbers of its own --
+-- the grid's countdown text says how long (UpdateTimerAndGlow). Returns when
+-- the cooldown ends, or nil with none running (a global cooldown's second and
+-- a half doesn't count).
+local function ShowItemCooldown(cooldown, itemId)
+    local start, duration, enable = 0, 0, 0
+    if itemId then start, duration, enable = GetItemCooldown(itemId) end
+    start, duration = start or 0, duration or 0
+    CooldownFrame_Set(cooldown, start, duration, enable)
+    if duration > 1.5 and start > 0 then return start + duration end
+    return nil
+end
 local ITEM_CLASS_WEAPON = 2
 local WINDFURY_ICON = "Interface\\Icons\\Spell_Nature_Windfury"
 
@@ -446,8 +461,6 @@ local function KnownSpells(list)
     return out
 end
 
--- The swapper a class gets: one self-buff out of a set, where picking one
--- casts it. `List` is what this character can cast right now.
 -- Which demon is out, as a WhoDoesWhat.WarlockDemons entry: matched by the
 -- creature id in the pet's GUID, which no locale changes. Nil with no pet, a
 -- dead one, or anything else (an enslaved demon).
@@ -461,8 +474,33 @@ local function RunningDemon(options)
     return nil
 end
 
--- The swappers a class gets, in grid order. `Running` says which option is up
--- when that isn't just a buff of the option's name (a demon is a pet).
+-- The mana gems this mage can conjure, best first, so the menu's left-most
+-- gem is the best one.
+local function KnownManaGems()
+    local known, out = KnownSpells(WhoDoesWhat.ManaGems), {}
+    for i = #known, 1, -1 do out[#out + 1] = known[i] end
+    return out
+end
+
+-- The best mana gem in your bags, as a WhoDoesWhat.ManaGems entry: the first
+-- one held of the best-first list, so a used-up Emerald falls back to the
+-- Ruby behind it. Nil with none.
+local function HeldManaGem(options)
+    for _, gem in ipairs(options) do
+        if GetItemCount(gem.itemId) > 0 then return gem end
+    end
+    return nil
+end
+
+-- The swappers a class gets, in grid order: one self-buff out of a set, where
+-- picking one casts it. `List` is what this character can cast right now.
+-- `Running` says which option is up when that isn't just a buff of the
+-- option's name (a demon is a pet, a gem is in the bags).
+--
+-- `conjures` marks a swapper whose options are made rather than kept up: the
+-- mana gems. Any one held counts as done. Right-click uses the best gem held,
+-- or conjures the best gem known while there is none. In the menu, left-click
+-- conjures a gem and right-click uses it if held, conjuring it otherwise.
 local SWAPPERS = {
     PALADIN = { {
         key = "aura", name = "Aura", noun = "aura",
@@ -475,6 +513,11 @@ local SWAPPERS = {
     MAGE = { {
         key = "mageArmor", name = "Armor", noun = "armor",
         List = function() return KnownSpells(WhoDoesWhat.MageArmors) end,
+    }, {
+        key = "manaGem", name = "Mana Gem", noun = "gem",
+        List = KnownManaGems,
+        Running = HeldManaGem,
+        conjures = true,
     } },
     WARLOCK = { {
         key = "warlockArmor", name = "Armor", noun = "armor",
@@ -739,13 +782,20 @@ local function CollectEntries()
                 if option.key == picks[swapper.key] then selected = option end
             end
             selected = selected or running
+            -- Gems: the best one known is what right-click conjures, and any
+            -- gem held will do.
+            if swapper.conjures then selected = swapOptions[1] end
             local entry = {
                 id = "swap:" .. swapper.key, key = swapper.key, swap = swapper,
                 swapOptions = swapOptions, name = swapper.name, selfSupplied = true,
                 running = running, selected = selected,
-                has = running ~= nil and running == selected,
+                has = running ~= nil and (swapper.conjures or running == selected),
                 icon = (running or selected or swapOptions[1]).icon,
             }
+            if swapper.conjures and running then
+                entry.useItem = running.itemId
+                entry.useCount = GetItemCount(running.itemId, false, true)
+            end
             entry.missing = not entry.has
             entries[#entries + 1] = entry
         end
@@ -766,24 +816,6 @@ local function CollectEntries()
         end
     end
 
-    -- A mage's mana gem: the highest one this mage can conjure, in the bags
-    -- or not. Right-click conjures it; the corner counts its charges.
-    if class == "MAGE" then
-        local gem
-        for _, known in ipairs(WhoDoesWhat.ManaGems) do
-            if GetSpellInfo(known.name) then gem = known end
-        end
-        if gem then
-            local charges = GetItemCount(gem.itemId, false, true)
-            entries[#entries + 1] = {
-                id = "self:manaGem", key = "manaGem", name = ItemName(gem.itemId),
-                icon = GetItemIcon(gem.itemId) or gem.icon, selfSupplied = true,
-                castSpell = gem.name, gem = gem,
-                useItem = gem.itemId, useCount = charges,
-                has = charges > 0, missing = charges == 0,
-            }
-        end
-    end
 
     local consumables = ActiveConsumables(buffs)
     local petConsumables = pet and ActiveConsumables((OwnBuffs("pet"))) or {}
@@ -1377,7 +1409,15 @@ local function ShowTooltip(btn)
     GameTooltip:SetOwner(btn, "ANCHOR_NONE")
     GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
     GameTooltip:SetText((entry.forPet and "Pet: " or "") .. entry.name, 1, 1, 1)
-    if entry.swap then
+    if entry.swap and entry.swap.conjures then
+        if entry.running then
+            GameTooltip:AddLine(string.format("In your bags: %s, %d charge%s.",
+                ItemName(entry.running.itemId), entry.useCount or 0,
+                entry.useCount == 1 and "" or "s"), 0.3, 1, 0.3)
+        else
+            GameTooltip:AddLine("No " .. entry.swap.noun .. " in your bags.", 1, 0.3, 0.3)
+        end
+    elseif entry.swap then
         if entry.running then
             GameTooltip:AddLine("Running: " .. entry.running.name .. ".", 0.3, 1, 0.3)
         else
@@ -1410,13 +1450,6 @@ local function ShowTooltip(btn)
             end
         else
             GameTooltip:AddLine("No enchant.", 1, 0.3, 0.3)
-        end
-    elseif entry.gem then
-        if entry.has then
-            GameTooltip:AddLine(string.format("In your bags, %d charge%s.",
-                entry.useCount, entry.useCount == 1 and "" or "s"), 0.3, 1, 0.3)
-        else
-            GameTooltip:AddLine("Not in your bags.", 1, 0.3, 0.3)
         end
     elseif entry.has == nil then
         GameTooltip:AddLine("Not scanned yet.", 0.6, 0.6, 0.6)
@@ -1465,9 +1498,13 @@ local function ShowTooltip(btn)
 
     GameTooltip:AddLine(" ")
     if entry.swap then
-        UI.AddTooltipHint(GameTooltip, "Left-Click:",
-            "Pick " .. entry.swap.noun .. " (casts it)")
-        if entry.selected then
+        UI.AddTooltipHint(GameTooltip, "Left-Click:", entry.swap.conjures
+            and ("Conjure a " .. entry.swap.noun)
+            or ("Pick " .. entry.swap.noun .. " (casts it)"))
+        if entry.swap.conjures and entry.running then
+            UI.AddTooltipHint(GameTooltip, "Right-Click:",
+                "Use " .. ItemName(entry.running.itemId))
+        elseif entry.selected then
             UI.AddTooltipHint(GameTooltip, "Right-Click:", "Cast " .. entry.selected.name)
         end
     elseif entry.castSpell then
@@ -1585,6 +1622,10 @@ local function CreateSwapOption(menu, index)
     icon:SetAllPoints()
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     option.icon = icon
+    local cooldown = CreateFrame("Cooldown", nil, option, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(icon)
+    cooldown:SetHideCountdownNumbers(true)
+    option.cooldown = cooldown
 
     local highlight = option:CreateTexture(nil, "OVERLAY")
     highlight:SetAllPoints()
@@ -1648,8 +1689,14 @@ end
 local function ConfigureSwapMenu(entry)
     if InCombatLockdown() then return end
     local menu = EnsureSwapper(entry.swap.key)
+    local conjures = entry.swap.conjures
     local keys = {}
-    for i, spell in ipairs(entry.swapOptions) do keys[i] = spell.key end
+    for i, spell in ipairs(entry.swapOptions) do
+        -- A gem's right-click depends on whether it is held, so that is part
+        -- of what the menu was laid out for.
+        keys[i] = spell.key
+            .. ((conjures and GetItemCount(spell.itemId) > 0) and "+" or "")
+    end
     local stamp = table.concat(keys, ",")
     if menu.stamp == stamp then return end
     menu.stamp = stamp
@@ -1660,6 +1707,11 @@ local function ConfigureSwapMenu(entry)
         option.spell = spell
         option.icon:SetTexture(spell.icon)
         option:SetAttribute("macrotext1", "/cast " .. spell.name)
+        -- Gems only: right-click uses the gem if held, or conjures it.
+        local held = conjures and GetItemCount(spell.itemId) > 0
+        option:SetAttribute("type2", conjures and "macro" or nil)
+        option:SetAttribute("macrotext2", conjures and (held
+            and ("/use item:" .. spell.itemId) or ("/cast " .. spell.name)) or nil)
         local col, row = (i - 1) % SWAP_COLUMNS, math.floor((i - 1) / SWAP_COLUMNS)
         option:ClearAllPoints()
         option:SetPoint("TOPLEFT", INSET + SWAP_PAD + col * (SWAP_OPTION_SIZE + GAP),
@@ -1685,7 +1737,13 @@ local function PaintSwapMenu(entry)
     local menu = swapMenus[entry.swap.key]
     if not menu then return end
     for _, option in ipairs(menu.options) do
-        if option.spell then
+        if option.spell and entry.swap.conjures then
+            -- Gems: full colour on every gem in the bags, no pick to mark.
+            local held = GetItemCount(option.spell.itemId) > 0
+            option.icon:SetDesaturated(not held)
+            ShowItemCooldown(option.cooldown, held and option.spell.itemId)
+            option.border:SetColorTexture(0, 0, 0, 0.9)
+        elseif option.spell then
             option.icon:SetDesaturated(option.spell ~= entry.running)
             if option.spell == entry.selected then
                 option.border:SetColorTexture(1, 0.82, 0.2, 1)
@@ -1714,6 +1772,8 @@ local function ConfigureUse(btn, entry)
         else
             kind, value = "spell", entry.castSpell
         end
+    elseif entry.swap and entry.swap.conjures and entry.running then
+        kind, value = "macro", "/use item:" .. entry.running.itemId
     elseif entry.swap then
         if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
     elseif entry.useSpell then
@@ -1793,7 +1853,20 @@ local function CreateButton(index)
     nothing:Hide()
     btn.nothing = nothing
 
-    local timer = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    -- A gem's cooldown, swiping over the icon with its countdown.
+    local cooldown = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(icon)
+    cooldown:SetHideCountdownNumbers(true)
+    btn.cooldown = cooldown
+
+    -- The countdown and the stock count sit on a layer above the swipe, which
+    -- as a child frame would otherwise draw over them.
+    local textLayer = CreateFrame("Frame", nil, btn)
+    textLayer:SetAllPoints()
+    textLayer:SetFrameLevel(cooldown:GetFrameLevel() + 1)
+    btn.stock:SetParent(textLayer)
+
+    local timer = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     timer:SetPoint("CENTER")
     timer:SetFont(GameFontNormal:GetFont() or FALLBACK_FONT, 16, "OUTLINE")
     timer:Hide()
@@ -1847,18 +1920,27 @@ local function UpdateTimerAndGlow(btn)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     local expiring = entry.has == true and remaining ~= nil and remaining > 0
         and remaining < WarnSeconds()
-    if expiring then
+    -- A mana gem on cooldown counts down in the same text, in white: nothing
+    -- is wrong, it just can't be used yet.
+    local cooldownLeft = btn.cooldownEnds and (btn.cooldownEnds - GetTime())
+    local cooling = cooldownLeft ~= nil and cooldownLeft > 0
+    local left = expiring and remaining or cooling and cooldownLeft
+    if left then
         -- Minutes while there are any, so a six-minute warning fits the icon.
-        if remaining >= 60 then
-            btn.timer:SetFormattedText("%dm", math.ceil(remaining / 60))
+        if left >= 60 then
+            btn.timer:SetFormattedText("%dm", math.ceil(left / 60))
         else
-            btn.timer:SetFormattedText("%d", math.ceil(remaining))
+            btn.timer:SetFormattedText("%d", math.ceil(left))
         end
-        -- The countdown wears the expiring colour, like the Paladin Bar's.
-        local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
-        btn.timer:SetTextColor(c.r, c.g, c.b)
+        if expiring then
+            -- The countdown wears the expiring colour, like the Paladin Bar's.
+            local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+            btn.timer:SetTextColor(c.r, c.g, c.b)
+        else
+            btn.timer:SetTextColor(1, 1, 1)
+        end
     end
-    btn.timer:SetShown(expiring)
+    btn.timer:SetShown(left and true or false)
     -- The wrong elixir or scroll rank up wears the expiring glow too, without
     -- a countdown: it wants replacing, but nothing is missing.
     local color = entry.missing and WhoDoesWhat:GetBuffChecklistGlowColor("missing")
@@ -1882,6 +1964,8 @@ end
 local function PaintButton(btn, entry)
     btn.entry = entry
     btn.nothing:SetShown(NothingToPick(entry) or entry.wrongEdge == true)
+    btn.cooldownEnds = ShowItemCooldown(btn.cooldown, entry.swap
+        and entry.swap.conjures and entry.running and entry.running.itemId)
     btn.expiresAt = entry.remaining and (GetTime() + entry.remaining) or nil
     btn.icon:SetTexture(entry.icon)
     -- Grey unless it is actually on you; unknown reads as not-yet rather than
@@ -2405,6 +2489,8 @@ loader:RegisterUnitEvent("UNIT_HEALTH", "pet")
 loader:RegisterEvent("SPELLS_CHANGED")
 -- An item name the pickers are showing "Gathering Data..." for.
 loader:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+-- A mana gem used: its cooldown starts on the icon.
+loader:RegisterEvent("BAG_UPDATE_COOLDOWN")
 local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
 
@@ -2442,7 +2528,7 @@ loader:SetScript("OnEvent", function(_, event, arg1)
         RefreshSoon()
         return
     end
-    if event == "UNIT_AURA" then
+    if event == "UNIT_AURA" or event == "BAG_UPDATE_COOLDOWN" then
         RefreshSoon()
         return
     end

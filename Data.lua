@@ -425,20 +425,22 @@ WhoDoesWhat.InnerFire = {
     icon = GetSpellTexture(588),
 }
 
--- A mage's mana gems, lowest first: the conjure spell and the gem it makes.
--- The Buff Checklist tracks the highest one this mage can conjure.
+-- A mage's mana gems, lowest first: the conjure spell and the gem it makes,
+-- for the Buff Checklist's gem swapper. `name` is the conjure spell's (what the
+-- menu casts); `icon` is the gem's, since the menu and grid show gems.
 WhoDoesWhat.ManaGems = {
-    { spellId = 759,   itemId = 5514 },  -- Conjure Mana Agate
-    { spellId = 3552,  itemId = 5513 },  -- Conjure Mana Jade
-    { spellId = 10053, itemId = 8007 },  -- Conjure Mana Citrine
-    { spellId = 10054, itemId = 8008 },  -- Conjure Mana Ruby
-    { spellId = 27101, itemId = 22044 }, -- Conjure Mana Emerald (TBC)
+    { key = "agate",   spellId = 759,   itemId = 5514 },  -- Conjure Mana Agate
+    { key = "jade",    spellId = 3552,  itemId = 5513 },  -- Conjure Mana Jade
+    { key = "citrine", spellId = 10053, itemId = 8007 },  -- Conjure Mana Citrine
+    { key = "ruby",    spellId = 10054, itemId = 8008 },  -- Conjure Mana Ruby
+    { key = "emerald", spellId = 27101, itemId = 22044 }, -- Conjure Mana Emerald (TBC)
 }
 do
+    local GetIcon = GetItemIcon or C_Item.GetItemIconByID
     local known = {}
     for _, gem in ipairs(WhoDoesWhat.ManaGems) do
         gem.name = GetSpellInfo(gem.spellId)
-        gem.icon = GetSpellTexture(gem.spellId)
+        gem.icon = GetIcon(gem.itemId) or GetSpellTexture(gem.spellId)
         if gem.name then known[#known + 1] = gem end
     end
     WhoDoesWhat.ManaGems = known
