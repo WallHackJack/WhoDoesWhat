@@ -228,12 +228,38 @@ local WEAPON_SLOTS = {
     { key = "offHand", slot = 17, hand = 2, name = "Off Hand" },
 }
 
--- Item id -> true for the weapon pickers, and the enchant id each puts on a
--- weapon -> its item id.
+-- Item id -> the weapon pickers' entry: "sharp" / "blunt" for a stone that
+-- only takes on that edge, true for anything else. And the enchant id each
+-- puts on a weapon -> its item id.
 local weaponItems, itemByEnchant = {}, {}
 for _, pair in ipairs(WhoDoesWhat.WeaponEnchantItems) do
-    weaponItems[pair[1]] = true
+    weaponItems[pair[1]] = pair[3] or true
     itemByEnchant[pair[2]] = pair[1]
+end
+
+-- Weapon subclass (GetItemInfoInstant's 7th return) -> its edge, for the
+-- stones: sharpening stones for axes, swords, polearms and daggers,
+-- weightstones for maces, staves and fist weapons.
+local WEAPON_EDGE = {
+    [0] = "sharp", [1] = "sharp", -- One- and two-handed axes
+    [6] = "sharp",                -- Polearms
+    [7] = "sharp", [8] = "sharp", -- One- and two-handed swords
+    [15] = "sharp",               -- Daggers
+    [4] = "blunt", [5] = "blunt", -- One- and two-handed maces
+    [10] = "blunt",               -- Staves
+    [13] = "blunt",               -- Fist weapons
+}
+
+-- The edge of the weapon in a picker's slot ("mainHand" / "offHand"), or nil.
+local function WieldedEdge(kind)
+    for _, weapon in ipairs(WEAPON_SLOTS) do
+        if weapon.key == kind then
+            local id = GetInventoryItemID("player", weapon.slot)
+            local subclassID = id and select(7, GetItemInfoInstant(id))
+            return subclassID and WEAPON_EDGE[subclassID]
+        end
+    end
+    return nil
 end
 
 local function Picks()
@@ -477,6 +503,9 @@ end
 
 local function BagChoices(kind)
     local out = {}
+    -- A weapon picker leaves out the stones that won't take on the weapon.
+    local edge = not pickerItems[kind] and not consumableChoices[kind]
+        and WieldedEdge(kind)
     for _, item in ipairs(BagItems()) do
         local id = item.id
         local wanted
@@ -485,7 +514,9 @@ local function BagChoices(kind)
         elseif consumableChoices[kind] then
             wanted = consumableChoices[kind][id]
         else
-            wanted = weaponItems[id] and GetItemSpell(id) ~= nil
+            local fits = weaponItems[id]
+            wanted = fits and (fits == true or fits == edge)
+                and GetItemSpell(id) ~= nil
         end
         if wanted then out[#out + 1] = id end
     end
@@ -813,6 +844,10 @@ local function CollectEntries()
                     end
                 elseif type(pick) == "number" then
                     ApplyPick(entry, pick)
+                    -- A stone picked for the weapon you held before.
+                    local fits = weaponItems[pick]
+                    entry.wrongEdge = fits ~= nil and fits ~= true
+                        and fits ~= WieldedEdge(weapon.key)
                 end
                 -- What is on the weapon shows as itself, and glows when it
                 -- isn't the pick: a second Flametongue lands on the off hand
@@ -1264,7 +1299,8 @@ end
 
 local function CanUse(entry)
     return entry.useSpell ~= nil
-        or (entry.useItem ~= nil and (entry.useCount or 0) > 0)
+        or (entry.useItem ~= nil and (entry.useCount or 0) > 0
+            and not entry.wrongEdge)
 end
 
 -- Whether a right-click takes the weapon's enchant off rather than using
@@ -1371,7 +1407,9 @@ local function ShowTooltip(btn)
                 GameTooltip:AddLine("Using " .. name .. " (" .. entry.useCount
                     .. " in bags).", 0.8, 0.8, 0.8)
             else
-                GameTooltip:AddLine("Out of " .. name .. ".", 1, 0.3, 0.3)
+                GameTooltip:AddLine(entry.wrongEdge
+                    and (name .. " won't take on this weapon.")
+                    or ("Out of " .. name .. "."), 1, 0.3, 0.3)
             end
         else
             GameTooltip:AddLine("No " .. noun .. " picked.", 0.6, 0.6, 0.6)
@@ -1699,7 +1737,8 @@ local function CreateButton(index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     btn.icon = icon
 
-    -- Nothing picked and nothing in your bags to pick (NothingToPick).
+    -- Nothing picked and nothing in your bags to pick (NothingToPick), or a
+    -- picked stone that won't take on the weapon in hand (wrongEdge).
     local nothing = btn:CreateTexture(nil, "OVERLAY")
     nothing:SetPoint("TOPLEFT", 3, -3)
     nothing:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -1795,7 +1834,7 @@ end
 
 local function PaintButton(btn, entry)
     btn.entry = entry
-    btn.nothing:SetShown(NothingToPick(entry))
+    btn.nothing:SetShown(NothingToPick(entry) or entry.wrongEdge == true)
     btn.expiresAt = entry.remaining and (GetTime() + entry.remaining) or nil
     btn.icon:SetTexture(entry.icon)
     -- Grey unless it is actually on you; unknown reads as not-yet rather than

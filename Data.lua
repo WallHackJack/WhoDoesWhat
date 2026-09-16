@@ -483,9 +483,12 @@ WhoDoesWhat.WarriorShouts = knownShouts
 -- (Item Enhancement) also holds permanent armor kits. Only ids found in your
 -- bags are ever listed, so one this client doesn't have is simply never seen.
 --
--- Each is { item id, enchant id }: the enchant id is what GetWeaponEnchantInfo
--- reports once it is on the weapon, so the checklist can say which one is
--- running. From each item's use-spell on Wowhead (TBC).
+-- Each is { item id, enchant id, edge }: the enchant id is what
+-- GetWeaponEnchantInfo reports once it is on the weapon, so the checklist can
+-- say which one is running. From each item's use-spell on Wowhead (TBC).
+-- `edge` is "sharp" or "blunt" for a stone that only takes on that kind of
+-- weapon (its tooltip says so); nil takes on any. Elemental and Consecrated
+-- Sharpening Stones say "melee weapon" / "target weapon", so they stay nil.
 WhoDoesWhat.WeaponEnchantItems = {
     -- Wizard oils
     { 20744, 2623 }, -- Minor Wizard Oil
@@ -500,23 +503,23 @@ WhoDoesWhat.WeaponEnchantItems = {
     { 20748, 2629 }, -- Brilliant Mana Oil
     { 22521, 2677 }, -- Superior Mana Oil
     -- Sharpening stones
-    { 2862, 40 }, -- Rough Sharpening Stone
-    { 2863, 13 }, -- Coarse Sharpening Stone
-    { 2871, 14 }, -- Heavy Sharpening Stone
-    { 7964, 483 }, -- Solid Sharpening Stone
-    { 12404, 1643 }, -- Dense Sharpening Stone
+    { 2862, 40, "sharp" }, -- Rough Sharpening Stone
+    { 2863, 13, "sharp" }, -- Coarse Sharpening Stone
+    { 2871, 14, "sharp" }, -- Heavy Sharpening Stone
+    { 7964, 483, "sharp" }, -- Solid Sharpening Stone
+    { 12404, 1643, "sharp" }, -- Dense Sharpening Stone
     { 18262, 2506 }, -- Elemental Sharpening Stone
     { 23122, 2684 }, -- Consecrated Sharpening Stone
-    { 23528, 2712 }, -- Fel Sharpening Stone
-    { 23529, 2713 }, -- Adamantite Sharpening Stone
+    { 23528, 2712, "sharp" }, -- Fel Sharpening Stone
+    { 23529, 2713, "sharp" }, -- Adamantite Sharpening Stone
     -- Weightstones
-    { 3239, 19 }, -- Rough Weightstone
-    { 3240, 20 }, -- Coarse Weightstone
-    { 3241, 21 }, -- Heavy Weightstone
-    { 7965, 484 }, -- Solid Weightstone
-    { 12643, 1703 }, -- Dense Weightstone
-    { 28420, 2954 }, -- Fel Weightstone
-    { 28421, 2955 }, -- Adamantite Weightstone
+    { 3239, 19, "blunt" }, -- Rough Weightstone
+    { 3240, 20, "blunt" }, -- Coarse Weightstone
+    { 3241, 21, "blunt" }, -- Heavy Weightstone
+    { 7965, 484, "blunt" }, -- Solid Weightstone
+    { 12643, 1703, "blunt" }, -- Dense Weightstone
+    { 28420, 2954, "blunt" }, -- Fel Weightstone
+    { 28421, 2955, "blunt" }, -- Adamantite Weightstone
     -- Sunwell weapon coatings
     { 34538, 3265 }, -- Blessed Weapon Coating
     { 34539, 3266 }, -- Righteous Weapon Coating
