@@ -1928,6 +1928,14 @@ local function EnsureFrame()
     frame:SetBackdropColor(fill[1], fill[2], fill[3], fill[4])
     frame:SetBackdropBorderColor(edge[1], edge[2], edge[3])
     frame.buttons = {}
+    -- The gaps between icons are the window too: Shift-Right-Click opens its
+    -- settings and Alt-drag moves it, as on the icons and the header.
+    UI.AttachDrag(frame, frame)
+    frame:SetScript("OnMouseUp", function(_, button)
+        if button == "RightButton" and IsShiftKeyDown() then
+            WhoDoesWhat:OpenAddonSettingsView("Checklist")
+        end
+    end)
 
     -- Header strip (a setting): the window's name, a drag handle, and the
     -- one spot on it that isn't a buff, so its tooltip is about the window.
@@ -2013,7 +2021,7 @@ local DIVIDER_LINE_MIN = 10
 local function EnsureDivider()
     if divider then return divider end
     divider = CreateFrame("Button", nil, frame)
-    divider:RegisterForClicks("LeftButtonUp")
+    divider:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local label = divider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     divider.label = label
@@ -2033,7 +2041,14 @@ local function EnsureDivider()
     rightLine:SetPoint("LEFT", label, "RIGHT", 4, 0)
     rightLine:SetPoint("RIGHT", 0, 0)
 
-    divider:SetScript("OnClick", function()
+    divider:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            if IsShiftKeyDown() then
+                GameTooltip:Hide()
+                WhoDoesWhat:OpenAddonSettingsView("Checklist")
+            end
+            return
+        end
         local char = WhoDoesWhat.db.char
         char.buffChecklistPetCollapsed = not char.buffChecklistPetCollapsed
         GameTooltip:Hide()
@@ -2048,6 +2063,7 @@ local function EnsureDivider()
         UI.AddTooltipHint(GameTooltip, "Left-Click:",
             WhoDoesWhat.db.char.buffChecklistPetCollapsed and "Expand" or "Collapse")
         UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
         GameTooltip:Show()
     end)
     divider:SetScript("OnLeave", function() GameTooltip:Hide() end)
