@@ -22,9 +22,11 @@ local Assign = WhoDoesWhat.Assign
 -- enchant is on it, and Windfury itself counts as bare. A picked consumable's
 -- icon carries how many are left in its corner.
 --
--- A paladin gets an aura swapper and a hunter an aspect swapper: left-click
--- opens a secure menu where picking one casts it, right-click recasts the
--- pick. A druid with the talent gets Omen of Clarity, right-click to cast.
+-- A paladin gets an aura swapper, a hunter an aspect swapper, and a mage or
+-- warlock an armor swapper: left-click opens a secure menu where picking one
+-- casts it, right-click recasts the pick. Self-buffs cast by hand get an icon
+-- each, right-click to cast: Omen of Clarity and Trueshot Aura for whoever has
+-- the talent, Inner Fire for priests, Righteous Fury for a tanking paladin.
 --
 -- A hunter's grid gains a second section for the pet (Assign.
 -- GetPetBuffChecklist) under a divider reading "Pet (covered/total)", or a red
@@ -399,23 +401,42 @@ end
 
 -- The swapper a class gets: one self-buff out of a set, where picking one
 -- casts it. `List` is what this character can cast right now.
+-- Which demon is out, as a WhoDoesWhat.WarlockDemons entry: matched by the
+-- creature id in the pet's GUID, which no locale changes. Nil with no pet, a
+-- dead one, or anything else (an enslaved demon).
+local function RunningDemon(options)
+    if not UnitExists("pet") or UnitIsDead("pet") then return nil end
+    local guid = UnitGUID("pet")
+    local npcId = guid and tonumber((select(6, strsplit("-", guid))))
+    for _, demon in ipairs(options) do
+        if demon.npcId == npcId then return demon end
+    end
+    return nil
+end
+
+-- The swappers a class gets, in grid order. `Running` says which option is up
+-- when that isn't just a buff of the option's name (a demon is a pet).
 local SWAPPERS = {
-    PALADIN = {
+    PALADIN = { {
         key = "aura", name = "Aura", noun = "aura",
         List = function() return WhoDoesWhat:GetKnownPaladinAuras() end,
-    },
-    HUNTER = {
+    } },
+    HUNTER = { {
         key = "aspect", name = "Aspect", noun = "aspect",
         List = function() return KnownSpells(WhoDoesWhat.HunterAspects) end,
-    },
-    MAGE = {
+    } },
+    MAGE = { {
         key = "mageArmor", name = "Armor", noun = "armor",
         List = function() return KnownSpells(WhoDoesWhat.MageArmors) end,
-    },
-    WARLOCK = {
+    } },
+    WARLOCK = { {
         key = "warlockArmor", name = "Armor", noun = "armor",
         List = function() return KnownSpells(WhoDoesWhat.WarlockArmors) end,
-    },
+    }, {
+        key = "demon", name = "Demon", noun = "demon",
+        List = function() return KnownSpells(WhoDoesWhat.WarlockDemons) end,
+        Running = RunningDemon,
+    } },
 }
 
 -- Item id sets for the food, pet food and alcohol pickers.
@@ -538,8 +559,43 @@ end
 local FOOD_AURA_NAME = GetSpellInfo(433) or "Food"
 local EAT_SECONDS = 10
 
--- Whether this druid has Omen of Clarity; nil until asked.
-local omenTalented = nil
+-- The self-buffs a class casts by hand, one icon each: right-click casts it.
+--   talent    granted by a talent of the same name, so the talent tree is
+--             asked (a name lookup would find it talented or not)
+--   toggles   a form or aura a second cast might cancel: cast as "/cast !Name",
+--             which only ever turns it on
+--   tankOnly  only while you're marked as a tank -- the Paladin Bar's
+--             Righteous Fury rule
+-- Anything else shows once the spell is in your spellbook.
+local SELF_CASTS = {
+    DRUID = { { key = "omen", spell = WhoDoesWhat.OmenOfClarity, talent = true } },
+    PRIEST = {
+        { key = "innerFire", spell = WhoDoesWhat.InnerFire },
+        { key = "shadowform", spell = WhoDoesWhat.Shadowform, talent = true,
+          toggles = true },
+    },
+    PALADIN = { { key = "righteousFury", spell = WhoDoesWhat.RighteousFury, tankOnly = true } },
+    HUNTER = { { key = "trueshot", spell = WhoDoesWhat.TrueshotAura, talent = true,
+        toggles = true } },
+}
+
+-- Self-cast key -> whether this character has its talent; asked once, and
+-- forgotten when the spellbook changes (SPELLS_CHANGED on the loader).
+local talentedSelfCasts = {}
+
+local function WantsSelfCast(cast)
+    local name = cast.spell.name
+    if cast.talent then
+        if talentedSelfCasts[cast.key] == nil then
+            talentedSelfCasts[cast.key] =
+                (WhoDoesWhat:GetOwnTalentRankByName(name) or 0) > 0
+        end
+        if not talentedSelfCasts[cast.key] then return false end
+    elseif not GetSpellInfo(name) then
+        return false
+    end
+    return not cast.tankOnly or WhoDoesWhat:IsMarkedTank(UnitName("player"))
+end
 
 local function IsHunter()
     local _, class = UnitClass("player")
@@ -606,44 +662,46 @@ local function CollectEntries()
         end
     end
 
-    -- Aura (paladin), aspect (hunter) or armor (mage, warlock): shows what is
-    -- running, glows while that isn't the one you picked. Nothing picked yet
-    -- adopts what is up.
-    local swapper = SWAPPERS[class]
-    local swapOptions = swapper and swapper.List() or {}
-    if #swapOptions > 0 then
-        local running, selected
-        for _, option in ipairs(swapOptions) do
-            if buffsByName[option.name] then running = option end
-            if option.key == picks[swapper.key] then selected = option end
+    -- Aura (paladin), aspect (hunter), armor (mage, warlock) or demon
+    -- (warlock): shows what is running, glows while that isn't the one you
+    -- picked. Nothing picked yet adopts what is up.
+    for _, swapper in ipairs(SWAPPERS[class] or {}) do
+        local swapOptions = swapper.List()
+        if #swapOptions > 0 then
+            local running, selected
+            if swapper.Running then running = swapper.Running(swapOptions) end
+            for _, option in ipairs(swapOptions) do
+                if not swapper.Running and buffsByName[option.name] then
+                    running = option
+                end
+                if option.key == picks[swapper.key] then selected = option end
+            end
+            selected = selected or running
+            local entry = {
+                id = "swap:" .. swapper.key, key = swapper.key, swap = swapper,
+                swapOptions = swapOptions, name = swapper.name, selfSupplied = true,
+                running = running, selected = selected,
+                has = running ~= nil and running == selected,
+                icon = (running or selected or swapOptions[1]).icon,
+            }
+            entry.missing = not entry.has
+            entries[#entries + 1] = entry
         end
-        selected = selected or running
-        local entry = {
-            id = "swap:" .. swapper.key, key = swapper.key, swap = swapper,
-            swapOptions = swapOptions, name = swapper.name, selfSupplied = true,
-            running = running, selected = selected,
-            has = running ~= nil and running == selected,
-            icon = (running or selected or swapOptions[1]).icon,
-        }
-        entry.missing = not entry.has
-        entries[#entries + 1] = entry
     end
 
-    -- Omen of Clarity, for a druid with the talent that grants it. Asked by
-    -- name, like the Paladin Bar's talent auras, and remembered until the
-    -- spellbook changes (SPELLS_CHANGED on the loader).
-    local omen = WhoDoesWhat.OmenOfClarity
-    if class == "DRUID" and omenTalented == nil then
-        omenTalented = (WhoDoesWhat:GetOwnTalentRankByName(omen.name) or 0) > 0
-    end
-    if class == "DRUID" and omenTalented then
-        local buff = buffsByName[omen.name]
-        entries[#entries + 1] = {
-            id = "self:omen", key = "omen", name = omen.name, icon = omen.icon,
-            selfSupplied = true, castSpell = omen.name,
-            has = buff ~= nil, missing = buff == nil,
-            remaining = buff and buff.remaining,
-        }
+    -- Omen of Clarity, Inner Fire, Righteous Fury, Trueshot Aura (SELF_CASTS).
+    for _, cast in ipairs(SELF_CASTS[class] or {}) do
+        if WantsSelfCast(cast) then
+            local spell = cast.spell
+            local buff = buffsByName[spell.name]
+            entries[#entries + 1] = {
+                id = "self:" .. cast.key, key = cast.key, name = spell.name,
+                icon = spell.icon, selfSupplied = true, castSpell = spell.name,
+                castToggles = cast.toggles,
+                has = buff ~= nil, missing = buff == nil,
+                remaining = buff and buff.remaining,
+            }
+        end
     end
 
     local consumables = ActiveConsumables(buffs)
@@ -892,10 +950,16 @@ local PICKER_EMPTY = {
 -- UISpecialFrames: Escape would try to hide a protected frame mid-fight.
 local pickers = {}
 local pickerCount = 0
+-- Swapper key -> its swap menu (EnsureSwapper). Registered on the hub the same
+-- way, so the grid's snippet closes them along with the pickers.
+local swapMenus = {}
 
 local function AnyPickerShown()
     for _, p in pairs(pickers) do
         if p:IsShown() then return true end
+    end
+    for _, menu in pairs(swapMenus) do
+        if menu:IsShown() then return true end
     end
     return false
 end
@@ -904,6 +968,7 @@ end
 local function HidePickers()
     if InCombatLockdown() then return end
     for _, p in pairs(pickers) do p:Hide() end
+    for _, menu in pairs(swapMenus) do menu:Hide() end
 end
 
 -- A shaman's own weapon imbues, offered in the weapon pickers beside the oils.
@@ -1212,10 +1277,7 @@ end
 
 local function ShowTooltip(btn)
     local entry = btn.entry
-    if not entry or AnyPickerShown()
-        or (swapMenu and swapMenu:IsShown()) then
-        return
-    end
+    if not entry or AnyPickerShown() then return end
     GameTooltip:SetOwner(btn, "ANCHOR_NONE")
     GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
     GameTooltip:SetText((entry.forPet and "Pet: " or "") .. entry.name, 1, 1, 1)
@@ -1334,25 +1396,27 @@ local function SizeButton(btn, size)
 end
 
 -- ---------------------------------------------------------------------------
--- Swap menu (aura / aspect)
+-- Swap menus (aura / aspect / armor / demon)
 -- ---------------------------------------------------------------------------
 
 -- Unlike the item picker, choosing here CASTS, and a cast is protected -- so
--- this menu is a secure frame of secure buttons, opened by a restricted
+-- each menu is a secure frame of secure buttons, opened by a restricted
 -- snippet wrapped round the grid button's OnClick (it has to open mid-fight,
--- which is when aspects get swapped). One menu serves whichever grid button
--- carries the swapper; a character only ever has one. Built like the Paladin
--- Bar's aura picker, whose notes explain the template order and the post body.
+-- which is when aspects get swapped). One menu per swapper, since a warlock
+-- carries two (armor and demon). Built like the Paladin Bar's aura picker,
+-- whose notes explain the template order and the post body.
 local SWAP_OPTION_SIZE = 28
 local SWAP_COLUMNS = 7
 local SWAP_PAD = 5
 
 -- Pre body on every grid button's OnClick, and the one place any pop-out opens
 -- or closes -- here, in the secure snippet, because none of them can be shown
--- or hidden from ordinary code in combat. `owner` is the swap menu.
+-- or hidden from ordinary code in combat. `owner` is the hub every pop-out is
+-- registered on (EnsureSwapMenu).
 --
 -- The button's attributes (set out of combat, ConfigureUse) say what it opens:
--- a "swapper" opens the swap menu on left-click; a "picks" button opens its
+-- a "swapper" opens its swap menu (the "swapMenu" frame ref) on left-click; a
+-- "picks" button opens its
 -- own picker (the "picker" frame ref) on left-click, and on right-click too
 -- while there is nothing to use ("pickOnRight"). Every click closes every
 -- pop-out first, so opening one closes the rest, and clicking the same icon
@@ -1361,7 +1425,7 @@ local SWAP_TOGGLE_SNIPPET = [==[
     if down or IsShiftKeyDown() or IsAltKeyDown() then return end
     local target
     if self:GetAttribute("swapper") then
-        if button == "LeftButton" then target = owner end
+        if button == "LeftButton" then target = self:GetFrameRef("swapMenu") end
     elseif self:GetAttribute("picks") then
         if button == "LeftButton"
             or (button == "RightButton" and self:GetAttribute("pickOnRight")) then
@@ -1369,7 +1433,6 @@ local SWAP_TOGGLE_SNIPPET = [==[
         end
     end
     local wasShown = target and target:IsShown()
-    owner:Hide()
     for i = 1, owner:GetAttribute("pickerCount") or 0 do
         local p = owner:GetFrameRef("picker" .. i)
         if p then p:Hide() end
@@ -1394,9 +1457,9 @@ local SWAP_OPTION_PRE_SNIPPET = [==[
     return nil, "close"
 ]==]
 
-local function CreateSwapOption(index)
-    local option = CreateFrame("Button", swapMenu:GetName() .. "Option" .. index,
-        swapMenu, "SecureActionButtonTemplate")
+local function CreateSwapOption(menu, index)
+    local option = CreateFrame("Button", menu:GetName() .. "Option" .. index,
+        menu, "SecureActionButtonTemplate")
     option:SetSize(SWAP_OPTION_SIZE, SWAP_OPTION_SIZE)
     option:RegisterForClicks("AnyUp", "AnyDown")
     option:SetAttribute("type1", "macro")
@@ -1430,44 +1493,59 @@ local function CreateSwapOption(index)
     -- The cast is the option's own macro; this only remembers the pick.
     option:SetScript("PostClick", function(self, _, down)
         if down == true or not self.spell then return end
-        Picks()[swapMenu.kind] = self.spell.key
-        if not InCombatLockdown() then swapMenu:Hide() end
+        Picks()[menu.kind] = self.spell.key
+        if not InCombatLockdown() then menu:Hide() end
         WhoDoesWhat:RefreshBuffChecklist()
     end)
-    SecureHandlerWrapScript(option, "OnClick", swapMenu, SWAP_OPTION_PRE_SNIPPET,
+    SecureHandlerWrapScript(option, "OnClick", menu, SWAP_OPTION_PRE_SNIPPET,
         SWAP_OPTION_POST_SNIPPET)
-    swapMenu.options[index] = option
+    menu.options[index] = option
     return option
 end
 
--- Also the header every pop-out hangs its secure refs off: the grid's snippet
--- runs with this as `owner`, and each picker registers here (EnsurePicker).
+-- The hub every pop-out hangs its secure refs off: never shown itself, the
+-- grid's snippet runs with it as `owner`, and each picker (EnsurePicker) and
+-- swap menu (EnsureSwapper) registers here so that snippet can close them all.
 function EnsureSwapMenu()
     if swapMenu then return swapMenu end
-    swapMenu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistSwapMenu", frame,
-        "SecureHandlerShowHideTemplate, BackdropTemplate")
-    StylePopout(swapMenu)
-    swapMenu.hint:SetText("Click to cast")
-    swapMenu.options = {}
-    swapMenu:Hide()
+    swapMenu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistPopouts", frame,
+        "SecureHandlerBaseTemplate")
     return swapMenu
+end
+
+-- One swapper's menu. Out of combat only.
+local function EnsureSwapper(kind)
+    local menu = swapMenus[kind]
+    if menu then return menu end
+    local hub = EnsureSwapMenu()
+    menu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistSwap_" .. kind, frame,
+        "SecureHandlerShowHideTemplate, BackdropTemplate")
+    StylePopout(menu)
+    menu.hint:SetText("Click to cast")
+    menu.kind = kind
+    menu.options = {}
+    menu:Hide()
+    pickerCount = pickerCount + 1
+    SecureHandlerSetFrameRef(hub, "picker" .. pickerCount, menu)
+    hub:SetAttribute("pickerCount", pickerCount)
+    swapMenus[kind] = menu
+    return menu
 end
 
 -- Lay the swapper's spells out and bake each option's cast. Out of combat
 -- only; mid-fight the menu keeps what it last had.
 local function ConfigureSwapMenu(entry)
     if InCombatLockdown() then return end
-    EnsureSwapMenu()
+    local menu = EnsureSwapper(entry.swap.key)
     local keys = {}
     for i, spell in ipairs(entry.swapOptions) do keys[i] = spell.key end
-    local stamp = entry.swap.key .. ":" .. table.concat(keys, ",")
-    if swapMenu.stamp == stamp then return end
-    swapMenu.stamp = stamp
-    swapMenu.kind = entry.swap.key
-    swapMenu.title:SetText(entry.swap.name .. "s")
+    local stamp = table.concat(keys, ",")
+    if menu.stamp == stamp then return end
+    menu.stamp = stamp
+    menu.title:SetText(entry.swap.name .. "s")
     local count = #entry.swapOptions
     for i, spell in ipairs(entry.swapOptions) do
-        local option = swapMenu.options[i] or CreateSwapOption(i)
+        local option = menu.options[i] or CreateSwapOption(menu, i)
         option.spell = spell
         option.icon:SetTexture(spell.icon)
         option:SetAttribute("macrotext1", "/cast " .. spell.name)
@@ -1477,15 +1555,15 @@ local function ConfigureSwapMenu(entry)
             -(INSET + POPOUT_HEADER_H + SWAP_PAD + row * (SWAP_OPTION_SIZE + GAP)))
         option:Show()
     end
-    for i = count + 1, #swapMenu.options do
-        swapMenu.options[i].spell = nil
-        swapMenu.options[i]:Hide()
+    for i = count + 1, #menu.options do
+        menu.options[i].spell = nil
+        menu.options[i]:Hide()
     end
     local columns = math.min(count, SWAP_COLUMNS)
     local rows = math.ceil(count / SWAP_COLUMNS)
-    swapMenu:SetSize(math.max(INSET * 2 + SWAP_PAD * 2 + columns * SWAP_OPTION_SIZE
-            + (columns - 1) * GAP, math.ceil(swapMenu.title:GetStringWidth()
-            + swapMenu.hint:GetStringWidth()) + INSET * 2 + 24),
+    menu:SetSize(math.max(INSET * 2 + SWAP_PAD * 2 + columns * SWAP_OPTION_SIZE
+            + (columns - 1) * GAP, math.ceil(menu.title:GetStringWidth()
+            + menu.hint:GetStringWidth()) + INSET * 2 + 24),
         INSET * 2 + POPOUT_HEADER_H + SWAP_PAD * 2 + rows * SWAP_OPTION_SIZE
             + (rows - 1) * GAP)
 end
@@ -1493,8 +1571,9 @@ end
 -- Repaint the menu's icons: full colour on what is running, a gold border on
 -- the pick. Safe in combat.
 local function PaintSwapMenu(entry)
-    if not swapMenu then return end
-    for _, option in ipairs(swapMenu.options) do
+    local menu = swapMenus[entry.swap.key]
+    if not menu then return end
+    for _, option in ipairs(menu.options) do
         if option.spell then
             option.icon:SetDesaturated(option.spell ~= entry.running)
             if option.spell == entry.selected then
@@ -1519,7 +1598,11 @@ local function ConfigureUse(btn, entry)
     if StripsEnchant(entry) then
         kind, value = "cancelaura", tostring(entry.slot)
     elseif entry.castSpell then
-        kind, value = "spell", entry.castSpell
+        if entry.castToggles then
+            kind, value = "macro", "/cast !" .. entry.castSpell
+        else
+            kind, value = "spell", entry.castSpell
+        end
     elseif entry.swap then
         if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
     elseif entry.useSpell then
@@ -1528,7 +1611,7 @@ local function ConfigureUse(btn, entry)
         kind, value = ItemUseAction(entry, entry.useItem)
     end
     local direction = WhoDoesWhat:GetBuffChecklistPopoutDirection()
-    local stamp = (kind and (kind .. value) or "") .. (entry.swap and "|swap" or "")
+    local stamp = (kind and (kind .. value) or "") .. (entry.swap and ("|swap:" .. entry.swap.key) or "")
         .. (entry.pick and ("|pick:" .. entry.pick) or "")
         .. (entry.useUnit and ("|" .. entry.useUnit) or "")
         .. "|" .. direction.key
@@ -1541,6 +1624,9 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("unit2", kind == "item" and entry.useUnit or nil)
     btn:SetAttribute("target-slot2", kind == "cancelaura" and value or nil)
     btn:SetAttribute("swapper", entry.swap and true or nil)
+    if entry.swap then
+        SecureHandlerSetFrameRef(btn, "swapMenu", EnsureSwapper(entry.swap.key))
+    end
     -- A slot with a picker: the snippet opens it on left-click, and on
     -- right-click while there is nothing to use (a bare weapon's right-click
     -- strips its enchant instead). Its contents are filled at the end of the
@@ -2131,7 +2217,7 @@ loader:SetScript("OnEvent", function(_, event, arg1)
         end
         return
     end
-    if event == "SPELLS_CHANGED" then omenTalented = nil end
+    if event == "SPELLS_CHANGED" then wipe(talentedSelfCasts) end
     if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_ENTERING_WORLD" then
         bagItems = nil
     end

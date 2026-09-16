@@ -336,8 +336,18 @@ WhoDoesWhat.WarlockArmors = {
     { key = "demonArmor", spellId = 706, replaces = "demonSkin" },   -- Demon Armor
     { key = "fel",        spellId = 28176 },                         -- Fel Armor (TBC)
 }
+-- A warlock's demons for the Buff Checklist's demon swapper: the summon spell,
+-- and the creature id the summoned pet's GUID carries, which is how the
+-- checklist tells which one is out whatever the client's language.
+WhoDoesWhat.WarlockDemons = {
+    { key = "imp",        spellId = 688,   npcId = 416 },   -- Summon Imp
+    { key = "voidwalker", spellId = 697,   npcId = 1860 },  -- Summon Voidwalker
+    { key = "succubus",   spellId = 712,   npcId = 1863 },  -- Summon Succubus
+    { key = "felhunter",  spellId = 691,   npcId = 417 },   -- Summon Felhunter
+    { key = "felguard",   spellId = 30146, npcId = 17252 }, -- Summon Felguard (TBC)
+}
 -- Names and icons off the ids, dropping any spell this client doesn't have.
-for _, listKey in ipairs({ "MageArmors", "WarlockArmors" }) do
+for _, listKey in ipairs({ "MageArmors", "WarlockArmors", "WarlockDemons" }) do
     local known = {}
     for _, armor in ipairs(WhoDoesWhat[listKey]) do
         armor.name = GetSpellInfo(armor.spellId)
@@ -406,6 +416,28 @@ WhoDoesWhat.OmenOfClarity = {
     spellId = 16864,
     name = GetSpellInfo(16864) or "Omen of Clarity",
     icon = GetSpellTexture(16864),
+}
+
+-- Inner Fire: every priest's own armor buff, gone on death or used up.
+WhoDoesWhat.InnerFire = {
+    spellId = 588,
+    name = GetSpellInfo(588) or "Inner Fire",
+    icon = GetSpellTexture(588),
+}
+
+-- Shadowform: a Shadow talent, and lost on death like Inner Fire.
+WhoDoesWhat.Shadowform = {
+    spellId = 15473,
+    name = GetSpellInfo(15473) or "Shadowform",
+    icon = GetSpellTexture(15473),
+}
+
+-- Trueshot Aura: a Marksmanship talent (tier 7), so like Omen of Clarity the
+-- checklist asks the talent tree whether this hunter has it.
+WhoDoesWhat.TrueshotAura = {
+    spellId = 19506,
+    name = GetSpellInfo(19506) or "Trueshot Aura",
+    icon = GetSpellTexture(19506),
 }
 
 -- Righteous Fury: a 30 minute self-buff (not a toggle on these clients), so it
