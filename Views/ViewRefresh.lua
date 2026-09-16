@@ -86,3 +86,40 @@ function WhoDoesWhat:RequestFullRefresh()
         DoFullRefresh()
     end)
 end
+
+-- Hold a repaint while a dropdown menu is open, and run it once the menu
+-- closes. Returns true when held: the caller skips its repaint.
+--
+-- A repaint that hides a row holding a dropdown closes every open dropdown in
+-- the UI -- UIDropDownMenuTemplate's OnHide is a global CloseDropDownMenus(),
+-- and UIDropDownMenu_Initialize on a new row hides every menu level outright.
+-- Neither cares which window the menu belongs to. Mid-raid the triggers never
+-- stop (talents land one inspect at a time, PallyPower traffic, buff changes),
+-- so menus were yanked shut before they could be clicked.
+--
+-- Shared rather than per view because the close is global: one window's guard
+-- does nothing while a window beside it repaints. `key` names the view, so a
+-- burst of held requests flushes as one repaint each; `flush` is the view's
+-- own stable function (no closure per call -- some of these ride the 10Hz
+-- board notify), and checks for itself whether the view is still on screen.
+--
+-- A selection doesn't wait: Blizzard hides the list before running the
+-- clicked button's func, so the repaint it causes finds nothing open.
+local heldRepaints = {}
+
+local function FlushHeldRepaints()
+    if not next(heldRepaints) then return end
+    local flushes = heldRepaints
+    heldRepaints = {}
+    for _, flush in pairs(flushes) do flush() end
+end
+
+if DropDownList1 then
+    DropDownList1:HookScript("OnHide", FlushHeldRepaints)
+end
+
+function WhoDoesWhat:HoldRepaintWhileMenuOpen(key, flush)
+    if not (DropDownList1 and DropDownList1:IsShown()) then return false end
+    heldRepaints[key] = flush
+    return true
+end

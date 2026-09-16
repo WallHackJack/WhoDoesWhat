@@ -1070,7 +1070,17 @@ local function RenderPlan(f, paladins, plan, note, noteStyle)
     UI.SetScrollHeight(f.scroll, 0)
 end
 
+-- Run once an open dropdown menu closes, for a render it held back.
+local function FlushHeldDiffs()
+    if diffPanel and diffPanel:IsVisible() then RenderDiffs(diffPanel) end
+end
+
 RenderDiffs = function(f)
+    -- Every row carries a role dropdown, and hiding or initializing one closes
+    -- any menu that is open (HoldRepaintWhileMenuOpen, ViewRefresh.lua).
+    if WhoDoesWhat:HoldRepaintWhileMenuOpen("pallyPowerDiff", FlushHeldDiffs) then
+        return
+    end
     local data
     if f.demoData then
         data = f.demoData

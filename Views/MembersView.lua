@@ -305,20 +305,13 @@ local EMPTY_REVIEW = { talentRoles = {}, issues = {} }
 local RefreshRoster -- forward declared; row callbacks repaint through it
 
 -- A repaint rebuckets everyone, so a role landing anywhere grows one grid and
--- shrinks another -- and both ends of that close every open dropdown. Hiding a
--- surplus row hides the dropdown frame inside it, and UIDropDownMenuTemplate's
--- OnHide is a global CloseDropDownMenus(); CreateRow's UIDropDownMenu_Initialize
--- hides every menu level outright. Neither cares which row you had open.
---
--- Mid-raid the repaint triggers never stop -- talent detection alone fires once
--- per player as inspect data lands (TalentScanning.lua), which is exactly the
--- stretch where you're here fixing the stragglers -- so menus were being yanked
--- shut before they could be clicked. Hold repaints while a menu is up and flush
--- once it closes.
-local pendingRepaint = false
-
-local function MenuIsOpen()
-    return DropDownList1 and DropDownList1:IsShown()
+-- shrinks another -- and both ends of that close every open dropdown. So it
+-- holds while a menu is up (HoldRepaintWhileMenuOpen, ViewRefresh.lua), and
+-- this runs once the menu closes.
+local function FlushHeldRoster()
+    if membersFrame and membersFrame:IsVisible() then
+        RefreshRoster(membersFrame)
+    end
 end
 
 -- Place a row dropdown so its visible box lands at column `x`, `width` wide,
@@ -681,11 +674,9 @@ end
 -- and resize everything. The grids are anchor-chained, so height changes ripple
 -- down on their own.
 function RefreshRoster(f)
-    if MenuIsOpen() then
-        pendingRepaint = true
+    if WhoDoesWhat:HoldRepaintWhileMenuOpen("members", FlushHeldRoster) then
         return
     end
-    pendingRepaint = false
 
     -- One pass over the roster answers every row: role, flag, talents,
     -- permissions and everything wrong with them (ActionItems.lua).
@@ -931,20 +922,6 @@ function WhoDoesWhat:BuildMembersPage(page)
             RefreshRoster(self)
         end
     end)
-
-    -- Flush whatever the open menu held back. A selection made here doesn't
-    -- come through this path: Blizzard hides the list before running the
-    -- clicked button's func, so SetAssignedRole's repaint arrives with nothing
-    -- open and paints straight away.
-    if DropDownList1 then
-        DropDownList1:HookScript("OnHide", function()
-            if not pendingRepaint then return end
-            pendingRepaint = false
-            if membersFrame and membersFrame:IsVisible() then
-                RefreshRoster(membersFrame)
-            end
-        end)
-    end
 
     membersFrame = f
     return f

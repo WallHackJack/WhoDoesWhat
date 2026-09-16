@@ -245,7 +245,18 @@ end
 -- section (each owns its rows, warnings, header buttons and height), then the
 -- header mail buttons' enabled states. Mail visibility settles first (cheap,
 -- no collectors) so every section lays out its header chain against it.
-local function RefreshBoard(f)
+--
+-- Section rows carry dropdowns, so a repaint holds while a menu is open and
+-- runs once it closes (HoldRepaintWhileMenuOpen, ViewRefresh.lua).
+local RefreshBoard
+local function FlushHeldBoard()
+    WhoDoesWhat:RefreshMainAssignmentsView()
+end
+
+function RefreshBoard(f)
+    if WhoDoesWhat:HoldRepaintWhileMenuOpen("mainBoard", FlushHeldBoard) then
+        return
+    end
     for _, strip in ipairs(f.permissionStrips) do
         UpdatePermissionStrip(strip.dd, strip.note)
     end
