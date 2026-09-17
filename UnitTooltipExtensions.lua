@@ -60,4 +60,15 @@ local function AddRoleLine(tooltip)
     if added then tooltip:Show() end
 end
 
-GameTooltip:HookScript("OnTooltipSetUnit", AddRoleLine)
+-- Same two-client split as the healthstone line (ItemTooltipExtensions): the
+-- OnTooltipSet* scripts are gone on Forever, where tooltips are extended
+-- through TooltipDataProcessor instead. AddRoleLine reads the unit off the
+-- tooltip either way, so it needs no second form.
+if GameTooltip:HasScript("OnTooltipSetUnit") then
+    GameTooltip:HookScript("OnTooltipSetUnit", AddRoleLine)
+elseif TooltipDataProcessor then
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit,
+        function(tooltip)
+            if tooltip == GameTooltip then AddRoleLine(tooltip) end
+        end)
+end

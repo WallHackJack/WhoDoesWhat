@@ -1,11 +1,11 @@
-## Interface: 20505, 11509
+## Interface: 20505, 11509, 16001, 50504
 ## Title: WhoDoesWhat
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
 ## Version: @project-version@
 #@debug@
 # Keep this literal synchronized with the release tag, it's used in additional add-on GUI and features
-## Version: 2.0.1
+## Version: 2.0.2
 #@end-debug@
 ## SavedVariables: WhoDoesWhatDB
 
@@ -35,6 +35,9 @@ Libs\LibClassicInspector\LibClassicInspector.lua
 Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 
 # --- Main ---
+# Compat.lua before all of it: it restores the globals the rest of the files
+# call, several of them while they load.
+Compat.lua
 # WallhackUiKit.lua first: it needs nothing, and every view builds on ns.UI.
 WallhackUiKit.lua
 Core.lua

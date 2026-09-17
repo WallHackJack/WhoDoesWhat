@@ -2500,8 +2500,16 @@ function WhoDoesWhat:ResetStatusBarSettings()
     self:UpdateStatusBarsViewVisibility()
 end
 
+-- Where combat data is hidden mid-fight (ClientFeatures.combatRestrictions),
+-- the bars could only show the pre-pull snapshot, so they hide for the fight.
+-- Tracked from the events rather than InCombatLockdown(), which still reads
+-- false inside PLAYER_REGEN_DISABLED.
+local hideInCombat = WhoDoesWhat.ClientFeatures.combatRestrictions
+local inCombat = false
+
 function WhoDoesWhat:UpdateStatusBarsViewVisibility()
-    if not self.db.profile.settings.overviewEnabled then
+    if not self.db.profile.settings.overviewEnabled
+        or (hideInCombat and inCombat) then
         if view then view:Hide() end
         return
     end
@@ -2511,7 +2519,17 @@ end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_ENTERING_WORLD")
-loader:SetScript("OnEvent", function()
+if hideInCombat then
+    loader:RegisterEvent("PLAYER_REGEN_DISABLED")
+    loader:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+loader:SetScript("OnEvent", function(_, event)
+    if event ~= "PLAYER_ENTERING_WORLD" then
+        inCombat = event == "PLAYER_REGEN_DISABLED"
+        WhoDoesWhat:UpdateStatusBarsViewVisibility()
+        return
+    end
+    inCombat = InCombatLockdown()
     WhoDoesWhat:UpdateStatusBarsViewVisibility()
     C_Timer.After(2, function() WhoDoesWhat:UpdateStatusBarsViewVisibility() end)
 end)

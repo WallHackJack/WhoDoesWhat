@@ -4,6 +4,20 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.2 — 2026-09-17
+
+- World of Warcraft: Forever support. The client is recognised on its own, and
+  the spell, item and talent functions it removed are bridged, so every feature
+  loads as it does on Era.
+- Where Forever hides combat data mid-fight, buff tracking holds its last
+  reading rather than flagging the raid unbuffed, the bars keep their colours,
+  and the status bars step aside until the fight ends.
+- On the Forever beta, where no addon can compile a secure snippet, the
+  checklist pop-outs, the paladin bar's hover menus and its cast rotation fall
+  back to plain handlers that work out of combat.
+- Unit tooltips show their role line again on clients without the old tooltip
+  hooks.
+
 ## 2.0.1 — 2026-09-16
 
 - Buff Checklist: armor swappers for mages and warlocks, a warlock demon

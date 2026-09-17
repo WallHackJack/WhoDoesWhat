@@ -387,6 +387,7 @@ end
 -- land here, where the immediacy is worth the cost; the backstop sweep below
 -- spreads the same work out instead.
 function BuffTracking:RefreshAll()
+    if WhoDoesWhat:AurasSecret() then return end
     PBegin("bufftracking.poll")
     if not nameToKey then BuildNameMap() end
     local changed = false
@@ -518,6 +519,9 @@ driver:SetScript("OnEvent", function(_, event, unit)
         -- `unit` is an item id here. One the elixir map was waiting on means
         -- a rebuild; the next scan picks it up.
         if pendingElixirItems[unit] then nameToKey = nil end
+    elseif WhoDoesWhat:AurasSecret() then
+        -- Hidden auras: hold the last readable state (see the sweep below).
+        return
     elseif event == "UNIT_AURA" and unit == "pet" then
         -- Your own pet, scanned now rather than on the sweep: feeding it or
         -- buffing it is something you are watching for (the Buff Checklist's
@@ -563,7 +567,23 @@ end)
 local SWEEP_SLICES = 12
 local SWEEP_INTERVAL = POLL_INTERVAL / SWEEP_SLICES
 
+-- While the client hides aura data (ClientFeatures' AurasSecret), every scan is
+-- skipped and the last readable state stands. A scan would otherwise either
+-- record every raider as missing everything (reads return nil) or error on
+-- using a secret aura name as a key. The buffs tracked last minutes, so the
+-- pre-pull state is the right answer for a fight; the first tick after the
+-- data comes back rescans everyone at once.
+local held = false
+
 C_Timer.NewTicker(SWEEP_INTERVAL, function()
+    if WhoDoesWhat:AurasSecret() then
+        held = true
+        return
+    elseif held then
+        held = false
+        BuffTracking:RefreshAll()
+        return
+    end
     if not nameToKey then BuildNameMap() end
     PBegin("bufftracking.sweep")
     local changed = false

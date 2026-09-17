@@ -400,6 +400,9 @@ end
 local function InShoutRange(m, nameToUnit)
     local unit = nameToUnit[m.owner or m.name]
     if not unit then return true end
+    -- Same as an unresolved name: under the restrictions the range answer is
+    -- not ours to act on, and in-range keeps everyone counted.
+    if WhoDoesWhat:CombatDataSecret() then return true end
     local inRange, checked = UnitInRange(unit)
     if checked then return inRange and true or false end
     return true

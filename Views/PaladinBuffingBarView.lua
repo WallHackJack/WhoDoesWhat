@@ -397,6 +397,10 @@ end
 -- preview still lights up.
 local function TargetInRange(unit, spellId)
     if not unit then return true end
+    -- Under the restrictions a range answer is a value we are not allowed to
+    -- branch on. In range is the assumption that leaves the bar alone rather
+    -- than greying everyone out mid-fight.
+    if WhoDoesWhat:CombatDataSecret() then return true end
     if C_Spell and C_Spell.IsSpellInRange then
         local r = C_Spell.IsSpellInRange(spellId, unit)
         if r ~= nil then return r and true or false end
@@ -543,6 +547,10 @@ end
 
 local function FindBlessing(unit, greaterName, normalName)
     if not unit then return nil, false end
+    -- Hidden auras: say "not found, and don't act on it" -- UpdatePlayerAura
+    -- takes the nil found-state as "leave this button as it was", so the bar
+    -- keeps its last readable colours instead of flagging the whole raid.
+    if WhoDoesWhat:AurasSecret() then return nil, nil end
     local i = 1
     if GetBuffDataByIndex then
         while true do
@@ -572,6 +580,9 @@ end
 
 local function UpdatePlayerAura(p)
     local expirationTime, found = FindPlayerBlessing(p)
+    -- nil (not false) means the client refused to say, so nothing here can be
+    -- repainted honestly; what is on screen is the last thing that was true.
+    if found == nil then return end
     local missing = p.castUnit and not found
     local inRange = not p.castUnit or TargetInRange(p.castUnit, p.normalSpellId)
     local remaining = found and expirationTime and expirationTime > 0
@@ -852,6 +863,41 @@ local function PositionPlayerMenu(btn)
     end
 end
 
+-- The hover menus for a client that cannot compile snippets (ClientFeatures'
+-- SecureSnippetsWork). Plain OnEnter/OnLeave doing what the _onenter bodies
+-- do, with two differences that are the restriction itself: the menus are
+-- protected frames, so nothing opens mid-fight, and RegisterAutoHide belongs
+-- to the restricted environment, so the close is a short timer that checks
+-- whether the mouse ended up on the menu.
+local function WirePlainMenus(owners)
+    local function HideAll()
+        for _, o in ipairs(owners) do
+            if o.menu then o.menu:Hide() end
+        end
+    end
+    for _, owner in ipairs(owners) do
+        local btn, menu = owner.btn, owner.menu
+        if not btn.plainMenuWired then
+            btn.plainMenuWired = true
+            btn:HookScript("OnEnter", function()
+                if InCombatLockdown() then return end
+                HideAll()
+                if not menu or IsAltKeyDown() then return end
+                if menu:GetAttribute("Display") == 1 then menu:Show() end
+            end)
+            btn:HookScript("OnLeave", function()
+                if not menu then return end
+                C_Timer.After(0.25, function()
+                    if InCombatLockdown() then return end
+                    if not (menu:IsMouseOver() or btn:IsMouseOver()) then
+                        menu:Hide()
+                    end
+                end)
+            end)
+        end
+    end
+end
+
 -- Give every hoverable button the list of popouts it must close on the way in,
 -- so moving along the row swaps menus at once instead of waiting out the
 -- previous one's auto-hide. The self-buff buttons join the class buttons here:
@@ -865,6 +911,11 @@ local function WirePopoutMenus()
     end
     owners[#owners + 1] = { btn = bar.auraButton, menu = bar.auraButton.auraMenu }
     owners[#owners + 1] = { btn = bar.rfButton }
+    if not WhoDoesWhat:SecureSnippetsWork() then
+        WirePlainMenus(owners)
+        bar.menusWired = #bar.buttons
+        return
+    end
     for _, owner in ipairs(owners) do
         owner.btn:Execute("otherMenus = newtable()")
         for _, other in ipairs(owners) do
@@ -984,6 +1035,9 @@ local function CreateButton(index)
         for _, p in ipairs(btn.playerButtons) do SetButtonGlow(p, false) end
     end)
     SecureHandlerSetFrameRef(btn, "playerMenu", playerMenu)
+    -- Everything from here to the end of the _onenter body is snippet work;
+    -- WirePlainMenus stands in for it where snippets don't compile.
+    if not WhoDoesWhat:SecureSnippetsWork() then return end
     btn:Execute("otherMenus = newtable()")
     -- Alt is the drag modifier, and dragging starts on the buttons too, so a
     -- held Alt means "I am moving the bar" rather than "show me this class":
@@ -1137,6 +1191,52 @@ local ROTATE_SNIPPET = [==[
     end
 ]==]
 
+-- The rotation without ROTATE_SNIPPET, for a client that cannot compile it
+-- (ClientFeatures' SecureSnippetsWork). The macro for the current step is
+-- written ahead of the click, and the step advances after it -- so the button
+-- always has a cast baked and ready, and the next one moves down the list.
+--
+-- What this cannot do is what the snippet was for: secure writes are
+-- combat-locked, so mid-fight the button keeps casting at whoever it was
+-- pointed at when the fight started, instead of walking the raid. Every click
+-- still casts; it just stops advancing until combat ends.
+local function BakeRotationPlainly(btn, gSpell, gNames, nNames, nSpells)
+    btn.plainRotation = { gSpell = gSpell, gNames = gNames, nNames = nNames,
+        nSpells = nSpells }
+    btn.gStep = math.min(btn.gStep or 1, math.max(#gNames, 1))
+    btn.nStep = math.min(btn.nStep or 1, math.max(#nNames, 1))
+
+    local function Bake()
+        if InCombatLockdown() then return end
+        local r = btn.plainRotation
+        local gName = r.gNames[btn.gStep]
+        if gName and r.gSpell ~= "" then
+            btn:SetAttribute("macrotext1",
+                "/cast [@" .. gName .. ",help,nodead] " .. r.gSpell)
+        end
+        local nName, nSpell = r.nNames[btn.nStep], r.nSpells[btn.nStep]
+        if nName and nSpell then
+            btn:SetAttribute("macrotext2",
+                "/cast [@" .. nName .. ",help,nodead] " .. nSpell)
+        end
+    end
+
+    Bake()
+    if btn.plainRotationHooked then return end
+    btn.plainRotationHooked = true
+    btn:HookScript("PostClick", function(_, mouseButton, down)
+        -- Both click edges are registered, as everywhere else on this bar.
+        if down == true then return end
+        local r = btn.plainRotation
+        if mouseButton == "LeftButton" and #r.gNames > 0 then
+            btn.gStep = btn.gStep % #r.gNames + 1
+        elseif mouseButton == "RightButton" and #r.nNames > 0 then
+            btn.nStep = btn.nStep % #r.nNames + 1
+        end
+        Bake()
+    end)
+end
+
 -- newtable(...) from a list of strings ("" -> empty), inside [=[ ]=] so spaces
 -- and realm suffixes survive.
 local function NewTable(list)
@@ -1195,6 +1295,9 @@ local function ConfigureButtonCast(btn, job, nameToUnit)
     btn:SetAttribute("type1", "macro")
     btn:SetAttribute("type2", "macro")
     btn:SetAttribute("nstep", 1)
+    if not WhoDoesWhat:SecureSnippetsWork() then
+        return BakeRotationPlainly(btn, gSpell, gNames, nNames, nSpells)
+    end
     btn:Execute("gSpell = [=[" .. gSpell .. "]=]\n"
         .. "gNames = " .. NewTable(gNames) .. "\n"
         .. "nNames = " .. NewTable(nNames) .. "\n"
@@ -1228,6 +1331,7 @@ local RIGHTEOUS_FURY_NAMES = { [RIGHTEOUS_FURY.name] = true }
 -- with its expiration time. Auras and Righteous Fury are self-buffs, so
 -- "player" is the only unit these two buttons ever look at.
 local function FindOwnBuff(wanted)
+    if WhoDoesWhat:AurasSecret() then return nil end
     local i = 1
     while true do
         local name, expiration
@@ -1612,8 +1716,20 @@ local function CreateAuraOption(menu, index)
         end
     end)
     SecureHandlerSetFrameRef(option, "auraButton", menu.owner)
-    option:WrapScript(option, "OnClick", AURA_OPTION_SNIPPET,
-        AURA_OPTION_POST_SNIPPET)
+    if WhoDoesWhat:SecureSnippetsWork() then
+        option:WrapScript(option, "OnClick", AURA_OPTION_SNIPPET,
+            AURA_OPTION_POST_SNIPPET)
+    else
+        -- The same two writes the snippet makes, out of combat only. They land
+        -- on the swapper for its NEXT click, so doing them insecurely costs
+        -- nothing but the ability to pick a new aura mid-fight.
+        option:HookScript("PreClick", function(self)
+            if InCombatLockdown() then return end
+            menu.owner:SetAttribute("astep", self:GetAttribute("astep"))
+            menu.owner:SetAttribute("macrotext1",
+                self:GetAttribute("auraMacro"))
+        end)
+    end
     menu.options[index] = option
     return option
 end
@@ -1712,8 +1828,10 @@ local function CreateAuraButton()
         .. "SecureActionButtonTemplate")
     btn:RegisterForClicks("AnyUp", "AnyDown")
     CreateAuraMenu(btn)
-    btn:Execute("otherMenus = newtable()")
-    btn:SetAttribute("_onenter", AURA_ENTER_SNIPPET)
+    if WhoDoesWhat:SecureSnippetsWork() then
+        btn:Execute("otherMenus = newtable()")
+        btn:SetAttribute("_onenter", AURA_ENTER_SNIPPET)
+    end
 
     btn:SetScript("PostClick", function(self, mouseButton, down)
         -- Secure action buttons obey ActionButtonUseKeyDown, so this fires on
@@ -1777,8 +1895,10 @@ local function CreateRighteousFuryButton()
     local btn = CreateSelfBuffButton("WhoDoesWhatBuffingBarRighteousFuryButton",
         "SecureHandlerEnterLeaveTemplate, SecureActionButtonTemplate")
     btn:RegisterForClicks("AnyUp", "AnyDown")
-    btn:Execute("otherMenus = newtable()")
-    btn:SetAttribute("_onenter", CLOSE_MENUS_SNIPPET)
+    if WhoDoesWhat:SecureSnippetsWork() then
+        btn:Execute("otherMenus = newtable()")
+        btn:SetAttribute("_onenter", CLOSE_MENUS_SNIPPET)
+    end
     btn.icon:SetTexture(RIGHTEOUS_FURY.icon)
     btn:SetAttribute("type1", "spell")
     btn:SetAttribute("spell1", RIGHTEOUS_FURY.name)
@@ -1832,6 +1952,9 @@ end
 -- refresh path and from the bar's own tick, so a lapsing Righteous Fury and an
 -- aura swapped from elsewhere both land within half a second.
 local function UpdateSelfBuffButtons()
+    -- Which aura is up and how long Righteous Fury has left are both aura
+    -- reads, so mid-fight these two buttons hold whatever they last showed.
+    if WhoDoesWhat:AurasSecret() then return end
     if bar.auraButton:IsShown() then UpdateAuraButton(bar.auraButton) end
     if bar.rfButton:IsShown() then UpdateRighteousFuryButton(bar.rfButton) end
 end

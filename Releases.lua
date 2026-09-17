@@ -8,6 +8,16 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.2",
+        date = "2026-09-17",
+        notes = {
+            "World of Warcraft: Forever support. The client is recognised on its own, and the spell, item and talent functions it removed are bridged, so every feature loads as it does on Era.",
+            "Where Forever hides combat data mid-fight, buff tracking holds its last reading rather than flagging the raid unbuffed, the bars keep their colours, and the status bars step aside until the fight ends.",
+            "On the Forever beta, where no addon can compile a secure snippet, the checklist pop-outs, the paladin bar's hover menus and its cast rotation fall back to plain handlers that work out of combat.",
+            "Unit tooltips show their role line again on clients without the old tooltip hooks.",
+        },
+    },
+    {
         version = "2.0.1",
         date = "2026-09-16",
         notes = {

@@ -248,6 +248,9 @@ local GetItemCooldown = C_Container and C_Container.GetItemCooldown or GetItemCo
 -- a half doesn't count).
 local function ShowItemCooldown(cooldown, itemId)
     local start, duration, enable = 0, 0, 0
+    -- Cooldowns have their own secrecy switch, and a hidden one cannot be
+    -- compared against 1.5 below. The swipe keeps whatever it was showing.
+    if WhoDoesWhat:CooldownsSecret() then return nil end
     if itemId then start, duration, enable = GetItemCooldown(itemId) end
     start, duration = start or 0, duration or 0
     CooldownFrame_Set(cooldown, start, duration, enable)
@@ -393,8 +396,21 @@ end
 -- aspect, Omen of Clarity): an array of { name, icon, remaining, spellId },
 -- plus the same records by name.
 local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
+
+-- Last readable pass per unit, which is what the checklist shows while the
+-- client is hiding auras. Reading them then is not a nil to check for -- the
+-- call raises "Auras cannot be accessed when secret" -- so the only way to
+-- paint anything is to remember. Empty after a reload mid-fight, which reads
+-- as "nothing known yet" rather than "you have nothing".
+local frozenOwnBuffs = {}
+
 local function OwnBuffs(unit)
     unit = unit or "player"
+    if WhoDoesWhat:AurasSecret() then
+        local frozen = frozenOwnBuffs[unit]
+        if frozen then return frozen.list, frozen.byName end
+        return {}, {}
+    end
     local list, byName = {}, {}
     for i = 1, 40 do
         local name, icon, duration, expirationTime, spellId
@@ -418,6 +434,7 @@ local function OwnBuffs(unit)
         list[#list + 1] = buff
         byName[name] = buff
     end
+    frozenOwnBuffs[unit] = { list = list, byName = byName }
     return list, byName
 end
 
@@ -599,13 +616,25 @@ end
 
 -- { enchanted, expirationMs, enchantID } per hand. Clients before the enchant
 -- ids were added return six values rather than eight.
+local frozenWeaponEnchants
 local function WeaponEnchantState()
+    -- A weapon imbue is an aura by another name, so it is frozen the same way
+    -- the buff rows are: last readable answer, or nothing known.
+    if WhoDoesWhat:AurasSecret() then
+        local frozen = frozenWeaponEnchants
+        if frozen then return frozen[1], frozen[2] end
+        return {}, {}
+    end
     local count = select("#", GetWeaponEnchantInfo())
     local a, b, c, d, e, f, g, h = GetWeaponEnchantInfo()
+    local main, off
     if count >= 8 then
-        return { a, b, d }, { e, f, h }
+        main, off = { a, b, d }, { e, f, h }
+    else
+        main, off = { a, b }, { d, e }
     end
-    return { a, b }, { d, e }
+    frozenWeaponEnchants = { main, off }
+    return main, off
 end
 
 -- Enchant id -> true for the totem's and the shaman's own Windfury.
@@ -1186,8 +1215,12 @@ local function PickerRow(p, index)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    SecureHandlerWrapScript(row, "OnClick", p, PICKER_ROW_PRE_SNIPPET,
-        PICKER_ROW_POST_SNIPPET)
+    -- Only ever there to close the picker mid-fight; the PostClick above does
+    -- it out of combat, which is all a client without snippets can offer.
+    if WhoDoesWhat:SecureSnippetsWork() then
+        SecureHandlerWrapScript(row, "OnClick", p, PICKER_ROW_PRE_SNIPPET,
+            PICKER_ROW_POST_SNIPPET)
+    end
     p.rows[index] = row
     return row
 end
@@ -1649,8 +1682,10 @@ local function CreateSwapOption(menu, index)
         if not InCombatLockdown() then menu:Hide() end
         WhoDoesWhat:RefreshBuffChecklist()
     end)
-    SecureHandlerWrapScript(option, "OnClick", menu, SWAP_OPTION_PRE_SNIPPET,
-        SWAP_OPTION_POST_SNIPPET)
+    if WhoDoesWhat:SecureSnippetsWork() then
+        SecureHandlerWrapScript(option, "OnClick", menu,
+            SWAP_OPTION_PRE_SNIPPET, SWAP_OPTION_POST_SNIPPET)
+    end
     menu.options[index] = option
     return option
 end
@@ -1795,8 +1830,11 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("unit2", kind == "item" and entry.useUnit or nil)
     btn:SetAttribute("target-slot2", kind == "cancelaura" and value or nil)
     btn:SetAttribute("swapper", entry.swap and true or nil)
+    -- The plain field beside the frame ref is for the no-snippet fallback
+    -- (TogglePopoutPlainly), which cannot reach a restricted-environment ref.
+    btn.swapMenuFrame = entry.swap and EnsureSwapper(entry.swap.key) or nil
     if entry.swap then
-        SecureHandlerSetFrameRef(btn, "swapMenu", EnsureSwapper(entry.swap.key))
+        SecureHandlerSetFrameRef(btn, "swapMenu", btn.swapMenuFrame)
     end
     -- A slot with a picker: the snippet opens it on left-click, and on
     -- right-click while there is nothing to use (a bare weapon's right-click
@@ -1805,14 +1843,42 @@ local function ConfigureUse(btn, entry)
     btn:SetAttribute("picks", entry.pick and true or nil)
     btn:SetAttribute("pickOnRight",
         (entry.pick and not entry.bare and not CanUse(entry)) and true or nil)
+    btn.pickerFrame = entry.pick and EnsurePicker(entry.pick) or nil
     if entry.pick then
-        SecureHandlerSetFrameRef(btn, "picker", EnsurePicker(entry.pick))
+        SecureHandlerSetFrameRef(btn, "picker", btn.pickerFrame)
     end
     -- Where the swap menu opens, read by SWAP_TOGGLE_SNIPPET.
     btn:SetAttribute("swapPoint", direction.point)
     btn:SetAttribute("swapRelPoint", direction.rel)
     btn:SetAttribute("swapX", direction.x * POPOUT_GAP)
     btn:SetAttribute("swapY", direction.y * POPOUT_GAP)
+end
+
+-- What SWAP_TOGGLE_SNIPPET does, in plain Lua, for a client that cannot
+-- compile it (ClientFeatures' SecureSnippetsWork). Same rules -- Shift and Alt
+-- are for settings and dragging, a second click on the same icon closes it --
+-- minus the one thing only a snippet can do: these are protected frames, so in
+-- combat it leaves them alone rather than showing one.
+local function TogglePopoutPlainly(btn, button, down)
+    if down or IsShiftKeyDown() or IsAltKeyDown() then return end
+    if InCombatLockdown() then return end
+    local target
+    if btn:GetAttribute("swapper") then
+        if button == "LeftButton" then target = btn.swapMenuFrame end
+    elseif btn:GetAttribute("picks") then
+        if button == "LeftButton"
+            or (button == "RightButton" and btn:GetAttribute("pickOnRight")) then
+            target = btn.pickerFrame
+        end
+    end
+    local wasShown = target and target:IsShown()
+    HidePickers()
+    if not target or wasShown then return end
+    target:ClearAllPoints()
+    target:SetPoint(btn:GetAttribute("swapPoint"), btn,
+        btn:GetAttribute("swapRelPoint"), btn:GetAttribute("swapX"),
+        btn:GetAttribute("swapY"))
+    target:Show()
 end
 
 local function CreateButton(index)
@@ -1825,7 +1891,12 @@ local function CreateButton(index)
     -- Shift-right-click is the settings shortcut, so it must not also eat the
     -- food: a type with no handler behind it does nothing.
     btn:SetAttribute("shift-type2", "none")
-    SecureHandlerWrapScript(btn, "OnClick", EnsureSwapMenu(), SWAP_TOGGLE_SNIPPET)
+    if WhoDoesWhat:SecureSnippetsWork() then
+        SecureHandlerWrapScript(btn, "OnClick", EnsureSwapMenu(),
+            SWAP_TOGGLE_SNIPPET)
+    else
+        btn:HookScript("OnClick", TogglePopoutPlainly)
+    end
 
     -- How many of the picked consumable are left, in the corner.
     local stock = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")

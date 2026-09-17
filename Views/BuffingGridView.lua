@@ -247,6 +247,9 @@ local scanTip
 local function FoodAuraText(raider, spellId)
     local unit = WhoDoesWhat:UnitForPlayer(raider)
     if not unit then return nil end
+    -- Walking the aura list raises an error while auras are secret, and this
+    -- is tooltip garnish: no text is the right answer for the fight.
+    if WhoDoesWhat:AurasSecret() then return nil end
     local index
     for i = 1, 40 do
         local name, auraSpellId, _
