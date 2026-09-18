@@ -79,6 +79,73 @@ function WhoDoesWhat:SecureSnippetsWork()
     return snippetsWork
 end
 
+-- Is this particular value one the client will not let us look at? The switches
+-- above say what is hidden in general; this asks about the value in hand, which
+-- is the only reliable question for an API whose secrecy follows no switch we
+-- can see. UnitInRange on Forever is the case in point: it hands back secret
+-- booleans in an empty field, out of combat, with nothing forced -- and merely
+-- testing one for truth is the error.
+local issecretvalue = issecretvalue
+function WhoDoesWhat:IsSecret(value)
+    return issecretvalue ~= nil and issecretvalue(value) == true
+end
+
+-- Has this paladin trained a blessing yet? `greater` asks about the Greater
+-- version instead of the single-target one.
+--
+-- Inferred from their level rather than shared over the addon channel: the
+-- level is on the roster for everyone in the group, and a paladin running no
+-- addon at all is exactly the case this has to get right.
+--
+-- Anything unknown answers true -- no level data for this client, a paladin we
+-- hold no unit for (someone out of the group, a fake raider), or a level the
+-- client will not let us read. An unknown is not a "cannot", and refusing to
+-- plan a blessing on a guess would be worse than planning one that fizzles.
+-- Memoised: the plan asks this for every paladin against every blessing, and
+-- UnitForPlayer walks the roster to answer. Levels only move on a ding or a
+-- roster change, which is what clears it.
+local levelCache = {}
+
+function WhoDoesWhat:PaladinLevel(name)
+    local cached = levelCache[name]
+    if cached ~= nil then return cached or nil end
+    local unit = name and self:UnitForPlayer(name)
+    local level = unit and UnitLevel(unit)
+    if self:IsSecret(level) or not level or level <= 0 then level = nil end
+    levelCache[name] = level or false
+    return level
+end
+
+local levelWatcher = CreateFrame("Frame")
+levelWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+levelWatcher:RegisterEvent("UNIT_LEVEL")
+levelWatcher:RegisterEvent("PLAYER_LEVEL_UP")
+levelWatcher:SetScript("OnEvent", function()
+    if next(levelCache) then levelCache = {} end
+end)
+
+function WhoDoesWhat:PaladinKnowsBuff(name, key, greater)
+    local levels = self.ClientFeatures.paladinBuffLevels
+    local needed = levels and levels[key]
+        and (greater and levels[key].greater or levels[key].normal)
+    if not needed then return true end
+    local level = self:PaladinLevel(name)
+    if not level then return true end
+    return level >= needed
+end
+
+-- Should tooltips carry the spell and item ids (ItemTooltipExtensions.lua)?
+-- On by default on Forever, where its data tables are still being filled in and
+-- every unfamiliar consumable needs both ids looked up; off everywhere else,
+-- where they are just noise on a tooltip. The setting is tri-state on purpose:
+-- unset means "whatever suits this client", and the checkbox writes an explicit
+-- true or false that then holds on either.
+function WhoDoesWhat:ShowTooltipIds()
+    local setting = self.db and self.db.profile.settings.tooltipIds
+    if setting == nil then return isForever end
+    return setting == true
+end
+
 local PALADIN_BUFF_TALENTS_TBC = {
     { key = "might",     tab = 3, tier = 1, column = 2 },
     { key = "wisdom",    tab = 1, tier = 4, column = 3 },
@@ -107,6 +174,21 @@ WhoDoesWhat.ClientFeatures = {
     paladinBuffTalents = not buffTalents and {}
         or isClassicEra and PALADIN_BUFF_TALENTS_CLASSIC
         or PALADIN_BUFF_TALENTS_TBC,
+    -- The level each blessing is trained at, by Data.lua's blessing key, so a
+    -- paladin is never handed one they cannot cast yet. `greater` is the
+    -- Greater (raid-wide) version. A missing entry means "no idea", which gates
+    -- nothing -- the same rule the buff tracking uses for unknowns.
+    --
+    -- Forever only for now. Classic and TBC want the same treatment and their
+    -- numbers are not in here yet; until they are, those clients gate on
+    -- talents alone, exactly as they did before.
+    paladinBuffLevels = isForever and {
+        might = { normal = 4, greater = 52 },
+        wisdom = { normal = 14, greater = 54 },
+        kings = { normal = 20, greater = 60 },
+        salv = { normal = 26 },
+        light = { normal = 40, greater = 60 },
+    } or nil,
     -- Paladin blessing keys from Data.lua that this client does not have.
     removedPaladinBuffs = isForever and {
         sanctuary = true,

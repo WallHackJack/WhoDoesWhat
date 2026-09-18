@@ -642,6 +642,18 @@ WhoDoesWhat.TBCBuffFoodItems = {
     33867, -- Broiled Bloodfin
     33866, -- Stormchops
 }
+-- Forever's own buff food, offered only there: Era cannot obtain these, and a
+-- picker row for an item that does not exist on the client never resolves.
+WhoDoesWhat.ForeverBuffFoodItems = {
+    249865, -- Peace Tea (healing power and experience gained)
+}
+if features.isForever then
+    local food = WhoDoesWhat.BuffFoodItems
+    for _, id in ipairs(WhoDoesWhat.ForeverBuffFoodItems) do
+        food[#food + 1] = id
+    end
+end
+
 if not features.isClassicEra then
     local food = WhoDoesWhat.BuffFoodItems
     for _, id in ipairs(WhoDoesWhat.TBCBuffFoodItems) do
@@ -785,6 +797,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         auraSpellIds = {
             19705, -- Well Fed
             43722, -- Enlightened (TBC Skullfish Soup)
+            1249927, -- Well Fed (Forever's own, e.g. Peace Tea)
         },
         itemSpells = INSTANT_FOOD_ITEMS,
         colorRGB = { r = 1, g = 0.82, b = 0 },

@@ -1337,7 +1337,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     -- The Status Bars, Paladin Bar and Warrior Shout resets live with their
     -- views, which own the frames they move back.
     local RESET_GENERAL = {
-        "unitTooltipRole", "unitTooltipDetail", "raidFrameRoleIcons",
+        "unitTooltipRole", "unitTooltipDetail", "tooltipIds",
+        "raidFrameRoleIcons",
         "raidFrameRoleIconsInCombat", "raidFrameRoleIconStyle",
         "announceRoleChanges", "manageBlizzardRoles",
         "autoAssignAfflictionElements", "allowRecklessnessAutoAssign",
@@ -1573,6 +1574,14 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
                 or ". Only Paladins add anything."),
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipDetail = value
+        end)
+    f.tooltipIdsCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
+        "Show spell and item ids on tooltips",
+        "Add the id to item, spell and buff tooltips. For looking up what to "
+            .. "tell the addon about a consumable it doesn't know yet; on by "
+            .. "default on WoW Forever, off elsewhere.",
+        function(value)
+            WhoDoesWhat.db.profile.settings.tooltipIds = value
         end)
     yL = AddNextPageDivider(generalPage, yL, "Raid Frames")
     f.raidFrameRoleCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
@@ -2989,6 +2998,9 @@ function LoadSettings(f)
     RefreshBuffingTestPaladinDropdown(f)
     f.unitTooltipCheck:SetChecked(settings.unitTooltipRole ~= false)
     f.unitTooltipDetailCheck:SetChecked(settings.unitTooltipDetail)
+    -- Unset means the client decides, so the box shows what is actually
+    -- happening rather than an unchecked box beside id lines on every tooltip.
+    f.tooltipIdsCheck:SetChecked(WhoDoesWhat:ShowTooltipIds())
     f.raidFrameRoleCheck:SetChecked(settings.raidFrameRoleIcons ~= false)
     f.raidFrameCombatCheck:SetChecked(settings.raidFrameRoleIconsInCombat ~= false)
     f.raidFrameOutlineCheck:SetChecked(settings.raidFrameRoleOutline)

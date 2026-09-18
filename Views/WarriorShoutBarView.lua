@@ -404,6 +404,9 @@ local function InShoutRange(m, nameToUnit)
     -- not ours to act on, and in-range keeps everyone counted.
     if WhoDoesWhat:CombatDataSecret() then return true end
     local inRange, checked = UnitInRange(unit)
+    if WhoDoesWhat:IsSecret(checked) or WhoDoesWhat:IsSecret(inRange) then
+        return true
+    end
     if checked then return inRange and true or false end
     return true
 end

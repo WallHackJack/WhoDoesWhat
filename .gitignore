@@ -1,0 +1,4 @@
+
+# Generated on demand from the Forever beta client, which never loads its own
+# saved variables; carries local settings, so it stays out of the repository.
+ForeverSeed.lua

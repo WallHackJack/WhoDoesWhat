@@ -403,9 +403,13 @@ local function TargetInRange(unit, spellId)
     if WhoDoesWhat:CombatDataSecret() then return true end
     if C_Spell and C_Spell.IsSpellInRange then
         local r = C_Spell.IsSpellInRange(spellId, unit)
+        if WhoDoesWhat:IsSecret(r) then return true end
         if r ~= nil then return r and true or false end
     end
     local inRange, checked = UnitInRange(unit)
+    if WhoDoesWhat:IsSecret(checked) or WhoDoesWhat:IsSecret(inRange) then
+        return true
+    end
     if checked then return inRange and true or false end
     return true
 end
@@ -1035,23 +1039,26 @@ local function CreateButton(index)
         for _, p in ipairs(btn.playerButtons) do SetButtonGlow(p, false) end
     end)
     SecureHandlerSetFrameRef(btn, "playerMenu", playerMenu)
-    -- Everything from here to the end of the _onenter body is snippet work;
-    -- WirePlainMenus stands in for it where snippets don't compile.
-    if not WhoDoesWhat:SecureSnippetsWork() then return end
-    btn:Execute("otherMenus = newtable()")
-    -- Alt is the drag modifier, and dragging starts on the buttons too, so a
-    -- held Alt means "I am moving the bar" rather than "show me this class":
-    -- close what is open and open nothing.
-    btn:SetAttribute("_onenter", [[
-        for _, menu in ipairs(otherMenus) do menu:Hide() end
-        if IsAltKeyDown() then return end
-        local menu = self:GetFrameRef("playerMenu")
-        if menu:GetAttribute("Display") == 1 then
-            menu:Show()
-            menu:RegisterAutoHide(0.25)
-            menu:AddToAutoHide(self)
-        end
-    ]])
+    -- The hover menu is snippet work; WirePlainMenus stands in for it where
+    -- snippets don't compile. Wrapped rather than returned early -- the rest of
+    -- this constructor, up to and including handing the button back, still has
+    -- to run.
+    if WhoDoesWhat:SecureSnippetsWork() then
+        btn:Execute("otherMenus = newtable()")
+        -- Alt is the drag modifier, and dragging starts on the buttons too, so
+        -- a held Alt means "I am moving the bar" rather than "show me this
+        -- class": close what is open and open nothing.
+        btn:SetAttribute("_onenter", [[
+            for _, menu in ipairs(otherMenus) do menu:Hide() end
+            if IsAltKeyDown() then return end
+            local menu = self:GetFrameRef("playerMenu")
+            if menu:GetAttribute("Display") == 1 then
+                menu:Show()
+                menu:RegisterAutoHide(0.25)
+                menu:AddToAutoHide(self)
+            end
+        ]])
+    end
 
     btn:SetScript("PostClick", function(self, mouseButton)
         if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks then return end

@@ -4,6 +4,22 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.3 — 2026-09-17
+
+- Paladins are no longer assigned blessings they have not trained yet: their
+  level says what they can cast, so it works for a paladin running no addon at
+  all. WoW Forever for now; Classic and TBC still go by talents alone.
+- Role change announcements are off by default. Setting up a board meant a burst
+  of them in party chat, which is a poor introduction to an addon nobody else is
+  running.
+- New setting: spell and item ids on tooltips, for reporting a consumable the
+  checklist doesn't know yet. On by default on Forever, off elsewhere.
+- Buff Checklist: Peace Tea, and Forever's own Well Fed buff is recognised.
+- A welcome notice on Forever, once per character, saying where the addon lives
+  and what the client's restrictions cost.
+- Fixes: the Paladin Bar failed to build on Forever, and its range checks errored
+  on values that client will not let an addon read.
+
 ## 2.0.2 — 2026-09-17
 
 - World of Warcraft: Forever support. The client is recognised on its own, and

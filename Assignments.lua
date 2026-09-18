@@ -1406,7 +1406,10 @@ local function BuffPlanKey(ignored, scoped, slots, orderMemo)
         end
     end
     for _, name in ipairs(MembersOfClass("Paladin")) do
-        Add("paladin"); Add(name)
+        -- Level rides along with the talent ranks: it decides which blessings
+        -- the paladin can cast at all (PaladinKnowsBuff), so a ding has to
+        -- invalidate the plan the same way a respec does.
+        Add("paladin"); Add(name); Add(WhoDoesWhat:PaladinLevel(name))
         for _, key in ipairs(WhoDoesWhat.CanonicalBuffOrder) do
             Add(BuffTalentRank(name, key))
         end
@@ -1498,7 +1501,12 @@ local function ComputePaladinBuffPlan()
 
     -- Only talent-GRANTED blessings are gated. Might/Wisdom stay castable at
     -- rank 0; Salvation/Light have no talent requirement.
+    --
+    -- Level gates the rest: a paladin who has not trained a blessing cannot
+    -- cast it however their talents look, and on a levelling roster that is the
+    -- common case rather than the exotic one.
     local function CanCast(name, key)
+        if not WhoDoesWhat:PaladinKnowsBuff(name, key) then return false end
         local meta = BuffTalents[key]
         if meta and meta.maxRank == 1 then
             return (BuffTalentRank(name, key) or 0) > 0

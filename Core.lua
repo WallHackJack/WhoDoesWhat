@@ -353,6 +353,11 @@ local defaults = {
         buffChecklistScrolls = true,
         -- A hunter's pet section folded down to its divider.
         buffChecklistPetCollapsed = false,
+        -- Whether this character has been shown the Forever welcome
+        -- (ForeverWelcome.lua). Per character, because that is who it
+        -- introduces the addon to -- and while the beta never loads its saved
+        -- variables it is unsaveable, so the notice returns every session.
+        foreverWelcomeSeen = false,
     },
     global = {
         shoutBar = {
@@ -452,7 +457,11 @@ local defaults = {
             -- by Y" whenever someone's role assignment changes. Off = silent
             -- (the optional Log Operations entry and Blizzard's own role-flag
             -- message are separate and unaffected). See SetAssignedRole.
-            announceRoleChanges = true,
+            --
+            -- Off by default: setting up a board means a burst of these, and
+            -- chat spam from an addon nobody else is running is a poor
+            -- introduction. Raids that want the running commentary turn it on.
+            announceRoleChanges = false,
             -- Append the player's WDW role to Blizzard's unit tooltip
             -- (UnitTooltipExtensions.lua). Display only, group members only.
             unitTooltipRole = true,
@@ -489,6 +498,10 @@ local defaults = {
             -- warlock healthstone) to that tooltip. Off by default: it is
             -- several lines, and most hovers do not want them.
             unitTooltipDetail = false,
+            -- `tooltipIds` (spell and item ids on tooltips) is deliberately
+            -- absent here: its default depends on the client, which this file
+            -- loads too early to ask. WhoDoesWhat:ShowTooltipIds() in
+            -- ClientFeatures.lua resolves it, and unset means "client's call".
             -- Master switch for WDW writing Blizzard group state: the
             -- tank/healer/damager group role (UnitSetRole) and the main-tank
             -- demotion. Off = WDW keeps its own board and never touches
