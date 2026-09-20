@@ -14,6 +14,30 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- LibStub returns nil there rather than erroring.
 local Inspector = LibStub("LibClassicInspector", true)
 
+-- Forever answers UnitIsPlayer with a SECRET boolean for units it will not let
+-- a tainted addon identify -- "targettarget" while loot is rolling is the case
+-- in point -- and the library's UNIT_INVENTORY_CHANGED handler tests that
+-- answer for truth, which is itself the error (and blames WhoDoesWhat, since
+-- our load is what tainted the path). Libs/ is read-only, so the handler is
+-- overlaid here instead: it hangs off the library's frame by event name and is
+-- looked up at fire time, so replacing it is enough.
+--
+-- A unit the client won't identify is one the library could do nothing with
+-- anyway -- it caches inventory for OTHER players -- so an unreadable answer
+-- drops the event. INSPECT_READY tests the same way one line up, but only for
+-- a unit we just inspected by GUID; it is left alone unless it starts erroring.
+if Inspector and Inspector.frame and Inspector.frame.UNIT_INVENTORY_CHANGED then
+    local frame = Inspector.frame
+    local original = frame.UNIT_INVENTORY_CHANGED
+    function frame:UNIT_INVENTORY_CHANGED(event, unit, ...)
+        if unit and (WhoDoesWhat:IsSecret(UnitIsPlayer(unit))
+            or WhoDoesWhat:IsSecret(UnitIsUnit(unit, "player"))) then
+            return
+        end
+        return original(self, event, unit, ...)
+    end
+end
+
 -- The library's addon-message prefix, needed only by the raw logging below.
 local INSPECTOR_PREFIX = "LCIV1"
 

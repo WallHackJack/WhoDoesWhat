@@ -642,10 +642,109 @@ WhoDoesWhat.TBCBuffFoodItems = {
     33867, -- Broiled Bloodfin
     33866, -- Stormchops
 }
--- Forever's own buff food, offered only there: Era cannot obtain these, and a
--- picker row for an item that does not exist on the client never resolves.
+-- Buff food offered only on Forever, in two parts: what Era cannot obtain at
+-- all (a picker row for an item that does not exist on the client never
+-- resolves), and the Classic cooking book, which Era can cook but gains
+-- nothing from. Forever puts a Well Fed buff on cooked food that buffed
+-- nothing on Era, so the whole book is worth offering there -- while on Era
+-- and TBC this list stays the raid-worthy food, levelling food being noise in
+-- a picker aimed at a raid night.
+--
+-- The cooking half is every recipe on Wowhead's Classic cooking list, by the
+-- item it creates, in skill order, minus the ones already listed above.
+-- Deliberately inclusive: a picker only ever offers what is already in your
+-- bags, so an id that turns out to buff nothing costs a row nobody picks,
+-- while a missing id costs food the checklist cannot see. Thistle Tea is the
+-- one cooking product left out -- it restores energy and is not food.
+--
+-- Nothing has to be added alongside these. Forever gives each food a Well Fed
+-- spell of its own, but they all carry the same name, and the food check keys
+-- on the name (see its auraSpellIds) -- so an item is recognised once eaten
+-- whether or not its own spell id was ever written down.
 WhoDoesWhat.ForeverBuffFoodItems = {
     249865, -- Peace Tea (healing power and experience gained)
+    2679, -- Charred Wolf Meat
+    2681, -- Roasted Boar Meat
+    787, -- Slitherskin Mackerel
+    6290, -- Brilliant Smallfish
+    6888, -- Herb Baked Egg
+    12224, -- Crispy Bat Wing
+    17197, -- Gingerbread Cookie
+    2680, -- Spiced Wolf Meat
+    5472, -- Kaldorei Spider Kabob
+    5473, -- Scorpid Surprise
+    2888, -- Beer Basted Boar Ribs
+    5474, -- Roasted Kodo Meat
+    17198, -- Egg Nog
+    6890, -- Smoked Bear Meat
+    724, -- Goretusk Liver Pie
+    2684, -- Coyote Steak
+    4592, -- Longjaw Mud Snapper
+    5095, -- Rainbow Fin Albacore
+    5476, -- Fillet of Frenzy
+    5477, -- Strider Stew
+    5525, -- Boiled Clams
+    6316, -- Loch Frenzy Delight
+    3220, -- Blood Sausage
+    733, -- Westfall Stew
+    2683, -- Crab Cake
+    2687, -- Dry Pork Ribs
+    3662, -- Crocolisk Steak
+    21072, -- Smoked Sagefish
+    2682, -- Cooked Crab Claw
+    6657, -- Savory Deviate Delight
+    3663, -- Murloc Fin Soup
+    5478, -- Dig Rat Stew
+    5526, -- Clam Chowder
+    1017, -- Seasoned Wolf Kabob
+    1082, -- Redridge Goulash
+    4593, -- Bristle Whisker Catfish
+    5479, -- Crispy Lizard Tail
+    2685, -- Succulent Pork Ribs
+    3666, -- Gooey Spider Cake
+    3726, -- Big Bear Steak
+    5480, -- Lean Venison
+    3664, -- Crocolisk Gumbo
+    3727, -- Hot Lion Chops
+    5527, -- Goblin Deviled Clams
+    12209, -- Lean Wolf Steak
+    3665, -- Curiously Tasty Omelet
+    3728, -- Tasty Lion Steak
+    20074, -- Heavy Crocolisk Stew
+    3729, -- Soothing Turtle Bisque
+    4457, -- Barbecued Buzzard Wing
+    4594, -- Rockscale Cod
+    6038, -- Giant Clam Scorcho
+    8364, -- Mithril Headed Trout
+    10841, -- Goldthorn Tea
+    12210, -- Roast Raptor
+    12212, -- Jungle Stew
+    12213, -- Carrion Surprise
+    12214, -- Mystery Stew
+    13851, -- Hot Wolf Ribs
+    21217, -- Sagefish Delight
+    12215, -- Heavy Kodo Stew
+    12217, -- Dragonbreath Chili
+    17222, -- Spider Sausage
+    6887, -- Spotted Yellowtail
+    12216, -- Spiced Chili Crab
+    12218, -- Monster Omelet
+    13927, -- Cooked Glossy Mightfish
+    13930, -- Filet of Redgill
+    16766, -- Undermine Clam Chowder
+    18045, -- Tender Wolf Steak
+    13929, -- Hot Smoked Bass
+    13932, -- Poached Sunscale Salmon
+    238637, -- Prowler Steak
+    238638, -- Filet o' Flank
+    238639, -- Sunrise Omelette
+    13933, -- Lobster Stew
+    13934, -- Mightfish Steak
+    13935, -- Baked Salmon
+    238641, -- Specklefin Feast
+    238642, -- Grand Lobster Banquet
+    232436, -- Darkclaw Bisque
+    232438, -- Smoked Redgill
 }
 if features.isForever then
     local food = WhoDoesWhat.BuffFoodItems
@@ -797,7 +896,16 @@ WhoDoesWhat.CoreRaidBuffs = {
         auraSpellIds = {
             19705, -- Well Fed
             43722, -- Enlightened (TBC Skullfish Soup)
-            1249927, -- Well Fed (Forever's own, e.g. Peace Tea)
+            -- Forever gives each food its own Well Fed spell rather than the one
+            -- shared aura -- but all of them are NAMED "Well Fed", and these ids
+            -- exist only to resolve a name (BuildNameMap). So any one of the
+            -- three covers every food on that client and the list does not grow
+            -- per food; a scan of the id range they sit in turned up exactly one
+            -- name across the lot. They are kept as the three confirmed by
+            -- eating them, and as cover should a later food break the pattern.
+            1249927, -- Well Fed (Peace Tea)
+            1248420, -- Well Fed (Spiced Wolf Meat)
+            1248406, -- Well Fed (Herb Baked Egg)
         },
         itemSpells = INSTANT_FOOD_ITEMS,
         colorRGB = { r = 1, g = 0.82, b = 0 },

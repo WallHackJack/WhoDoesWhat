@@ -141,7 +141,13 @@ end
 -- collision-safe -- no need for the GUID indirection NCH uses.)
 local function UnitToKey(unit)
     local name, realm = UnitName(unit)
-    if not name then return nil end
+    -- A restricted client hands back a secret name for a unit it will not let
+    -- an addon see -- an aura's sourceUnit when the caster is an NPC outside
+    -- the group, such as the druid in Wailing Caverns who hands out Mark of
+    -- the Wild. A secret string cannot be compared or concatenated without
+    -- erroring, so it is no key at all: callers already treat nil as "no
+    -- name", and StoreAura files it as a caster the client would not expose.
+    if not name or WhoDoesWhat:IsSecret(name) then return nil end
     if realm and realm ~= "" then
         return name .. "-" .. realm
     end

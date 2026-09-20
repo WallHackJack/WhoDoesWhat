@@ -1,11 +1,11 @@
-## Interface: 20505, 11509, 16001, 50504
+## Interface: 20505, 11509, 16001
 ## Title: WhoDoesWhat
 ## Notes: We out here assigning everything with a good UX this time. 
 ## Author: Wallhackjack
 ## Version: @project-version@
 #@debug@
 # Keep this literal synchronized with the release tag, it's used in additional add-on GUI and features
-## Version: 2.0.3
+## Version: 2.0.4
 #@end-debug@
 ## SavedVariables: WhoDoesWhatDB
 

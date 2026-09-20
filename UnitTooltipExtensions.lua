@@ -38,7 +38,12 @@ local function AddRoleLine(tooltip)
     if not settings then return end
     if not (settings.unitTooltipRole or settings.unitTooltipDetail) then return end
     local _, unit = tooltip:GetUnit()
-    if not (unit and UnitIsPlayer(unit)) then return end
+    -- Forever hands back a secret unit token for units it will not let an addon
+    -- identify -- hovering something in the world inside a dungeon is the case
+    -- in point -- and passing one to UnitIsPlayer is itself the error, so the
+    -- token has to be tested before the first unit call, not around it.
+    if not unit or WhoDoesWhat:IsSecret(unit) then return end
+    if not UnitIsPlayer(unit) then return end
     if not (UnitIsUnit(unit, "player") or UnitInParty(unit)
         or UnitInRaid(unit)) then
         return

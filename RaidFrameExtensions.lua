@@ -265,6 +265,45 @@ local taken = {} -- frame -> true while our stand-in is up
 local shown = {} -- frame -> the icon we last drew there
 local outlined = {} -- frame -> the outline role we last drew there, if any
 
+local hosts = {} -- frame -> the overlay of ours everything is drawn into
+
+-- Everything we draw lives on an overlay of our own, parented to UIParent and
+-- ANCHORED to the compact frame rather than parented to it.
+--
+-- The distinction is the whole reason this file works on WoW Forever. A region
+-- created on one of Blizzard's frames marks that frame as ours, and their own
+-- update code then runs tainted -- which on that client may not so much as
+-- compare the health it just read, so their frame errors on their own line,
+-- every frame (Edit Mode makes it thousands). Anchoring only reads their frame;
+-- nothing of ours is ever attached to it.
+--
+-- One overlay per compact frame, at most one per raid slot, reused as the
+-- client reuses the frame beneath it.
+local function Host(frame)
+    local host = hosts[frame]
+    if not host then
+        host = CreateFrame("Frame", nil, UIParent)
+        host:SetAllPoints(frame)
+        hosts[frame] = host
+    end
+    -- Re-read each time: the client moves compact frames between strata and
+    -- levels as groups are built, and an overlay left behind draws underneath.
+    --
+    -- Measured against the HEALTH BAR as well as the frame. The bar is a child
+    -- with a level of its own, and on some clients it outranks its parent by
+    -- more than a step -- which is how a band ends up behind the health fill it
+    -- is supposed to run down, reading as washed out rather than drawn over.
+    local level = frame:GetFrameLevel()
+    local healthBar = frame.healthBar
+    if healthBar and healthBar.GetFrameLevel then
+        level = math.max(level, healthBar:GetFrameLevel())
+    end
+    host:SetFrameStrata(frame:GetFrameStrata())
+    host:SetFrameLevel(level + 5)
+    host:Show()
+    return host
+end
+
 local BAND_EDGE_WIDTH = 1
 local BAND_EDGE_COLOR = { 0.15, 0.15, 0.15, 1 }
 
@@ -340,7 +379,7 @@ end
 local function Disc(pool, frame, icon, size, width, subLevel, color)
     local disc = pool[frame]
     if not disc then
-        disc = frame:CreateTexture(nil, "ARTWORK", nil, subLevel)
+        disc = Host(frame):CreateTexture(nil, "ARTWORK", nil, subLevel)
         disc:SetTexture("Interface\\Buttons\\WHITE8X8")
         pool[frame] = disc
     end
@@ -374,7 +413,7 @@ end
 local function IconTexture(frame)
     local texture = icons[frame]
     if not texture then
-        texture = frame:CreateTexture(nil, "ARTWORK", nil, 1)
+        texture = Host(frame):CreateTexture(nil, "ARTWORK", nil, 1)
         icons[frame] = texture
     end
     return texture
@@ -386,7 +425,7 @@ end
 local function BandLine(pool, frame, icon, point, relativePoint, color)
     local line = pool[frame]
     if not line then
-        line = frame:CreateTexture(nil, "OVERLAY")
+        line = Host(frame):CreateTexture(nil, "OVERLAY")
         line:SetTexture("Interface\\Buttons\\WHITE8X8")
         pool[frame] = line
     end
@@ -402,7 +441,7 @@ end
 local function BandPlate(pool, frame, icon, grow, subLevel, color)
     local plate = pool[frame]
     if not plate then
-        plate = frame:CreateTexture(nil, "ARTWORK", nil, subLevel)
+        plate = Host(frame):CreateTexture(nil, "ARTWORK", nil, subLevel)
         plate:SetTexture("Interface\\Buttons\\WHITE8X8")
         pool[frame] = plate
     end
@@ -602,6 +641,10 @@ end
 
 local function Draw(frame, icon, key, style, bandHeight, outline)
     local roleIcon = frame.roleIcon
+    -- Before the textures, and on every draw rather than only the first: this
+    -- shows an overlay a Release hid, and re-reads the strata and level of a
+    -- compact frame the client may have rebuilt underneath us.
+    Host(frame)
     local texture = IconTexture(frame)
     local cornerSize
 
@@ -686,6 +729,10 @@ local function Release(frame)
     SetBandEdge(frame, nil)
     SetNameLayout(frame, "corner", nil)
     if frame.roleIcon then frame.roleIcon:SetAlpha(1) end
+    -- The overlay goes with it. Hidden rather than released: the client reuses
+    -- these frames constantly, and so do we.
+    local host = hosts[frame]
+    if host then host:Hide() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -775,6 +822,23 @@ end
 -- whose corner the combat setting hands back and forth. Registered even when
 -- the hook below never installs: the sweep has nothing to walk then and costs
 -- a table lookup.
+-- An overlay parented to UIParent does not hide when the frame it sits on does,
+-- and the client hides these constantly -- a raid shrinking, a group emptying,
+-- the profile switching between party and raid frames. Nothing tells us, so the
+-- overlays are matched to their frames on a slow tick.
+--
+-- Cheap by construction: it returns on the first line until something is drawn,
+-- and then costs one IsVisible per raid slot twice a second. The alternative --
+-- hooking each frame's Hide -- would write to their frame table, which is the
+-- taint this whole overlay exists to avoid.
+C_Timer.NewTicker(0.5, function()
+    if not next(hosts) then return end
+    for frame, host in pairs(hosts) do
+        local wanted = taken[frame] and frame:IsVisible() and true or false
+        if host:IsShown() ~= wanted then host:SetShown(wanted) end
+    end
+end)
+
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")

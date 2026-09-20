@@ -8,6 +8,17 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.4",
+        date = "2026-09-19",
+        notes = {
+            "Raid frame icons and bands are drawn on a layer of WhoDoesWhat's own instead of onto Blizzard's raid frames. On WoW Forever that stops the client erroring on its own raid frame code every frame, thousands of times over with Edit Mode open. Everywhere else it fixes a band that could sit behind the health bar instead of over it.",
+            "Buff Checklist: the whole Classic cooking book is offered on WoW Forever. That client puts a Well Fed buff on food that buffed nothing on Era, so the checklist sees anything you cooked and not just Peace Tea.",
+            "Buff Checklist: pop-out pickers close when a pull starts on WoW Forever. Left open they were stuck on screen for the whole fight, and that client will not let the addon hide them once combat has begun.",
+            "The minimap button starts in the upper right on WoW Forever, where the client's queue eye sits on the spot it used to take. A button you have dragged somewhere stays where you put it.",
+            "Fixes on WoW Forever, where the client refuses to tell an addon about certain units: unit tooltips no longer error on things hovered in a dungeon, a buff from a friendly NPC no longer breaks buff tracking, and the inspect library stopped throwing errors blamed on WhoDoesWhat while loot is rolling.",
+        },
+    },
+    {
         version = "2.0.3",
         date = "2026-09-17",
         notes = {

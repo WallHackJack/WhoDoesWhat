@@ -451,7 +451,10 @@ local defaults = {
         permissions = { mode = "assists", assistant = false },
         -- Addon settings, edited in AddonSettingsView.lua.
         settings = {
-            -- LibDBIcon state for the assignment-window launcher.
+            -- LibDBIcon state for the assignment-window launcher. The angle is
+            -- degrees counterclockwise from the minimap's 3 o'clock, so 220 is
+            -- the lower left. Forever puts its queue eye there and gets a
+            -- different default in OnInitialize.
             minimapButton = { hide = false, minimapPos = 220 },
             -- Announce to raid/party chat "[WhoDoesWhat] X was changed to Role
             -- by Y" whenever someone's role assignment changes. Off = silent
@@ -672,6 +675,14 @@ local defaults = {
 
 -- This runs when the game client finishes loading UI frames
 function WhoDoesWhat:OnInitialize()
+    -- Forever's queue eye sits at the minimap's lower left, right on top of
+    -- where the shared default angle lands, so the button starts in the upper
+    -- right there instead. Only the default moves: dragging the button stores
+    -- a minimapPos on the profile, and a stored one always wins.
+    if self.ClientFeatures.isForever then
+        defaults.profile.settings.minimapButton.minimapPos = 45
+    end
+
     -- Persistent configuration database
     self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates

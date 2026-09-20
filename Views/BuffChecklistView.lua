@@ -2544,6 +2544,14 @@ local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_ENTERING_WORLD")
 loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- Where snippets do not compile, a pop-out left open when the pull starts is
+-- stuck there: it holds secure buttons, so insecure code may not hide it in
+-- combat, and RegisterAutoHide -- which would have -- lives in the restricted
+-- environment we cannot reach either. PLAYER_REGEN_DISABLED still runs before
+-- the lockdown takes hold, so closing them here is the last chance anyone has.
+if not WhoDoesWhat:SecureSnippetsWork() then
+    loader:RegisterEvent("PLAYER_REGEN_DISABLED")
+end
 loader:RegisterEvent("BAG_UPDATE_DELAYED")
 loader:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 -- Elixirs, flasks, auras, aspects and Omen of Clarity aren't BuffTracking
@@ -2579,6 +2587,11 @@ RequestChecklistRefresh = RefreshSoon
 
 local lastPetDead = nil
 loader:SetScript("OnEvent", function(_, event, arg1)
+    if event == "PLAYER_REGEN_DISABLED" then
+        -- Registered only where snippets are unavailable; see above.
+        HidePickers()
+        return
+    end
     if event == "GET_ITEM_INFO_RECEIVED" then
         -- A burst of names on login collapses into one repaint.
         if pendingItemNames[arg1] then
