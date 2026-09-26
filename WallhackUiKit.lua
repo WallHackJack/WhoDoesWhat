@@ -27,6 +27,14 @@ UI.TITLEBAR_H  = 22
 UI.INSET       = 5    -- backdrop edge to anything inside it
 UI.SCROLLBAR_W = 26   -- gutter reserved on the right of a scroll area
 
+-- Whether a UIPanelCloseButton wears the classic padded texture file rather
+-- than the modern template's atlas, which the X fills edge to edge.
+function UI.CloseButtonIsPadded(btn)
+    local tex = btn:GetNormalTexture()
+    local atlas = tex and tex.GetAtlas and tex:GetAtlas()
+    return atlas == nil or atlas == ""
+end
+
 UI.TAB_H       = 22
 UI.TAB_PAD     = 12   -- either side of a tab's label; tabs size to their text
 UI.TAB_GAP     = 2    -- between neighbouring tabs
@@ -192,7 +200,13 @@ function UI.CreateWindow(globalName, width, height, titleText, opts)
 
     local function AddCloseButton()
         local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-        close:SetPoint("TOPRIGHT", 1, 1)
+        -- The classic texture's padding holds its X in from the corner; the
+        -- modern atlas has none, so it is set in by hand to land the same.
+        if UI.CloseButtonIsPadded(close) then
+            close:SetPoint("TOPRIGHT", 1, 1)
+        else
+            close:SetPoint("TOPRIGHT", -4, -4)
+        end
         close:SetScript("OnClick", function() f:Hide() end)
         f.closeButton = close
     end
@@ -1307,9 +1321,11 @@ end
 -- The window's round red close button, reused for the small delete and
 -- clear-all controls so they match the title bar's.
 --
--- UIPanelCloseButton's texture is mostly transparent padding around a small X,
--- so the textures are grown past the frame: the visible X then fills the
--- button's footprint without the frame changing size and breaking the columns.
+-- The classic UIPanelCloseButton texture is mostly transparent padding around
+-- a small X, so the textures are grown past the frame: the visible X then
+-- fills the button's footprint without the frame changing size and breaking
+-- the columns. The modern template (WoW Forever's) draws an atlas the X
+-- already fills, so it is left at the frame's size.
 function UI.CreateCloseButton(parent, size, growFactor)
     local s = size or UI.HEADER_BTN_SIZE
     local btn = CreateFrame("Button", nil, parent, "UIPanelCloseButton")
@@ -1318,7 +1334,7 @@ function UI.CreateCloseButton(parent, size, growFactor)
     if btn.SetMotionScriptsWhileDisabled then
         btn:SetMotionScriptsWhileDisabled(true)
     end
-    local grow = s * (growFactor or 0.3)
+    local grow = UI.CloseButtonIsPadded(btn) and s * (growFactor or 0.3) or 0
     for _, tex in ipairs({ btn:GetNormalTexture(), btn:GetPushedTexture(),
         btn:GetHighlightTexture(), btn:GetDisabledTexture() }) do
         if tex then

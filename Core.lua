@@ -64,6 +64,42 @@ function WhoDoesWhat:NameInitial(name)
     return name:sub(1, size)
 end
 
+-- The letters over a paladin's icon (buff grid and diff view headers, status
+-- bar rows): the name's initial, or on Forever (ClientFeatures.twoPartNames)
+-- both initials, "FL". Forever names come in as a "First-Last" key, the
+-- client's "First Last", or a bare "First" (PallyPower's wire names), which
+-- is looked up in the group while exactly one member has that first name.
+function WhoDoesWhat:NameInitials(name)
+    if not name or not self.ClientFeatures.twoPartNames then
+        return self:NameInitial(name)
+    end
+    local first, last = name:match("^([^%- ]+)[%- ](.+)$")
+    if not first then
+        for _, key in ipairs(self:GroupMemberNames()) do
+            local keyFirst, keyLast = key:match("^([^%-]+)%-(.+)$")
+            if keyFirst == name then
+                if first then return self:NameInitial(name) end
+                first, last = keyFirst, keyLast
+            end
+        end
+    end
+    if not first then return self:NameInitial(name) end
+    return self:NameInitial(first) .. self:NameInitial(last)
+end
+
+-- Points added to GameFontNormal for those letters: one letter sits a size
+-- up; Forever's two keep the base size, in a box wider than the icon
+-- (InitialsBleed).
+function WhoDoesWhat:InitialsFontOffset()
+    return self.ClientFeatures.twoPartNames and 0 or 1
+end
+
+-- How far past each side of the icon the letters' box reaches: none for one
+-- letter, enough for two on Forever.
+function WhoDoesWhat:InitialsBleed()
+    return self.ClientFeatures.twoPartNames and 6 or 0
+end
+
 -- True while the player is in a raid with assist rights. The raid leader
 -- counts: leaders hold every assistant privilege (and see the same extra
 -- unit-menu entries), even though UnitIsGroupAssistant alone reports false
@@ -288,6 +324,27 @@ function WhoDoesWhat:GetPetName(ownerName)
     return info and info.name or nil
 end
 
+-- A player key as a short on-screen name: "Name-Realm" loses its realm, and
+-- where the second part is a last name (ClientFeatures.twoPartNames, Forever)
+-- it shrinks to its initial -- "First-Last" reads "First L". Display only:
+-- two players can share a short name, so never match or key on it.
+function WhoDoesWhat:ShortName(name)
+    local first, rest = name:match("^([^%-]+)%-(.+)$")
+    if not first then return name end
+    if self.ClientFeatures.twoPartNames then
+        return first .. " " .. self:NameInitial(rest)
+    end
+    return first
+end
+
+-- A key as a row, picker or tooltip label: "First L" on Forever, where the
+-- raw key would read "First-Last"; the key as it is elsewhere, where its
+-- realm tag is worth keeping.
+function WhoDoesWhat:LabelName(name)
+    if name and self.ClientFeatures.twoPartNames then return self:ShortName(name) end
+    return name
+end
+
 -- Display text for any roster / plan / BuffTracking key: realm suffix dropped,
 -- and a pet key resolved to "Broll (Rexxar)". `short` asks for the pet's bare
 -- name instead, for the fixed-width spots that can't take the parenthetical.
@@ -296,9 +353,9 @@ end
 function WhoDoesWhat:DisplayName(name, short)
     if not name then return name end
     local owner = name:match("^(.*)'s Pet$")
-    if not owner then return name:match("^([^%-]+)") or name end
+    if not owner then return self:ShortName(name) end
     local petName = self:GetPetName(owner)
-    owner = owner:match("^([^%-]+)") or owner
+    owner = self:ShortName(owner)
     if not petName then return owner .. "'s Pet" end
     petName = petName:match("^([^%-]+)") or petName
     if short then return petName end

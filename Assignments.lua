@@ -233,12 +233,13 @@ end
 -- when nothing is saved.
 -- `label` overrides the shown text while the color still comes from `name`'s
 -- class -- for the rows that want a realm-tag-free name without losing the
--- lookup key.
+-- lookup key. With no label it is WhoDoesWhat:LabelName ("First L" on
+-- Forever, the key itself elsewhere).
 local function PlayerText(name, label)
     if not name then
         return "|cff909090Unassigned|r"
     end
-    label = label or name
+    label = label or WhoDoesWhat:LabelName(name)
     local m = FindMember(name)
     if m then
         return "|cff" .. m.classInfo.colorHex .. label .. "|r"

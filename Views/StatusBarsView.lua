@@ -165,8 +165,8 @@ local ANNOUNCE_STAGGER = 0.25
 -- owner's name, which is who has to fix it.
 local function AnnounceName(name)
     local owner = name:match("^(.+)'s Pet$")
-    if owner then return (strsplit("-", owner)) .. " (pet)" end
-    return (strsplit("-", name))
+    if owner then return WhoDoesWhat:ShortName(owner) .. " (pet)" end
+    return WhoDoesWhat:ShortName(name)
 end
 
 -- A pet cannot read a whisper; its owner can, and the owner is who feeds or
@@ -1691,9 +1691,15 @@ local function CreateRow(index)
     row.icon = icon
 
     local initial = iconHost:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    initial:SetPoint("CENTER", icon, "CENTER")
+    -- A box a little wider than the icon, so Forever's two initials
+    -- (NameInitials) are never clipped to one.
+    local bleed = WhoDoesWhat:InitialsBleed()
+    initial:SetPoint("LEFT", icon, "LEFT", -bleed, 0)
+    initial:SetPoint("RIGHT", icon, "RIGHT", bleed, 0)
+    initial:SetJustifyH("CENTER")
+    initial:SetWordWrap(false)
     local font, size = initial:GetFont()
-    if font then initial:SetFont(font, size + 1, "OUTLINE") end
+    if font then initial:SetFont(font, size + WhoDoesWhat:InitialsFontOffset(), "OUTLINE") end
     initial:SetTextColor(paladinClass.colorRGB.r,
         paladinClass.colorRGB.g, paladinClass.colorRGB.b)
     initial:Hide()
@@ -2376,7 +2382,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             SetTextCached(row.name, entry.awaitingTalents
                 and ("Awaiting talents - " .. entry.name) or entry.name)
             SetTextCached(row.initial,
-                entry.isPaladin and WhoDoesWhat:NameInitial(entry.name) or "")
+                entry.isPaladin and WhoDoesWhat:NameInitials(entry.name) or "")
             row.isPaladin = entry.isPaladin
             row.isPaladinRow = entry.paladinRow
             row.paladinName = entry.paladinName

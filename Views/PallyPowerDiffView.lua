@@ -315,7 +315,7 @@ local function CreatePlanCell(row, index)
     empty:Hide()
     cell.empty = empty
     UI.AddTooltip(cell, function(self)
-        GameTooltip:SetText(self.paladin, unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
         if self.buffKey then
             GameTooltip:AddLine(self.sourceLabel .. ": "
                 .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
@@ -913,7 +913,7 @@ local function RenderGrid(f, data)
             header.paladin = paladin.name
             header.paladinMember = paladin
             header.icon:SetTexture(RoleIconFor(paladin))
-            header.initial:SetText(WhoDoesWhat:NameInitial(paladin.name))
+            header.initial:SetText(WhoDoesWhat:NameInitials(paladin.name))
             local color = paladin.classInfo and paladin.classInfo.colorRGB
             header.initial:SetTextColor(color and color.r or 0.96,
                 color and color.g or 0.55, color and color.b or 0.73)

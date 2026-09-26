@@ -153,9 +153,15 @@ function K.CreatePaladinGridHeader(parent)
     icon:SetAllPoints()
     header.icon = icon
     local initial = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    initial:SetPoint("CENTER")
+    -- A box a little wider than the icon, so Forever's two initials
+    -- (NameInitials) are never clipped to one.
+    local bleed = WhoDoesWhat:InitialsBleed()
+    initial:SetPoint("LEFT", -bleed, 0)
+    initial:SetPoint("RIGHT", bleed, 0)
+    initial:SetJustifyH("CENTER")
+    initial:SetWordWrap(false)
     local font, size = initial:GetFont()
-    if font then initial:SetFont(font, size + 1, "OUTLINE") end
+    if font then initial:SetFont(font, size + WhoDoesWhat:InitialsFontOffset(), "OUTLINE") end
     header.initial = initial
     return header
 end
@@ -266,7 +272,7 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
         local info = UIDropDownMenu_CreateInfo()
         local note = Annotate and Annotate(m)
         info.text = RoleIconMarkup(name, K.DROPDOWN_ICON_SIZE)
-            .. "|cff" .. m.classInfo.colorHex .. name .. "|r"
+            .. "|cff" .. m.classInfo.colorHex .. WhoDoesWhat:LabelName(name) .. "|r"
             .. (note and (" " .. note) or "")
         info.checked = (saved == name)
         info.func = function() OnPick(name) end

@@ -167,6 +167,10 @@ WhoDoesWhat.ClientFeatures = {
     -- reads come back hidden mid-fight, so views built on it step aside rather
     -- than show a pre-pull snapshot as if it were live.
     combatRestrictions = isForever,
+    -- Characters have a first and a last name, which UnitName hands back in
+    -- the realm slot: a player key reads "First-Last" rather than
+    -- "Name-Realm" (Core.lua's ShortName).
+    twoPartNames = isForever,
     -- False where no talent affects a raid buff: nothing about buff talents is
     -- scanned, shared, weighed or shown on that client.
     buffTalents = buffTalents,

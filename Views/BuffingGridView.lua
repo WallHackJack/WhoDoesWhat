@@ -405,7 +405,7 @@ local function CreatePaladinCell(row, c)
     UI.AddTooltip(cell, function(self)
         local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
-            GameTooltip:SetText(self.paladin, unpack(UI.TOOLTIP_TITLE))
+            GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
             GameTooltip:AddLine("Blesses " .. raider .. " with "
                 .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
                 .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long
@@ -417,7 +417,7 @@ local function CreatePaladinCell(row, c)
                     1, 0.3, 0.3, true)
             end
         else
-            GameTooltip:SetText(self.paladin, 1, 1, 1)
+            GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), 1, 1, 1)
             if self.gridSource == "wdw" then
                 GameTooltip:AddLine("Nothing for " .. raider .. ": every blessing"
                     .. " they want at this paladin count is already covered"
@@ -617,7 +617,7 @@ local function RefreshGrid(f)
                     + (COL_W - CELL_SIZE) / 2, -(f.headerBottom - 3))
             header.paladin = p.name
             header.icon:SetTexture(RoleIconFor(p))
-            header.initial:SetText(WhoDoesWhat:NameInitial(p.name))
+            header.initial:SetText(WhoDoesWhat:NameInitials(p.name))
             header.initial:SetTextColor(p.classInfo.colorRGB.r,
                 p.classInfo.colorRGB.g, p.classInfo.colorRGB.b)
             header:Show()

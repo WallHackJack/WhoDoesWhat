@@ -656,11 +656,11 @@ local function UpdatePlayerStatus(p, member, job, unit)
         WhoDoesWhat:SetRoleIconTexture(p.specIcon,
             (role and role.icon) or job.classInfo.classIcon)
     end
-    -- First name only: realm dropped, and Forever's "First Last" names cut at
-    -- the space. Display only -- the row casts at `unit`, never at this text.
+    -- Realm dropped, and Forever's "First-Last" as "First L". Display only --
+    -- the row casts at `unit`, never at this text.
     local owner = member.isPet and member.owner or member.name
-    local first = owner:match("^[^%- ]+") or owner
-    p.name:SetText(member.isPet and (first .. "'s Pet") or first)
+    local short = WhoDoesWhat:ShortName(owner)
+    p.name:SetText(member.isPet and (short .. "'s Pet") or short)
     p.nameColor = (member.classInfo or job.classInfo).colorRGB
     UpdatePlayerAura(p)
     return member.isGreater and greater or normal, normal
