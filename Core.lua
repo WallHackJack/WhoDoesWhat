@@ -1,5 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-3.0")
 local UI = select(2, ...).UI
+local Locale = select(2, ...).Locale
+local L = select(2, ...).L
 
 local GetMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 WhoDoesWhat.VERSION = GetMetadata and GetMetadata("WhoDoesWhat", "Version") or "?"
@@ -150,6 +152,14 @@ end
 function WhoDoesWhat:WhisperName(name)
     local unit = name and self:UnitForPlayer(name)
     return unit and GetUnitName(unit, true) or name
+end
+
+-- The strings for what everyone reads: party and raid chat, and whispers to
+-- players without WDW. A whisper to someone with WDW takes WhisperLocale
+-- (Sync.lua) instead, which follows their own Language.
+function WhoDoesWhat:ChatLocale()
+    local code = self.db.global.messageLanguage
+    return Locale:Get(code == "primary" and Locale.primary or code)
 end
 
 -- Every current group member's name under our keying, roster order.
@@ -442,6 +452,13 @@ local defaults = {
         foreverWelcomeSeen = false,
     },
     global = {
+        -- The player's Language (Locales/Locale.lua): "auto" follows the game
+        -- client, or a language code. Account-wide: it is the person's, not
+        -- the character's.
+        language = "auto",
+        -- What party and raid chat, and whispers to players without WDW, go
+        -- out in: "primary" (the Language above) or a language code.
+        messageLanguage = "primary",
         shoutBar = {
             warrior = ShoutBarDefaults(true),
             nonWarrior = ShoutBarDefaults(false),
@@ -772,6 +789,21 @@ function WhoDoesWhat:OnInitialize()
 
     -- Persistent configuration database
     self.db = LibStub("AceDB-3.0"):New("WhoDoesWhatDB", defaults, true)
+    -- First, before anything reads a string: nothing before this point can
+    -- know the player's Language (see Locales/Locale.lua).
+    Locale:SetPrimary(self.db.global.language)
+    -- The UI kit's own words (WallhackUiKit.lua), before any window is built.
+    local strings = UI.Strings
+    strings.warning, strings.reset, strings.add = L.UI_WARNING, L.COMMON_RESET, L.UI_ADD
+    strings.hexColor, strings.swatchTip, strings.hexTip =
+        L.UI_HEX_COLOR, L.UI_SWATCH_TIP, L.UI_HEX_TIP
+    --@do-not-package@
+    local early = Locale:TakeEarlyReads()
+    if #early > 0 then
+        self:Print("|cffff5555Strings read before the Language was set (they"
+            .. " stay in the game's language): " .. table.concat(early, ", ") .. "|r")
+    end
+    --@end-do-not-package@
     self.LOG_UI_BUILDING = self.db.profile.settings.logUiUpdates
     self.LOG_OPERATIONS = self.db.profile.settings.logOperations
     self:SetSyncLoggingEnabled(false)

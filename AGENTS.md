@@ -12,12 +12,14 @@ For the user-facing overview, see [README.md](README.md). For the detailed imple
 - Keep `Assignments.lua` model-only. UI frames belong under `Views/`.
 - Preserve the load order in `WhoDoesWhat.toc`; files may localize globals defined by earlier entries.
 - Use `WhoDoesWhat:Print(...)` for verbose development logging.
+- New or edited user-facing text goes in `Locales/enUS.lua` under a short key and is read through `L` inside functions, never at file scope (the player's Language is only known after `OnInitialize`). Chat messages use `WhoDoesWhat:ChatLocale()`, whispers `WhoDoesWhat:WhisperLocale(name)`. Developer logging, sync payloads, saved-variable values and slash-command words stay English literals.
 - Do not treat comments or historical client observations as proof of API behavior. Trace callers and verify uncertain behavior.
 - Preserve unrelated user changes. Do not edit generated or bundled files to work around addon code.
 
 ## Architecture
 
 - `WallhackUiKit.lua`: addon-agnostic window chrome and widget kit at `ns.UI` (windows, panels, tooltips, scroll areas, section boxes, dropdowns, checkboxes, sliders, arrow buttons, the colour picker, movable on-screen bars). Put reusable UI here, not in a view.
+- `Locales/`: the language registry (`Locale.lua`, WDW's own rather than AceLocale, so two languages can be read at once) and one strings file per language. `Pseudo.lua` is a developer-only bracketed test language, never packaged.
 - `Core.lua`: addon initialization, AceDB defaults, and saved-variable migrations.
 - `Data.lua`: shared class/spec/role/ability metadata and customization storage.
 - `Permissions.lua`: leader-owned board editing rules.

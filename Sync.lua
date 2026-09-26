@@ -63,6 +63,7 @@ local Sync = WhoDoesWhat:NewModule("Sync", "AceComm-3.0", "AceEvent-3.0", "AceTi
 
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
+local Locale = select(2, ...).Locale
 
 -- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
@@ -468,6 +469,9 @@ local ranksTimer = nil
 local warnedProtocol = false
 local peerVersions = {}
 local peerProtocols = {}
+-- Each WDW peer's Language, as the code every message of theirs carries
+-- (Send), so a whisper to them can be written in it.
+local peerLanguages = {}
 -- Session consensus for directly useful talent facts. Unlike the saved talent
 -- caches, this remembers the exact tree triplet that justified an inferred
 -- role, so a later direct inspect can distinguish agreement from a respec.
@@ -543,6 +547,23 @@ local function RecordPeerVersion(name, version)
         end
     end
     WhoDoesWhat:RefreshMainAssignmentsView()
+end
+
+-- A language code as a peer sent it ("enUS"), kept whether or not this copy
+-- has that language: Locale falls back to English for one it lacks.
+local function RecordPeerLanguage(name, code)
+    if type(code) == "string" and code:match("^%a%a%a%a$") then
+        peerLanguages[name] = code
+    end
+end
+
+-- The strings a whisper to `name` is written in: their own Language when they
+-- run WDW, our Message language when they do not (or have not said).
+function WhoDoesWhat:WhisperLocale(name)
+    if name == UnitKey("player") then return Locale:Get(Locale.primary) end
+    local code = name and peerLanguages[name]
+    if code then return Locale:Get(code) end
+    return self:ChatLocale()
 end
 
 -- Current group members running a newer addon build, sorted for the tooltip.
@@ -751,6 +772,7 @@ local function PeerDirectory()
         local fact = talentFacts[name]
         peers[name] = {
             version = own and Sync:GetReportedAddonVersion() or peerVersions[name],
+            lang = own and Locale.primary or peerLanguages[name],
             talents = own and WhoDoesWhat:GetOwnTalentTreePoints()
                 or (fact and fact.talents),
             ranks = own and OwnRanks() or (p.paladinBuffTalents[name]
@@ -795,6 +817,7 @@ local function ApplyPeerDirectory(peers)
             WhoDoesWhat.syncPeers[name] = true
             peerProtocols[name] = PROTOCOL
             RecordPeerVersion(name, peer.version)
+            RecordPeerLanguage(name, peer.lang)
             local class = ClassForPlayer(name)
             if not RememberTalentFact(name, class, peer.talents, peer.ranks,
                 peer.healthstone, peer.coreRanks) then
@@ -844,6 +867,9 @@ end
 function Sync:Send(msg, channel, target)
     msg.p = PROTOCOL
     msg.v = self:GetReportedAddonVersion()
+    -- Our Language, for whispers to us (WhisperLocale). Older builds ignore
+    -- a field they do not read, so this needs no protocol bump.
+    msg.lang = Locale.primary
     local encoded = Encode(msg)
     self:SendCommMessage(COMM_PREFIX, encoded, channel, target)
     AppendTraffic("out", target and SenderKey(target) or WhoDoesWhat:PlayerKey(), msg, channel,
@@ -1051,6 +1077,7 @@ function Sync:OnGroupLeft()
     WhoDoesWhat:PopulateRolesAndCategories()
     p.settings.pallyBuffSource = "wdw"
     wipe(peerVersions)
+    wipe(peerLanguages)
     -- The editing rule was that raid's leader's; don't carry it into the next.
     WhoDoesWhat:ResetPermissions()
     lastOwnRoleSent = nil
@@ -1192,6 +1219,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     if not msg then return end
     AppendTraffic("in", senderKey, msg, distribution, text)
     RecordPeerVersion(senderKey, msg.v)
+    RecordPeerLanguage(senderKey, msg.lang)
     peerProtocols[senderKey] = msg.p
 
     -- Any WDW traffic proves the sender runs the addon -- even a mismatched

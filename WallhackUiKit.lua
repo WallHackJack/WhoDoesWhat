@@ -13,6 +13,18 @@ local ADDON_NAME, ns = ...
 local UI = {}
 ns.UI = UI
 
+-- The kit's own few words, in English. It cannot know the addon's languages,
+-- so an addon that shows another one replaces these before building anything
+-- (WhoDoesWhat does, in OnInitialize). Read as each widget is built or hovered.
+UI.Strings = {
+    warning = "Warning",
+    reset = "Reset",
+    add = "Add",
+    hexColor = "Hex color",
+    swatchTip = "Left-click for the WoW color picker; right-click to reset.",
+    hexTip = "Enter a six-digit RGB color, with or without #, then press Enter.",
+}
+
 -- Optional logging hook. The kit cannot know the addon's logger, so the addon
 -- hands one in once it has it; until then, building a window says nothing.
 function UI.Log(message)
@@ -1845,7 +1857,7 @@ function UI.CreateWarningIcon(parent, size, title)
     tex:SetTexture(UI.WARNING_ICON)
     warn.icon = tex
     UI.AddTooltip(warn, title or function(self)
-        if self.tooltipText then return "Warning", self.tooltipText end
+        if self.tooltipText then return UI.Strings.warning, self.tooltipText end
     end)
     warn:Hide()
     return warn
@@ -2199,7 +2211,7 @@ function UI.CreatePrompt(globalName)
     local reset = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
     reset:SetSize(PROMPT_BTN_W, 22)
     reset:SetPoint("RIGHT", accept, "LEFT", -6, 0)
-    reset:SetText("Reset")
+    reset:SetText(UI.Strings.reset)
     p.reset = reset
 
     local function Accept()
@@ -2492,7 +2504,7 @@ function UI.CreatePrompt(globalName)
         self.OnAccept = opts.OnAccept
         self.Validate = opts.Validate
         self.allowEmpty = opts.allowEmpty
-        self.accept:SetText(opts.accept or "Add")
+        self.accept:SetText(opts.accept or UI.Strings.add)
         self.accept:Enable()
         self.problem:Hide()
 
@@ -2816,10 +2828,8 @@ function UI.CreateColorField(parent, opts)
         if typed then Write(typed) else field:Refresh() end
     end)
 
-    UI.AddTooltip(swatch, opts.title,
-        "Left-click for the WoW color picker; right-click to reset.")
-    UI.AddTooltip(hex, opts.title or "Hex color",
-        "Enter a six-digit RGB color, with or without #, then press Enter.")
+    UI.AddTooltip(swatch, opts.title, UI.Strings.swatchTip)
+    UI.AddTooltip(hex, opts.title or UI.Strings.hexColor, UI.Strings.hexTip)
     field:Refresh()
     return field
 end

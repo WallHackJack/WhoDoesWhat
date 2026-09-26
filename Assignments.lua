@@ -718,17 +718,27 @@ local function CollectStaticWhispers(section)
     return out
 end
 
+-- The whisper telling `name` their job, in the language they read
+-- (WhisperLocale). `msg` is the job's text, or a function that takes those
+-- strings and returns it, for a message worded per recipient. `bare` drops
+-- the "Your assignment:" lead.
+function WhoDoesWhat:AssignmentWhisperText(name, msg, bare)
+    local M = self:WhisperLocale(name)
+    if type(msg) == "function" then msg = msg(M) end
+    if not bare then msg = M.WHISPER_ASSIGNMENT:format(msg) end
+    -- A message that punctuated itself keeps its own ending: "Check your
+    -- Food Buff!" should not arrive as "...!.", nor "(...!)" as "(...!).".
+    if not msg:match("[%.!%?]%)?$") then msg = msg .. M.WHISPER_FULL_STOP end
+    return M.WHISPER_TAGGED:format(msg)
+end
+
 -- Send every collected whisper, staggered (see MAIL_STAGGER). Messages are
 -- captured at click time; an assignment edited mid-stagger sends the
 -- pre-click version.
 local function MassWhisper(list)
     for i, w in ipairs(list) do
-        local name, msg = w.name, w.msg
-        -- A message that punctuated itself keeps its own ending: "Check your
-        -- Food Buff!" should not arrive as "...!.", nor "(...!)" as "(...!).".
-        local text = "[WhoDoesWhat] "
-            .. (w.bare and "" or "Your assignment: ") .. msg
-            .. (msg:match("[%.!%?]%)?$") and "" or ".")
+        local name = w.name
+        local text = WhoDoesWhat:AssignmentWhisperText(name, w.msg, w.bare)
         C_Timer.After((i - 1) * MAIL_STAGGER, function()
             SendChatMessage(text, "WHISPER", nil, WhoDoesWhat:WhisperName(name))
         end)

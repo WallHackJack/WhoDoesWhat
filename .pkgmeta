@@ -11,3 +11,5 @@ ignore:
     - SYNCING.md
     - .vscode
     - .pkgmeta
+    # The bracketed test language, for developer copies only.
+    - Locales/Pseudo.lua

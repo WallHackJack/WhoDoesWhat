@@ -38,7 +38,14 @@ Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 # Compat.lua before all of it: it restores the globals the rest of the files
 # call, several of them while they load.
 Compat.lua
-# WallhackUiKit.lua first: it needs nothing, and every view builds on ns.UI.
+# The languages next: every file after them may take `L` from them, reading it
+# inside functions once OnInitialize has settled the player's Language.
+Locales\Locale.lua
+Locales\enUS.lua
+#@do-not-package@
+Locales\Pseudo.lua
+#@end-do-not-package@
+# WallhackUiKit.lua before the rest: it needs nothing, and every view builds on ns.UI.
 WallhackUiKit.lua
 Core.lua
 Releases.lua

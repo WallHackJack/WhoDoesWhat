@@ -373,8 +373,8 @@ function K.CreateMailButton(row, GetWhisper)
     return UI.CreateIconButton(row, K.MAIL_ICON, Tooltip, nil, function()
         local name, job, display, bare = GetWhisper()
         if not name then return end
-        SendChatMessage("[WhoDoesWhat] " .. (bare and "" or "Your assignment: ")
-            .. job .. ".", "WHISPER", nil, WhoDoesWhat:WhisperName(name))
+        SendChatMessage(WhoDoesWhat:AssignmentWhisperText(name, job, bare),
+            "WHISPER", nil, WhoDoesWhat:WhisperName(name))
         WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
     end)
 end

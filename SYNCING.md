@@ -25,9 +25,14 @@ message:
     t = "HELLO", -- message type
     p = 9,       -- WDW wire-protocol version
     v = "1.0.6",-- addon version reported by this client
+    lang = "enUS", -- this client's Language, for whispers written to it
     -- type-specific fields follow
 }
 ```
+
+`lang` is optional: builds before it never send it, and every build ignores
+fields it does not read, so it needed no protocol bump. A whisper to a player
+whose language is unknown goes out in the sender's Message language.
 
 The table then passes through these layers:
 
@@ -194,6 +199,7 @@ Shape:
     peers = { -- included in the leader's initial whisper
         ["Player-Realm"] = {
             version = "1.0.6",
+            lang = "enUS",
             talents = { 41, 20, 0 },
             ranks = { might = 5, wisdom = 2, kings = 1, sanctuary = 0 },
             healthstone = nil,
