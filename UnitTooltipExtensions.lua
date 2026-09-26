@@ -9,7 +9,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Deliberately quiet: one line, only for players in our group who actually
 -- have an assignment, and only while the setting is on. Nothing is added for
 -- NPCs or roleless members, so tooltips stay their usual size next to a
--- tooltip addon like TacoTip. Strangers get a line only under the separate,
+-- tooltip addon like TacoTip. Strangers get a line only under the separate
 -- unitTooltipStrangers setting -- and that one does inspect them.
 --
 -- A second setting appends the roster hover summary (Views/RaiderTooltipView)

@@ -821,6 +821,46 @@ function UI.CreateScroll(parent, globalName, ownWidth)
     return scroll, content
 end
 
+-- A window of plain text to copy out of: diagnostics too long for chat, or
+-- anything meant to be pasted elsewhere. Built once per `globalName` and
+-- refilled on each call. The text arrives selected with the box focused, so
+-- Ctrl+C is the whole job; typing into it snaps back, so nothing can be lost
+-- by a stray key, and Escape closes it like any other window.
+function UI.ShowCopyText(globalName, titleText, text)
+    local f = _G[globalName]
+    if not f then
+        f = UI.CreateWindow(globalName, 640, 420, titleText)
+        local scroll, content = UI.CreateScroll(f, globalName .. "Scroll")
+        scroll:SetPoint("TOPLEFT", 12, -(f.titleBarHeight + 8))
+        scroll:SetPoint("BOTTOMRIGHT", -30, 12)
+        -- A multi-line box grows to fit its text on its own; the scroll area
+        -- just follows it.
+        local edit = CreateFrame("EditBox", nil, content)
+        edit:SetMultiLine(true)
+        edit:SetAutoFocus(false)
+        edit:SetFontObject(ChatFontNormal)
+        edit:SetPoint("TOPLEFT")
+        edit:SetPoint("TOPRIGHT")
+        edit:SetScript("OnEscapePressed", function() f:Hide() end)
+        edit:SetScript("OnTextChanged", function(self, userInput)
+            if userInput then
+                self:SetText(f.copyText or "")
+                self:HighlightText()
+            end
+        end)
+        edit:SetScript("OnSizeChanged", function(_, _, height)
+            UI.SetScrollHeight(scroll, height)
+        end)
+        f.copyEdit = edit
+    end
+    f.copyText = text
+    f.copyEdit:SetText(text)
+    f:Show()
+    f.copyEdit:SetFocus()
+    f.copyEdit:HighlightText()
+    return f
+end
+
 -- Tell a scroll area how tall its content became. Hides the bar and its track
 -- while everything fits, and snaps back to the top when it does - a scroll
 -- offset left over from taller content strands the view on empty space.

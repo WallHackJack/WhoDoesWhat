@@ -9,7 +9,8 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- ---------------------------------------------------------------------------
 -- We draw into a texture of our OWN and hide the client's behind it, and the
--- only thing we ever change on the client's side is that texture's ALPHA.
+-- only thing we ever change on the client's side is whether that texture is
+-- SHOWN -- never its size, anchor or art.
 --
 -- The first version of this repainted the client's `roleIcon` in place, which
 -- meant borrowing its size, anchor, coordinates and gradient and owing every
@@ -21,11 +22,15 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- reproducing a decision -- shown, sized and atlased from the unit -- that is
 -- the client's to make and ours only to guess at.
 --
--- Alpha is the whole of the bargain now. The client keeps its own geometry, so
--- nothing of ours can distort it; it goes on drawing its icon at full size
--- underneath, invisibly, and putting the corner back is SetAlpha(1) on a
--- texture that never stopped being correct. Nothing in the client writes alpha
--- on this texture, so it stays put between our passes without a fight.
+-- Hiding is the whole of the bargain now. The client keeps its own geometry,
+-- so nothing of ours can distort it -- a hidden texture keeps its size and
+-- anchors -- and putting the corner back is restoring the shown state the
+-- client itself last chose, on a texture that never stopped being correct.
+--
+-- This used to be alpha, set to 0 and back to 1. Forever broke that: its
+-- per-part range fade writes this texture's alpha on its own, far more often
+-- than we could zero it again, and the client's larger icon came back up
+-- around ours. The fade never shows or hides anything, so hiding holds.
 --
 -- It also gets the text right for free. The client anchors the name to the
 -- role icon's edge, so every attempt to resize that icon dragged the name
@@ -264,6 +269,7 @@ local bandOutlines = {} -- frame -> the role-coloured plate just inside that
 local taken = {} -- frame -> true while our stand-in is up
 local shown = {} -- frame -> the icon we last drew there
 local outlined = {} -- frame -> the outline role we last drew there, if any
+local clientShown = {} -- frame -> whether the client last left its icon shown
 
 local hosts = {} -- frame -> the overlay of ours everything is drawn into
 
@@ -291,6 +297,63 @@ local hosts = {} -- frame -> the overlay of ours everything is drawn into
 -- with a level of its own, and on some clients it outranks its parent by
 -- more than a step -- which is how a band ends up behind the health fill it
 -- is supposed to run down, reading as washed out rather than drawn over.
+-- Not being their child, the overlay does not fade with the frame either: the
+-- client dims an out-of-range player's whole frame, and an icon still at full
+-- strength on top of it reads as stuck on. Copy the frame's effective alpha
+-- (the container's fades included), less UIParent's, which the overlay gets
+-- anyway.
+--
+-- Forever keeps range secret: the frame's outOfRange is a secret boolean, its
+-- alpha reads nil, and each part is faded separately. There the overlay is
+-- faded from that same flag through SetAlphaFromBoolean, which applies a
+-- secret without anyone reading it -- at our own OUT_OF_RANGE_ALPHA, since the
+-- client's figure is as unreadable as the flag.
+local OUT_OF_RANGE_ALPHA = 0.7
+
+local function SyncAlpha(host, frame)
+    local alpha = frame:GetEffectiveAlpha()
+    if type(alpha) ~= "number" or WhoDoesWhat:IsSecret(alpha) then
+        local outOfRange = frame.outOfRange
+        if host.SetAlphaFromBoolean and (WhoDoesWhat:IsSecret(outOfRange)
+            or type(outOfRange) == "boolean") then
+            host:SetAlphaFromBoolean(outOfRange, OUT_OF_RANGE_ALPHA, 1)
+        end
+        return
+    end
+    local base = UIParent:GetEffectiveAlpha()
+    if base > 0 then alpha = alpha / base end
+    if math.abs(host:GetAlpha() - alpha) > 0.01 then host:SetAlpha(alpha) end
+end
+
+-- Keep the client's own role icon invisible under ours. On Forever the client
+-- does write this alpha: it range-fades each part of the frame separately from
+-- a secret in-range flag (the frame's own alpha reads nil there), the role icon
+-- included, which puts its larger icon back up around ours -- reading as ours
+-- sunk behind the frame. Zeroing that alpha back lost the race against a range
+-- check that runs far more often than any tick of ours, so the icon is HIDDEN
+-- instead: the range fade only ever writes alpha, and the one place the client
+-- shows it again is its role update, which our hook follows straight away. A
+-- hidden texture keeps its size and anchors, so the name hung off it stays put.
+-- Re-stated on the overlay tick as well, which costs one call per drawn frame.
+local function HideClientIcon(frame)
+    if frame.roleIcon then frame.roleIcon:Hide() end
+end
+
+-- On Forever a level above the health bar is not enough: with the overlay at
+-- LOW:8 over a bar at LOW:3, and nothing on screen outranking it, the bar still
+-- drew over our icons there. Frame level evidently no longer orders our
+-- overlay against the compact frames within a strata on that client, so the
+-- overlay goes one strata up instead. One step and no more: MEDIUM clears the
+-- party and raid frames' LOW while bags (also MEDIUM, higher levels) still
+-- cover the icons, and the map and dialogs sit above it anyway -- HIGH drew
+-- the icons over the map. Other clients order by level as expected and keep
+-- the frame's own strata.
+local STRATA_ABOVE = WhoDoesWhat.ClientFeatures.isForever and {
+    BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
+    DIALOG = "FULLSCREEN", FULLSCREEN = "FULLSCREEN_DIALOG",
+    FULLSCREEN_DIALOG = "TOOLTIP",
+} or nil
+
 local function SyncLayer(host, frame)
     local level = frame:GetFrameLevel()
     local healthBar = frame.healthBar
@@ -298,8 +361,10 @@ local function SyncLayer(host, frame)
         level = math.max(level, healthBar:GetFrameLevel())
     end
     local strata = frame:GetFrameStrata()
+    strata = STRATA_ABOVE and STRATA_ABOVE[strata] or strata
     if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
     if host:GetFrameLevel() ~= level + 5 then host:SetFrameLevel(level + 5) end
+    SyncAlpha(host, frame)
 end
 
 local function Host(frame)
@@ -716,7 +781,7 @@ local function Draw(frame, icon, key, style, bandHeight, outline)
     -- The client's icon goes invisible, not away: it keeps its size, its
     -- anchor and the name hanging off it, and every one of those stays right
     -- without us touching it.
-    roleIcon:SetAlpha(0)
+    HideClientIcon(frame)
     taken[frame] = true
     shown[frame] = icon
     outlined[frame] = outline
@@ -738,7 +803,9 @@ local function Release(frame)
     if outline then outline:Hide() end
     SetBandEdge(frame, nil)
     SetNameLayout(frame, "corner", nil)
-    if frame.roleIcon then frame.roleIcon:SetAlpha(1) end
+    -- Back to whatever the client last decided, never simply shown: it hides
+    -- this icon itself for a player with no group role.
+    if frame.roleIcon then frame.roleIcon:SetShown(clientShown[frame] ~= false) end
     -- The overlay goes with it. Hidden rather than released: the client reuses
     -- these frames constantly, and so do we.
     local host = hosts[frame]
@@ -759,6 +826,10 @@ local styleOf = {} -- frame -> the style key we last drew there
 local function OnUpdateRoleIcon(frame)
     if not (frame and frame.roleIcon) then return end
     frames[frame] = true
+    -- Read before we hide it again: the client has just laid this icon out,
+    -- so its shown state right now is the client's own decision, and the one
+    -- Release has to hand back.
+    clientShown[frame] = frame.roleIcon:IsShown()
     local key, style, bandHeight = StyleFor(frame)
     local icon, wowRole
     if Enabled() then icon, wowRole = RoleIconFor(frame.unit, style) end
@@ -849,7 +920,10 @@ C_Timer.NewTicker(0.5, function()
     for frame, host in pairs(hosts) do
         local wanted = taken[frame] and frame:IsVisible() and true or false
         if host:IsShown() ~= wanted then host:SetShown(wanted) end
-        if wanted then SyncLayer(host, frame) end
+        if wanted then
+            SyncLayer(host, frame)
+            HideClientIcon(frame)
+        end
     end
 end)
 
@@ -868,6 +942,16 @@ end)
 local function InstallHook()
     if type(CompactUnitFrame_UpdateRoleIcon) ~= "function" then return false end
     hooksecurefunc("CompactUnitFrame_UpdateRoleIcon", OnUpdateRoleIcon)
+    -- The range fade, so the icon dims with the frame the moment the client
+    -- dims it rather than on the next tick. The tick still covers any client
+    -- that fades from somewhere else.
+    if type(CompactUnitFrame_UpdateInRange) == "function" then
+        hooksecurefunc("CompactUnitFrame_UpdateInRange", function(frame)
+            local host = frame and hosts[frame]
+            if host and host:IsShown() then SyncAlpha(host, frame) end
+            if frame and taken[frame] then HideClientIcon(frame) end
+        end)
+    end
     return true
 end
 
