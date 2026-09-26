@@ -79,6 +79,7 @@ Views\Sections\WarlockCursesSection.lua
 Views\AboutView.lua
 Views\MainAssignmentsView.lua
 Views\MembersView.lua
+Views\RaidTabPartyView.lua
 Views\BuffingGridView.lua
 Views\PaladinBuffingBarView.lua
 Views\WarriorShoutBarView.lua

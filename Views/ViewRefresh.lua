@@ -43,6 +43,8 @@ function WhoDoesWhat:RefreshBoardViews()
     self:RefreshRaidFrameRoleIcons()
     -- Same story for the role column on the Raid tab rows (RaidMenuExtensions.lua).
     self:RefreshRaidMenuRoles()
+    -- And the party summary that fills the Raid tab outside a raid.
+    self:RefreshRaidTabParty()
 end
 
 -- Ask for a repaint of everything, without insisting on one right now.
