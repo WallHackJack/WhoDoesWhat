@@ -8,6 +8,14 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.5",
+        date = "2026-09-26",
+        notes = {
+            "Paladin Bar now casts on WoW Forever. The addon understands Forever's first-and-last-name characters everywhere, and the bar's pop-outs show first names only.",
+            "Settings reset buttons behave the same on every page.",
+        },
+    },
+    {
         version = "2.0.4",
         date = "2026-09-19",
         notes = {

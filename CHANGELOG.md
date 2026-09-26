@@ -4,6 +4,13 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.5 — 2026-09-26
+
+- Paladin Bar now casts on WoW Forever. The addon understands Forever's
+  first-and-last-name characters everywhere, and the bar's pop-outs show first
+  names only.
+- Settings reset buttons behave the same on every page.
+
 ## 2.0.4 — 2026-09-19
 
 - Raid frame icons and bands are drawn on a layer of WhoDoesWhat's own instead
