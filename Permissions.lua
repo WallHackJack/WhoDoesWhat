@@ -48,8 +48,8 @@ end
 -- or nil when they're not in the raid.
 local function RaidRankOf(name)
     for i = 1, GetNumGroupMembers() do
-        local n, rank = GetRaidRosterInfo(i)
-        if n == name then return rank end
+        local _, rank = GetRaidRosterInfo(i)
+        if WhoDoesWhat:UnitKey("raid" .. i) == name then return rank end
     end
     return nil
 end
@@ -61,9 +61,9 @@ end
 function WhoDoesWhat:LeaderRunsAddon()
     if UnitIsGroupLeader("player") then return true end -- that's us
     for i = 1, GetNumGroupMembers() do
-        local name, rank = GetRaidRosterInfo(i)
+        local _, rank = GetRaidRosterInfo(i)
         if rank == 2 then
-            return self.syncPeers[name] == true
+            return self.syncPeers[self:UnitKey("raid" .. i)] == true
         end
     end
     return false
@@ -80,10 +80,11 @@ end
 function WhoDoesWhat:IsRosterHousekeeper()
     if UnitIsGroupLeader("player") then return true end
     if self:LeaderRunsAddon() then return false end
-    local me = UnitName("player")
+    local me = self:PlayerKey()
     local bestName, bestRank
     for i = 1, GetNumGroupMembers() do
-        local name, rank = GetRaidRosterInfo(i)
+        local _, rank = GetRaidRosterInfo(i)
+        local name = self:UnitKey("raid" .. i)
         rank = rank or 0
         if name and (name == me or self.syncPeers[name])
             and self:PlayerCanEditAssignments(name)
@@ -123,7 +124,7 @@ function WhoDoesWhat:PlayerCanEditAssignments(name)
 end
 
 function WhoDoesWhat:CanEditAssignments()
-    return self:PlayerCanEditAssignments(UnitName("player"))
+    return self:PlayerCanEditAssignments(self:PlayerKey())
 end
 
 -- Whether `name` holds the WoW group rank required to set OTHER members' role
@@ -144,7 +145,8 @@ function WhoDoesWhat:PlayerCanSetGroupRoles(name)
         local rank = RaidRankOf(name)
         return rank ~= nil and rank >= 1
     end
-    return UnitIsGroupLeader(name) == true
+    local unit = self:UnitForPlayer(name)
+    return unit ~= nil and UnitIsGroupLeader(unit) == true
 end
 
 -- Whether the local player may promote someone to Main Tank, and so should be
@@ -157,12 +159,12 @@ end
 -- prompt on the single writer meant exactly one person in the raid ever saw
 -- it, and nobody at all when the leader doesn't run WhoDoesWhat.
 function WhoDoesWhat:CanPromoteMainTank()
-    return IsInRaid() and self:PlayerCanSetGroupRoles(UnitName("player"))
+    return IsInRaid() and self:PlayerCanSetGroupRoles(self:PlayerKey())
 end
 
 -- Your own role is always yours to set; everyone else's takes board rights.
 function WhoDoesWhat:CanEditRoleOf(name)
-    return name == UnitName("player") or self:CanEditAssignments()
+    return name == self:PlayerKey() or self:CanEditAssignments()
 end
 
 -- Human-readable current rule, for the picker button, the read-only note and

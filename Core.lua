@@ -90,13 +90,39 @@ end
 -- WDW's own assignments sync to everyone and are never gated by any of this --
 -- only the Blizzard-side flag is.
 
+-- A unit's player key: "Name" same-realm, "Name-Realm" foreign -- the keying
+-- the roster, the board and sync all share. On Forever UnitName hands back a
+-- character's last name in the realm slot, so keys there read "First-Last".
+--
+-- Build keys only from this. UnitName's first return alone is just a first
+-- name on Forever, and GetUnitName(unit, true) and GetRaidRosterInfo spell
+-- names their own way ("First Last"); none of those match a key there.
+function WhoDoesWhat:UnitKey(unit)
+    local name, realm = UnitName(unit)
+    if name and realm and realm ~= "" then return name .. "-" .. realm end
+    return name
+end
+
+-- The local player's key, for every "is this me?" and every own-row lookup.
+function WhoDoesWhat:PlayerKey()
+    return self:UnitKey("player")
+end
+
+-- The name to whisper a player by: the client's own spelling of the unit's
+-- full name (a space on Forever, "Name-Realm" elsewhere), falling back to
+-- the key itself for someone we hold no unit for.
+function WhoDoesWhat:WhisperName(name)
+    local unit = name and self:UnitForPlayer(name)
+    return unit and GetUnitName(unit, true) or name
+end
+
 -- Every current group member's name under our keying, roster order.
 function WhoDoesWhat:GroupMemberNames()
     local names = {}
     local function Add(unit)
-        local name, realm = UnitName(unit)
+        local name = self:UnitKey(unit)
         if not name then return end
-        names[#names + 1] = (realm and realm ~= "") and (name .. "-" .. realm) or name
+        names[#names + 1] = name
     end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do Add("raid" .. i) end
@@ -121,7 +147,7 @@ end
 -- elects the same writer with no negotiation round-trip -- which is what keeps
 -- ten assistants from all writing at once.
 function WhoDoesWhat:BlizzardRoleWriter()
-    if not IsInGroup() then return UnitName("player") end -- solo
+    if not IsInGroup() then return self:PlayerKey() end -- solo
     local sync = self:GetModule("Sync", true)
     if not sync then return nil end
 
@@ -174,14 +200,14 @@ end
 -- any raid whose leader runs WhoDoesWhat -- the normal case -- every
 -- assistant's dropdown was dead, and no explanation fit in a tooltip.
 function WhoDoesWhat:CanSetOthersBlizzardRoleManually()
-    return self:PlayerCanSetGroupRoles(UnitName("player"))
+    return self:PlayerCanSetGroupRoles(self:PlayerKey())
 end
 
 -- True when we're the elected writer, and so may touch someone else's flag
 -- WITHOUT being asked to -- see the manual counterpart above.
 function WhoDoesWhat:CanSetOthersBlizzardRole()
     local writer = self:BlizzardRoleWriter()
-    return writer ~= nil and writer == UnitName("player")
+    return writer ~= nil and writer == self:PlayerKey()
 end
 
 -- Whether a player's WDW role assignment (unit right-click menu) is a tank
@@ -244,7 +270,7 @@ function WhoDoesWhat:GetPetUnitInfo()
     petInfo = {}
     for _, u in ipairs(units) do
         if UnitExists(u[2]) then
-            local owner, name = GetUnitName(u[1], true), GetUnitName(u[2], true)
+            local owner, name = self:UnitKey(u[1]), GetUnitName(u[2], true)
             if owner and name and not self:IsIgnoredPetName(name) then
                 petInfo[owner] = { name = name, unit = u[2] }
             end

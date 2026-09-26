@@ -728,7 +728,7 @@ local function WantsSelfCast(cast)
     elseif not GetSpellInfo(name) then
         return false
     end
-    return not cast.tankOnly or WhoDoesWhat:IsMarkedTank(UnitName("player"))
+    return not cast.tankOnly or WhoDoesWhat:IsMarkedTank(WhoDoesWhat:PlayerKey())
 end
 
 local function IsHunter()
@@ -893,7 +893,7 @@ local function CollectEntries()
     -- Scrolls of Agility and Strength, for the physical damage roles: whoever
     -- the raid would give Battle Shout, plus every hunter (whose ranged roles
     -- don't stand in a shout, but do want the agility).
-    local member = Assign.FindMember(UnitName("player"))
+    local member = Assign.FindMember(WhoDoesWhat:PlayerKey())
     if WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls
         and member and (class == "HUNTER" or WhoDoesWhat:WantsBattleShout(member)) then
         for _, slot in ipairs(SCROLL_SLOTS) do
@@ -1006,7 +1006,7 @@ local function AskFor(entry)
     local target = entry.askName
     local member = target and Assign.FindMember(target)
     if member and not member.isFake and IsInGroup() then
-        SendChatMessage(text, "WHISPER", nil, target)
+        SendChatMessage(text, "WHISPER", nil, WhoDoesWhat:WhisperName(target))
     elseif target then
         WhoDoesWhat:Print(text .. " (to " .. WhoDoesWhat:DisplayName(target) .. ")")
     else
@@ -1502,7 +1502,7 @@ local function ShowTooltip(btn)
                 c.r, c.g, c.b)
         end
         local source = not entry.selfSupplied
-            and WhoDoesWhat:GetBuffSource(entry.target or UnitName("player"), entry.key)
+            and WhoDoesWhat:GetBuffSource(entry.target or WhoDoesWhat:PlayerKey(), entry.key)
         if source then
             GameTooltip:AddLine("From " .. WhoDoesWhat:DisplayName(source) .. ".",
                 0.8, 0.8, 0.8)

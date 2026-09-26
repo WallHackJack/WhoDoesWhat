@@ -114,8 +114,9 @@ local function InitPermissionsDropdown(_, level)
     if level == 2 and UIDROPDOWNMENU_MENU_VALUE == "assistant" then
         local found = 0
         for i = 1, GetNumGroupMembers() do
-            local name, rank, _, _, _, classToken = GetRaidRosterInfo(i)
-            if rank == 1 then
+            local _, rank, _, _, _, classToken = GetRaidRosterInfo(i)
+            local name = WhoDoesWhat:UnitKey("raid" .. i)
+            if rank == 1 and name then
                 found = found + 1
                 local color = classToken and RAID_CLASS_COLORS[classToken]
                 local info = UIDropDownMenu_CreateInfo()

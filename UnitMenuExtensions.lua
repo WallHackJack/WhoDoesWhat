@@ -262,7 +262,7 @@ end
 -- the blizzard role/main-tank state to match. Your own role is always yours;
 -- anyone else's takes board edit permission (Permissions.lua).
 function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit, manual)
-    if playerName ~= UnitName("player") and not self:RequireEditPermission() then
+    if playerName ~= self:PlayerKey() and not self:RequireEditPermission() then
         return
     end
     -- A custom role is only half a shared assignment until its definition is on

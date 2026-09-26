@@ -86,9 +86,13 @@ end
 
 -- Shared geometry and cells for every paladin-buff grid. The local paladin is
 -- always first, followed by a small visual break from the remaining columns.
+-- A roster key must match ours exactly (two Forever players can share a first
+-- name); a bare name, as PallyPower reports paladins, matches our short one.
 function K.IsLocalPaladin(paladin)
-    local name, player = ShortName(PaladinName(paladin)), ShortName(UnitName("player"))
-    return name ~= nil and player ~= nil and name == player
+    local name, player = PaladinName(paladin), WhoDoesWhat:PlayerKey()
+    if name == nil or player == nil then return false end
+    if name == player then return true end
+    return not name:find("-", 1, true) and name == ShortName(player)
 end
 
 -- What every (!) for a paladin running neither WDW nor PallyPower says -- the
@@ -365,7 +369,7 @@ function K.CreateMailButton(row, GetWhisper)
         local name, job, display, bare = GetWhisper()
         if not name then return end
         SendChatMessage("[WhoDoesWhat] " .. (bare and "" or "Your assignment: ")
-            .. job .. ".", "WHISPER", nil, name)
+            .. job .. ".", "WHISPER", nil, WhoDoesWhat:WhisperName(name))
         WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
     end)
 end
@@ -436,7 +440,7 @@ end
 local function AddHeaderMailButton(f, box, sectionTitle, Collect)
     local function CollectOthers()
         local out = {}
-        local me = UnitName("player")
+        local me = WhoDoesWhat:PlayerKey()
         for _, w in ipairs(Collect()) do
             if w.name ~= me then
                 out[#out + 1] = w

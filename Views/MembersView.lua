@@ -575,7 +575,7 @@ local function LayoutRow(row, m, data, index, connected)
     row.nameHover:SetWidth(CLASS_ICON_SIZE + 6
         + math.min(NAME_W - 4, row.nameFS:GetStringWidth()))
 
-    local installed = m.name == UnitName("player")
+    local installed = m.name == WhoDoesWhat:PlayerKey()
         or WhoDoesWhat.syncPeers[m.name] == true
     -- Offline says nothing about whether they run WDW, and the row already
     -- reads as offline four other ways -- leave the cell empty.
@@ -719,7 +719,7 @@ function RefreshRoster(f)
 
             total = total + 1
             if not connected then offline = offline + 1 end
-            if m.name == UnitName("player")
+            if m.name == WhoDoesWhat:PlayerKey()
                 or WhoDoesWhat.syncPeers[m.name] == true then
                 withAddon = withAddon + 1
             end

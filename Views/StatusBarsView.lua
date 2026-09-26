@@ -182,7 +182,7 @@ end
 -- Somebody there is to whisper: not a fake raider (nobody is behind the name)
 -- and not the local player (you already know).
 local function CanWhisper(name)
-    if not name or name == UnitName("player") then return false end
+    if not name or name == WhoDoesWhat:PlayerKey() then return false end
     local member = WhoDoesWhat.Assign.FindMember(name)
     return not (member and member.isFake)
 end
@@ -1076,15 +1076,12 @@ local function PetIconMarkup(isPet)
     return role and WhoDoesWhat:RoleIconMarkup(role.icon, TOOLTIP_ICON) or ""
 end
 
-local function IsLocalPlayerName(name)
-    local short = name and name:match("^([^%-]+)")
-    return short ~= nil and short == UnitName("player")
+local function LocalPlayerKey()
+    return WhoDoesWhat:PlayerKey()
 end
 
-local function LocalPlayerKey()
-    local name, realm = UnitName("player")
-    if name and realm and realm ~= "" then return name .. "-" .. realm end
-    return name
+local function IsLocalPlayerName(name)
+    return name ~= nil and name == LocalPlayerKey()
 end
 
 -- The local player's class as WhoDoesWhat names it ("Priest"). A character

@@ -22,10 +22,8 @@ local lastKlaxon           -- GetTime() of the last promote ping, to coalesce bu
 -- up in the roster and grab that button. Returns nil when the player isn't in
 -- the raid or their row isn't currently shown.
 local function FindRaidMemberButton(playerName)
-    local target = strsplit("-", playerName) -- match on name, ignore realm
     for i = 1, MAX_RAID_MEMBERS or 40 do
-        local name = GetRaidRosterInfo(i)
-        if name and strsplit("-", name) == target then
+        if WhoDoesWhat:UnitKey("raid" .. i) == playerName then
             local btn = _G["RaidGroupButton" .. i]
             if btn and btn:IsVisible() then
                 return btn

@@ -125,14 +125,25 @@ end
 -- A comm sender normalized to our db keying: "Name" for same-realm players,
 -- "Name-Realm" for foreign ones. CHAT_MSG_ADDON senders can arrive
 -- realm-qualified either way; Ambiguate("none") strips exactly the home realm.
-local function SenderKey(sender)
-    return Ambiguate(sender, "none")
-end
+--
+-- Forever's two-part names are the exception: how a sender spells one there
+-- ("First Last" or "First-Last") hasn't been seen yet, so the sender is
+-- resolved against the group and handed back as that member's key.
+local UnitKey = function(unit) return WhoDoesWhat:UnitKey(unit) end
+local IS_FOREVER = WhoDoesWhat.ClientFeatures.isForever
 
-local function UnitKey(unit)
-    local name, realm = UnitName(unit)
-    if name and realm and realm ~= "" then return name .. "-" .. realm end
-    return name
+local function SenderKey(sender)
+    local key = Ambiguate(sender, "none")
+    if not IS_FOREVER then return key end
+    local raid = IsInRaid()
+    local count = raid and GetNumGroupMembers() or GetNumSubgroupMembers()
+    for i = raid and 1 or 0, count do
+        local unit = i == 0 and "player" or (raid and "raid" or "party") .. i
+        if UnitKey(unit) == key or GetUnitName(unit, true) == key then
+            return UnitKey(unit)
+        end
+    end
+    return key
 end
 
 local function ClassForPlayer(name)
@@ -155,23 +166,19 @@ local function ClassForPlayer(name)
 end
 
 -- The group leader under the same keying, or nil (leaderless moments happen
--- mid-roster-change). GetRaidRosterInfo names already follow our keying.
+-- mid-roster-change).
 local function LeaderName()
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local name, rank = GetRaidRosterInfo(i)
-            if rank == 2 then return name end
+            local _, rank = GetRaidRosterInfo(i)
+            if rank == 2 then return UnitKey("raid" .. i) end
         end
         return nil
     end
-    if UnitIsGroupLeader("player") then return UnitName("player") end
+    if UnitIsGroupLeader("player") then return UnitKey("player") end
     for i = 1, GetNumSubgroupMembers() do
         local unit = "party" .. i
-        if UnitIsGroupLeader(unit) then
-            local name, realm = UnitName(unit)
-            if name and realm and realm ~= "" then return name .. "-" .. realm end
-            return name
-        end
+        if UnitIsGroupLeader(unit) then return UnitKey(unit) end
     end
     return nil
 end
@@ -569,19 +576,19 @@ end
 -- Our own scanned ranks, or nil when we're not a paladin / not scanned yet.
 local function OwnRanks()
     if select(2, UnitClass("player")) ~= "PALADIN" then return nil end
-    local ranks = WhoDoesWhat.db.profile.paladinBuffTalents[UnitName("player")]
+    local ranks = WhoDoesWhat.db.profile.paladinBuffTalents[WhoDoesWhat:PlayerKey()]
     return ranks and not ranks._source and ranks or nil
 end
 
 local function OwnHealthstoneRank()
     if select(2, UnitClass("player")) ~= "WARLOCK" then return nil end
-    return WhoDoesWhat.db.profile.warlockHealthstoneTalents[UnitName("player")]
+    return WhoDoesWhat.db.profile.warlockHealthstoneTalents[WhoDoesWhat:PlayerKey()]
 end
 
 local function OwnCoreBuffRanks()
     local class = select(2, UnitClass("player"))
     if class ~= "DRUID" and class ~= "PRIEST" then return nil end
-    return WhoDoesWhat.db.profile.coreBuffTalents[UnitName("player")]
+    return WhoDoesWhat.db.profile.coreBuffTalents[WhoDoesWhat:PlayerKey()]
 end
 
 -- No blessing talents to share on a client without buff talents.
@@ -839,7 +846,7 @@ function Sync:Send(msg, channel, target)
     msg.v = self:GetReportedAddonVersion()
     local encoded = Encode(msg)
     self:SendCommMessage(COMM_PREFIX, encoded, channel, target)
-    AppendTraffic("out", target and SenderKey(target) or UnitName("player"), msg, channel,
+    AppendTraffic("out", target and SenderKey(target) or WhoDoesWhat:PlayerKey(), msg, channel,
         encoded)
     LogSync("sent", msg.t, "via", channel, target or "")
 end
@@ -855,7 +862,7 @@ function Sync:BroadcastState(state, fingerprint, collectPeers)
     -- rejected edits. Server time always moves past them; the +1 branch
     -- still orders multiple edits within the same second.
     lastRev = math.max(lastRev + 1, GetServerTime and GetServerTime() or time())
-    lastRevSender = UnitName("player")
+    lastRevSender = WhoDoesWhat:PlayerKey()
     lastSyncedFP = fingerprint or Fingerprint(state)
     self:Send({
         t = "STATE", rev = lastRev, state = state,
@@ -971,7 +978,7 @@ function Sync:PollLocalChanges()
     -- so a later promotion to editor doesn't dump the accumulated drift at
     -- the group as if it were deliberate edits.
     lastSyncedFP = Fingerprint()
-    local ownRole = WhoDoesWhat.db.profile.assignments[UnitName("player")]
+    local ownRole = WhoDoesWhat.db.profile.assignments[WhoDoesWhat:PlayerKey()]
     if ownRole ~= lastOwnRoleSent then
         lastOwnRoleSent = ownRole
         self:Send({ t = "ROLE", role = ownRole }, GroupChannel())
@@ -1134,7 +1141,7 @@ function Sync:ApplyState(msg, senderKey)
     lastSyncedFP = Fingerprint()
     -- The applied board is now the shared truth, our own role included;
     -- without this a read-only client would "correct" it right back.
-    lastOwnRoleSent = WhoDoesWhat.db.profile.assignments[UnitName("player")]
+    lastOwnRoleSent = WhoDoesWhat.db.profile.assignments[WhoDoesWhat:PlayerKey()]
 
     if oldRoles then
         local changed, changedCount = nil, 0
@@ -1179,7 +1186,7 @@ end
 function Sync:OnCommReceived(prefix, text, distribution, sender)
     if prefix ~= COMM_PREFIX then return end
     local senderKey = SenderKey(sender)
-    if senderKey == UnitName("player") then return end -- our own broadcast echoing back
+    if senderKey == WhoDoesWhat:PlayerKey() then return end -- our own broadcast echoing back
 
     local msg = Decode(text)
     if not msg then return end
@@ -1356,7 +1363,7 @@ function Sync:OnEnable()
     -- Baseline so being grouped at login/reload doesn't broadcast the saved
     -- board at everyone; only changes from here on are pushed.
     lastSyncedFP = Fingerprint()
-    lastOwnRoleSent = WhoDoesWhat.db.profile.assignments[UnitName("player")]
+    lastOwnRoleSent = WhoDoesWhat.db.profile.assignments[WhoDoesWhat:PlayerKey()]
 
     -- GROUP_JOINED/GROUP_LEFT exist on the Anniversary client, but register
     -- defensively (the TalentScanning dual-spec events needed the same); any

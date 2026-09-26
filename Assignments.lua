@@ -172,15 +172,15 @@ end
 -- to narrow" -- a party or solo, where the group already is the party. For
 -- anything that reaches a party and no further: a warrior's shouts.
 --
--- Raid subgroups come off GetRaidRosterInfo's third return, and its names
--- already follow our keying (same note as Sync.lua). The local player is found
--- with UnitIsUnit rather than by matching that name, which sidesteps the
--- realm-suffix question entirely.
+-- Raid subgroups come off GetRaidRosterInfo's third return; names are keyed
+-- from the matching raid unit, since the roster's own spelling of a name
+-- isn't our keying on Forever. The local player is found with UnitIsUnit.
 local function PartyNames()
     if not IsInRaid() then return nil end
     local rows, mine = {}, nil
     for i = 1, GetNumGroupMembers() do
-        local name, _, subgroup = GetRaidRosterInfo(i)
+        local _, _, subgroup = GetRaidRosterInfo(i)
+        local name = GetUnitKey("raid" .. i)
         if name then
             rows[#rows + 1] = { name = name, subgroup = subgroup }
             if UnitIsUnit("raid" .. i, "player") then mine = subgroup end
@@ -729,7 +729,7 @@ local function MassWhisper(list)
             .. (w.bare and "" or "Your assignment: ") .. msg
             .. (msg:match("[%.!%?]%)?$") and "" or ".")
         C_Timer.After((i - 1) * MAIL_STAGGER, function()
-            SendChatMessage(text, "WHISPER", nil, name)
+            SendChatMessage(text, "WHISPER", nil, WhoDoesWhat:WhisperName(name))
         end)
     end
     return #list
@@ -881,7 +881,7 @@ end
 -- drives warnings and what the Add (+) menu writes, never coverage. Fake
 -- raiders are never disabled -- nobody is behind them to run anything.
 function WhoDoesWhat:IsPaladinDisabled(name)
-    if not name or name == UnitName("player") then return false end
+    if not name or name == self:PlayerKey() then return false end
     local m = FindMember(name)
     if not m or m.isFake then return false end
     if self.syncPeers and self.syncPeers[name] then return false end
@@ -2090,7 +2090,7 @@ end
 -- Every id is prefixed "pet:" so it never collides with your own. Returns nil
 -- when there is no pet out, or it is dead.
 local function BuildBuffChecklist(forPet)
-    local me = UnitName("player")
+    local me = WhoDoesWhat:PlayerKey()
     local member = me and FindMember(me)
     local entries = {}
     if not member or WhoDoesWhat:IsNonRaider(me) then return entries end

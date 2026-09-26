@@ -334,7 +334,7 @@ end
 
 local function IsLocalPlayerEntry(m)
     local owner = m.name:match("^(.+)'s Pet$") or m.name
-    return (owner:match("^([^%-]+)") or owner) == UnitName("player")
+    return owner == WhoDoesWhat:PlayerKey()
 end
 
 -- You first. It is your bar, and your own missing shout is the one line you
@@ -373,14 +373,14 @@ local function BuildNameToUnit()
     local map = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local name = GetUnitName("raid" .. i, true)
+            local name = WhoDoesWhat:UnitKey("raid" .. i)
             if name then map[name] = "raid" .. i end
         end
     else
-        local me = GetUnitName("player", true) or UnitName("player")
+        local me = WhoDoesWhat:PlayerKey()
         if me then map[me] = "player" end
         for i = 1, GetNumSubgroupMembers() do
-            local name = GetUnitName("party" .. i, true)
+            local name = WhoDoesWhat:UnitKey("party" .. i)
             if name then map[name] = "party" .. i end
         end
     end
@@ -700,7 +700,7 @@ local function ButtonIsIdle(btn)
     -- "Hide when I have it" wins outright: nobody else's gap and no countdown
     -- brings the icon back while the shout is on you.
     if settings.hideWhenSelfBuffed
-        and WhoDoesWhat:HasBuff(UnitName("player"), btn.shout.key) == true then
+        and WhoDoesWhat:HasBuff(WhoDoesWhat:PlayerKey(), btn.shout.key) == true then
         return true
     end
     if not settings.hideWhenBuffed then

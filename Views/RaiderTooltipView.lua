@@ -113,7 +113,7 @@ function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
     -- Whether they also run PallyPower stops mattering once they run WDW: it
     -- assigns them either way, and reports them to PallyPower on their behalf.
     -- The line is for the paladin WDW can't reach -- can anything assign them?
-    local hasWdw = name == UnitName("player") or self.syncPeers[name] == true
+    local hasWdw = name == self:PlayerKey() or self.syncPeers[name] == true
     if not hasWdw then
         tooltip:AddLine(AddonLine("PallyPower", self:PaladinHasPallyPower(name)),
             1, 1, 1)
