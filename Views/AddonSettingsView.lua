@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local S = WhoDoesWhat.SettingsKit
 
 -- Addon settings (the main window's Settings tab). Checkbox state persists in db.profile.settings except
@@ -11,7 +12,8 @@ local S = WhoDoesWhat.SettingsKit
 
 local settingsFrame = nil
 
--- The pages' tabs, left to right; a page flagged `right` runs from the other end.
+-- The pages' tabs, left to right, by id; a page flagged `right` runs from the
+-- other end.
 local PAGE_ORDER = {
     "General", "Roles", "Status Bars", "Buffs", "Paladin Bar", "Warrior Bar",
     "Checklist", "Test + Dev",
@@ -51,14 +53,14 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f.titleBarHeight = 0
 
     local sections = {}
-    for i, label in ipairs(PAGE_ORDER) do
-        sections[i] = S.pages[label]
+    for i, id in ipairs(PAGE_ORDER) do
+        sections[i] = S.pages[id]
     end
     f.sections = sections
 
     local specs = {}
     for i, section in ipairs(sections) do
-        specs[i] = { label = section.label, right = section.right }
+        specs[i] = { label = L[section.labelKey], right = section.right }
     end
     -- The section panel, around the header and each section's well, in a
     -- lighter slate than the Settings tab's near-black: each well reads as sunk
@@ -80,7 +82,9 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     title.text = title:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title.text:SetPoint("CENTER")
     UI.AddTooltip(title, function()
-        if f.section.tooltip then return f.section.title, f.section.tooltip end
+        if f.section.tooltipKey then
+            return S.PageTitle(f.section), L[f.section.tooltipKey]
+        end
     end)
 
     -- A page's reset, then every control read back: a reset can reach past
@@ -88,17 +92,18 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     local resetButton = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
     resetButton:SetSize(110, 22)
     resetButton:SetPoint("RIGHT", 0, 4)
-    resetButton:SetText("Reset Defaults")
+    resetButton:SetText(L.SETTINGS_RESET_DEFAULTS)
     resetButton:SetScript("OnClick", function()
         local section = f.section
-        StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS", "Reset " .. section.title
-            .. " to defaults?\n\n" .. section.description, nil, function()
+        S.ConfirmReset(L.SETTINGS_RESET_PAGE_PROMPT:format(S.PageTitle(section),
+            L[section.descriptionKey]), function()
                 section.Reset(f)
                 S.LoadSettings(f)
             end)
     end)
     UI.AddTooltip(resetButton, function()
-        return "Reset " .. f.section.title, f.section.description
+        return L.SETTINGS_RESET_PAGE_TITLE:format(S.PageTitle(f.section)),
+            L[f.section.descriptionKey]
     end)
 
     -- Each section's content sits below the header in a well of its own,
@@ -140,7 +145,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         UI.CancelColorPicker()
         local section = sections[index]
         f.section = section
-        title.text:SetText(section.title)
+        title.text:SetText(S.PageTitle(section))
         local color = section.color or { 1, 0.82, 0 }
         title.text:SetTextColor(color[1], color[2], color[3])
         title:SetSize(title.text:GetStringWidth(), title.text:GetStringHeight())
@@ -150,9 +155,9 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
         UI.FitScrollToContent(f.currentScroll)
     end)
 
-    f.SelectSection = function(label)
+    f.SelectSection = function(id)
         for i, section in ipairs(sections) do
-            if section.label == label then f:SelectTab(i) return end
+            if section.id == id then f:SelectTab(i) return end
         end
     end
 
@@ -167,7 +172,7 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
 end
 
 -- Open the main window on the Settings tab, or close it if it is already there.
--- A section label opens straight to that section and never closes the window.
+-- A section id opens straight to that section and never closes the window.
 function WhoDoesWhat:OpenAddonSettingsView(section)
     if self:ShowMainTab("settings", section ~= nil) and section then
         settingsFrame.SelectSection(section)

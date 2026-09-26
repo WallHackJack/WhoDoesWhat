@@ -234,10 +234,8 @@ local function RefreshTestDevPage(f)
 end
 
 S.RegisterPage({
-    label = "Test + Dev", title = "Test + Dev", right = true,
-    description = "Turns the fake raid and the buffing bar preview off,"
-        .. " and Developer Mode, the Logs tab and every logging option"
-        .. " with them.",
+    id = "Test + Dev", labelKey = "SETTINGS_TEST_DEV", right = true,
+    descriptionKey = "SETTINGS_TEST_DEV_RESET",
     Build = BuildTestDevPage,
     Refresh = RefreshTestDevPage,
     Reset = function()

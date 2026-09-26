@@ -1,27 +1,43 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- What every page of the Settings tab shares: the column layout, the option
 -- widgets, and the page registry. The tab itself -- its sub-tabs, the header
 -- with Reset Defaults, and the wells -- is AddonSettingsView.lua; each page is a
 -- file of its own beside this one and registers itself here:
---   label        the page's tab, and the name OpenAddonSettingsView takes
---   title, color the heading over the page (gold unless given)
---   tooltip      optional hover text on that heading
---   description  what the page's Reset Defaults does, for its tooltip and confirm
+--   id           the name OpenAddonSettingsView takes; never shown
+--   labelKey     the page's tab
+--   titleKey, color  the heading over the page (the tab's text and gold
+--                unless given)
+--   tooltipKey   optional hover text on that heading
+--   descriptionKey  what the page's Reset Defaults does, for its tooltip and
+--                confirm
 --   right        run the tab from the right-hand end of the row
 --   ownScroll    the page re-lays its own well out (no edge shadows from us)
 --   Build(f, page, scroll)  lay the page out; `f` is the whole Settings frame
 --   Refresh(f)   read every control back out of the settings
 --   Reset(f)     put the page's settings back to their defaults
 --   OnShow(f)    optional, run each time the page's tab comes up
+-- The ...Key fields are string keys (Locales/enUS.lua), not text: a page
+-- registers while its file loads, before the player's Language is known.
 -- The order the tabs run in is AddonSettingsView's, not load order.
 local S = {}
 WhoDoesWhat.SettingsKit = S
 S.pages = {}
 
 function S.RegisterPage(page)
-    S.pages[page.label] = page
+    S.pages[page.id] = page
+end
+
+-- "1 minute", "5 minutes": the warning-time dropdowns' choices.
+function S.MinutesLabel(minutes)
+    return (minutes == 1 and L.MINUTES_ONE or L.MINUTES_MANY):format(minutes)
+end
+
+-- A page's heading, as it reads in the player's Language.
+function S.PageTitle(page)
+    return L[page.titleKey or page.labelKey]
 end
 
 -- Where the first widget on a page goes.
@@ -48,22 +64,35 @@ local PAGE_DROPDOWN_W = 140
 local PAGE_DROPDOWN_ROW_H = 32
 local DROPDOWN_INSET = 17
 local DIVIDER_GAP = 14
-local STATUS_DISPLAY_LABELS = {
-    default = "Default", percent = "Percent", missing = "Missing Count",
-    fraction = "Fraction", applied = "Applied Count",
+local STATUS_DISPLAY_KEYS = {
+    default = "STATUS_DISPLAY_DEFAULT", percent = "STATUS_DISPLAY_PERCENT",
+    missing = "STATUS_DISPLAY_MISSING", fraction = "STATUS_DISPLAY_FRACTION",
+    applied = "STATUS_DISPLAY_APPLIED",
 }
 
+-- A status row's text mode as the dropdowns name it; `fallback` (a mode) for
+-- one saved under a mode that no longer exists.
+function S.StatusDisplayLabel(display, fallback)
+    return L[STATUS_DISPLAY_KEYS[display] or STATUS_DISPLAY_KEYS[fallback]]
+end
+
 -- One confirm for every reset. The `data` passed to StaticPopup_Show is the
--- reset to run on Yes; the text is the whole question.
+-- reset to run on Yes; the text is the whole question. Its buttons are named
+-- as it opens (ConfirmReset), once the player's Language is known.
 StaticPopupDialogs["WHODOESWHAT_RESET_SETTINGS"] = {
     text = "%s",
-    button1 = "Reset",
-    button2 = "Cancel",
     OnAccept = function(self) self.data() end,
     timeout = 0,
     hideOnEscape = true,
     preferredIndex = 3,
 }
+
+-- Ask `question`, and run `reset` on Yes.
+function S.ConfirmReset(question, reset)
+    local dialog = StaticPopupDialogs["WHODOESWHAT_RESET_SETTINGS"]
+    dialog.button1, dialog.button2 = L.COMMON_RESET, L.COMMON_CANCEL
+    StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS", question, nil, reset)
+end
 
 -- Put settings keys back to their profile defaults - straight from the defaults
 -- rather than a second list of values, so a reset and a fresh install cannot
@@ -226,7 +255,7 @@ local function AddHighlightControls(parent, x, y, spec)
     local styleLabel = parent:CreateFontString(nil, "OVERLAY",
         "GameFontHighlight")
     styleLabel:SetPoint("TOPLEFT", x + 4, -(y + 4))
-    styleLabel:SetText(spec.styleLabel or "Highlight style:")
+    styleLabel:SetText(spec.styleLabel or L.HIGHLIGHT_STYLE_LABEL)
 
     local dd = UI.CreateMenuDropdown(parent, spec.name, PAGE_DROPDOWN_W)
     dd:SetPoint("LEFT", styleLabel, "LEFT", PAGE_FIELD_OFFSET - DROPDOWN_INSET, -2)
@@ -279,11 +308,11 @@ local function AddHighlightControls(parent, x, y, spec)
             local styleKey = key
             if Offered(styles, styleKey) then
                 local info = UIDropDownMenu_CreateInfo()
-                info.text = styles[styleKey].label
+                info.text = WhoDoesWhat:HighlightStyleLabel(styleKey)
                 info.checked = saved == styleKey
                 info.func = function()
                     spec.SetStyle(styleKey)
-                    UIDropDownMenu_SetText(dd, styles[styleKey].label)
+                    UIDropDownMenu_SetText(dd, WhoDoesWhat:HighlightStyleLabel(styleKey))
                     ApplyPreview(styleKey)
                     spec.OnChange()
                 end
@@ -291,7 +320,7 @@ local function AddHighlightControls(parent, x, y, spec)
             end
         end
     end)
-    UI.AddDropdownTooltip(dd, styleLabel, "Highlight style", spec.tooltip)
+    UI.AddDropdownTooltip(dd, styleLabel, L.HIGHLIGHT_STYLE, spec.tooltip)
 
     -- The colours go under the dropdown so the sample box beside it shows a
     -- colour change as it is dragged. Each swatch starts at the dropdown box's
@@ -330,8 +359,7 @@ local function AddHighlightControls(parent, x, y, spec)
     -- Every control here, read back out of the settings: the window opening,
     -- a page's Defaults button, or a different profile loading.
     local function Refresh()
-        local styles = WhoDoesWhat:GetStatusBarHighlightStyles()
-        UIDropDownMenu_SetText(dd, styles[SavedStyle()].label)
+        UIDropDownMenu_SetText(dd, WhoDoesWhat:HighlightStyleLabel(SavedStyle()))
         for _, field in ipairs(fields) do field:Refresh() end
         ApplyPreview(SavedStyle())
     end
@@ -362,7 +390,6 @@ S.CONTENT_W = CONTENT_W
 S.PAGE_X = PAGE_X
 S.DROPDOWN_INSET = DROPDOWN_INSET
 S.DIVIDER_GAP = DIVIDER_GAP
-S.STATUS_DISPLAY_LABELS = STATUS_DISPLAY_LABELS
 S.AddCompactCheckboxRow = AddCompactCheckboxRow
 S.SetOptionAvailable = SetOptionAvailable
 S.AddPageDivider = AddPageDivider

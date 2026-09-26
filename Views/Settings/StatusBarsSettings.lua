@@ -1,12 +1,13 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local S = WhoDoesWhat.SettingsKit
 
 -- Settings > Status Bars: the WDW Status window itself. Which bars it shows,
 -- and each one's options, are the Buffs page (BuffTrackingSettings.lua).
 
 local PAGE_X = S.PAGE_X
-local STATUS_DISPLAY_LABELS = S.STATUS_DISPLAY_LABELS
+local StatusDisplayLabel = S.StatusDisplayLabel
 local AddCompactCheckboxRow = S.AddCompactCheckboxRow
 local AddPageDivider = S.AddPageDivider
 local AddNextPageDivider = S.AddNextPageDivider
@@ -15,107 +16,110 @@ local AddDropdownRow = S.AddDropdownRow
 local PageControlSwitch = S.PageControlSwitch
 local AddHighlightControls = S.AddHighlightControls
 
-local STATUS_TOOLTIP_ANCHOR_LABELS = {
-    LEFT = "Left", RIGHT = "Right", ABOVE = "Above", BELOW = "Below",
+local STATUS_TOOLTIP_ANCHOR_KEYS = {
+    LEFT = "STATUS_TOOLTIP_SIDE_LEFT", RIGHT = "STATUS_TOOLTIP_SIDE_RIGHT",
+    ABOVE = "STATUS_TOOLTIP_SIDE_ABOVE", BELOW = "STATUS_TOOLTIP_SIDE_BELOW",
+}
+local ANCHOR_KEYS = {
+    TOPLEFT = "STATUS_ANCHOR_TOP_LEFT", TOPRIGHT = "STATUS_ANCHOR_TOP_RIGHT",
+    BOTTOMLEFT = "STATUS_ANCHOR_BOTTOM_LEFT",
+    BOTTOMRIGHT = "STATUS_ANCHOR_BOTTOM_RIGHT",
 }
 -- How many names a status-bar tooltip lists before the rest become a count.
 -- 40 is a full raid, so it is the "everyone" end without needing a sentinel.
 local STATUS_TOOLTIP_NAME_COUNTS = { 3, 5, 10, 20, 40 }
 local DEFAULT_TOOLTIP_NAMES = 10
 
+local function AnchorLabel(anchor)
+    return L[ANCHOR_KEYS[anchor] or ANCHOR_KEYS.TOPLEFT]
+end
+
+local function TooltipAnchorLabel(anchor)
+    return L[STATUS_TOOLTIP_ANCHOR_KEYS[anchor] or STATUS_TOOLTIP_ANCHOR_KEYS.LEFT]
+end
+
 local function BuildStatusBarsPage(f, page)
     local statusPage = page
     local statusIntro, yL
-    statusIntro, yL = AddPageIntro(statusPage, S.PAGE_TOP,"A compact window of your"
-        .. " raid's buffs, debuffs and assignments. Pick which bars show on the"
-        .. " Buffs tab. Hover the window for details.")
-    yL = AddPageDivider(statusPage, yL, "Window")
+    statusIntro, yL = AddPageIntro(statusPage, S.PAGE_TOP, L.STATUS_INTRO)
+    yL = AddPageDivider(statusPage, yL, L.STATUS_SECTION_WINDOW)
     local overviewLabel
     f.overviewCheck, yL, overviewLabel = AddCompactCheckboxRow(statusPage, PAGE_X, yL,
-        "Enable Status Bars",
-        "Shows a persistent UI element with many bars to see your raid's status at a quick glance.",
+        L.STATUS_ENABLE, L.STATUS_ENABLE_TIP,
         function(value)
             WhoDoesWhat.db.profile.settings.overviewEnabled = value
             WhoDoesWhat:UpdateStatusBarsViewVisibility()
             f.SetStatusControlsEnabled(value)
         end)
-    local anchorLabels = {
-        TOPLEFT = "Top Left", TOPRIGHT = "Top Right",
-        BOTTOMLEFT = "Bottom Left", BOTTOMRIGHT = "Bottom Right",
-    }
     local anchorLabel, anchorDD
-    anchorLabel, anchorDD, yL = AddDropdownRow(statusPage, yL, "Anchor point:",
+    anchorLabel, anchorDD, yL = AddDropdownRow(statusPage, yL, L.STATUS_ANCHOR_LABEL,
         "WhoDoesWhatStatusBarsAnchorDD")
     UIDropDownMenu_Initialize(anchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewAnchor or "TOPLEFT"
         for _, anchor in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = anchorLabels[anchor]
+            info.text = AnchorLabel(anchor)
             info.checked = (saved == anchor)
             info.func = function()
                 WhoDoesWhat:SetStatusBarsAnchor(anchor)
-                UIDropDownMenu_SetText(anchorDD, anchorLabels[anchor])
+                UIDropDownMenu_SetText(anchorDD, AnchorLabel(anchor))
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(anchorDD, anchorLabel, "Anchor point",
-        "The window grows away from this corner as rows or width change.")
+    UI.AddDropdownTooltip(anchorDD, anchorLabel, L.STATUS_ANCHOR, L.STATUS_ANCHOR_TIP)
     f.overviewAnchorDD = anchorDD
-    f.overviewAnchorLabels = anchorLabels
 
     local defaultDisplayLabel, defaultDisplayDD
     defaultDisplayLabel, defaultDisplayDD, yL = AddDropdownRow(statusPage, yL,
-        "Default text-mode:", "WhoDoesWhatStatusBarsDefaultDisplayDD")
+        L.STATUS_DEFAULT_DISPLAY_LABEL, "WhoDoesWhatStatusBarsDefaultDisplayDD")
     UIDropDownMenu_Initialize(defaultDisplayDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.overviewDefaultDisplay
             or "percent"
         for _, display in ipairs({ "percent", "applied", "missing", "fraction" }) do
             local displayName = display
             local info = UIDropDownMenu_CreateInfo()
-            info.text = STATUS_DISPLAY_LABELS[displayName]
+            info.text = StatusDisplayLabel(displayName)
             info.checked = saved == displayName
             info.func = function()
                 WhoDoesWhat.db.profile.settings.overviewDefaultDisplay = displayName
                 UIDropDownMenu_SetText(defaultDisplayDD,
-                    STATUS_DISPLAY_LABELS[displayName])
+                    StatusDisplayLabel(displayName))
                 WhoDoesWhat:RefreshStatusBarsView()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel, "Default text-mode",
-        "Used by paladin bars and any Buff Tracking row set to Default.")
+    UI.AddDropdownTooltip(defaultDisplayDD, defaultDisplayLabel,
+        L.STATUS_DEFAULT_DISPLAY, L.STATUS_DEFAULT_DISPLAY_TIP)
     f.overviewDefaultDisplayDD = defaultDisplayDD
 
-    yL = AddNextPageDivider(statusPage, yL, "Tooltips")
+    yL = AddNextPageDivider(statusPage, yL, L.STATUS_SECTION_TOOLTIPS)
     local tooltipAnchorLabel, tooltipAnchorDD
     tooltipAnchorLabel, tooltipAnchorDD, yL = AddDropdownRow(statusPage, yL,
-        "Tooltip side:", "WhoDoesWhatStatusBarsTooltipAnchorDD")
+        L.STATUS_TOOLTIP_SIDE_LABEL, "WhoDoesWhatStatusBarsTooltipAnchorDD")
     UIDropDownMenu_Initialize(tooltipAnchorDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor
             or "LEFT"
         for _, anchor in ipairs({ "LEFT", "RIGHT", "ABOVE", "BELOW" }) do
             local anchorName = anchor
             local info = UIDropDownMenu_CreateInfo()
-            info.text = STATUS_TOOLTIP_ANCHOR_LABELS[anchorName]
+            info.text = TooltipAnchorLabel(anchorName)
             info.checked = saved == anchorName
             info.func = function()
                 WhoDoesWhat.db.profile.settings.statusBarTooltipAnchor = anchorName
-                UIDropDownMenu_SetText(tooltipAnchorDD,
-                    STATUS_TOOLTIP_ANCHOR_LABELS[anchorName])
+                UIDropDownMenu_SetText(tooltipAnchorDD, TooltipAnchorLabel(anchorName))
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(tooltipAnchorDD, tooltipAnchorLabel, "Tooltip side",
-        "Where a status bar's tooltip opens. Left and right follow the hovered"
-            .. " bar; above and below clear the whole window.")
+    UI.AddDropdownTooltip(tooltipAnchorDD, tooltipAnchorLabel,
+        L.STATUS_TOOLTIP_SIDE, L.STATUS_TOOLTIP_SIDE_TIP)
     f.overviewTooltipAnchorDD = tooltipAnchorDD
 
     local tooltipNamesLabel, tooltipNamesDD
     tooltipNamesLabel, tooltipNamesDD, yL = AddDropdownRow(statusPage, yL,
-        "Tooltip names:", "WhoDoesWhatStatusBarsTooltipNamesDD")
+        L.STATUS_TOOLTIP_NAMES_LABEL, "WhoDoesWhatStatusBarsTooltipNamesDD")
     UIDropDownMenu_Initialize(tooltipNamesDD, function(_, level)
         local saved = WhoDoesWhat.db.profile.settings.statusBarTooltipNames
             or DEFAULT_TOOLTIP_NAMES
@@ -131,10 +135,8 @@ local function BuildStatusBarsPage(f, page)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UI.AddDropdownTooltip(tooltipNamesDD, tooltipNamesLabel, "Tooltip names",
-        "How many raiders a status bar's tooltip names before the rest"
-            .. " collapse into \"... and N more\". Applies to every bar,"
-            .. " including the paladin ones.")
+    UI.AddDropdownTooltip(tooltipNamesDD, tooltipNamesLabel,
+        L.STATUS_TOOLTIP_NAMES, L.STATUS_TOOLTIP_NAMES_TIP)
     f.overviewTooltipNamesDD = tooltipNamesDD
 
     -- The highlight style, with a live sample of it beside the dropdown --
@@ -143,13 +145,12 @@ local function BuildStatusBarsPage(f, page)
     -- for whichever style is selected, rather than a colour baked into each.
     -- The same three controls the shout bar and the buffing bar carry.
     local statusSettings = WhoDoesWhat.db.profile.settings
-    yL = AddNextPageDivider(statusPage, yL, "Highlight")
+    yL = AddNextPageDivider(statusPage, yL, L.SECTION_HIGHLIGHT)
     local RefreshStatusHighlight
     RefreshStatusHighlight, yL = AddHighlightControls(statusPage, PAGE_X,
         yL, {
             name = "WhoDoesWhatStatusBarsHighlightDD",
-            tooltip = "The highlight a status bar shows when it needs your"
-                .. " attention.",
+            tooltip = L.STATUS_HIGHLIGHT_TIP,
             GetStyle = function()
                 return statusSettings.statusBarHighlightStyle
             end,
@@ -158,9 +159,8 @@ local function BuildStatusBarsPage(f, page)
             end,
             colors = {
                 {
-                    label = "Highlight color:",
-                    tooltip = "The color every highlight style is drawn in."
-                        .. " Right-click the swatch to reset it.",
+                    label = L.STATUS_HIGHLIGHT_COLOR,
+                    tooltip = L.STATUS_HIGHLIGHT_COLOR_TIP,
                     key = "statusBarHighlightColor",
                 },
             },
@@ -177,16 +177,11 @@ local function BuildStatusBarsPage(f, page)
     f.RefreshStatusPage = function()
         local settings = WhoDoesWhat.db.profile.settings
         f.overviewCheck:SetChecked(settings.overviewEnabled)
-        local anchor = settings.overviewAnchor or "TOPLEFT"
-        UIDropDownMenu_SetText(f.overviewAnchorDD,
-            anchorLabels[anchor] or anchorLabels.TOPLEFT)
-        local display = settings.overviewDefaultDisplay or "percent"
+        UIDropDownMenu_SetText(f.overviewAnchorDD, AnchorLabel(settings.overviewAnchor))
         UIDropDownMenu_SetText(f.overviewDefaultDisplayDD,
-            STATUS_DISPLAY_LABELS[display] or STATUS_DISPLAY_LABELS.percent)
-        local tooltipAnchor = settings.statusBarTooltipAnchor or "LEFT"
+            StatusDisplayLabel(settings.overviewDefaultDisplay or "percent", "percent"))
         UIDropDownMenu_SetText(f.overviewTooltipAnchorDD,
-            STATUS_TOOLTIP_ANCHOR_LABELS[tooltipAnchor]
-                or STATUS_TOOLTIP_ANCHOR_LABELS.LEFT)
+            TooltipAnchorLabel(settings.statusBarTooltipAnchor))
         UIDropDownMenu_SetText(f.overviewTooltipNamesDD,
             tostring(settings.statusBarTooltipNames or DEFAULT_TOOLTIP_NAMES))
         -- The dropdown's text, the swatch, and the running sample in one go.
@@ -196,10 +191,8 @@ local function BuildStatusBarsPage(f, page)
 end
 
 S.RegisterPage({
-    label = "Status Bars", title = "Status Bars",
-    description = "Puts every option on this page back and moves the"
-        .. " window to the middle of the screen. Per-check options on"
-        .. " the Buffs page are left alone.",
+    id = "Status Bars", labelKey = "SETTINGS_STATUS_BARS",
+    descriptionKey = "SETTINGS_STATUS_BARS_RESET",
     Build = BuildStatusBarsPage,
     Refresh = function(f) f.RefreshStatusPage() end,
     Reset = function()

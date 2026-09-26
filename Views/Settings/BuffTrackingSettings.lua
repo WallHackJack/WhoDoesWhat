@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local K = WhoDoesWhat.SectionKit
 local S = WhoDoesWhat.SettingsKit
 
@@ -10,7 +11,7 @@ local S = WhoDoesWhat.SettingsKit
 local CONTENT_X = S.CONTENT_X
 local CONTENT_W = S.CONTENT_W
 local DIVIDER_GAP = S.DIVIDER_GAP
-local STATUS_DISPLAY_LABELS = S.STATUS_DISPLAY_LABELS
+local StatusDisplayLabel = S.StatusDisplayLabel
 local AddCompactCheckboxRow = S.AddCompactCheckboxRow
 local SetOptionAvailable = S.SetOptionAvailable
 local CreateMiniDivider = UI.CreateDivider
@@ -38,12 +39,21 @@ local DROPDOWN_INSET = S.DROPDOWN_INSET
 local OPTIONS_DROPDOWN_W = 120
 local OPTION_ROW_H = 22
 local DROPDOWN_ROW_H = 28
-local STATUS_SCOPE_LABELS = {
-    always = "All", raid = "Raid", party = "Party",
+local STATUS_SCOPE_KEYS = {
+    always = "BUFFS_SCOPE_ALL", raid = "BUFFS_SCOPE_RAID", party = "BUFFS_SCOPE_PARTY",
 }
-local STATUS_SATURATED_LABELS = {
-    hide = "Hide Bar", x = "X", check = "Checkmark",
+local STATUS_SATURATED_KEYS = {
+    hide = "BUFFS_SATURATED_HIDE", x = "BUFFS_SATURATED_X",
+    check = "BUFFS_SATURATED_CHECK",
 }
+
+local function ScopeLabel(scope)
+    return L[STATUS_SCOPE_KEYS[scope] or STATUS_SCOPE_KEYS.always]
+end
+
+local function SaturatedLabel(style)
+    return L[STATUS_SATURATED_KEYS[style] or STATUS_SATURATED_KEYS.check]
+end
 local OPTIONS_BUTTON = "Interface\\AddOns\\WhoDoesWhat\\Media\\UI-Panel-OptionsButton-"
 local STATUS_BUFF_ROW_H = 26
 
@@ -164,8 +174,7 @@ local function RefreshBuffOptionsFrame()
     end
     f.buffName:SetText(definition.name)
     f.buffNameGroup:SetWidth(33 + f.buffName:GetStringWidth())
-    UIDropDownMenu_SetText(f.scopeDD,
-        STATUS_SCOPE_LABELS[options.scope] or STATUS_SCOPE_LABELS.always)
+    UIDropDownMenu_SetText(f.scopeDD, ScopeLabel(options.scope))
 
     -- A label, and its dropdown's box at the shared field x on the same line.
     -- Returns the y below the row.
@@ -218,12 +227,9 @@ local function RefreshBuffOptionsFrame()
         return
     end
 
-    UIDropDownMenu_SetText(f.displayDD,
-        STATUS_DISPLAY_LABELS[options.display] or STATUS_DISPLAY_LABELS.default)
-    UIDropDownMenu_SetText(f.classDD, options.requiredClass or "None")
-    UIDropDownMenu_SetText(f.saturatedDD,
-        STATUS_SATURATED_LABELS[options.saturatedStyle]
-            or STATUS_SATURATED_LABELS.check)
+    UIDropDownMenu_SetText(f.displayDD, StatusDisplayLabel(options.display, "default"))
+    UIDropDownMenu_SetText(f.classDD, options.requiredClass or L.BUFFS_CLASS_NONE)
+    UIDropDownMenu_SetText(f.saturatedDD, SaturatedLabel(options.saturatedStyle))
     f.colorField:Refresh()
     for option, check in pairs(f.optionChecks) do
         check:SetChecked(options[option])
@@ -285,8 +291,8 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("offspecResponsible", y, 14)
     -- Names the check's class where it has one.
     f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
-        and ("Only as " .. options.requiredClass)
-        or "Only as the supplying class")
+        and L.BUFFS_PARTIAL_GLOW_ONLY_AS:format(options.requiredClass)
+        or L.BUFFS_PARTIAL_GLOW_ONLY_CLASS)
     y = PlaceOption("partialGlow", y)
     y = PlaceOption("partialGlowOnlyClass", y, 14)
     y = PlaceOption("hideBarUnavailable", y)
@@ -295,7 +301,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceDivider(f.completionDivider, true, y)
     y = PlaceOption("negative", y)
     f.optionLabels.hideComplete:SetText(options.negative
-        and "Hide Bar when debuff missing" or "Hide Bar when complete")
+        and L.BUFFS_HIDE_BAR_DEBUFF_MISSING or L.BUFFS_HIDE_BAR_COMPLETE)
     y = PlaceOption("hideComplete", y)
     local showSaturated = Shown("saturatedStyle")
     f.saturatedLabel:SetShown(showSaturated)
@@ -304,8 +310,7 @@ local function RefreshBuffOptionsFrame()
         y = PlaceDropdown(f.saturatedLabel, f.saturatedDD, y)
     end
     f.optionLabels.hideColumnComplete:SetText(options.negative
-        and "Hide grid column when debuff missing"
-        or "Hide grid column when complete")
+        and L.BUFFS_HIDE_COLUMN_DEBUFF_MISSING or L.BUFFS_HIDE_COLUMN_COMPLETE)
     y = PlaceOption("hideColumnComplete", y)
 
     y = PlaceDivider(f.targetsDivider, Shown("onlyManaUsers")
@@ -314,7 +319,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("onlyTanks", y)
     -- A check that counts every class's pet says so; the rest are hunters-only.
     f.optionLabels.hunterPets:SetText(definition.allPets
-        and "Used by pets" or "Used by hunter pets")
+        and L.BUFFS_PETS or L.BUFFS_HUNTER_PETS)
     y = PlaceOption("hunterPets", y)
     f:SetHeight(y + 7)
 end
@@ -392,20 +397,19 @@ local function EnsureBuffOptionsFrame(owner, key)
     nameGroup:SetHeight(26)
     f.buffNameGroup = nameGroup
 
-    local RESET_DESCRIPTION = "Puts this row's options back. Whether it shows in"
-        .. " Bars and the Buff Grid, and its place in the order, are kept."
     local resetRow = CreateFrame("Button", nil, nameBar, "UIPanelButtonTemplate")
     resetRow:SetSize(60, 22)
     resetRow:SetPoint("RIGHT", -8, 0)
-    resetRow:SetText("Reset")
+    resetRow:SetText(L.COMMON_RESET)
     resetRow:SetScript("OnClick", function()
         local rowKey = f.buffKey
-        StaticPopup_Show("WHODOESWHAT_RESET_SETTINGS", "Reset "
-            .. WhoDoesWhat.StatusBarChecks[rowKey].name .. " to defaults?\n\n"
-            .. RESET_DESCRIPTION, nil, function() ResetBuffOptions(rowKey) end)
+        S.ConfirmReset(L.SETTINGS_RESET_PAGE_PROMPT:format(
+            WhoDoesWhat.StatusBarChecks[rowKey].name, L.BUFFS_ROW_RESET),
+            function() ResetBuffOptions(rowKey) end)
     end)
     UI.AddTooltip(resetRow, function()
-        return "Reset " .. WhoDoesWhat.StatusBarChecks[f.buffKey].name, RESET_DESCRIPTION
+        return L.SETTINGS_RESET_PAGE_TITLE:format(
+            WhoDoesWhat.StatusBarChecks[f.buffKey].name), L.BUFFS_ROW_RESET
     end)
 
     local icon = nameGroup:CreateTexture(nil, "ARTWORK")
@@ -423,7 +427,7 @@ local function EnsureBuffOptionsFrame(owner, key)
 
     local scopeLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     scopeLabel:SetPoint("TOPLEFT", 10, -46)
-    scopeLabel:SetText("Party type")
+    scopeLabel:SetText(L.BUFFS_SCOPE)
     local scopeDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingScopeDD", OPTIONS_DROPDOWN_W)
     scopeDD:SetPoint("LEFT", scopeLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(scopeDD, function(_, level)
@@ -431,7 +435,7 @@ local function EnsureBuffOptionsFrame(owner, key)
         for _, scope in ipairs({ "always", "raid", "party" }) do
             local scopeName = scope
             local info = UIDropDownMenu_CreateInfo()
-            info.text = STATUS_SCOPE_LABELS[scopeName]
+            info.text = ScopeLabel(scopeName)
             info.checked = saved == scopeName
             info.func = function()
                 SetStatusBuffOption(owner, f.buffKey, "scope", scopeName)
@@ -442,12 +446,11 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.scopeDD = scopeDD
     f.scopeLabel = scopeLabel
-    UI.AddDropdownTooltip(scopeDD, scopeLabel, "Party type",
-        "Limit this check to raids, parties, or all group types.")
+    UI.AddDropdownTooltip(scopeDD, scopeLabel, L.BUFFS_SCOPE, L.BUFFS_SCOPE_TIP)
 
     local displayLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     displayLabel:SetPoint("TOPLEFT", 190, -46)
-    displayLabel:SetText("Text Mode")
+    displayLabel:SetText(L.BUFFS_DISPLAY)
     local displayDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingDisplayDD", OPTIONS_DROPDOWN_W)
     displayDD:SetPoint("LEFT", displayLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(displayDD, function(_, level)
@@ -457,7 +460,7 @@ local function EnsureBuffOptionsFrame(owner, key)
         }) do
             local displayName = display
             local info = UIDropDownMenu_CreateInfo()
-            info.text = STATUS_DISPLAY_LABELS[displayName]
+            info.text = StatusDisplayLabel(displayName)
             info.checked = saved == displayName
             info.func = function()
                 SetStatusBuffOption(owner, f.buffKey, "display", displayName)
@@ -468,18 +471,17 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.displayDD = displayDD
     f.displayLabel = displayLabel
-    UI.AddDropdownTooltip(displayDD, displayLabel, "Text Mode",
-        "Choose the text shown on the bar: percent, counts, or a fraction.")
+    UI.AddDropdownTooltip(displayDD, displayLabel, L.BUFFS_DISPLAY, L.BUFFS_DISPLAY_TIP)
 
     local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     classLabel:SetPoint("TOPLEFT", 10, -77)
-    classLabel:SetText("Requires Class:")
+    classLabel:SetText(L.BUFFS_CLASS_LABEL)
     local classDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingClassDD", OPTIONS_DROPDOWN_W)
     classDD:SetPoint("LEFT", classLabel, "RIGHT", -7, -2)
     UIDropDownMenu_Initialize(classDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).requiredClass
         local none = UIDropDownMenu_CreateInfo()
-        none.text = "None"
+        none.text = L.BUFFS_CLASS_NONE
         none.checked = saved == false
         none.func = function()
             SetStatusBuffOption(owner, f.buffKey, "requiredClass", false)
@@ -500,14 +502,13 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.classDD = classDD
     f.classLabel = classLabel
-    UI.AddDropdownTooltip(classDD, classLabel, "Requires class",
-        "The check is unavailable unless a member of this class is present.")
+    UI.AddDropdownTooltip(classDD, classLabel, L.BUFFS_CLASS, L.BUFFS_CLASS_TIP)
 
     local colorLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     colorLabel:SetPoint("TOPLEFT", 190, -77)
-    colorLabel:SetText("Bar Color")
+    colorLabel:SetText(L.BUFFS_BAR_COLOR)
     local colorField = UI.CreateColorField(f, {
-        title = "Bar color",
+        title = L.BUFFS_BAR_COLOR,
         Get = function() return WhoDoesWhat:GetStatusBarCheckOptions(f.buffKey).barColor end,
         Set = function(color)
             SetStatusBuffOption(owner, f.buffKey, "barColor", color or false)
@@ -526,14 +527,13 @@ local function EnsureBuffOptionsFrame(owner, key)
             WhoDoesWhat:RefreshStatusBarsView()
         end,
     })
-    UI.AddTooltip(colorLabel, "Bar color",
-        "Choose the filled status-bar color. Right-click the swatch to reset it.")
+    UI.AddTooltip(colorLabel, L.BUFFS_BAR_COLOR, L.BUFFS_BAR_COLOR_TIP)
     f.colorField = colorField
     f.colorLabel = colorLabel
 
     local saturatedLabel = f:CreateFontString(nil, "OVERLAY",
         "GameFontHighlight")
-    saturatedLabel:SetText("Fully Debuffed Style:")
+    saturatedLabel:SetText(L.BUFFS_SATURATED_LABEL)
     local saturatedDD = UI.CreateMenuDropdown(f, "WhoDoesWhatBuffTrackingSaturatedStyleDD", OPTIONS_DROPDOWN_W)
     UIDropDownMenu_Initialize(saturatedDD, function(_, level)
         local saved = WhoDoesWhat:GetStatusBarCheckOptions(
@@ -541,7 +541,7 @@ local function EnsureBuffOptionsFrame(owner, key)
         for _, style in ipairs({ "hide", "x", "check" }) do
             local styleName = style
             local info = UIDropDownMenu_CreateInfo()
-            info.text = STATUS_SATURATED_LABELS[styleName]
+            info.text = SaturatedLabel(styleName)
             info.checked = saved == styleName
             info.func = function()
                 SetStatusBuffOption(owner, f.buffKey,
@@ -553,67 +553,48 @@ local function EnsureBuffOptionsFrame(owner, key)
     end)
     f.saturatedLabel = saturatedLabel
     f.saturatedDD = saturatedDD
-    UI.AddDropdownTooltip(saturatedDD, saturatedLabel,
-        "Fully Debuffed Style",
-        "Choose what the status bar does once every tracked target has the"
-            .. " debuff: show a checkmark, show an X, or hide the bar.")
+    UI.AddDropdownTooltip(saturatedDD, saturatedLabel, L.BUFFS_SATURATED,
+        L.BUFFS_SATURATED_TIP)
 
-    f.displayDivider = CreateMiniDivider(f, "Display")
-    f.requirementDivider = CreateMiniDivider(f, "Requirement")
-    f.completionDivider = CreateMiniDivider(f, "Completion")
-    f.targetsDivider = CreateMiniDivider(f, "Targets")
+    f.displayDivider = CreateMiniDivider(f, L.BUFFS_SECTION_DISPLAY)
+    f.requirementDivider = CreateMiniDivider(f, L.BUFFS_SECTION_REQUIREMENT)
+    f.completionDivider = CreateMiniDivider(f, L.BUFFS_SECTION_COMPLETION)
+    f.targetsDivider = CreateMiniDivider(f, L.BUFFS_SECTION_TARGETS)
     f.optionChecks, f.optionLabels = {}, {}
     f.normalOptionRegions = {
         displayLabel, displayDD, classLabel, classDD, colorLabel, colorField,
         saturatedLabel, saturatedDD, f.displayDivider, f.requirementDivider,
         f.completionDivider, f.targetsDivider,
     }
+    -- Each option with the string keys of its label and tooltip.
     local checkboxOptions = {
-        { "negative", "Debuff",
-            "Treat presence as the tracked condition; a missing debuff can hide its status row or grid column." },
-        { "hideComplete", "Hide Bar when complete",
-            "Hide the WDW Status row when the check is complete, or when a debuff is absent from everyone." },
-        { "hideColumnComplete", "Hide grid column when complete",
-            "Hide the Buffing Grid column when the check is complete, or when a debuff is absent from everyone." },
-        { "flagOutsideRaid", "Flag buffs from outside the raid",
-            "Count a buff as missing if its caster isn't in the raid, since"
-                .. " pulling a boss removes it. Raids only." },
-        { "bestAvailable", "Only consider best available",
-            "Untalented buffs will not be counted toward the total buffing progress while a better buff is available." },
-        { "anyInCombat", "Consider all in combat and BGs",
-            "While you are in combat, or anywhere in a battleground or arena,"
-                .. " count any buff as covered. Mid-fight there is no time to"
-                .. " chase a better rank." },
-        { "onlyManaUsers", "Only for mana-users",
-            "Only include classes that use mana." },
-        { "onlyTanks", "Only for tanks",
-            "Only include raiders assigned a tank role." },
-        { "hunterPets", "Used by hunter pets",
-            "Include active Hunter pets in this check." },
-        { "hideBarUnavailable", "Hide bar when unavailable",
-            "Hide the WDW Status row while the required class is absent." },
-        { "hideColumnUnavailable", "Hide grid column when unavailable",
-            "Hide the Buff Grid column while the required class is absent." },
-        { "combinePaladinBars", "Show single combined Paladin row",
-            "Replace the individual Paladin progress bars with one raid-wide blessing progress bar." },
-        { "responsibleGlow", "Glow when responsible",
-            "Glow while you can cast this buff and someone is missing it."
-                .. (WhoDoesWhat.ClientFeatures.buffTalents
-                    and " With \"Only consider best available\" on, only the"
-                        .. " best-talented caster glows." or "")
-                .. " For buffs only you can give yourself, like food, it"
-                .. " glows while you or your pet go without." },
-        { "offspecResponsible", "Allow offspec responsibility",
-            "Also glow when the talent for this buff is in your other spec." },
-        { "partialGlow", "Glow when some missing",
-            "Glow when most of the raid has the buff but a few don't, such as"
-                .. " players who were dead or a pet summoned since." },
-        { "partialGlowOnlyClass", "Only as the supplying class",
-            "Restrict that glow to the class that can actually cast it. Off,"
-                .. " everybody sees the stragglers." },
+        { "negative", "BUFFS_NEGATIVE", "BUFFS_NEGATIVE_TIP" },
+        { "hideComplete", "BUFFS_HIDE_BAR_COMPLETE", "BUFFS_HIDE_BAR_COMPLETE_TIP" },
+        { "hideColumnComplete", "BUFFS_HIDE_COLUMN_COMPLETE",
+            "BUFFS_HIDE_COLUMN_COMPLETE_TIP" },
+        { "flagOutsideRaid", "BUFFS_FLAG_OUTSIDE_RAID", "BUFFS_FLAG_OUTSIDE_RAID_TIP" },
+        { "bestAvailable", "BUFFS_BEST_AVAILABLE", "BUFFS_BEST_AVAILABLE_TIP" },
+        { "anyInCombat", "BUFFS_ANY_IN_COMBAT", "BUFFS_ANY_IN_COMBAT_TIP" },
+        { "onlyManaUsers", "BUFFS_ONLY_MANA_USERS", "BUFFS_ONLY_MANA_USERS_TIP" },
+        { "onlyTanks", "BUFFS_ONLY_TANKS", "BUFFS_ONLY_TANKS_TIP" },
+        { "hunterPets", "BUFFS_HUNTER_PETS", "BUFFS_HUNTER_PETS_TIP" },
+        { "hideBarUnavailable", "BUFFS_HIDE_BAR_UNAVAILABLE",
+            "BUFFS_HIDE_BAR_UNAVAILABLE_TIP" },
+        { "hideColumnUnavailable", "BUFFS_HIDE_COLUMN_UNAVAILABLE",
+            "BUFFS_HIDE_COLUMN_UNAVAILABLE_TIP" },
+        { "combinePaladinBars", "BUFFS_COMBINE_PALADIN_BARS",
+            "BUFFS_COMBINE_PALADIN_BARS_TIP" },
+        { "responsibleGlow", "BUFFS_RESPONSIBLE_GLOW",
+            WhoDoesWhat.ClientFeatures.buffTalents
+                and "BUFFS_RESPONSIBLE_GLOW_TALENTS_TIP" or "BUFFS_RESPONSIBLE_GLOW_TIP" },
+        { "offspecResponsible", "BUFFS_OFFSPEC_RESPONSIBLE",
+            "BUFFS_OFFSPEC_RESPONSIBLE_TIP" },
+        { "partialGlow", "BUFFS_PARTIAL_GLOW", "BUFFS_PARTIAL_GLOW_TIP" },
+        { "partialGlowOnlyClass", "BUFFS_PARTIAL_GLOW_ONLY_CLASS",
+            "BUFFS_PARTIAL_GLOW_ONLY_CLASS_TIP" },
     }
     for index, entry in ipairs(checkboxOptions) do
-        local option, labelText, tooltip = entry[1], entry[2], entry[3]
+        local option, labelText, tooltip = entry[1], L[entry[2]], L[entry[3]]
         local check = UI.CreateCheckbox(f, labelText, labelText, tooltip,
             function(self)
                 SetStatusBuffOption(owner, f.buffKey, option,
@@ -631,24 +612,21 @@ local function EnsureBuffOptionsFrame(owner, key)
     end
 
     f.ppHideSyncedCheck, _, f.ppHideSyncedLabel = AddCompactCheckboxRow(
-        f, 7, 76, "Hide when synced",
-        "Hide this row while PallyPower matches WDW's plan.",
+        f, 7, 76, L.BUFFS_PP_HIDE_SYNCED, L.BUFFS_PP_HIDE_SYNCED_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenSynced", value)
             RefreshBuffOptionsFrame()
         end)
     f.ppHideSyncedCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.ppHideInactiveCheck, _, f.ppHideInactiveLabel = AddCompactCheckboxRow(
-        f, 7, 104, "Hide when inactive",
-        "Hide this row when no active Paladin assignments can be compared.",
+        f, 7, 104, L.BUFFS_PP_HIDE_INACTIVE, L.BUFFS_PP_HIDE_INACTIVE_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenInactive", value)
             RefreshBuffOptionsFrame()
         end)
     f.ppHideInactiveCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.ppGlowCheck, _, f.ppGlowLabel = AddCompactCheckboxRow(
-        f, 7, 132, "Assignment issues glow",
-        "This bar will glow when Pally buffs need attention and you are a raid assistant.",
+        f, 7, 132, L.BUFFS_PP_GLOW, L.BUFFS_PP_GLOW_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "assignmentIssuesGlow", value)
             RefreshBuffOptionsFrame()
@@ -659,33 +637,28 @@ local function EnsureBuffOptionsFrame(owner, key)
     -- this row worth a line" toggles and one glow. RefreshBuffOptionsFrame
     -- places them; the y values here are overwritten on the first open.
     f.aiHideClearCheck, _, f.aiHideClearLabel = AddCompactCheckboxRow(
-        f, 7, 76, "Hide when nothing to fix",
-        "Hide this row while there is nothing to fix on the roster.",
+        f, 7, 76, L.BUFFS_AI_HIDE_CLEAR, L.BUFFS_AI_HIDE_CLEAR_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenClear", value)
             RefreshBuffOptionsFrame()
         end)
     f.aiHideClearCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.aiHideSoloCheck, _, f.aiHideSoloLabel = AddCompactCheckboxRow(
-        f, 7, 104, "Hide when not in a group",
-        "Hide this row while you are solo, where there is nothing to check.",
+        f, 7, 104, L.BUFFS_AI_HIDE_SOLO, L.BUFFS_AI_HIDE_SOLO_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenSolo", value)
             RefreshBuffOptionsFrame()
         end)
     f.aiHideSoloCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.aiHideNotYoursCheck, _, f.aiHideNotYoursLabel = AddCompactCheckboxRow(
-        f, 7, 132, "Hide when nothing is yours to fix",
-        "Hide this row when everything left on it is someone else's to fix.",
+        f, 7, 132, L.BUFFS_AI_HIDE_NOT_YOURS, L.BUFFS_AI_HIDE_NOT_YOURS_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenNotYours", value)
             RefreshBuffOptionsFrame()
         end)
     f.aiHideNotYoursCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.aiGlowCheck, _, f.aiGlowLabel = AddCompactCheckboxRow(
-        f, 7, 132, "Action items glow",
-        "This bar will glow while items are waiting and you have permission to"
-            .. " edit assignments.",
+        f, 7, 132, L.BUFFS_AI_GLOW, L.BUFFS_AI_GLOW_TIP,
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "actionItemsGlow", value)
             RefreshBuffOptionsFrame()
@@ -860,23 +833,20 @@ local function BuildBuffTrackingPage(f, page, scroll)
     buffScroll:SetPoint("BOTTOMLEFT", 0, 4)
     buffScroll:SetWidth(CONTENT_X + CONTENT_W)
 
+    -- Each column's heading and tooltip keys, x and width.
     local headers = {
-        { "Buff", 84, 155 }, { "Bars", 250, 44 },
-        { "Buff Grid", 298, 62 }, { "Options", 364, 46 },
+        { "BUFFS_COLUMN_BUFF", "BUFFS_COLUMN_BUFF_TIP", 84, 155 },
+        { "BUFFS_COLUMN_BARS", "BUFFS_COLUMN_BARS_TIP", 250, 44 },
+        { "BUFFS_COLUMN_GRID", "BUFFS_COLUMN_GRID_TIP", 298, 62 },
+        { "BUFFS_COLUMN_OPTIONS", "BUFFS_COLUMN_OPTIONS_TIP", 364, 46 },
     }
-    for _, header in ipairs(headers) do
+    for index, header in ipairs(headers) do
         local text = buffWell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        text:SetPoint("TOPLEFT", CONTENT_X + header[2], -2)
-        text:SetSize(header[3], 26)
-        text:SetJustifyH(header[1] == "Buff" and "LEFT" or "CENTER")
-        text:SetText(header[1])
-        local tips = {
-            Buff = "The tracked buff, debuff, death, or assignment status.",
-            Bars = "Show and order this row in WDW Status.",
-            ["Buff Grid"] = "Show this check as a Buffing Grid column.",
-            Options = "Open the settings specific to this row.",
-        }
-        UI.AddTooltip(text, header[1], tips[header[1]])
+        text:SetPoint("TOPLEFT", CONTENT_X + header[3], -2)
+        text:SetSize(header[4], 26)
+        text:SetJustifyH(index == 1 and "LEFT" or "CENTER")
+        text:SetText(L[header[1]])
+        UI.AddTooltip(text, L[header[1]], L[header[2]])
     end
     f.statusBuffListTop = 0
     local divider = CreateFrame("Frame", nil, statusBuffPage)
@@ -884,7 +854,7 @@ local function BuildBuffTrackingPage(f, page, scroll)
     local dividerLabel = divider:CreateFontString(nil, "BACKGROUND", "GameFontNormalSmall")
     dividerLabel:SetPoint("TOP")
     dividerLabel:SetPoint("BOTTOM")
-    dividerLabel:SetText("Hidden from Status Bars")
+    dividerLabel:SetText(L.BUFFS_HIDDEN_DIVIDER)
     dividerLabel:SetTextColor(0.55, 0.55, 0.55)
     local dividerLeft = divider:CreateTexture(nil, "BACKGROUND")
     dividerLeft:SetHeight(8)
@@ -900,8 +870,7 @@ local function BuildBuffTrackingPage(f, page, scroll)
     dividerRight:SetTexture(137057)
     dividerRight:SetTexCoord(0.81, 0.94, 0.5, 1)
     dividerRight:SetVertexColor(0.45, 0.45, 0.45)
-    UI.AddTooltip(divider, "Hidden from Status Bars",
-        "Drag a row above this divider to show it in WDW Status again.")
+    UI.AddTooltip(divider, L.BUFFS_HIDDEN_DIVIDER, L.BUFFS_HIDDEN_DIVIDER_TIP)
     f.statusBuffDivider = divider
     f.statusBuffScroll = buffScroll
     local dragDriver = CreateFrame("Frame", nil, statusBuffPage)
@@ -982,14 +951,12 @@ local function BuildBuffTrackingPage(f, page, scroll)
         name:SetText(definition.name)
         UI.AddTooltip(hover, definition.name, definition.description, nil, true)
 
-        row.bar = UI.CreateCheckbox(row, nil, "Show in Bars",
-            "Show this row in WDW Status. Turning it off moves it below the divider.",
+        row.bar = UI.CreateCheckbox(row, nil, L.BUFFS_SHOW_IN_BARS, L.BUFFS_SHOW_IN_BARS_TIP,
             function(self)
                 SetStatusBuffBarEnabled(f, rowKey, self:GetChecked() and true or false)
             end, { size = 24 })
         row.bar:SetPoint("CENTER", row, "LEFT", 272, 0)
-        row.grid = UI.CreateCheckbox(row, nil, "Show in Buff Grid",
-            "Show this check as a column in the Buffing Grid.",
+        row.grid = UI.CreateCheckbox(row, nil, L.BUFFS_SHOW_IN_GRID, L.BUFFS_SHOW_IN_GRID_TIP,
             function(self)
                 SetStatusBuffOption(f, rowKey, "grid", self:GetChecked() and true or false)
             end, { size = 24 })
@@ -1011,7 +978,8 @@ local function BuildBuffTrackingPage(f, page, scroll)
         options:SetHighlightTexture(
             "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight", "ADD")
         options:SetScript("OnClick", function() OpenBuffOptions(f, rowKey) end)
-        UI.AddTooltip(options, definition.name .. " options", "Show this row's options beside the table.")
+        UI.AddTooltip(options, L.BUFFS_ROW_OPTIONS:format(definition.name),
+            L.BUFFS_ROW_OPTIONS_TIP)
         row.options = options
     end
     RefreshStatusBuffRows(f)
@@ -1022,11 +990,8 @@ local function BuildBuffTrackingPage(f, page, scroll)
 end
 
 S.RegisterPage({
-    label = "Buffs", title = "Buff Tracking",
-    tooltip = "Use arrows to order Bars; disabled rows move below the"
-        .. " divider. Use the cog for display and target options.",
-    description = "Restores the default order, visibility, colors, and"
-        .. " per-row options.",
+    id = "Buffs", labelKey = "SETTINGS_BUFFS", titleKey = "SETTINGS_BUFFS_TITLE",
+    tooltipKey = "SETTINGS_BUFFS_TIP", descriptionKey = "SETTINGS_BUFFS_RESET",
     -- Its scroll moves below the column headings, and the options panel
     -- beside it draws the shadows.
     ownScroll = true,

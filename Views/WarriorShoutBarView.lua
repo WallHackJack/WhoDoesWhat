@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local Assign = WhoDoesWhat.Assign
 
 -- The Warrior Shout Bar: a small movable strip of one icon per warrior shout
@@ -143,10 +144,10 @@ function WhoDoesWhat:GetShoutBarTimerSeconds()
 end
 
 function WhoDoesWhat:GetShoutBarTimerLabel(seconds)
-    if seconds == 0 then return "Never" end
-    if seconds < 0 then return "Always" end
-    if seconds % 60 == 0 then return "Under " .. (seconds / 60) .. "m" end
-    return "Under " .. seconds .. "s"
+    if seconds == 0 then return L.SHOUT_TIMER_NEVER end
+    if seconds < 0 then return L.SHOUT_TIMER_ALWAYS end
+    if seconds % 60 == 0 then return L.SHOUT_TIMER_UNDER_MINUTES:format(seconds / 60) end
+    return L.SHOUT_TIMER_UNDER_SECONDS:format(seconds)
 end
 
 -- y from the bar's top down to where the button row begins. With no title
@@ -241,9 +242,9 @@ end
 -- direction the bar spills.
 local ANCHOR_POINTS = { LEFT = "TOPLEFT", CENTER = "TOP", RIGHT = "TOPRIGHT" }
 WhoDoesWhat.ShoutBarAnchors = {
-    { key = "LEFT", label = "Left" },
-    { key = "CENTER", label = "Center" },
-    { key = "RIGHT", label = "Right" },
+    { key = "LEFT", labelKey = "SHOUT_ANCHOR_LEFT" },
+    { key = "CENTER", labelKey = "SHOUT_ANCHOR_CENTER" },
+    { key = "RIGHT", labelKey = "SHOUT_ANCHOR_RIGHT" },
 }
 WhoDoesWhat.SHOUT_BAR_DEFAULT_ANCHOR = "CENTER"
 
@@ -254,7 +255,7 @@ end
 
 function WhoDoesWhat:GetShoutBarAnchorLabel(anchor)
     for _, entry in ipairs(self.ShoutBarAnchors) do
-        if entry.key == anchor then return entry.label end
+        if entry.key == anchor then return L[entry.labelKey] end
     end
 end
 

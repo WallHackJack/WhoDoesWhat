@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local K = WhoDoesWhat.SectionKit
 
 -- Movable compact status-bars view of paladin and core raid-buff coverage:
@@ -861,35 +862,36 @@ end
 -- the effect is a setting rather than a hard-coded call. Each entry starts and
 -- stops exactly one effect; the frame remembers which style is running so
 -- changing the setting restarts it in place instead of leaving the old
--- animation attached.
+-- animation attached. Names are string keys, read through
+-- HighlightStyleLabel once the player's Language is known.
 local HIGHLIGHT_STYLES = {
     spin = {
-        label = "Spinning dashes",
+        labelKey = "HIGHLIGHT_SPIN",
         Start = StartSpin,
         Stop = function(r) LCG.PixelGlow_Stop(r) end,
     },
     glow = {
-        label = "Glow",
+        labelKey = "HIGHLIGHT_GLOW",
         Start = function(r, c) StartButtonGlow(r, false, c) end,
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
     flash = {
-        label = "Spinning glow",
+        labelKey = "HIGHLIGHT_SPINNING_GLOW",
         Start = function(r, c) StartButtonGlow(r, true, c) end,
         Stop = function(r) LCG.ButtonGlow_Stop(r) end,
     },
     outline = {
-        label = "Solid outline",
+        labelKey = "HIGHLIGHT_OUTLINE",
         Start = function(r, c) StartPlate(r, false, c) end,
         Stop = StopPlate,
     },
     outlinePulse = {
-        label = "Pulsing outline",
+        labelKey = "HIGHLIGHT_PULSING_OUTLINE",
         Start = function(r, c) StartPlate(r, true, c) end,
         Stop = StopPlate,
     },
     none = {
-        label = "None",
+        labelKey = "HIGHLIGHT_NONE",
         Start = function() end,
         Stop = function() end,
     },
@@ -903,20 +905,21 @@ local HIGHLIGHT_STYLE_ORDER = {
 -- the order they read in the dropdown: each motion, then that motion on one
 -- side at a time.
 local WING_MOTIONS = {
-    { key = "arrows", label = "Wings" },
-    { key = "arrowsPulse", label = "Pulsing wings", motion = "pulse" },
-    { key = "arrowsBob", label = "Bobbing wings", motion = "bob" },
+    { key = "arrows", labelKey = "HIGHLIGHT_WINGS" },
+    { key = "arrowsPulse", labelKey = "HIGHLIGHT_PULSING_WINGS", motion = "pulse" },
+    { key = "arrowsBob", labelKey = "HIGHLIGHT_BOBBING_WINGS", motion = "bob" },
 }
 local WING_SIDES = {
     {},
-    { key = "Left", label = " (left)", side = "left" },
-    { key = "Right", label = " (right)", side = "right" },
+    { key = "Left", sideKey = "HIGHLIGHT_LEFT_SIDE", side = "left" },
+    { key = "Right", sideKey = "HIGHLIGHT_RIGHT_SIDE", side = "right" },
 }
 for _, kind in ipairs(WING_MOTIONS) do
     for _, side in ipairs(WING_SIDES) do
         local key = kind.key .. (side.key or "")
         HIGHLIGHT_STYLES[key] = {
-            label = kind.label .. (side.label or ""),
+            labelKey = kind.labelKey,
+            sideKey = side.sideKey,
             -- Drawn out beside the frame, so a surface without room to either
             -- side of each icon (the Buff Checklist's grid) can leave these out.
             wings = true,
@@ -934,6 +937,13 @@ local DEFAULT_HIGHLIGHT_STYLE = "flash"
 
 function WhoDoesWhat:GetStatusBarHighlightStyles()
     return HIGHLIGHT_STYLES, HIGHLIGHT_STYLE_ORDER, DEFAULT_HIGHLIGHT_STYLE
+end
+
+-- A style's name as the dropdowns show it: "Pulsing wings (right)".
+function WhoDoesWhat:HighlightStyleLabel(key)
+    local style = HIGHLIGHT_STYLES[key] or HIGHLIGHT_STYLES[DEFAULT_HIGHLIGHT_STYLE]
+    local label = L[style.labelKey]
+    return style.sideKey and L[style.sideKey]:format(label) or label
 end
 
 -- The styles are drawn for a status row, whose art lives on child frames above

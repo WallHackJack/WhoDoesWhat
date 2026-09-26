@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local AceGUI = LibStub("AceGUI-3.0")
 
 -- The Roles settings page: every role WDW knows, by class, plus your own custom
@@ -228,9 +229,7 @@ function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
     intro:SetWidth(COLUMN_W - 8)
     intro:SetJustifyH("LEFT")
     intro:SetTextColor(0.7, 0.7, 0.7)
-    intro:SetText("Every role WDW knows, by class, plus your own custom ones."
-        .. " Click a role to see its blessing order, or create your own when a"
-        .. " raider's job needs its own name or its own blessings.")
+    intro:SetText(L.ROLES_INTRO)
 
     local strip = CreateFrame("Frame", nil, page)
     strip:SetPoint("TOP", intro, "BOTTOM", 0, -12)
@@ -239,7 +238,7 @@ function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
 
     -- "Expand Roles" checkbox (a plain CheckButton; persistent, so toggling it
     -- never releases the widget mid-callback).
-    local check = UI.CreateCheckbox(strip, "Expand Roles", nil, nil, function(self)
+    local check = UI.CreateCheckbox(strip, L.ROLES_EXPAND, nil, nil, function(self)
         local value = self:GetChecked() and true or false
         WhoDoesWhat.db.profile.expandRoles = value
         WhoDoesWhat:LogUiBuilding("Expand Roles toggled to " .. tostring(value) .. "; rebuilding roles.")
@@ -254,19 +253,15 @@ function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
     local createBtn = CreateFrame("Button", nil, strip, "UIPanelButtonTemplate")
     createBtn:SetSize(110, 22)
     createBtn:SetPoint("RIGHT", -4, 0)
-    createBtn:SetText("Create Role")
+    createBtn:SetText(L.ROLES_CREATE)
     createBtn:SetScript("OnClick", function()
         WhoDoesWhat:OpenCustomizerForNewRole()
     end)
     UI.AddTooltip(createBtn, function(self)
-        GameTooltip:SetText("Create a custom role", unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine("A role decides which blessings a raider gets and"
-            .. " whether they count as a tank, healer or damage dealer.",
-            0.8, 0.8, 0.8, true)
+        GameTooltip:SetText(L.ROLES_CREATE_TITLE, unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:AddLine(L.ROLES_CREATE_TIP, 0.8, 0.8, 0.8, true)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Every spec already has one. Make your own for a job"
-            .. " that needs different blessings, like an off-tank or a decurser.",
-            0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine(L.ROLES_CREATE_TIP_OWN, 0.8, 0.8, 0.8, true)
         return true
     end)
 end
@@ -298,11 +293,8 @@ function WhoDoesWhat:ResetRolesSettingsPage()
 end
 
 WhoDoesWhat.SettingsKit.RegisterPage({
-    label = "Roles", title = "Roles",
-    tooltip = "Every role WDW knows, by class, plus your own custom"
-        .. " ones. Click a role to see its blessing order.",
-    description = "Deletes your custom role library. Custom roles already"
-        .. " published to the raid, and who holds which role, are kept.",
+    id = "Roles", labelKey = "SETTINGS_ROLES", tooltipKey = "SETTINGS_ROLES_TIP",
+    descriptionKey = "SETTINGS_ROLES_RESET",
     Build = function(_, page, scroll) WhoDoesWhat:BuildRolesSettingsPage(page, scroll) end,
     Reset = function() WhoDoesWhat:ResetRolesSettingsPage() end,
     OnShow = function() WhoDoesWhat:RefreshRolesSettingsPage() end,

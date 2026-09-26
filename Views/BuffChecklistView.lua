@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 local Assign = WhoDoesWhat.Assign
 
 -- The Buff Checklist: a movable grid of every buff YOUR character should be
@@ -129,11 +130,11 @@ end
 -- (nil: GameFontNormalSmall as it comes) and arrow. Roomy is the original
 -- layout.
 WhoDoesWhat.BuffChecklistSpacings = {
-    { key = "roomy",   label = "Roomy",   pad = 3, gap = 4, dividerH = 14,
+    { key = "roomy",   labelKey = "CHECKLIST_SPACING_ROOMY", pad = 3, gap = 4, dividerH = 14,
       dividerFont = nil, arrow = 10 },
-    { key = "snug",    label = "Snug",    pad = 2, gap = 2, dividerH = 11,
+    { key = "snug",    labelKey = "CHECKLIST_SPACING_SNUG", pad = 2, gap = 2, dividerH = 11,
       dividerFont = 9, arrow = 8 },
-    { key = "compact", label = "Compact", pad = 1, gap = 1, dividerH = 9,
+    { key = "compact", labelKey = "CHECKLIST_SPACING_COMPACT", pad = 1, gap = 1, dividerH = 9,
       dividerFont = 7, arrow = 6 },
 }
 
@@ -155,8 +156,8 @@ end
 -- the Shout Bar's anchor, so a stored position describes itself.
 local ALIGN_POINTS = { LEFT = "TOPLEFT", RIGHT = "TOPRIGHT" }
 WhoDoesWhat.BuffChecklistAligns = {
-    { key = "LEFT", label = "Left" },
-    { key = "RIGHT", label = "Right" },
+    { key = "LEFT", labelKey = "CHECKLIST_ALIGN_LEFT" },
+    { key = "RIGHT", labelKey = "CHECKLIST_ALIGN_RIGHT" },
 }
 
 function WhoDoesWhat:GetBuffChecklistAlign()
@@ -166,7 +167,7 @@ end
 
 function WhoDoesWhat:GetBuffChecklistAlignLabel(align)
     for _, entry in ipairs(self.BuffChecklistAligns) do
-        if entry.key == align then return entry.label end
+        if entry.key == align then return L[entry.labelKey] end
     end
 end
 
@@ -201,17 +202,17 @@ end
 -- x and y say which way the small gap goes.
 local POPOUT_GAP = 2
 WhoDoesWhat.BuffChecklistPopoutDirections = {
-    { key = "ABOVE", label = "Above", point = "BOTTOM", rel = "TOP", x = 0, y = 1 },
-    { key = "BELOW", label = "Below", point = "TOP", rel = "BOTTOM", x = 0, y = -1 },
-    { key = "LEFT", label = "Left", point = "RIGHT", rel = "LEFT", x = -1, y = 0 },
-    { key = "RIGHT", label = "Right", point = "LEFT", rel = "RIGHT", x = 1, y = 0 },
-    { key = "ABOVELEFT", label = "Above Left", point = "BOTTOMRIGHT", rel = "TOPLEFT",
+    { key = "ABOVE", labelKey = "CHECKLIST_POPOUT_ABOVE", point = "BOTTOM", rel = "TOP", x = 0, y = 1 },
+    { key = "BELOW", labelKey = "CHECKLIST_POPOUT_BELOW", point = "TOP", rel = "BOTTOM", x = 0, y = -1 },
+    { key = "LEFT", labelKey = "CHECKLIST_POPOUT_LEFT", point = "RIGHT", rel = "LEFT", x = -1, y = 0 },
+    { key = "RIGHT", labelKey = "CHECKLIST_POPOUT_RIGHT", point = "LEFT", rel = "RIGHT", x = 1, y = 0 },
+    { key = "ABOVELEFT", labelKey = "CHECKLIST_POPOUT_ABOVE_LEFT", point = "BOTTOMRIGHT", rel = "TOPLEFT",
       x = -1, y = 1 },
-    { key = "ABOVERIGHT", label = "Above Right", point = "BOTTOMLEFT", rel = "TOPRIGHT",
+    { key = "ABOVERIGHT", labelKey = "CHECKLIST_POPOUT_ABOVE_RIGHT", point = "BOTTOMLEFT", rel = "TOPRIGHT",
       x = 1, y = 1 },
-    { key = "BELOWLEFT", label = "Below Left", point = "TOPRIGHT", rel = "BOTTOMLEFT",
+    { key = "BELOWLEFT", labelKey = "CHECKLIST_POPOUT_BELOW_LEFT", point = "TOPRIGHT", rel = "BOTTOMLEFT",
       x = -1, y = -1 },
-    { key = "BELOWRIGHT", label = "Below Right", point = "TOPLEFT", rel = "BOTTOMRIGHT",
+    { key = "BELOWRIGHT", labelKey = "CHECKLIST_POPOUT_BELOW_RIGHT", point = "TOPLEFT", rel = "BOTTOMRIGHT",
       x = 1, y = -1 },
 }
 local DEFAULT_POPOUT_DIRECTION = "BELOWLEFT"
