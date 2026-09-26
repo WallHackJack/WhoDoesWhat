@@ -279,6 +279,29 @@ local hosts = {} -- frame -> the overlay of ours everything is drawn into
 --
 -- One overlay per compact frame, at most one per raid slot, reused as the
 -- client reuses the frame beneath it.
+-- Re-read on every draw AND on the visibility tick below: the client moves
+-- compact frames between strata and levels as groups are built, and an overlay
+-- left behind draws underneath. A draw alone is not enough -- the first role
+-- assigned in a fresh group lands while the client is still building that
+-- frame, before its container has lifted it to its final level, and nothing
+-- redraws once it does. The overlay then sits under the health bar until
+-- something else happens to repaint it.
+--
+-- Measured against the HEALTH BAR as well as the frame. The bar is a child
+-- with a level of its own, and on some clients it outranks its parent by
+-- more than a step -- which is how a band ends up behind the health fill it
+-- is supposed to run down, reading as washed out rather than drawn over.
+local function SyncLayer(host, frame)
+    local level = frame:GetFrameLevel()
+    local healthBar = frame.healthBar
+    if healthBar and healthBar.GetFrameLevel then
+        level = math.max(level, healthBar:GetFrameLevel())
+    end
+    local strata = frame:GetFrameStrata()
+    if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
+    if host:GetFrameLevel() ~= level + 5 then host:SetFrameLevel(level + 5) end
+end
+
 local function Host(frame)
     local host = hosts[frame]
     if not host then
@@ -286,20 +309,7 @@ local function Host(frame)
         host:SetAllPoints(frame)
         hosts[frame] = host
     end
-    -- Re-read each time: the client moves compact frames between strata and
-    -- levels as groups are built, and an overlay left behind draws underneath.
-    --
-    -- Measured against the HEALTH BAR as well as the frame. The bar is a child
-    -- with a level of its own, and on some clients it outranks its parent by
-    -- more than a step -- which is how a band ends up behind the health fill it
-    -- is supposed to run down, reading as washed out rather than drawn over.
-    local level = frame:GetFrameLevel()
-    local healthBar = frame.healthBar
-    if healthBar and healthBar.GetFrameLevel then
-        level = math.max(level, healthBar:GetFrameLevel())
-    end
-    host:SetFrameStrata(frame:GetFrameStrata())
-    host:SetFrameLevel(level + 5)
+    SyncLayer(host, frame)
     host:Show()
     return host
 end
@@ -827,8 +837,11 @@ end
 -- the profile switching between party and raid frames. Nothing tells us, so the
 -- overlays are matched to their frames on a slow tick.
 --
+-- The same tick re-checks each shown overlay's strata and level (see SyncLayer),
+-- for a compact frame the client re-levelled after we drew on it.
+--
 -- Cheap by construction: it returns on the first line until something is drawn,
--- and then costs one IsVisible per raid slot twice a second. The alternative --
+-- and then costs a few getters per raid slot twice a second. The alternative --
 -- hooking each frame's Hide -- would write to their frame table, which is the
 -- taint this whole overlay exists to avoid.
 C_Timer.NewTicker(0.5, function()
@@ -836,6 +849,7 @@ C_Timer.NewTicker(0.5, function()
     for frame, host in pairs(hosts) do
         local wanted = taken[frame] and frame:IsVisible() and true or false
         if host:IsShown() ~= wanted then host:SetShown(wanted) end
+        if wanted then SyncLayer(host, frame) end
     end
 end)
 
