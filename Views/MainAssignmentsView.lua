@@ -458,8 +458,8 @@ local function EnsureMainFrame()
     -- inward: About is outermost.
     local pages = UI.AddTabs(f, {
         { label = "Members", page = "members",
-            tooltip = "A list of all members in your group, sorted by role. Used to assign"
-                .. " roles, get an overview of your raiders, and address issues",
+            tooltip = "Everyone in your group, sorted by role. Assign roles and fix"
+                .. " problems here.",
             build = ViewPage("BuildMembersPage") },
         { label = "Blessings", page = "blessings",
             tooltip = "Paladin blessings: the source of truth, buffing rules, custom"
@@ -472,8 +472,8 @@ local function EnsureMainFrame()
             tooltip = "The raid-wide paladin blessing plan and live buff status.",
             build = ViewPage("BuildBuffingGridPage") },
         { label = "Calculator", page = "calculator",
-            tooltip = "Estimate how much raid damage each curse provided (or could have"
-                .. " provided) in a fight, pulling the fight data from Details!.",
+            tooltip = "Estimate the raid damage each curse added in a fight, using"
+                .. " Details! data.",
             build = ViewPage("BuildCurseCalculatorPage") },
         { label = SETTINGS_LABEL, page = "settings",
             build = ViewPage("BuildAddonSettingsPage") },

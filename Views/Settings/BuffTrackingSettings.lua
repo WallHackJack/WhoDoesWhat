@@ -576,10 +576,8 @@ local function EnsureBuffOptionsFrame(owner, key)
         { "hideColumnComplete", "Hide grid column when complete",
             "Hide the Buffing Grid column when the check is complete, or when a debuff is absent from everyone." },
         { "flagOutsideRaid", "Flag buffs from outside the raid",
-            "Count a buff as missing when whoever cast it is not in the raid."
-                .. " Pulling a boss strips those buffs, so a raider carrying"
-                .. " one is unbuffed the moment it matters. Only applies in a"
-                .. " raid -- party and dungeon groups are never stripped." },
+            "Count a buff as missing if its caster isn't in the raid, since"
+                .. " pulling a boss removes it. Raids only." },
         { "bestAvailable", "Only consider best available",
             "Untalented buffs will not be counted toward the total buffing progress while a better buff is available." },
         { "anyInCombat", "Consider all in combat and BGs",
@@ -599,23 +597,17 @@ local function EnsureBuffOptionsFrame(owner, key)
         { "combinePaladinBars", "Show single combined Paladin row",
             "Replace the individual Paladin progress bars with one raid-wide blessing progress bar." },
         { "responsibleGlow", "Glow when responsible",
-            "Glow this WDW Status row while you are the class that supplies the"
-                .. " buff and somebody is still missing it. With \"Only consider"
-                .. " best available\" on, only the raid's best-talented caster"
-                .. " is asked. On a buff nobody can cast for you, such as food,"
-                .. " it glows while you or your pet are the ones going"
-                .. " without." },
+            "Glow while you can cast this buff and someone is missing it."
+                .. (WhoDoesWhat.ClientFeatures.buffTalents
+                    and " With \"Only consider best available\" on, only the"
+                        .. " best-talented caster glows." or "")
+                .. " For buffs only you can give yourself, like food, it"
+                .. " glows while you or your pet go without." },
         { "offspecResponsible", "Allow offspec responsibility",
-            "Keep glowing this row when the talent that grants the buff sits"
-                .. " in your other talent group rather than the spec you are"
-                .. " in. A respec is a real answer in a raid where nobody has"
-                .. " it in the spec they are standing in; off, only your"
-                .. " current spec puts you on the hook." },
+            "Also glow when the talent for this buff is in your other spec." },
         { "partialGlow", "Glow when some missing",
-            "Glow this WDW Status row once most of the raid is covered but a"
-                .. " few are not -- raiders who were dead when it went out, or"
-                .. " a pet summoned since. That handful is worth one more"
-                .. " cast; an empty raid-wide bar is not." },
+            "Glow when most of the raid has the buff but a few don't, such as"
+                .. " players who were dead or a pet summoned since." },
         { "partialGlowOnlyClass", "Only as the supplying class",
             "Restrict that glow to the class that can actually cast it. Off,"
                 .. " everybody sees the stragglers." },
@@ -640,7 +632,7 @@ local function EnsureBuffOptionsFrame(owner, key)
 
     f.ppHideSyncedCheck, _, f.ppHideSyncedLabel = AddCompactCheckboxRow(
         f, 7, 76, "Hide when synced",
-        "Hide this row while assignments are synchronized.",
+        "Hide this row while PallyPower matches WDW's plan.",
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenSynced", value)
             RefreshBuffOptionsFrame()
@@ -684,9 +676,7 @@ local function EnsureBuffOptionsFrame(owner, key)
     f.aiHideSoloCheck:SetHitRectInsets(0, -(BUFF_OPTIONS_W - 40), 0, 0)
     f.aiHideNotYoursCheck, _, f.aiHideNotYoursLabel = AddCompactCheckboxRow(
         f, 7, 132, "Hide when nothing is yours to fix",
-        "Hide this row while every outstanding item belongs to someone else "
-            .. "and you have no permission to set their roles. Turn this off "
-            .. "to keep an informational count instead.",
+        "Hide this row when everything left on it is someone else's to fix.",
         function(value)
             SetStatusBuffOption(owner, f.buffKey, "hideWhenNotYours", value)
             RefreshBuffOptionsFrame()

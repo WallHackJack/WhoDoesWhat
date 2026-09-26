@@ -26,10 +26,9 @@ local DEFAULT_TOOLTIP_NAMES = 10
 local function BuildStatusBarsPage(f, page)
     local statusPage = page
     local statusIntro, yL
-    statusIntro, yL = AddPageIntro(statusPage, S.PAGE_TOP,"A compact window of bars"
-        .. " showing your raid's buffs, debuffs and assignments at a glance."
-        .. " Choose which bars show on the Buffs tab. Hover the window and check"
-        .. " the tooltips for additional info")
+    statusIntro, yL = AddPageIntro(statusPage, S.PAGE_TOP,"A compact window of your"
+        .. " raid's buffs, debuffs and assignments. Pick which bars show on the"
+        .. " Buffs tab. Hover the window for details.")
     yL = AddPageDivider(statusPage, yL, "Window")
     local overviewLabel
     f.overviewCheck, yL, overviewLabel = AddCompactCheckboxRow(statusPage, PAGE_X, yL,
@@ -149,8 +148,8 @@ local function BuildStatusBarsPage(f, page)
     RefreshStatusHighlight, yL = AddHighlightControls(statusPage, PAGE_X,
         yL, {
             name = "WhoDoesWhatStatusBarsHighlightDD",
-            tooltip = "The animation a status bar uses when it wants your"
-                .. " attention -- the box to the right shows it running.",
+            tooltip = "The highlight a status bar shows when it needs your"
+                .. " attention.",
             GetStyle = function()
                 return statusSettings.statusBarHighlightStyle
             end,

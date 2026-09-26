@@ -249,12 +249,11 @@ local function Build(f)
     local box = chrome.box
 
     local autoTooltip = IS_CLASSIC_ERA
-        and "Put Curse of the Elements, Curse of Shadow, and Curse of Recklessness"
-            .. " on separate warlocks. The magic curses and Recklessness are gated"
-            .. " by their Settings toggles."
+        and "Put Curse of the Elements, Shadow and Recklessness on separate"
+            .. " warlocks. Settings controls which curses Auto fills."
         or "Put Curse of the Elements on an Affliction warlock and Curse of"
-            .. " Recklessness on another warlock. Each curse is gated by its"
-            .. " Settings toggle; a disabled one keeps its current pick."
+            .. " Recklessness on another. Settings controls which curses Auto"
+            .. " fills; the rest keep their current pick."
     local autoBtn = UI.CreateTextButton(box, "Auto", "Auto-assign",
         autoTooltip,
         function()

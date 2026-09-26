@@ -644,12 +644,12 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         if userInput then Recompute(f) end
     end)
     f.penEdit.tooltip = IS_CLASSIC_ERA
-        and "Average extra flat armor reduction or armor penetration per physical raider"
-            .. " from effects such as Annihilator and Badge of the Swarmguard. Not"
-            .. " auto-detected; leave 0 if you do not want to approximate it."
-        or "Average extra armor reduction per physical raider from trinkets, enchants"
-            .. " (Executioner), and gear (Swarmguard, Madness, armor-pen trinkets). Not"
-            .. " auto-detected; leave 0 if you do not want to approximate it."
+        and "Average armor penetration per physical raider, from gear like"
+            .. " Annihilator or Badge of the Swarmguard. Not detected automatically;"
+            .. " leave at 0 to skip."
+        or "Average armor penetration per physical raider, from trinkets, enchants"
+            .. " and gear like Executioner or Madness. Not detected automatically;"
+            .. " leave at 0 to skip."
     UI.AddTooltip(f.penEdit, "Extra armor penetration",
         function(self) return self.tooltip end)
 

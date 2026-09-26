@@ -18,10 +18,9 @@ local AddSliderWithInput = S.AddSliderWithInput
 local function BuildWarriorBarPage(f, page)
     local warriorPage = page
     local shoutIntro, yL
-    shoutIntro, yL = AddPageIntro(warriorPage, S.PAGE_TOP,"An efficient warrior"
-        .. " buffing bar for shouts. Includes pets and ignores irrelevant party"
-        .. " members based on WDW roles. Hover the bar and check the tooltips"
-        .. " for additional info")
+    shoutIntro, yL = AddPageIntro(warriorPage, S.PAGE_TOP,"A clickable bar for"
+        .. " warrior shouts. It counts pets and skips party members who don't"
+        .. " need a shout, based on their WDW roles. Hover the bar for details.")
 
     -- Two sets of these settings, per account: a warrior's, and everyone
     -- else's. The page opens on the set your class uses; picking the other
@@ -48,11 +47,10 @@ local function BuildWarriorBarPage(f, page)
         end
     end)
     UI.AddDropdownTooltip(shoutEditingDD, shoutEditingLabel, "Editing",
-        "Warriors and everyone else keep separate Warrior Shout Bar settings,"
-        .. " shared across your account. A warrior's bar casts shouts; anyone"
-        .. " else's asks for them in party chat.\n\nThe bar shows the set you"
-        .. " are editing until you close the settings, then goes back to the"
-        .. " set for your class.")
+        "Warriors and everyone else get separate bar setups, account-wide. A"
+        .. " warrior's bar casts shouts; anyone else's asks for them in party"
+        .. " chat.\n\nWhile settings are open, your bar previews the setup"
+        .. " you're editing.")
     f.shoutEditingDD = shoutEditingDD
     f.shoutSetLabels = SHOUT_SET_LABELS
     f:HookScript("OnHide", function() WhoDoesWhat:SetShoutBarEditingKey(nil) end)
@@ -182,10 +180,8 @@ local function BuildWarriorBarPage(f, page)
         yLower, {
             name = "WhoDoesWhatShoutBarIconSizeSlider",
             label = "Buff icon size:",
-            tooltip = "How big each shout icon is drawn, in pixels. The bar is"
-                .. " exactly as wide as its icons, so this sizes the whole"
-                .. " strip. Drag the slider or type an exact number; a resize"
-                .. " during a fight waits until you leave combat.",
+            tooltip = "How big each shout icon is, in pixels. Resizing waits"
+                .. " until combat ends.",
             min = shoutIconRange.min,
             max = shoutIconRange.max,
         },
@@ -199,9 +195,8 @@ local function BuildWarriorBarPage(f, page)
     f.RefreshShoutHighlight, yLower, shoutHighlightLabels, shoutHighlightFields =
         AddHighlightControls(shoutLower, PAGE_X, yLower, {
             name = "WhoDoesWhatShoutBarHighlightDD",
-            tooltip = "The animation a shout icon wears while somebody in the"
-                .. " party is missing that shout -- the box to the right shows"
-                .. " it running.",
+            tooltip = "The highlight a shout icon shows while someone in the"
+                .. " party is missing it.",
             GetStyle = function() return shoutStore().glowStyle end,
             SetStyle = function(key) shoutStore().glowStyle = key end,
             Store = shoutStore,

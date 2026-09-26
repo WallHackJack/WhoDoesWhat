@@ -197,12 +197,10 @@ local function BuildGeneralPage(f, page)
     f.unitTooltipStrangersCheck, yL, f.unitTooltipStrangersLabel =
         AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Also scan players outside your group",
-        "Hovering a player who isn't in your group inspects them and adds the "
-            .. "spec their talents read as, with the points in each tree. "
-            .. "It's their talents, not a role anyone assigned. Inspects are "
-            .. "throttled and never sent in combat."
+        "Hover a player outside your group to see their spec and talent "
+            .. "points. Doesn't work in combat."
             .. (WhoDoesWhat.ClientFeatures.isForever
-                and "" or " Only players in inspect range can be read."),
+                and "" or " They need to be close enough to inspect."),
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipStrangers = value
         end)
@@ -220,20 +218,17 @@ local function BuildGeneralPage(f, page)
         end)
     f.tooltipIdsCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show spell and item ids on tooltips",
-        "Add the id to item, spell and buff tooltips. For looking up what to "
-            .. "tell the addon about a consumable it doesn't know yet; on by "
-            .. "default on WoW Forever, off elsewhere.",
+        "Add ids to item, spell and buff tooltips. Handy for reporting a "
+            .. "consumable the addon doesn't know yet.",
         function(value)
             WhoDoesWhat.db.profile.settings.tooltipIds = value
         end)
     yL = AddNextPageDivider(generalPage, yL, "Raid Frames")
     f.raidFrameRoleCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show roles on raid frames",
-        "Draw each raider's spec icon onto Blizzard's raid frames, over the "
-            .. "group icon that normally sits there. Players whose spec has "
-            .. "not been chosen or scanned yet keep the corner Blizzard drew."
-            .. "\n\nOff leaves Blizzard's raid frames entirely alone, and "
-            .. "greys out the two options below.",
+        "Show each raider's spec icon on Blizzard's raid frames, in place of "
+            .. "Blizzard's own icon. Players with no known spec keep Blizzard's "
+            .. "icon.",
         function(value)
             WhoDoesWhat.db.profile.settings.raidFrameRoleIcons = value
             WhoDoesWhat:LogUiBuilding("Raid frame role icons "
@@ -277,9 +272,8 @@ local function BuildGeneralPage(f, page)
     f.raidFrameOutlineCheck, yL, f.raidFrameOutlineLabel = AddCompactCheckboxRow(
         generalPage, PAGE_X, yL,
         "Add outline by role",
-        "Edge each raid frame role icon in its role colour: blue for tanks, "
-            .. "green for healers. DPS get theirs from the option below."
-            .. "\n\nReplace WoW Icon, Left band and Right band styles only.",
+        "Outline role icons in blue for tanks and green for healers. Not "
+            .. "available with faded styles.",
         function(value)
             WhoDoesWhat.db.profile.settings.raidFrameRoleOutline = value
             RefreshRaidFrameOptionStates(f)
@@ -288,8 +282,8 @@ local function BuildGeneralPage(f, page)
     f.raidFrameOutlineDpsCheck, yL, f.raidFrameOutlineDpsLabel = AddCompactCheckboxRow(
         generalPage, PAGE_X, yL,
         "Add outline to DPS",
-        "Also edge DPS role icons, in red. Needs Add outline by role."
-            .. "\n\nReplace WoW Icon, Left band and Right band styles only.",
+        "Also outline damage dealers in red. Needs Add outline by role. Not "
+            .. "available with faded styles.",
         function(value)
             WhoDoesWhat.db.profile.settings.raidFrameRoleOutlineDps = value
             WhoDoesWhat:RefreshRaidFrameRoleIcons()
@@ -298,9 +292,8 @@ local function BuildGeneralPage(f, page)
     f.raidFrameCombatCheck, yL, f.raidFrameCombatLabel = AddCompactCheckboxRow(
         generalPage, PAGE_X, yL,
         "Keep raid frame roles in combat",
-        "Leave those spec icons up while you are fighting. Turn off to hand "
-            .. "that corner back to Blizzard for the length of a pull and take "
-            .. "it again once the fight ends.",
+        "Keep spec icons up during fights. When off, Blizzard's icons come "
+            .. "back until combat ends.",
         function(value)
             WhoDoesWhat.db.profile.settings.raidFrameRoleIconsInCombat = value
             WhoDoesWhat:LogUiBuilding("Raid frame role icons in combat "
@@ -316,13 +309,10 @@ local function BuildGeneralPage(f, page)
         end)
     f.manageBlizzRolesCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Set Blizzard group roles",
-        "Keep each player's Blizzard group role (Tank / Healer / Damage Dealer) "
-            .. "and main-tank state matching their WhoDoesWhat role.\n\n"
-            .. "Turn off if group roles start flipping back and forth -- usually "
-            .. "another role addon, or a raider on an out-of-date WhoDoesWhat. "
-            .. "WhoDoesWhat's own assignments keep working either way; only "
-            .. "Blizzard's role flags are left alone.\n\n"
-            .. "This setting is yours alone and is not shared with the raid.",
+        "Keep each player's Blizzard role (Tank / Healer / Damage) and main "
+            .. "tank matching their WhoDoesWhat role.\n\n"
+            .. "Turn this off if roles keep flipping back and forth. That usually "
+            .. "means another role addon, or someone on an old WhoDoesWhat.",
         function(value)
             WhoDoesWhat.db.profile.settings.manageBlizzardRoles = value
             WhoDoesWhat:LogUiBuilding("Blizzard group roles "

@@ -675,9 +675,9 @@ local function RenderSummary(f, paladins, columnX, plans, sourceLabels, columnW,
             row.coverageText:SetText("Awaiting talents")
             row.coverageText:SetTextColor(1, 0.62, 0.25)
             row.coveragePercent:SetText("")
-            row.progressTip = "WDW will not assign blessings to " .. name
-                .. " until talent data arrives. Target them once while in range"
-                .. " to pull it, or mark them Non-raider if they are sitting out."
+            row.progressTip = "No blessings for " .. name .. " until their"
+                .. " talents are read. Target them once while nearby, or mark them"
+                .. " Non-raider if they're sitting out."
         else
             local text, percent = CoverageText(coverage.correct, coverage.total)
             row.coverageText:SetText(text)
@@ -1189,12 +1189,11 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
         elseif not self.canFix then
             GameTooltip:AddLine(self.blockedPaladin
                 .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
-            GameTooltip:AddLine("Fix All cannot be used by a non-assistant until"
-                .. " every paladin enables it.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Needs raid assist, or Free Assignment turned on"
+                .. " by every paladin.", 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine("Broadcast the complete WDW blessing plan to"
-                .. " PallyPower clients and update WDW's local mirror.",
-                0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Send WDW's blessing plan to every paladin's"
+                .. " PallyPower.", 0.8, 0.8, 0.8, true)
         end
         return true
     end)

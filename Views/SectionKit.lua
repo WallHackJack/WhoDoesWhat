@@ -107,10 +107,9 @@ function K.DisabledPaladinTooltip(names)
     for i, name in ipairs(names) do
         who[i] = "|cff" .. hex .. A.ShortAssignmentName(name) .. "|r"
     end
-    return table.concat(who, ", ") .. (#names == 1 and " is" or " are")
-        .. " running neither WhoDoesWhat nor PallyPower, so no board can reach"
-        .. " them. Assign them one blessing (Add (+) > Assign a Paladin) and"
-        .. " whisper it over."
+    return table.concat(who, ", ") .. (#names == 1 and " has" or " have")
+        .. " neither WhoDoesWhat nor PallyPower. Give them a blessing (Add (+) >"
+        .. " Assign a Paladin) and whisper it to them."
 end
 
 function K.OrderPaladinsLocalFirst(paladins)

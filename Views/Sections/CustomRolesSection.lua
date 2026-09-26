@@ -319,19 +319,19 @@ local function CreateCustomRoleRow(f, index)
     UI.AddTooltip(delBtn, "Remove from the raid", function()
         local def = GetRaidCustomRoles()[index]
         if def and not WhoDoesWhat:IsRaidCustomRoleDef(def) then
-            return "Put this role back on its default blessing order. It is a"
-                .. " built-in role, so nobody loses their assignment."
+            return "Reset this role to its default blessing order. Nobody loses"
+                .. " their role."
         end
-        return "Everyone stops seeing this role, and anyone assigned to it goes"
-            .. " back to no role. Your own copy in the Roles window is not deleted."
+        return "Remove this role from the raid. Anyone assigned to it goes back"
+            .. " to no role. Your copy in Settings > Roles stays."
     end)
     row.delBtn = delBtn
 
     -- A gear, both here and for the role library in the header strip, so the
     -- two read as the same kind of action and share a column down the right.
     local editBtn = UI.CreateGearButton(row, "Edit this role",
-        "Change the blessing order the whole raid uses for it -- plus the name,"
-        .. " icon and group role when it is a custom role of your own.",
+        "Change the raid's blessing order for this role. For your own custom"
+        .. " roles, also the name, icon and group role.",
         function()
             local def = GetRaidCustomRoles()[index]
             if def then WhoDoesWhat:OpenCustomizer(def.id, true) end
@@ -441,9 +441,8 @@ local function Build(f)
     end)
     clearBtn.disabledReason = "Nothing to clear."
     UI.AddTooltip(clearBtn, "Clear the list",
-        "Put every default role back on its defaults and take every custom role"
-        .. " off the raid, clearing anyone assigned to one. Your own copies are"
-        .. " not deleted.")
+        "Reset every built-in role and remove every custom role from the raid."
+        .. " Anyone on a removed role goes back to no role. Your copies stay.")
     K.ChainHeaderButton(chrome, clearBtn)
 
     -- Chained between Add (+) and the clear-all X, which puts it in the same

@@ -341,7 +341,7 @@ local function CreateCoreCell(row, column)
         if self.notNeeded then
             GameTooltip:AddLine("Not required for this class.", 0.6, 0.6, 0.6)
         elseif not self.connected then
-            GameTooltip:AddLine("Aura state is unavailable while this raider is offline.",
+            GameTooltip:AddLine("Offline, so their buffs can't be checked.",
                 0.6, 0.6, 0.6, true)
         elseif self.negative and self.hasBuff == true then
             GameTooltip:AddLine("Has the debuff.", 1, 0.3, 0.3)
@@ -386,7 +386,7 @@ local function CreateCoreCell(row, column)
         elseif self.hasBuff == false then
             GameTooltip:AddLine("Missing this buff.", 1, 0.3, 0.3)
         else
-            GameTooltip:AddLine("Aura state has not been scanned yet.", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine("Buffs not checked yet.", 0.6, 0.6, 0.6)
         end
         return true
     end)
@@ -489,12 +489,11 @@ local function UpdateSourceControl(f)
     local matchesMode = f.gridSource == expected
         or (pallyPowerMode and (f.gridSource == "addon" or f.gridSource == "observed"))
     if not matchesMode then
-        f.sourceWarningText = "Paladin blessing cells are showing "
+        f.sourceWarningText = "Blessing cells are showing "
             .. (SOURCE_LABELS[f.gridSource] or "this source")
-            .. " for comparison only. They do not represent the raid's active"
-            .. " assignment source. Select " .. SOURCE_LABELS[expected]
-            .. " to view the plan currently driving WDW. Missing-buff indicators"
-            .. " still use live aura data."
+            .. " for comparison only. Switch to " .. SOURCE_LABELS[expected]
+            .. " to see the raid's actual plan. Missing-buff markers still show"
+            .. " real buffs."
     else
         f.sourceWarningText = nil
     end

@@ -18,13 +18,12 @@ local function BuildPaladinBarPage(f, page)
     local paladinPage = page
     local paladinIntro, yL
     paladinIntro, yL = AddPageIntro(paladinPage, S.PAGE_TOP,"A clickable bar of your"
-        .. " assigned blessings, a Nova-style alternative to PallyPower. Only"
-        .. " shown when you're a paladin. Hover the bar and check the tooltips"
-        .. " for additional info")
+        .. " assigned blessings, a Nova-style alternative to PallyPower."
+        .. " Paladins only. Hover its buttons for details.")
     yL = AddPageDivider(paladinPage, yL, "Bar")
     local buffingBarLabel
     f.buffingBarCheck, yL, buffingBarLabel = AddCompactCheckboxRow(paladinPage, PAGE_X, yL, "Enable Paladin Buffing Bar",
-        "Show a movable, clickable bar of your assigned blessings - a Nova-style alternative to PallyPower. Appears only when you're a paladin, unless test mode is on.",
+        "Show the buffing bar. Paladins only.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarEnabled = value
             WhoDoesWhat:LogUiBuilding("Paladin Buffing Bar " .. (value and "enabled." or "disabled."))
@@ -34,7 +33,7 @@ local function BuildPaladinBarPage(f, page)
 
     f.buffingAuraCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Paladin Aura Helper",
-        "Add an aura swapper at the left end of the bar. Hovering it opens a picker of every aura you know, left-click casts the one it's offering; it turns grey with a red glow while that aura isn't the one you're running.",
+        "Add an aura button to the left end of the bar. Hover to pick an aura, click to cast it. It glows red while you're not running that aura.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarAuraButton = value
             WhoDoesWhat:LogUiBuilding("Paladin Aura Helper "
@@ -44,7 +43,7 @@ local function BuildPaladinBarPage(f, page)
 
     f.buffingRighteousFuryCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Righteous Fury Reminder",
-        "Add a Righteous Fury button next to the aura swapper, shown only while you hold a tank role. Left-click refreshes it; red glow when it's down, yellow with a countdown in its last ten minutes.",
+        "Add a Righteous Fury button while you're in a tank role. Click to recast. It glows red when it's off and yellow in its last ten minutes.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarRighteousFury = value
             WhoDoesWhat:LogUiBuilding("Righteous Fury Reminder "
@@ -54,7 +53,7 @@ local function BuildPaladinBarPage(f, page)
 
     f.buffingHideCompletedCheck, yL = AddCompactCheckboxRow(paladinPage, PAGE_X, yL,
         "Hide completed classes",
-        "Drop a class button off the bar while everyone it covers is buffed, so the bar shows only what's left to do. Buttons come back as blessings lapse, though adding or removing one has to wait until you leave combat.",
+        "Hide a class button once everyone it covers is buffed. It comes back when a blessing runs out. Changes wait until combat ends.",
         function(value)
             WhoDoesWhat.db.profile.settings.buffingBarHideCompleted = value
             WhoDoesWhat:LogUiBuilding("Buffing bar completed-class hiding "
@@ -147,11 +146,8 @@ local function BuildPaladinBarPage(f, page)
         yL, {
             name = "WhoDoesWhatBuffingBarIconSizeSlider",
             label = "Buff icon size:",
-            tooltip = "How big each button on the bar is drawn, in pixels."
-                .. " Everything else on the bar is measured off it, so the"
-                .. " whole bar grows with it. Drag the slider or type an exact"
-                .. " number; a resize during a fight waits until you leave"
-                .. " combat.",
+            tooltip = "How big each button on the bar is, in pixels. Resizing"
+                .. " waits until combat ends.",
             min = buffingIconRange.min,
             max = buffingIconRange.max,
         },
@@ -191,10 +187,8 @@ local function BuildPaladinBarPage(f, page)
     f.RefreshBuffingHighlight, yL = AddHighlightControls(paladinPage,
         PAGE_X, yL, {
             name = "WhoDoesWhatBuffingBarHighlightDD",
-            tooltip = "The animation a button on the bar wears when it wants"
-                .. " your attention -- the box to the right shows it running."
-                .. " The wide player rows inside a class button keep pulsing"
-                .. " their own outline either way.",
+            tooltip = "The highlight a button shows when it needs your"
+                .. " attention.",
             GetStyle = function()
                 return buffingSettings.buffingBarGlowStyle
             end,

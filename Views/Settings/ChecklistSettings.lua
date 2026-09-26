@@ -19,10 +19,8 @@ local function BuildChecklistPage(f, page)
     local checklistPage = page
     local checklistIntro, yL
     checklistIntro, yL = AddPageIntro(checklistPage, S.PAGE_TOP,"A grid of the buffs"
-        .. " your character should have: the blessings the plan gives you, the"
-        .. " class buffs and food Buff Tracking checks, your party's shouts, and"
-        .. " your weapon enchants. Shift-click a missing buff to ask for it;"
-        .. " click food or a weapon to pick an item, then right-click to use it.")
+        .. " you should have. Shift-click a missing buff to ask for it. Click"
+        .. " food or a weapon to pick an item, then right-click to use it.")
     local checklistSettings = function() return WhoDoesWhat.db.profile.settings end
 
     yL = AddPageDivider(checklistPage, yL, "Checklist")
@@ -55,8 +53,8 @@ local function BuildChecklistPage(f, page)
         end
     end)
     UI.AddDropdownTooltip(checklistAlignDD, checklistAlignLabel, "Align",
-        "Which side of the checklist stays put as buffs come and go. On Right"
-        .. " the grid starts from the top-right corner and fills leftwards.")
+        "Which side stays in place as buffs come and go. Right fills from the"
+        .. " top-right corner.")
     f.checklistAlignDD = checklistAlignDD
 
     local checklistPopoutLabel, checklistPopoutDD
@@ -77,9 +75,8 @@ local function BuildChecklistPage(f, page)
         end
     end)
     UI.AddDropdownTooltip(checklistPopoutDD, checklistPopoutLabel, "Menus open",
-        "Which way the item picker and the aura or aspect menu open from the"
-        .. " icon you click. The diagonals meet the icon corner to corner, which"
-        .. " keeps a menu clear of the rest of the checklist.")
+        "Which way menus open from the icon you click. Diagonals keep them"
+        .. " clear of the checklist.")
     f.checklistPopoutDD = checklistPopoutDD
 
     local columnRange = WhoDoesWhat.BUFF_CHECKLIST_COLUMNS
@@ -125,9 +122,7 @@ local function BuildChecklistPage(f, page)
         end
     end)
     UI.AddDropdownTooltip(checklistSpacingDD, checklistSpacingLabel, "Spacing",
-        "How tightly the checklist packs: the gap between icons, the padding"
-        .. " around them, and the size of the pet divider. Compact makes the"
-        .. " smallest checklist.")
+        "How tightly the icons are packed. Compact is the smallest.")
     f.checklistSpacingDD = checklistSpacingDD
 
     f.checklistHeaderCheck, yL = AddCompactCheckboxRow(checklistPage,
@@ -141,9 +136,8 @@ local function BuildChecklistPage(f, page)
 
     f.checklistSplitOthersCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, "Divide own buffs from others'",
-        "Draws a \"From Others\" line between the buffs you see to yourself"
-        .. " (auras, food, elixirs, weapons) and the ones other raiders cast on"
-        .. " you (blessings, Fortitude, shouts). The pet's section stays as it is.",
+        "Split your own buffs (auras, food, elixirs, weapons) from ones others"
+        .. " cast on you (blessings, Fortitude, shouts).",
         function(value)
             checklistSettings().buffChecklistSplitOthers = value
             WhoDoesWhat:RefreshBuffChecklist()
@@ -237,9 +231,8 @@ local function BuildChecklistPage(f, page)
             name = "WhoDoesWhatBuffChecklistHighlightDD",
             -- Icons packed edge to edge leave no room for wings beside them.
             noWings = true,
-            tooltip = "The animation a checklist icon wears while that buff"
-                .. " is missing or about to drop -- the box to the right shows"
-                .. " it running.",
+            tooltip = "The highlight an icon shows when its buff is missing or"
+                .. " about to drop.",
             GetStyle = function()
                 return checklistSettings().buffChecklistGlowStyle
             end,

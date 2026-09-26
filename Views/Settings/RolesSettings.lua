@@ -260,14 +260,12 @@ function WhoDoesWhat:BuildRolesSettingsPage(page, scroll)
     end)
     UI.AddTooltip(createBtn, function(self)
         GameTooltip:SetText("Create a custom role", unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine("A role is the job a raider is doing -- Frost Mage,"
-            .. " Protection Warrior, Holy Priest. WhoDoesWhat uses it to work"
-            .. " out which paladin blessings they should get and whether they"
-            .. " count as a tank, healer or damage dealer.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("A role decides which blessings a raider gets and"
+            .. " whether they count as a tank, healer or damage dealer.",
+            0.8, 0.8, 0.8, true)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Every class already has its specs listed here."
-            .. " Make your own when a raider's job needs its own name or its own"
-            .. " blessings -- an off-tank, a decurser, a kite duty.",
+        GameTooltip:AddLine("Every spec already has one. Make your own for a job"
+            .. " that needs different blessings, like an off-tank or a decurser.",
             0.8, 0.8, 0.8, true)
         return true
     end)
