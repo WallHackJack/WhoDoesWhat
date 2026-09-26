@@ -4,6 +4,21 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.6 — 2026-09-26
+
+- WoW Forever: roles are auto-assigned from talents again, for yourself and
+  for group members at any distance. Forever replaced the old talent trees,
+  so nobody was being detected before.
+- Unit tooltips can show the spec of players outside your group, read from
+  their talents, or "No Talents" in red. On by default; turn it off under
+  Settings > General.
+- Raid frame role icons stay on top of the health bar, including right after
+  a group forms and, on WoW Forever, as players move in and out of range.
+- Raid frame role icons dim with out-of-range players.
+- On WoW Forever, buffs cast during combat count as landed right away,
+  instead of reading as missing until the fight ends.
+- WoW Forever: names show as "First L" and paladin icons carry both initials.
+
 ## 2.0.5 — 2026-09-26
 
 - Paladin Bar now casts on WoW Forever. The addon understands Forever's
