@@ -1,22 +1,16 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 
 -- A short hello the first time a character runs WhoDoesWhat on WoW Forever.
--- Three things worth saying to someone arriving from PallyPower: blessings are
--- computed from roles here rather than assigned by hand, the checklist's item
--- tables are still being filled in and reports help, and -- in red, because it
--- is the one that will otherwise read as a bug -- settings do not survive a
--- reload on this client.
+-- Two things worth saying to someone arriving from PallyPower: blessings are
+-- computed from roles here rather than assigned by hand, and the checklist's
+-- item tables are still being filled in and reports help.
 --
--- Marked seen per character, so this is once per character by design. While the
--- beta never loads its saved variables that mark cannot persist and the notice
--- returns every session; the moment the client is fixed it behaves as intended
--- with no change here.
+-- Marked seen per character, so this is once per character by design.
 
 if not WhoDoesWhat.ClientFeatures.isForever then return end
 
--- The addon's own blue and gold (the same two the views use), and a red that
--- reads as a warning against the popup's dark backdrop.
-local BLUE, YELLOW, RED = "|cff80c0ff", "|cffffd100", "|cffff4040"
+-- The addon's own blue and gold (the same two the views use).
+local BLUE, YELLOW = "|cff80c0ff", "|cffffd100"
 local NAME = BLUE .. "WhoDoesWhat|r"
 
 StaticPopupDialogs["WHODOESWHAT_FOREVER_WELCOME"] = {
@@ -27,8 +21,7 @@ StaticPopupDialogs["WHODOESWHAT_FOREVER_WELCOME"] = {
         .. "If you notice items missing from the buff checklist, feel free to "
         .. "report their item id and spell id (from the buff).\n\n"
         .. "Use " .. YELLOW .. "/wdw|r or the " .. YELLOW
-        .. "minimap button|r to open " .. NAME .. "!\n\n"
-        .. RED .. "SETTINGS DO NOT SAVE YET DUE TO CLIENT RESTRICTIONS|r",
+        .. "minimap button|r to open " .. NAME .. "!",
     button1 = OKAY or "Okay",
     timeout = 0,
     whileDead = true,

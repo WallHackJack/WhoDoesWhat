@@ -355,8 +355,7 @@ local defaults = {
         buffChecklistPetCollapsed = false,
         -- Whether this character has been shown the Forever welcome
         -- (ForeverWelcome.lua). Per character, because that is who it
-        -- introduces the addon to -- and while the beta never loads its saved
-        -- variables it is unsaveable, so the notice returns every session.
+        -- introduces the addon to.
         foreverWelcomeSeen = false,
     },
     global = {

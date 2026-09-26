@@ -38,13 +38,6 @@ Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 # Compat.lua before all of it: it restores the globals the rest of the files
 # call, several of them while they load.
 Compat.lua
-#@do-not-package@
-# Clone-only, and only useful on the Forever beta, which writes saved variables
-# at logout and never reads them back. ForeverSeed.lua is generated from the
-# file the client last wrote and seeds the global before Core.lua hands it to
-# AceDB. Never packaged: it carries one person's settings and nothing else.
-ForeverSeed.lua
-#@end-do-not-package@
 # WallhackUiKit.lua first: it needs nothing, and every view builds on ns.UI.
 WallhackUiKit.lua
 Core.lua
