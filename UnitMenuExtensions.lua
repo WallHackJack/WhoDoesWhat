@@ -342,8 +342,9 @@ end
 -- SetRoleButtons uses. Menus vary a little, so this is approximate by nature.
 -- In a raid without assist rights the menu drops one of the entries above us
 -- (the assist-only raid controls), so the section shifts up one index; in a
--- party or with assist it stays put.
-local INSERT_INDEX = 6
+-- party or with assist it stays put. Forever's first section carries one more
+-- entry than the other clients, so the section starts an index lower there.
+local INSERT_INDEX = WhoDoesWhat.ClientFeatures.isForever and 7 or 6
 
 local function GetInsertIndex()
     if IsInRaid() and not WhoDoesWhat:IsRaidAssistant() then
