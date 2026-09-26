@@ -167,12 +167,20 @@ end
 -- moment someone else is inspected, so this is the only place it survives.
 local inspectedPoints = {}
 
+-- The same for players outside the group, read only because the tooltip asked
+-- (the "scan players outside your group" setting). Kept apart so a stranger
+-- who later joins is still inspected and auto-assigned as a group member.
+-- strangerAsked is guid -> when we last asked, for throttling and for telling
+-- our own inspects from anyone else's.
+local strangerPoints = {}
+local strangerAsked = {}
+
 -- Per-tree points for any player, from whichever source this client has:
 -- the trait tree on Forever, the library everywhere else.
 local function TalentPoints(guid)
     if USES_TRAIT_TREE then
         local points = guid == UnitGUID("player") and TraitTreePoints()
-            or inspectedPoints[guid]
+            or inspectedPoints[guid] or strangerPoints[guid]
         if not points then return nil end
         return points[1], points[2], points[3]
     end
@@ -203,6 +211,46 @@ local function RequestInspect(unit)
     return 1
 end
 
+-- Redraw the unit tooltip if it is still showing this player, so a stranger's
+-- talents appear under the cursor the moment their inspect lands rather than
+-- on the next hover. Re-setting the unit re-runs the tooltip hooks.
+local function RefreshHoveredTooltip(guid)
+    if not GameTooltip:IsShown() then return end
+    local _, unit = GameTooltip:GetUnit()
+    if not unit or WhoDoesWhat:IsSecret(unit) then return end
+    local shown = UnitGUID(unit)
+    if not shown or WhoDoesWhat:IsSecret(shown) or shown ~= guid then return end
+    GameTooltip:SetUnit(unit)
+end
+
+-- Inspect a player outside the group for the unit tooltip. Throttled twice
+-- over, because hovering through a crowd asks for one per player: at most one
+-- inspect every STRANGER_INTERVAL, and a player we already asked about is not
+-- asked again for STRANGER_RETRY (an answer usually arrives in a second; the
+-- retry is for one that never did). Never in combat, and group members are
+-- left to the group path, which also auto-assigns them.
+local STRANGER_INTERVAL = 1.5
+local STRANGER_RETRY = 60
+local lastStrangerInspect = 0
+
+function WhoDoesWhat:RequestStrangerInspect(unit)
+    if not (USES_TRAIT_TREE or Inspector) or InCombatLockdown() then return end
+    local guid = UnitGUID(unit)
+    if not guid or self:IsSecret(guid) or guid == UnitGUID("player")
+        or IsGUIDInGroup(guid) then
+        return
+    end
+    local now = GetTime()
+    local asked = strangerAsked[guid]
+    if asked and now - asked < STRANGER_RETRY then return end
+    if now - lastStrangerInspect < STRANGER_INTERVAL then return end
+    local sent = RequestInspect(unit)
+    if sent and sent ~= 0 then
+        strangerAsked[guid] = now
+        lastStrangerInspect = now
+    end
+end
+
 -- What the Members window shows in its Talents column: the per-tab point
 -- spread the library has cached for this unit, and the role(s) that spread
 -- reads as. nil while nothing has been seen -- an out-of-range player who
@@ -229,6 +277,17 @@ function WhoDoesWhat:GetTalentSnapshot(unit)
         specNames = specNames,
         roleIds = RolesForSpec(class, specIndex),
     }
+end
+
+-- True when this unit's talents have been read and nothing is spent -- told
+-- apart from never read, which GetTalentSnapshot's nil covers too. Judged by
+-- points, not level, so a talent point handed out early still counts.
+function WhoDoesWhat:UnitTalentsReadEmpty(unit)
+    local guid = (USES_TRAIT_TREE or Inspector) and unit and UnitExists(unit)
+        and UnitGUID(unit)
+    if not guid then return false end
+    local t1, t2, t3 = TalentPoints(guid)
+    return t1 ~= nil and t1 + t2 + t3 == 0
 end
 
 -- The same shape for a fake raider (FakeRaid.lua), which has no unit to
@@ -735,6 +794,9 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- business; the cache also covers strangers). Ourselves included, so solo
     -- testing works. pointsSpent == 0 means a fresh respec that hasn't
     -- re-spent yet, or a low-level character -- no spec to read either way.
+    -- A stranger the tooltip asked about gets their tooltip redrawn first:
+    -- off Forever, the library's own cache is where their talents land.
+    if strangerAsked[guid] then RefreshHoveredTooltip(guid) end
     if not (name and self.db) then return end
     if not (IsGUIDInGroup(guid) or guid == UnitGUID("player")) then return end
 
@@ -928,8 +990,15 @@ if USES_TRAIT_TREE and Inspector then
     local inspectWatch = CreateFrame("Frame")
     inspectWatch:RegisterEvent("INSPECT_READY")
     inspectWatch:SetScript("OnEvent", function(_, _, guid)
-        if not guid or guid == UnitGUID("player") or not IsGUIDInGroup(guid)
-            or InCombatLockdown() then
+        if not guid or guid == UnitGUID("player") or InCombatLockdown() then
+            return
+        end
+        if not IsGUIDInGroup(guid) then
+            -- A stranger the tooltip asked about. Display only: never the
+            -- pipeline, which is group business.
+            if not strangerAsked[guid] then return end
+            strangerPoints[guid] = TraitTreePoints(INSPECT_CONFIG_ID)
+            RefreshHoveredTooltip(guid)
             return
         end
         local points = TraitTreePoints(INSPECT_CONFIG_ID)

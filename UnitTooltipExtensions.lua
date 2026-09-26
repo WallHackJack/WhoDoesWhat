@@ -8,8 +8,9 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 --
 -- Deliberately quiet: one line, only for players in our group who actually
 -- have an assignment, and only while the setting is on. Nothing is added for
--- strangers, NPCs, or roleless members, so tooltips stay their usual size
--- next to a tooltip addon like TacoTip.
+-- NPCs or roleless members, so tooltips stay their usual size next to a
+-- tooltip addon like TacoTip. Strangers get a line only under the separate,
+-- unitTooltipStrangers setting -- and that one does inspect them.
 --
 -- A second setting appends the roster hover summary (Views/RaiderTooltipView)
 -- under that line -- longer, so it is off by default and gated separately.
@@ -33,6 +34,34 @@ local function RoleLine(name)
     return WhoDoesWhat.Assign.RoleIconMarkup(name, ICON_SIZE) .. role.name
 end
 
+-- A player outside the group has no board role, so the opt-in stranger line
+-- says what their talents read as instead, with the raw spread beside it.
+-- Someone read with nothing spent says so in red; unread players get an
+-- inspect requested (throttled; see RequestStrangerInspect) and nothing drawn:
+-- the tooltip redraws itself once the answer lands.
+local function TalentLine(unit)
+    local snapshot = WhoDoesWhat:GetTalentSnapshot(unit)
+    if not (snapshot and snapshot.roleIds) then
+        if WhoDoesWhat:UnitTalentsReadEmpty(unit) then
+            return "|cffff4040No Talents|r"
+        end
+        WhoDoesWhat:RequestStrangerInspect(unit)
+        return nil
+    end
+    local names = {}
+    for _, roleId in ipairs(snapshot.roleIds) do
+        local _, role = WhoDoesWhat:FindRoleById(roleId)
+        if role then
+            names[#names + 1] = WhoDoesWhat:RoleIconMarkup(role.icon, ICON_SIZE)
+                .. role.name
+        end
+    end
+    if #names == 0 then return nil end
+    local p = snapshot.points
+    return table.concat(names, " / ") .. string.format(
+        " |cffffd100(%d/%d/%d)|r", p[1], p[2], p[3])
+end
+
 local function AddRoleLine(tooltip)
     local settings = WhoDoesWhat.db and WhoDoesWhat.db.profile.settings
     if not settings then return end
@@ -46,6 +75,12 @@ local function AddRoleLine(tooltip)
     if not UnitIsPlayer(unit) then return end
     if not (UnitIsUnit(unit, "player") or UnitInParty(unit)
         or UnitInRaid(unit)) then
+        local line = settings.unitTooltipRole and settings.unitTooltipStrangers
+            and TalentLine(unit)
+        if line then
+            tooltip:AddLine(line, 1, 1, 1)
+            tooltip:Show()
+        end
         return
     end
     local name = UnitKey(unit)

@@ -550,6 +550,11 @@ local defaults = {
             -- Append the player's WDW role to Blizzard's unit tooltip
             -- (UnitTooltipExtensions.lua). Display only, group members only.
             unitTooltipRole = true,
+            -- Also show players outside the group, by inspecting them on hover
+            -- and naming the spec their talents read as (never a board role).
+            -- Sends inspects, which the line above never does; throttled, and
+            -- profiled cheap enough to leave on.
+            unitTooltipStrangers = true,
             -- Draw the player's WDW spec icon in the top-left corner of
             -- Blizzard's compact raid/party frames, over the group icon that
             -- normally sits there (RaidFrameExtensions.lua). Display only, and

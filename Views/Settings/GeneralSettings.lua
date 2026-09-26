@@ -154,7 +154,7 @@ local function RefreshRaidFrameOptionStates(f)
 end
 
 local RESET_GENERAL = {
-    "unitTooltipRole", "unitTooltipDetail", "tooltipIds",
+    "unitTooltipRole", "unitTooltipStrangers", "unitTooltipDetail", "tooltipIds",
     "raidFrameRoleIcons",
     "raidFrameRoleIconsInCombat", "raidFrameRoleIconStyle",
     "announceRoleChanges", "manageBlizzardRoles",
@@ -191,6 +191,20 @@ local function BuildGeneralPage(f, page)
             .. "scanned or sent.",
         function(value)
             WhoDoesWhat.db.profile.settings.unitTooltipRole = value
+            SetOptionAvailable(f.unitTooltipStrangersCheck,
+                f.unitTooltipStrangersLabel, value)
+        end)
+    f.unitTooltipStrangersCheck, yL, f.unitTooltipStrangersLabel =
+        AddCompactCheckboxRow(generalPage, PAGE_X, yL,
+        "Also scan players outside your group",
+        "Hovering a player who isn't in your group inspects them and adds the "
+            .. "spec their talents read as, with the points in each tree. "
+            .. "It's their talents, not a role anyone assigned. Inspects are "
+            .. "throttled and never sent in combat."
+            .. (WhoDoesWhat.ClientFeatures.isForever
+                and "" or " Only players in inspect range can be read."),
+        function(value)
+            WhoDoesWhat.db.profile.settings.unitTooltipStrangers = value
         end)
     f.unitTooltipDetailCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL,
         "Show class details in unit tooltips",
@@ -363,6 +377,9 @@ local function RefreshGeneralPage(f)
     local settings = WhoDoesWhat.db.profile.settings
     f.minimapCheck:SetChecked(not settings.minimapButton.hide)
     f.unitTooltipCheck:SetChecked(settings.unitTooltipRole ~= false)
+    f.unitTooltipStrangersCheck:SetChecked(settings.unitTooltipStrangers)
+    SetOptionAvailable(f.unitTooltipStrangersCheck, f.unitTooltipStrangersLabel,
+        settings.unitTooltipRole ~= false)
     f.unitTooltipDetailCheck:SetChecked(settings.unitTooltipDetail)
     -- Unset means the client decides, so the box shows what is actually
     -- happening rather than an unchecked box beside id lines on every tooltip.
