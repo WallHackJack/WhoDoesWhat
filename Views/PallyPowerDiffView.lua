@@ -109,7 +109,7 @@ end
 local function AssignedRole(data, member)
     local roleId = data.isDemo and member.testRoleId
         or WhoDoesWhat:GetAssignedRole(member.name)
-    local role
+    local role, _
     if roleId then _, role = WhoDoesWhat:FindRoleById(roleId) end
     return role, roleId
 end

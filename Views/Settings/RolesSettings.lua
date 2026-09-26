@@ -298,3 +298,14 @@ function WhoDoesWhat:ResetRolesSettingsPage()
     self:RefreshBoardViews()
     self:RefreshRolesSettingsPage()
 end
+
+WhoDoesWhat.SettingsKit.RegisterPage({
+    label = "Roles", title = "Roles",
+    tooltip = "Every role WDW knows, by class, plus your own custom"
+        .. " ones. Click a role to see its blessing order.",
+    description = "Deletes your custom role library. Custom roles already"
+        .. " published to the raid, and who holds which role, are kept.",
+    Build = function(_, page, scroll) WhoDoesWhat:BuildRolesSettingsPage(page, scroll) end,
+    Reset = function() WhoDoesWhat:ResetRolesSettingsPage() end,
+    OnShow = function() WhoDoesWhat:RefreshRolesSettingsPage() end,
+})

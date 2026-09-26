@@ -93,7 +93,17 @@ Views\BuffChecklistView.lua
 Views\StatusBarsView.lua
 Views\PallyPowerLogView.lua
 Views\PallyPowerDiffView.lua
-Views\AllRolesView.lua
 Views\SingleRolesCustomizeView.lua
+# The Settings tab: the kit first (each page registers with it at load), the
+# pages, then the tab that lays them out.
+Views\Settings\SettingsKit.lua
+Views\Settings\GeneralSettings.lua
+Views\Settings\RolesSettings.lua
+Views\Settings\StatusBarsSettings.lua
+Views\Settings\BuffTrackingSettings.lua
+Views\Settings\PaladinBarSettings.lua
+Views\Settings\WarriorBarSettings.lua
+Views\Settings\ChecklistSettings.lua
+Views\Settings\TestDevSettings.lua
 Views\AddonSettingsView.lua
 Views\CurseCalculatorView.lua

@@ -1363,7 +1363,7 @@ end
 -- around twenty times per repaint, at up to 10Hz in a 40-man.
 --
 -- Invalidated explicitly rather than per frame, because there is exactly one
--- writer (StoreStatusBuffOption in AddonSettingsView) and a settings edit has
+-- writer (StoreStatusBuffOption in Views/Settings/BuffTrackingSettings.lua) and a settings edit has
 -- to show up in the same frame it is made. Anything that ever writes these
 -- settings outside that funnel must call InvalidateStatusBarCheckCache.
 --

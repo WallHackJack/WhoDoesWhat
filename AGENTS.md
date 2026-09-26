@@ -29,6 +29,7 @@ For the user-facing overview, see [README.md](README.md). For the detailed imple
 - `UnitMenuExtensions.lua` / `RaidMenuExtensions.lua`: Blizzard UI integration.
 - `Views/SectionKit.lua`: section-agnostic UI primitives.
 - `Views/Sections/`: the five hard-coded assignment sections.
+- `Views/Settings/`: one file per Settings page, registered through `SettingsKit.lua`; `Views/AddonSettingsView.lua` lays them out as tabs.
 - Other files under `Views/`: complete windows and panels.
 
 ## Important invariants

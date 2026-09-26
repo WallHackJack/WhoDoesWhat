@@ -44,9 +44,10 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
   * `AboutView.lua` — About & Updates window: copyable links/contact details, installed version, and a dated release-notes picker drawn from `Releases.lua`
   * `PallyPowerLogView.lua` — PallyPower traffic log window (/wdw pplog)
   * `PallyPowerDiffView.lua` — PallyPower Differences panel, the right half of the Raid page's Blessings tab (`BuildPallyPowerDiffPanel`; `OpenPallyPowerDiffView` just opens that tab, and grids too wide for the panel are scaled to fit): formatted per-paladin drift report from `CheckPallyPowerSync`, with a per-paladin blessing-spread overview above each grid and Fix All / per-row Fix; it repaints itself from `RefreshBuffingGridView` and shows a one-line status once nothing differs
-  * `AllRolesView.lua` — "Role Preferences" landing page
+  * `Settings/RolesSettings.lua` — the Settings tab's Roles page: every role by class, plus the custom role library
   * `SingleRolesCustomizeView.lua` — customize a spec's buff priority + role
-  * `AddonSettingsView.lua` — Developer Options
+  * `AddonSettingsView.lua` — the Settings tab: its page tabs, the shared header with Reset Defaults, and the per-page wells
+  * `Settings/SettingsKit.lua` — shared column layout, option widgets and the page registry (`RegisterPage`); every other file in `Settings/` is one page (General, Roles, Status Bars, Buffs, Paladin Bar, Warrior Bar, Checklist, Test + Dev)
   * `CurseCalculatorView.lua` — Details!-backed curse value calculator, the **Calculator** tab page
 
 ## Features
