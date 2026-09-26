@@ -585,6 +585,12 @@ local function FindBlessing(unit, greaterName, normalName)
 end
 
 local function FindPlayerBlessing(p)
+    -- Hidden auras, but you blessed them this fight (BuffTracking's assumed
+    -- casts): covered, no timer.
+    if p.castUnit and WhoDoesWhat:AurasSecret() and p.member
+        and WhoDoesWhat:IsBuffAssumed(p.member.statusName, p.member.key) then
+        return nil, true
+    end
     return FindBlessing(p.castUnit, p.greaterName, p.normalName)
 end
 
@@ -1347,11 +1353,28 @@ local AURA_NAMES = {}
 for _, aura in ipairs(AURAS) do AURA_NAMES[aura.name] = true end
 local RIGHTEOUS_FURY_NAMES = { [RIGHTEOUS_FURY.name] = true }
 
+-- While auras are hidden, the aura and Righteous Fury cast this fight
+-- (BuffTracking's assumed casts), newest last. Emptied once auras are readable.
+local assumedOwn = {}
+WhoDoesWhat.BuffTracking:OnAssumedCast(function(unit, spellId)
+    local name = unit == "player" and GetSpellInfo(spellId)
+    if not name or not (AURA_NAMES[name] or RIGHTEOUS_FURY_NAMES[name]) then return end
+    assumedOwn[#assumedOwn + 1] = name
+    WhoDoesWhat:RefreshPaladinBuffingBar()
+end)
+
 -- The first of `wanted` (a set of spell names) currently up on the player,
 -- with its expiration time. Auras and Righteous Fury are self-buffs, so
--- "player" is the only unit these two buttons ever look at.
+-- "player" is the only unit these two buttons ever look at. With auras hidden,
+-- only the newest assumed cast in `wanted` answers, untimed.
 local function FindOwnBuff(wanted)
-    if WhoDoesWhat:AurasSecret() then return nil end
+    if WhoDoesWhat:AurasSecret() then
+        for i = #assumedOwn, 1, -1 do
+            if wanted[assumedOwn[i]] then return assumedOwn[i] end
+        end
+        return nil
+    end
+    if assumedOwn[1] then wipe(assumedOwn) end
     local i = 1
     while true do
         local name, expiration
@@ -1973,8 +1996,17 @@ end
 -- aura swapped from elsewhere both land within half a second.
 local function UpdateSelfBuffButtons()
     -- Which aura is up and how long Righteous Fury has left are both aura
-    -- reads, so mid-fight these two buttons hold whatever they last showed.
-    if WhoDoesWhat:AurasSecret() then return end
+    -- reads, so mid-fight these two buttons hold whatever they last showed --
+    -- unless one was cast this fight, which FindOwnBuff answers for.
+    if WhoDoesWhat:AurasSecret() then
+        if bar.auraButton:IsShown() and FindOwnBuff(AURA_NAMES) then
+            UpdateAuraButton(bar.auraButton)
+        end
+        if bar.rfButton:IsShown() and FindOwnBuff(RIGHTEOUS_FURY_NAMES) then
+            UpdateRighteousFuryButton(bar.rfButton)
+        end
+        return
+    end
     if bar.auraButton:IsShown() then UpdateAuraButton(bar.auraButton) end
     if bar.rfButton:IsShown() then UpdateRighteousFuryButton(bar.rfButton) end
 end

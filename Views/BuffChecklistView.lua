@@ -2585,6 +2585,42 @@ local function RefreshSoon(delay)
 end
 RequestChecklistRefresh = RefreshSoon
 
+-- A spell you finish on yourself or your pet while auras are secret (see
+-- BuffTracking's OnAssumedCast) goes into the frozen list OwnBuffs is reading,
+-- untimed, until the fight ends and a real scan replaces it. An aura, aspect
+-- or armor pushes out the other options of its swapper, as it does in game.
+WhoDoesWhat.BuffTracking:OnAssumedCast(function(unit, spellId)
+    local frozen = frozenOwnBuffs[unit]
+    local name, _, icon = GetSpellInfo(spellId)
+    if not frozen or not name then return end
+    local rivals = {}
+    local _, class = UnitClass("player")
+    for _, swapper in ipairs(unit == "player" and SWAPPERS[class] or {}) do
+        if not swapper.Running then
+            local options, isOption = swapper.List(), false
+            for _, option in ipairs(options) do
+                if option.name == name then isOption = true end
+            end
+            for _, option in ipairs(isOption and options or {}) do
+                if option.name ~= name then rivals[option.name] = true end
+            end
+        end
+    end
+    -- Scroll ranks and an elixir can share a name, so only the same spell, or
+    -- a swapper's rival, is replaced.
+    for i = #frozen.list, 1, -1 do
+        local buff = frozen.list[i]
+        if buff.spellId == spellId or rivals[buff.name] then
+            table.remove(frozen.list, i)
+            if frozen.byName[buff.name] == buff then frozen.byName[buff.name] = nil end
+        end
+    end
+    local buff = { name = name, icon = icon, spellId = spellId }
+    frozen.list[#frozen.list + 1] = buff
+    frozen.byName[name] = buff
+    RefreshSoon()
+end)
+
 local lastPetDead = nil
 loader:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_REGEN_DISABLED" then

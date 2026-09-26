@@ -631,3 +631,181 @@ C_Timer.NewTicker(SWEEP_INTERVAL, function()
     PEnd("bufftracking.sweep")
     if changed then NotifyChanged() end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Casts taken at their word while auras are secret
+-- ---------------------------------------------------------------------------
+
+-- The held state above has one blind spot: a buff given mid-fight -- a drink,
+-- an elixir, a scroll, a blessing, a shout -- reads as missing until the fight
+-- ends, which invites a second one. So a spell you finish casting while auras
+-- are hidden is assumed to have landed: whatever it puts on its targets is
+-- filed as present, with no timer, until the first readable rescan (the `held`
+-- handoff) replaces it with the truth.
+--
+-- UNIT_SPELLCAST_SENT names the target, matched against the group; a cast
+-- naming nobody in it (an enemy) is left alone, and one whose SENT couldn't be
+-- read counts as cast on you. Who else it reaches follows the game, minus
+-- range, which a hidden-aura fight can't check:
+--   * a Greater Blessing: everyone alive of the target's class, with hunter
+--     pets riding the Warrior one; it replaces any other blessing of yours
+--     on them, as a paladin's blessings do
+--   * a shout: everyone alive in your party (your raid subgroup)
+--   * anything else: the target
+--
+-- Listeners (BuffTracking:OnAssumedCast) hear (unit, spellId), unit "player"
+-- or "pet", when the target was you or your pet -- for state that isn't kept
+-- here, like the Buff Checklist's and Paladin Bar's own aura reads.
+
+local sentTargets = {} -- castGUID -> GroupTargets entry, or false (not the group)
+local assumedCastListeners = {}
+local greaterNames, shoutNames -- spell name -> true, built on first use
+
+function BuffTracking:OnAssumedCast(listener)
+    assumedCastListeners[#assumedCastListeners + 1] = listener
+end
+
+-- Whether a tracked buff on this raider is one of these assumptions, rather
+-- than something a scan saw.
+function WhoDoesWhat:IsBuffAssumed(name, key)
+    local s = state[name]
+    return s and s.assumed and s.assumed[key] == true or false
+end
+
+local function NamesUnit(target, unit)
+    local name, realm = UnitName(unit)
+    if not name or WhoDoesWhat:IsSecret(name) then return false end
+    return target == name or target == GetUnitName(unit, true)
+        or (realm ~= nil and realm ~= "" and target == name .. "-" .. realm)
+end
+
+-- The GroupTargets entry a SENT target names; no name at all is you.
+local function FindTarget(target)
+    if not target or target == "" then target = UnitName("player") end
+    for _, t in ipairs(GroupTargets()) do
+        if NamesUnit(target, t.unit) then return t end
+    end
+    return nil
+end
+
+-- The class a Greater Blessing sorts a target into.
+local function BlessingClass(t)
+    if t.unit ~= t.ownerUnit then return "WARRIOR" end
+    local _, class = UnitClass(t.unit)
+    if WhoDoesWhat:IsSecret(class) then return nil end
+    return class
+end
+
+-- Raid subgroup of an owner's unit; nil outside a raid, where the party is
+-- everyone.
+local function Subgroup(unit)
+    local index = tonumber(unit:match("^raid(%d+)$"))
+    if not index then return nil end
+    local _, _, subgroup = GetRaidRosterInfo(index)
+    return subgroup
+end
+
+local function AssumeCast(target, spellId)
+    local owner = UnitToKey("player")
+    local name = GetSpellInfo(spellId)
+    if not owner or not name then return end
+    if not nameToKey then BuildNameMap() end
+    if not greaterNames then
+        greaterNames, shoutNames = {}, {}
+        for _, buff in pairs(WhoDoesWhat.PaladinBuffs) do
+            local greater = GetSpellInfo(buff.spellId)
+            if greater then greaterNames[greater] = true end
+        end
+        for _, shout in ipairs(WhoDoesWhat.WarriorShouts) do
+            shoutNames[shout.name] = true
+        end
+    end
+
+    local recipients = { target }
+    if greaterNames[name] then
+        local class = BlessingClass(target)
+        recipients = {}
+        for _, t in ipairs(class and GroupTargets() or {}) do
+            if BlessingClass(t) == class then recipients[#recipients + 1] = t end
+        end
+    elseif shoutNames[name] then
+        local subgroup = Subgroup(target.ownerUnit)
+        recipients = {}
+        for _, t in ipairs(GroupTargets()) do
+            if Subgroup(t.ownerUnit) == subgroup then recipients[#recipients + 1] = t end
+        end
+    end
+
+    local key = nameToKey[name]
+    local spellKeys = spellIdToKeys and spellIdToKeys[spellId]
+    local blessing = key and WhoDoesWhat.PaladinBuffs[key]
+    local changed = false
+    local function Assume(s, buffKey, matchedSpellId)
+        s.buffs[buffKey] = true
+        s.sources[buffKey] = owner
+        s.expirations[buffKey] = nil
+        if matchedSpellId then s.spellIds[buffKey] = matchedSpellId end
+        s.assumed = s.assumed or {}
+        s.assumed[buffKey] = true
+        changed = true
+    end
+    for _, t in ipairs((key or spellKeys) and recipients or {}) do
+        -- Only a raider already scanned: a fresh entry holding just this buff
+        -- would turn every other buff from unknown into confirmed missing.
+        local s = state[t.key]
+        if s and not s.buffs.dead then
+            if blessing then
+                for other in pairs(WhoDoesWhat.PaladinBuffs) do
+                    if other ~= key and s.sources[other] == owner then
+                        s.buffs[other], s.sources[other], s.expirations[other] =
+                            nil, nil, nil
+                    end
+                end
+            end
+            if key then Assume(s, key) end
+            for _, spellKey in ipairs(spellKeys or {}) do
+                Assume(s, spellKey, spellId)
+            end
+        end
+    end
+
+    local unit = target.key == owner and "player"
+        or target.key == owner .. "'s Pet" and "pet" or nil
+    if unit then
+        for _, listener in ipairs(assumedCastListeners) do listener(unit, spellId) end
+    end
+    if changed then NotifyChanged() end
+end
+
+local castWatcher = CreateFrame("Frame")
+castWatcher:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+castWatcher:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+castWatcher:SetScript("OnEvent", function(_, event, _, arg2, arg3)
+    local IsSecret = WhoDoesWhat.IsSecret
+    if not WhoDoesWhat:AurasSecret() then
+        -- Casts that never finished leave their entry behind; out of combat
+        -- is when to let them go.
+        if next(sentTargets) then wipe(sentTargets) end
+        return
+    end
+    if event == "UNIT_SPELLCAST_SENT" then
+        -- (unit, target, castGUID, spellId)
+        local target, castGUID = arg2, arg3
+        if not castGUID or IsSecret(WhoDoesWhat, castGUID)
+            or IsSecret(WhoDoesWhat, target) then
+            return
+        end
+        sentTargets[castGUID] = FindTarget(target) or false
+        return
+    end
+    -- UNIT_SPELLCAST_SUCCEEDED: (unit, castGUID, spellId)
+    local castGUID, spellId = arg2, arg3
+    if not spellId or IsSecret(WhoDoesWhat, spellId) then return end
+    local target
+    if castGUID and not IsSecret(WhoDoesWhat, castGUID) then
+        target = sentTargets[castGUID]
+        sentTargets[castGUID] = nil
+    end
+    if target == nil then target = FindTarget(nil) end
+    if target then AssumeCast(target, spellId) end
+end)

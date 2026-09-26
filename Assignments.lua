@@ -2702,7 +2702,8 @@ end
 -- pet unit token to cast on:
 --   { classInfo, greaterKey, greaterBuff, hasPets, hasNonPets,
 --     normals  = { { name, key, buff, isPet, petUnit }, ... },  -- right-click
---     raiders  = { { name, key, has, isGreater, classInfo, isPet, owner, petUnit }, ... },
+--     raiders  = { { name, statusName, key, has, isGreater, classInfo, isPet,
+--                    owner, petUnit }, ... },   -- statusName: BuffTracking key
 --     total, covered,
 --     soonest }  -- seconds until the first covered member loses it, or nil
 local function GetPaladinBuffJobs(paladinName, buffPlan)
@@ -2777,7 +2778,7 @@ local function GetPaladinBuffJobs(paladinName, buffPlan)
         for _, m in ipairs(c.members) do
             local has = WhoDoesWhat:HasBuff(m.statusName, m.key)
             job.raiders[#job.raiders + 1] = {
-                name = m.display, key = m.key, has = has,
+                name = m.display, statusName = m.statusName, key = m.key, has = has,
                 isGreater = m.key == greaterKey,
                 isPet = m.isPet, owner = m.owner, petUnit = m.petUnit,
                 classInfo = m.classInfo,
