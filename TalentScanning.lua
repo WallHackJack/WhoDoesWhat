@@ -556,10 +556,75 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay
     self:RequestFullRefresh()
 end
 
+-- WoW Forever has no Era talent API (Compat.lua stubs it empty), so the library
+-- counts nobody as having spent a point. Its talents are one Retail-style trait
+-- tree with one shared point pool, but the three Era trees are still laid out
+-- side by side in it: four columns each, 600 apart, with a far wider gap
+-- between trees (seen on a druid: 1020-2820, 5020-6820, 9080-10880). So a
+-- node's tree is which band its x falls in, and bands are split wherever a gap
+-- is well past the column step -- read from the layout rather than hard-coded,
+-- so a class with a different spacing still splits. Our own talents only:
+-- other players' come from WDW sync (their HELLO carries this same result).
+local USES_TRAIT_TREE = WhoDoesWhat.ClientFeatures.isForever
+
+local function TraitTreePoints()
+    if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits) then
+        return nil
+    end
+    local configID = C_ClassTalents.GetActiveConfigID()
+    local config = configID and C_Traits.GetConfigInfo(configID)
+    local treeID = config and config.treeIDs and config.treeIDs[1]
+    if not treeID then return nil end
+
+    local nodes = {}
+    for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+        local info = C_Traits.GetNodeInfo(configID, nodeID)
+        if info and info.posX then nodes[#nodes + 1] = info end
+    end
+    if #nodes == 0 then return nil end
+    table.sort(nodes, function(a, b) return a.posX < b.posX end)
+
+    local step
+    for i = 2, #nodes do
+        local gap = nodes[i].posX - nodes[i - 1].posX
+        if gap > 0 and (not step or gap < step) then step = gap end
+    end
+    if not step then return nil end
+
+    local points, tab = { 0, 0, 0 }, 1
+    for i, node in ipairs(nodes) do
+        if i > 1 and node.posX - nodes[i - 1].posX > step * 1.5 then
+            tab = tab + 1
+        end
+        if tab > 3 then return nil end
+        points[tab] = points[tab] + (node.ranksPurchased or 0)
+    end
+    -- Anything but three trees is a layout we don't understand; say nothing
+    -- rather than guess a spec from it.
+    if tab ~= 3 then return nil end
+    return points
+end
+
+-- The library's rule: the tree with the most points, first tree on a tie.
+local function SpecFromPoints(points)
+    local specIndex, mostPoints, spent = nil, 0, 0
+    for i = 1, 3 do
+        local n = points and points[i] or 0
+        spent = spent + n
+        if n > mostPoints then specIndex, mostPoints = i, n end
+    end
+    return specIndex, spent
+end
+
 -- The initial WDW HELLO carries only these three derived totals, not a role or
 -- the full talent grid. Receivers run the same class/tab mapping as the normal
 -- LibClassicInspector path and feed it through the same override-safe updater.
 function WhoDoesWhat:GetOwnTalentTreePoints()
+    if USES_TRAIT_TREE then
+        local points = TraitTreePoints()
+        if not points or points[1] + points[2] + points[3] <= 0 then return nil end
+        return points
+    end
     local guid = UnitGUID("player")
     if not (Inspector and guid) then return nil end
     local t1, t2, t3 = Inspector:GetTalentPoints(guid)
@@ -602,7 +667,12 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     local boardWasClean = sync and sync:IsBoardClean()
 
     -- Points land in tab order (1-3); specIndex is whichever tab has the most.
-    local specIndex, pointsSpent = Inspector:GetSpecialization(guid)
+    local specIndex, pointsSpent
+    if USES_TRAIT_TREE and guid == UnitGUID("player") then
+        specIndex, pointsSpent = SpecFromPoints(TraitTreePoints())
+    else
+        specIndex, pointsSpent = Inspector:GetSpecialization(guid)
+    end
 
     if self.LOG_TALENTS then
         local t1, t2, t3 = Inspector:GetTalentPoints(guid)
@@ -624,7 +694,14 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     if not (name and self.db) then return end
     if not (IsGUIDInGroup(guid) or guid == UnitGUID("player")) then return end
 
-    local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
+    -- Keyed through a unit wherever there is one, like every other key
+    -- (WhoDoesWhat:UnitKey): on Forever the GUID lookup's name and realm are
+    -- not the two-part "First-Last" the board uses, so a detection filed
+    -- under them never reaches anyone's row.
+    local unit = guid == UnitGUID("player") and "player"
+        or (UnitTokenFromGUID and UnitTokenFromGUID(guid))
+    local key = unit and self:UnitKey(unit)
+        or ((realm and realm ~= "") and (name .. "-" .. realm) or name)
 
     -- Their data arrived, so a hand-pressed Rescan on this player is answered
     -- and the Talents column has something new to say. The repaint for this --
@@ -781,6 +858,11 @@ selfSync:RegisterEvent("PLAYER_ENTERING_WORLD")
 selfSync:RegisterEvent("CHARACTER_POINTS_CHANGED")
 pcall(selfSync.RegisterEvent, selfSync, "PLAYER_TALENT_UPDATE")
 pcall(selfSync.RegisterEvent, selfSync, "ACTIVE_TALENT_GROUP_CHANGED")
+-- Forever's trait tree reports changes through these instead; the LIST one
+-- fires once its configs finish loading at login, which may be after
+-- PLAYER_ENTERING_WORLD has already read an empty tree.
+pcall(selfSync.RegisterEvent, selfSync, "TRAIT_CONFIG_UPDATED")
+pcall(selfSync.RegisterEvent, selfSync, "TRAIT_CONFIG_LIST_UPDATED")
 selfSync:SetScript("OnEvent", function()
     local guid = UnitGUID("player")
     -- OnTalentsReady uses the library unguarded, and every other caller checks
