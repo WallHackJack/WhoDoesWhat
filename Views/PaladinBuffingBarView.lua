@@ -216,11 +216,17 @@ end
 -- Which paladin to render
 -- ---------------------------------------------------------------------------
 
--- Stable key for the local player, matching the plan's raider keys.
-local function LocalPlayerKey()
-    local name, realm = UnitName("player")
-    if realm and realm ~= "" then return name .. "-" .. realm end
+-- Stable key for a unit, matching the plan's raider keys (Assignments.lua's
+-- GetUnitKey). Not GetUnitName(unit, true): Forever joins its two-part names
+-- with a space there, so its answer never matches a "First-Last" roster key.
+local function UnitKey(unit)
+    local name, realm = UnitName(unit)
+    if name and realm and realm ~= "" then return name .. "-" .. realm end
     return name
+end
+
+local function LocalPlayerKey()
+    return UnitKey("player")
 end
 
 -- Strict list of paladin names in the group (real + fake), for the settings
@@ -369,22 +375,22 @@ end
 -- Range + "ready" glow (the status bars' shared highlight styles)
 -- ---------------------------------------------------------------------------
 
--- raider name -> group unit token, rebuilt each refresh (matches the plan's
--- Name / Name-Realm keys via GetUnitName's showServerName).
+-- raider name -> group unit token, rebuilt each refresh, keyed exactly as the
+-- plan keys its raiders.
 local function BuildNameToUnit()
     local map = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
             local u = "raid" .. i
-            local nm = GetUnitName(u, true)
+            local nm = UnitKey(u)
             if nm then map[nm] = u end
         end
     else
-        local me = GetUnitName("player", true) or UnitName("player")
+        local me = UnitKey("player")
         if me then map[me] = "player" end
         for i = 1, GetNumSubgroupMembers() do
             local u = "party" .. i
-            local nm = GetUnitName(u, true)
+            local nm = UnitKey(u)
             if nm then map[nm] = u end
         end
     end
@@ -644,7 +650,11 @@ local function UpdatePlayerStatus(p, member, job, unit)
         WhoDoesWhat:SetRoleIconTexture(p.specIcon,
             (role and role.icon) or job.classInfo.classIcon)
     end
-    p.name:SetText(member.name:gsub("%-.*$", ""))
+    -- First name only: realm dropped, and Forever's "First Last" names cut at
+    -- the space. Display only -- the row casts at `unit`, never at this text.
+    local owner = member.isPet and member.owner or member.name
+    local first = owner:match("^[^%- ]+") or owner
+    p.name:SetText(member.isPet and (first .. "'s Pet") or first)
     p.nameColor = (member.classInfo or job.classInfo).colorRGB
     UpdatePlayerAura(p)
     return member.isGreater and greater or normal, normal
@@ -713,8 +723,11 @@ local function CreatePlayerButton(btn, index)
     p:SetHighlightTexture(highlight)
     p:SetScript("PostClick", function(self, mouseButton)
         if not WhoDoesWhat.db.profile.settings.logBuffingBarClicks or not self.member then return end
+        local slot = mouseButton == "RightButton" and "2" or "1"
         WhoDoesWhat:Print("Buffing bar player click: " .. tostring(mouseButton)
-            .. " -> " .. self.member.name .. ".")
+            .. " -> " .. self.member.name .. ": "
+            .. tostring(self:GetAttribute("spell" .. slot)) .. " @ "
+            .. tostring(self:GetAttribute("unit" .. slot)) .. ".")
     end)
     btn.playerButtons[index] = p
     return p
