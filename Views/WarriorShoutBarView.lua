@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local Assign = WhoDoesWhat.Assign
 
 -- The Warrior Shout Bar: a small movable strip of one icon per warrior shout
@@ -491,7 +492,7 @@ local function ShowShoutTooltip(btn)
         GameTooltip:AddLine(L.SHOUT_ALL_COVERED:format(total),
             0.3, 1, 0.3)
     else
-        GameTooltip:AddLine(L.SHOUT_MISSING_OF:format(#missing, total),
+        GameTooltip:AddLine(Fill(L.SHOUT_MISSING_OF, { missing = #missing, total = total }),
             1, 0.3, 0.3)
         for i = 1, math.min(#missing, TOOLTIP_NAMES) do
             local m = missing[i]
@@ -554,7 +555,8 @@ local function RequestShout(btn)
     local total = btn.total or 0
     local covered = total - #(btn.missing or {})
     local M = WhoDoesWhat:ChatLocale()
-    local text = M.CHAT_TAGGED:format(M.SHOUT_REQUEST:format(btn.shout.name, covered, total))
+    local text = M.CHAT_TAGGED:format(Fill(M.SHOUT_REQUEST,
+        { shout = btn.shout.name, have = covered, total = total }))
     if IsInGroup() then
         SendChatMessage(text, "PARTY")
     else

@@ -2,6 +2,7 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):NewAddon("WhoDoesWhat", "AceConsole-
 local UI = select(2, ...).UI
 local Locale = select(2, ...).Locale
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 local GetMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 WhoDoesWhat.VERSION = GetMetadata and GetMetadata("WhoDoesWhat", "Version") or "?"
@@ -52,7 +53,8 @@ WhoDoesWhat.MAX_NAMED_MISSING = 5
 -- In `strings` (ChatLocale / WhisperLocale), the player's own unless given.
 function WhoDoesWhat:CoverageSummary(label, applied, total, strings)
     local percent = total > 0 and math.floor(applied * 100 / total + 0.5) or 0
-    return (strings or L).COVERAGE_SUMMARY:format(label, applied, total, percent)
+    return Fill((strings or L).COVERAGE_SUMMARY,
+        { label = label, applied = applied, total = total, percent = percent })
 end
 
 -- The single letter that stands in for a name in tight spaces (status bar

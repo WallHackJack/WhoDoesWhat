@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Warlocks section: three compact Improved Healthstone header icons followed
 -- by one fixed row per curse, rendered as
@@ -45,8 +46,8 @@ local function HealthstoneTooltip(self)
     local confirmedNames = self.confirmedNames or {}
     local unknownNames = state.healthstoneUnknownNames or {}
 
-    GameTooltip:SetText(L.HEALTHSTONE_RANK_TITLE:format(rank, HEALTHSTONE.maxRank,
-        HEALTHSTONE.name), unpack(UI.TOOLTIP_TITLE))
+    GameTooltip:SetText(Fill(L.HEALTHSTONE_RANK_TITLE, { rank = rank,
+        max = HEALTHSTONE.maxRank, name = HEALTHSTONE.name }), unpack(UI.TOOLTIP_TITLE))
     GameTooltip:AddLine(L.HEALTHSTONE_RESTORES:format(HEALTHSTONE.lifeByTalentRank[rank]),
         0.6, 0.6, 0.6, true)
     if state.healthstoneTotal == 0 then
@@ -121,9 +122,9 @@ local function AddAssignmentRow(f, box, y, def)
         if name then
             -- Worded in the recipient's Language; the tooltip in the player's.
             return name, function(S)
-                return S.WHISPER_STATIC:format(WhoDoesWhat:DataText(def, "label", S),
-                    WhoDoesWhat:DataText(SECTION, "title", S))
-            end, L.WHISPER_STATIC:format(def.label, SECTION.title)
+                return Fill(S.WHISPER_STATIC, { labels = WhoDoesWhat:DataText(def, "label", S),
+                    section = WhoDoesWhat:DataText(SECTION, "title", S) })
+            end, Fill(L.WHISPER_STATIC, { labels = def.label, section = SECTION.title })
         end
     end)
     mailBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)

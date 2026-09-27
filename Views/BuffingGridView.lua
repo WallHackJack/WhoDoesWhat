@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Buffing Grid (the main window's Buff Grid tab): raid-wide buff status
 -- columns followed by every paladin's blessing for each raider. The blessing
@@ -336,7 +337,7 @@ local function CreateCoreCell(row, column)
             GameTooltip:AddLine(" ")
             local who = WhoDoesWhat:DisplayName(self.raider)
             GameTooltip:AddLine(remaining
-                and L.GRID_ON_REMAINING:format(who, RemainingText(remaining))
+                and Fill(L.GRID_ON_REMAINING, { name = who, time = RemainingText(remaining) })
                 or L.GRID_ON:format(who), 1, 0.82, 0)
             return true
         end
@@ -359,10 +360,12 @@ local function CreateCoreCell(row, column)
             local status, source, rank, maxRank =
                 WhoDoesWhat:GetImprovedBuffState(self.raider, self.buffKey)
             if status == "max" then
-                GameTooltip:AddLine(L.GRID_ACTIVE_MAX:format(source, rank, maxRank),
+                GameTooltip:AddLine(Fill(L.GRID_ACTIVE_MAX,
+                    { source = source, rank = rank, max = maxRank }),
                     0.3, 1, 0.3, true)
             elseif status == "partial" or status == "base" then
-                GameTooltip:AddLine(L.GRID_ACTIVE_RANK:format(source, rank, maxRank),
+                GameTooltip:AddLine(Fill(L.GRID_ACTIVE_RANK,
+                    { source = source, rank = rank, max = maxRank }),
                     1, 0.7, 0.2, true)
             else
                 source = WhoDoesWhat:GetBuffSource(self.raider, self.buffKey)
@@ -379,8 +382,8 @@ local function CreateCoreCell(row, column)
                 GameTooltip:AddLine(L.CHECKLIST_NOTE_OUTSIDE_RAID, 1, 0.45, 0.2, true)
             end
             if self.betterProvider then
-                GameTooltip:AddLine(L.GRID_BETTER_FROM:format(self.betterProvider.name,
-                    self.betterProvider.rank, maxRank),
+                GameTooltip:AddLine(Fill(L.GRID_BETTER_FROM, { source = self.betterProvider.name,
+                    rank = self.betterProvider.rank, max = maxRank }),
                     1, 0.45, 0.2, true)
             end
         elseif self.negative and self.hasBuff == false then
@@ -408,9 +411,9 @@ local function CreatePaladinCell(row, c)
         local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
             GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
-            GameTooltip:AddLine((self.isGreater and L.GRID_BLESSES_GREATER
-                or L.GRID_BLESSES_LESSER):format(raider,
-                WhoDoesWhat.PaladinBuffs[self.buffKey].name_long),
+            GameTooltip:AddLine(Fill(self.isGreater and L.GRID_BLESSES_GREATER
+                or L.GRID_BLESSES_LESSER, { raider = raider,
+                blessing = WhoDoesWhat.PaladinBuffs[self.buffKey].name_long }),
                 0.8, 0.8, 0.8, true)
             if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
                 and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
@@ -421,7 +424,7 @@ local function CreatePaladinCell(row, c)
             GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), 1, 1, 1)
             if self.gridSource == "wdw" then
                 GameTooltip:AddLine(WhoDoesWhat.ClientFeatures.buffTalents
-                    and L.GRID_NOTHING_FOR_TALENTS:format(raider, self.paladin)
+                    and Fill(L.GRID_NOTHING_FOR_TALENTS, { raider = raider, paladin = self.paladin })
                     or L.GRID_NOTHING_FOR:format(raider),
                     0.6, 0.6, 0.6, true)
             else
@@ -487,8 +490,8 @@ local function UpdateSourceControl(f)
     local matchesMode = f.gridSource == expected
         or (pallyPowerMode and (f.gridSource == "addon" or f.gridSource == "observed"))
     if not matchesMode then
-        f.sourceWarningText = L.GRID_SOURCE_WARNING:format(SourceLabel(f.gridSource),
-            SourceLabel(expected))
+        f.sourceWarningText = Fill(L.GRID_SOURCE_WARNING,
+            { shown = SourceLabel(f.gridSource), expected = SourceLabel(expected) })
     else
         f.sourceWarningText = nil
     end

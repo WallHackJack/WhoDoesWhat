@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Shared player tooltip used by roster-style views. Paladins get the full
 -- talent/addon summary; Warlocks get their Improved Healthstone result.
@@ -75,9 +76,11 @@ function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
         local healthstone = self.WarlockHealthstone
         local rank = self:GetWarlockHealthstoneTalent(name)
         local amount = rank ~= nil and healthstone.lifeByTalentRank[rank]
-        local detail = L.HEALTHSTONE_DETAIL:format(healthstone.name,
-            rank == nil and "?" or tostring(rank), healthstone.maxRank)
-        if amount then detail = L.HEALTHSTONE_DETAIL_LIFE:format(detail, amount) end
+        local detail = Fill(L.HEALTHSTONE_DETAIL, { name = healthstone.name,
+            rank = rank == nil and "?" or rank, max = healthstone.maxRank })
+        if amount then
+            detail = Fill(L.HEALTHSTONE_DETAIL_LIFE, { detail = detail, life = amount })
+        end
         tooltip:AddLine(Icon(healthstone.icon) .. " |cff909090" .. detail .. "|r",
             1, 1, 1)
         return className

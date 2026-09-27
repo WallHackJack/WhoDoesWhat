@@ -119,3 +119,18 @@ ns.L = setmetatable({}, { __index = function(_, key)
     --@end-do-not-package@
     return Locale:Get("auto")[key]
 end })
+
+-- A string with named placeholders, filled in:
+--     Fill(L.ROLE_CHANGED_BY, { name = "Anna", role = "Holy", changer = "Bob" })
+-- turns "{name} was changed to {role} by {changer}." into a sentence. Every
+-- string with two or more inputs uses these rather than %s: Lua 5.1's format
+-- has no positional arguments, so %s would pin a translation to English word
+-- order. Values go in as they are (numbers through tostring) and are never
+-- themselves searched for placeholders. One with no value is left as written,
+-- so a typo shows on screen instead of vanishing.
+function ns.Fill(template, values)
+    return (template:gsub("{(%w+)}", function(key)
+        local value = values[key]
+        if value ~= nil then return tostring(value) end
+    end))
+end

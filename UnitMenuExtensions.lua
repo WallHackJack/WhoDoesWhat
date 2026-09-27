@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Injects a "WhoDoesWhat" section into the unit right-click menus via the
 -- client's Menu API (same mechanism SetRoleButtons uses), inserted right
@@ -296,9 +297,9 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit, manual)
             self:LogOperation(playerName .. " set to " .. (role and role.name or roleId) .. ".")
             if role and self.db.profile.settings.announceRoleChanges then
                 local M = self:ChatLocale()
-                self:SendGroupMessage(M.CHAT_TAGGED:format(M.ROLE_CHANGED_BY:format(
-                    playerName, self:DataText(role, "name", M),
-                    UnitName("player") or "?")))
+                self:SendGroupMessage(M.CHAT_TAGGED:format(Fill(M.ROLE_CHANGED_BY, {
+                    name = playerName, role = self:DataText(role, "name", M),
+                    changer = UnitName("player") or "?" })))
             end
         end
     else
@@ -385,7 +386,8 @@ local function CollectAssignmentSummaries(playerName)
             end
         end
         if #labels > 0 then
-            out[#out + 1] = L.WHISPER_STATIC:format(table.concat(labels, ", "), section.title)
+            out[#out + 1] = Fill(L.WHISPER_STATIC,
+                { labels = table.concat(labels, ", "), section = section.title })
         end
     end
     return out

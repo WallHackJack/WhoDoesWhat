@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Main /wdw window: one fixed-size window, one tab per page.
 --
@@ -205,10 +206,11 @@ local function UpdateVersionWarning(f)
     end
     local reports = {}
     for _, peer in ipairs(newer) do
-        reports[#reports + 1] = L.VERSION_PEER_REPORT:format(peer.name, peer.version)
+        reports[#reports + 1] = Fill(L.VERSION_PEER_REPORT,
+            { name = peer.name, version = peer.version })
     end
-    f.versionWarn.tooltipText = L.VERSION_NEWER_WARNING:format(current,
-        table.concat(reports, "; "))
+    f.versionWarn.tooltipText = Fill(L.VERSION_NEWER_WARNING,
+        { version = current, reports = table.concat(reports, "; ") })
     f.versionWarn:Show()
 end
 

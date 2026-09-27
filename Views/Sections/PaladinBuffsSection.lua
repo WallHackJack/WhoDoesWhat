@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Paladin blessing strategy on the Blessings tab's left panel, flat on the page
 -- (divider headings, no box): a titleless block at the top with the Source of
@@ -210,17 +211,18 @@ local function RuleText(rule)
         if not rule.scope then
             return L.RULE_IGNORED:format(buff)
         end
-        return (rule.except and L.RULE_IGNORED_EXCEPT or L.RULE_IGNORED_FOR)
-            :format(buff, RuleScopeText(rule))
+        return Fill(rule.except and L.RULE_IGNORED_EXCEPT or L.RULE_IGNORED_FOR,
+            { blessing = buff, who = RuleScopeText(rule) })
     end
     if rule.kind == "assign" then
         local who = rule.value
             and PlayerTextWithRole(rule.value, K.DROPDOWN_ICON_SIZE, ShortAssignmentName(rule.value))
             or "|cff909090?|r"
-        return (rule.only and L.RULE_ALL_CASTS or L.RULE_ASSIGNED):format(buff, who)
+        return Fill(rule.only and L.RULE_ALL_CASTS or L.RULE_ASSIGNED,
+            { blessing = buff, who = who })
     end
     if rule.kind == "guarantee" then
-        return L.RULE_GUARANTEED:format(buff, RuleScopeText(rule))
+        return Fill(L.RULE_GUARANTEED, { blessing = buff, who = RuleScopeText(rule) })
     end
     return buff .. " |cff909090?|r"
 end
@@ -234,9 +236,11 @@ local function RuleTooltip(rule)
         if rule.scope then
             local who = RuleScopeText(rule)
             if rule.except then
-                return L.RULE_TIP_IGNORED, L.RULE_TIP_IGNORED_EXCEPT:format(buff, who)
+                return L.RULE_TIP_IGNORED, Fill(L.RULE_TIP_IGNORED_EXCEPT,
+                    { blessing = buff, who = who })
             end
-            return L.RULE_TIP_IGNORED, L.RULE_TIP_IGNORED_FOR:format(buff, who)
+            return L.RULE_TIP_IGNORED, Fill(L.RULE_TIP_IGNORED_FOR,
+                { blessing = buff, who = who })
         end
         local body = L.RULE_TIP_IGNORED_ALL:format(buff)
         if rule.buff == "salv" then
@@ -250,19 +254,22 @@ local function RuleTooltip(rule)
     if rule.kind == "assign" then
         local who = rule.value and PaladinName(rule.value) or "?"
         if rule.only then
-            return L.RULE_TIP_ASSIGNED_ONLY, L.RULE_TIP_ASSIGNED_ONLY_BODY:format(who, buff)
+            return L.RULE_TIP_ASSIGNED_ONLY, Fill(L.RULE_TIP_ASSIGNED_ONLY_BODY,
+                { paladin = who, blessing = buff })
         end
-        return L.RULE_TIP_ASSIGNED, L.RULE_TIP_ASSIGNED_BODY:format(who, buff)
+        return L.RULE_TIP_ASSIGNED, Fill(L.RULE_TIP_ASSIGNED_BODY,
+            { paladin = who, blessing = buff })
     end
 
     if rule.kind == "guarantee" then
         local slots = PaladinBuffSlots()
         local who = RuleScopeText(rule)
         if slots == 0 then
-            return L.RULE_TIP_GUARANTEED, L.RULE_TIP_GUARANTEED_NONE:format(buff, who)
+            return L.RULE_TIP_GUARANTEED, Fill(L.RULE_TIP_GUARANTEED_NONE,
+                { blessing = buff, who = who })
         end
-        return L.RULE_TIP_GUARANTEED, L.RULE_TIP_GUARANTEED_BODY:format(buff, who,
-            PaladinCount(slots), PaladinCount(slots))
+        return L.RULE_TIP_GUARANTEED, Fill(L.RULE_TIP_GUARANTEED_BODY, { blessing = buff,
+            who = who, choices = PaladinCount(slots), paladins = PaladinCount(slots) })
     end
 
     return nil
@@ -279,16 +286,17 @@ local function RuleWarningText(rule)
     local who, buff = PaladinName(rule.value), BuffName(rule.buff)
     if meta and BuffRank(rule.buff, rule.value) == 0 then
         if meta.maxRank == 1 then
-            return L.RULE_WARN_CANT_CAST:format(who, buff)
+            return Fill(L.RULE_WARN_CANT_CAST, { paladin = who, blessing = buff })
         end
-        return L.RULE_WARN_UNIMPROVED:format(who, L[meta.talentKey], buff)
+        return Fill(L.RULE_WARN_UNIMPROVED,
+            { paladin = who, talent = L[meta.talentKey], blessing = buff })
     end
     local disabled = WhoDoesWhat:IsPaladinDisabled(rule.value)
     if rule.only and not disabled then
-        return L.RULE_WARN_NOW_HAS_ADDON:format(who, buff)
+        return Fill(L.RULE_WARN_NOW_HAS_ADDON, { paladin = who, blessing = buff })
     end
     if disabled and not rule.only then
-        return L.RULE_WARN_NO_BOARD:format(who, buff)
+        return Fill(L.RULE_WARN_NO_BOARD, { paladin = who, blessing = buff })
     end
     return nil
 end

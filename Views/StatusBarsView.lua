@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local K = WhoDoesWhat.SectionKit
 
 -- Movable compact status-bars view of paladin and core raid-buff coverage:
@@ -262,7 +263,7 @@ local function AnnounceLine(summary, names, S)
         local more = S.ANNOUNCE_AND_MORE:format(rest)
         body = #shown > 0 and (body .. " " .. more) or more
     end
-    return S.COVERAGE_MISSING:format(summary, body)
+    return Fill(S.COVERAGE_MISSING, { summary = summary, names = body })
 end
 
 -- Shared with the paladin buff mail (Core.lua), so every line WDW sends out
@@ -292,7 +293,8 @@ local function AnnouncePaladinLine(paladin, coverage, S)
     end
     local label = AnnounceName(paladin.name, S)
     if #blessings > 0 then
-        label = S.ANNOUNCE_PALADIN:format(label, table.concat(blessings, ", "))
+        label = Fill(S.ANNOUNCE_PALADIN,
+            { paladin = label, blessings = table.concat(blessings, ", ") })
     end
     local summary = CoverageSummary(label, coverage.correct, coverage.total, S)
     if #names == 0 or #names > MAX_NAMED_MISSING then return summary end
@@ -358,9 +360,9 @@ local function AnnounceLines(row, S)
                 for _, name in ipairs(suppliers) do
                     shown[#shown + 1] = AnnounceName(name, S)
                 end
-                line = S.ANNOUNCE_SUPPLIERS:format(line,
-                    ClassText(className, #shown > 1, S),
-                    table.concat(shown, ", "))
+                line = Fill(S.ANNOUNCE_SUPPLIERS, { line = line,
+                    class = ClassText(className, #shown > 1, S),
+                    names = table.concat(shown, ", ") })
             end
         end
         lines[1] = line
@@ -469,7 +471,8 @@ local function RowWhispers(row)
                 local function msg(S)
                     local check = WhoDoesWhat:DataText(definition, "name", S)
                     if who.self and who.pet then
-                        return S.WHISPER_CHECK_BOTH:format(check, check:lower())
+                        return Fill(S.WHISPER_CHECK_BOTH,
+                            { check = check, petCheck = check:lower() })
                     elseif who.pet then
                         return S.WHISPER_CHECK_PET:format(check)
                     end
@@ -1242,8 +1245,8 @@ end
 local function AddProgressLine(correct, total, negative)
     local percent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     local hex = "|cff" .. ProgressHex(correct, total, negative)
-    GameTooltip:AddLine(L.STATUS_PROGRESS:format(hex .. correct .. "|r", total,
-        hex .. percent .. "%|r"), 1, 1, 1)
+    GameTooltip:AddLine(Fill(L.STATUS_PROGRESS, { applied = hex .. correct .. "|r",
+        total = total, percent = hex .. percent .. "%|r" }), 1, 1, 1)
 end
 
 -- Where a best-rank requirement is in force, one number can't tell the story:
@@ -1255,8 +1258,8 @@ end
 -- raid loses on the pull, and nothing at all.
 local function AddSplitProgressLines(correct, anyCorrect, outside, total)
     local percent = math.floor(correct / total * 100 + 0.5)
-    GameTooltip:AddLine("|cff4dff4d" .. L.STATUS_BEST_BUFF:format(correct, total,
-        percent) .. "|r", 1, 1, 1)
+    GameTooltip:AddLine("|cff4dff4d" .. Fill(L.STATUS_BEST_BUFF,
+        { applied = correct, total = total, percent = percent }) .. "|r", 1, 1, 1)
     local weaker = anyCorrect - correct - outside
     if weaker > 0 then
         GameTooltip:AddLine("|cffffd133" .. L.STATUS_WEAKER_BUFF:format(weaker)
@@ -1347,8 +1350,8 @@ local function AddProviderLines(key, definition)
             or definition.className) .. "|r", 1, 1, 1)
         return
     end
-    local rankText = best and (" |cff909090" .. (bestOffspec
-        and L.STATUS_RANK_OFFSPEC or L.STATUS_RANK):format(best, talent.maxRank)
+    local rankText = best and (" |cff909090" .. Fill(bestOffspec
+        and L.STATUS_RANK_OFFSPEC or L.STATUS_RANK, { rank = best, max = talent.maxRank })
         .. "|r") or ""
     for _, name in ipairs(matches) do
         GameTooltip:AddLine(ColoredName(name, classInfo) .. rankText, 1, 1, 1)
@@ -1425,7 +1428,7 @@ local function FillCoreTooltip(row)
                 right = L.STATUS_OUTSIDE_RAID
             elseif entry.unoptimal then
                 right = entry.rank and maxRank
-                    and L.STATUS_WEAKER_RANK:format(entry.rank, maxRank)
+                    and Fill(L.STATUS_WEAKER_RANK, { rank = entry.rank, max = maxRank })
                     or L.STATUS_WEAKER
             end
             local pet = PetIconMarkup(entry.isPet)

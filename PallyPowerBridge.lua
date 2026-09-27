@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local Locale = select(2, ...).Locale
 
 -- Bridge to the PallyPower addon: push our computed buff grid into it, and
@@ -1005,7 +1006,8 @@ function WhoDoesWhat:SyncToPallyPower()
     -- Only printed when something was held back; otherwise it is a log line,
     -- which stays in English like the rest of the log.
     local function Summary(S)
-        local text = S.PP_SYNC_SUMMARY:format(#paladins, classCount, singleCount)
+        local text = Fill(S.PP_SYNC_SUMMARY, { paladins = #paladins,
+            classes = classCount, exceptions = singleCount })
         if roleless > 0 then
             text = text .. " " .. S.PP_SYNC_ROLELESS:format(roleless)
         end

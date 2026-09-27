@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Assignment model for the main /wdw window -- the non-UI half of what used
 -- to be one large MainAssignmentsView.lua: group-member helpers, marker /
@@ -400,8 +401,8 @@ local function TargetPlainText(entry, S)
     S = S or L
     if entry.target then
         local m = MarkerByIndex(entry.marker)
-        return m and S.TARGET_WITH_MARKER:format(entry.target,
-            WhoDoesWhat:DataText(m, "name", S)) or entry.target
+        return m and Fill(S.TARGET_WITH_MARKER, { target = entry.target,
+            marker = WhoDoesWhat:DataText(m, "name", S) }) or entry.target
     end
     if entry.markers then
         if #entry.markers == 0 then return S.MARKER_NONE end
@@ -573,8 +574,9 @@ local DynamicSections = {
             end
             local m = entry.player and FindMember(entry.player)
             if m and m.classInfo.name ~= spell.class then
-                return L.WARN_CC_WRONG_CLASS:format(entry.player, m.classInfo.label,
-                    spell.name, WhoDoesWhat:ClassLabel(spell.class))
+                return Fill(L.WARN_CC_WRONG_CLASS, { name = entry.player,
+                    class = m.classInfo.label, spell = spell.name,
+                    spellClass = WhoDoesWhat:ClassLabel(spell.class) })
             end
         end,
     },
@@ -594,7 +596,8 @@ local DynamicSections = {
             if entry.player then
                 local m = FindMember(entry.player)
                 if m and m.classInfo.name ~= "Hunter" then
-                    return L.WARN_MD_NOT_HUNTER:format(entry.player, m.classInfo.label)
+                    return Fill(L.WARN_MD_NOT_HUNTER,
+                        { name = entry.player, class = m.classInfo.label })
                 end
                 local count = 0
                 for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
@@ -621,8 +624,8 @@ local DynamicSections = {
                 end
                 if not onTankMarker then
                     local m = MarkerByIndex(entry.marker)
-                    return L.WARN_MD_WRONG_MARKER:format(m and m.name or "?",
-                        entry.target)
+                    return Fill(L.WARN_MD_WRONG_MARKER,
+                        { marker = m and m.name or "?", tank = entry.target })
                 end
             end
         end,
@@ -651,8 +654,8 @@ local function EntryText(section, entry, TargetFmt, S)
     S = S or L
     local target = TargetFmt(entry, S)
     local spell = section.spells and SpellById(entry.spell)
-    return spell and S.CC_ON_TARGET:format(WhoDoesWhat:DataText(spell, "name", S),
-        target) or target
+    return spell and Fill(S.CC_ON_TARGET, { spell = WhoDoesWhat:DataText(spell, "name", S),
+        target = target }) or target
 end
 
 -- Every row this player holds in a section, joined into one list, so each of
@@ -745,8 +748,8 @@ local function CollectStaticWhispers(section)
                 for i, def in ipairs(defs) do
                     labels[i] = WhoDoesWhat:DataText(def, "label", S)
                 end
-                return S.WHISPER_STATIC:format(table.concat(labels, ", "),
-                    WhoDoesWhat:DataText(section, "title", S))
+                return Fill(S.WHISPER_STATIC, { labels = table.concat(labels, ", "),
+                    section = WhoDoesWhat:DataText(section, "title", S) })
             end,
         }
     end
@@ -2356,7 +2359,8 @@ local function PaladinBuffWhisperText(coverage)
         local text = WhoDoesWhat:CoverageSummary(S.COVERAGE_PALLY_BUFFS,
             coverage.correct, coverage.total, S)
         if #names <= WhoDoesWhat.MAX_NAMED_MISSING then
-            text = S.COVERAGE_MISSING:format(text, table.concat(names, ", "))
+            text = Fill(S.COVERAGE_MISSING,
+                { summary = text, names = table.concat(names, ", ") })
         end
         return text
     end

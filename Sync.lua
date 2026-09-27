@@ -65,6 +65,7 @@ local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
 local Locale = select(2, ...).Locale
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
@@ -540,8 +541,9 @@ local function RecordPeerVersion(name, version)
     peerVersions[name] = version
     for _, peer in ipairs(Sync:GetNewerAddonVersions()) do
         if peer.name == name then
-            WhoDoesWhat:Print("|cffff2020" .. L.SYNC_NEWER_VERSION:format(
-                Sync:GetReportedAddonVersion(), name, version) .. "|r")
+            WhoDoesWhat:Print("|cffff2020" .. Fill(L.SYNC_NEWER_VERSION, {
+                version = Sync:GetReportedAddonVersion(), name = name, theirs = version })
+                .. "|r")
             break
         end
     end

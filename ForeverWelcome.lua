@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- A short hello the first time a character runs WhoDoesWhat on WoW Forever.
 -- Two things worth saying to someone arriving from PallyPower: blessings are
@@ -35,7 +36,8 @@ loader:SetScript("OnEvent", function(self)
     if not WhoDoesWhat.db then return end
     if WhoDoesWhat.db.char.foreverWelcomeSeen then return end
     WhoDoesWhat.db.char.foreverWelcomeSeen = true
-    StaticPopupDialogs["WHODOESWHAT_FOREVER_WELCOME"].text = L.FOREVER_WELCOME:format(
-        NAME, YELLOW .. "/wdw|r", YELLOW .. L.FOREVER_MINIMAP_BUTTON .. "|r", NAME)
+    StaticPopupDialogs["WHODOESWHAT_FOREVER_WELCOME"].text = Fill(L.FOREVER_WELCOME, {
+        addon = NAME, command = YELLOW .. "/wdw|r",
+        button = YELLOW .. L.FOREVER_MINIMAP_BUTTON .. "|r" })
     StaticPopup_Show("WHODOESWHAT_FOREVER_WELCOME")
 end)

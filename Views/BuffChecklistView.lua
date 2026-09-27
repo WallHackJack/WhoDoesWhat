@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local Assign = WhoDoesWhat.Assign
 
 -- The Buff Checklist: a movable grid of every buff YOUR character should be
@@ -1025,8 +1026,8 @@ local function AskFor(entry)
         SendChatMessage(Request(WhoDoesWhat:WhisperLocale(target)), "WHISPER", nil,
             WhoDoesWhat:WhisperName(target))
     elseif target then
-        WhoDoesWhat:Print(L.CHECKLIST_ASK_TO:format(Request(L),
-            WhoDoesWhat:DisplayName(target)))
+        WhoDoesWhat:Print(Fill(L.CHECKLIST_ASK_TO,
+            { request = Request(L), name = WhoDoesWhat:DisplayName(target) }))
     else
         WhoDoesWhat:Print(L.CHECKLIST_NOBODY_TO_ASK:format(entry.name))
     end
@@ -1455,8 +1456,9 @@ end
 local function AddTimeLeftLine(btn, text)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     if remaining and remaining > 0 then
-        GameTooltip:AddLine(L.CHECKLIST_TIME_LEFT:format(text, string.format("%d:%02d",
-            math.floor(remaining / 60), math.floor(remaining % 60))), 0.3, 1, 0.3)
+        GameTooltip:AddLine(Fill(L.CHECKLIST_TIME_LEFT, { state = text,
+            time = string.format("%d:%02d", math.floor(remaining / 60),
+                math.floor(remaining % 60)) }), 0.3, 1, 0.3)
     else
         GameTooltip:AddLine(L.CHECKLIST_STATE:format(text), 0.3, 1, 0.3)
     end
@@ -1477,9 +1479,9 @@ local function ShowTooltip(btn)
         or entry.name, 1, 1, 1)
     if entry.swap and entry.swap.conjures then
         if entry.running then
-            GameTooltip:AddLine((entry.useCount == 1 and L.CHECKLIST_IN_BAGS_ONE
-                or L.CHECKLIST_IN_BAGS_MANY):format(ItemName(entry.running.itemId),
-                entry.useCount or 0), 0.3, 1, 0.3)
+            GameTooltip:AddLine(Fill(entry.useCount == 1 and L.CHECKLIST_IN_BAGS_ONE
+                or L.CHECKLIST_IN_BAGS_MANY, { item = ItemName(entry.running.itemId),
+                count = entry.useCount or 0 }), 0.3, 1, 0.3)
         else
             GameTooltip:AddLine(L.CHECKLIST_NONE_IN_BAGS:format(entry.swap.noun), 1, 0.3, 0.3)
         end
@@ -1528,7 +1530,7 @@ local function ShowTooltip(btn)
     else
         local onWho = entry.forPet and L.CHECKLIST_ON_PET or L.CHECKLIST_ON_YOU
         AddTimeLeftLine(btn, entry.activeName
-            and L.CHECKLIST_ON_WHO:format(onWho, entry.activeName) or onWho)
+            and Fill(L.CHECKLIST_ON_WHO, { who = onWho, name = entry.activeName }) or onWho)
         if entry.otherActive then
             local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
             GameTooltip:AddLine(L.CHECKLIST_NOT_PICKED:format(PickNoun(entry)),
@@ -1549,7 +1551,8 @@ local function ShowTooltip(btn)
         elseif entry.useItem then
             local name = ItemName(entry.useItem)
             if CanUse(entry) then
-                GameTooltip:AddLine(L.CHECKLIST_USING_COUNT:format(name, entry.useCount),
+                GameTooltip:AddLine(Fill(L.CHECKLIST_USING_COUNT,
+                    { item = name, count = entry.useCount }),
                     0.8, 0.8, 0.8)
             else
                 GameTooltip:AddLine(entry.wrongEdge
@@ -2328,7 +2331,7 @@ local function PaintDivider(pet, collapsed)
     for _, entry in ipairs(pet) do
         if entry.has == true and not entry.missing then covered = covered + 1 end
     end
-    divider.label:SetText(L.CHECKLIST_PET_COUNT:format(covered, #pet))
+    divider.label:SetText(Fill(L.CHECKLIST_PET_COUNT, { have = covered, total = #pet }))
     if covered >= #pet then
         divider.label:SetTextColor(0.3, 1, 0.3)
     else

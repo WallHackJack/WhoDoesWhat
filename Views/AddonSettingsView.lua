@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local S = WhoDoesWhat.SettingsKit
 
 -- Addon settings (the main window's Settings tab). Checkbox state persists in db.profile.settings except
@@ -95,8 +96,8 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     resetButton:SetText(L.SETTINGS_RESET_DEFAULTS)
     resetButton:SetScript("OnClick", function()
         local section = f.section
-        S.ConfirmReset(L.SETTINGS_RESET_PAGE_PROMPT:format(S.PageTitle(section),
-            L[section.descriptionKey]), function()
+        S.ConfirmReset(Fill(L.SETTINGS_RESET_PAGE_PROMPT, { page = S.PageTitle(section),
+            details = L[section.descriptionKey] }), function()
                 section.Reset(f)
                 S.LoadSettings(f)
             end)

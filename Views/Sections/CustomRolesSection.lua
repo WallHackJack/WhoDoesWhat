@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Custom Roles section: every role this raid has changed, and the only place a
 -- blessing order deviates from the defaults.
@@ -149,10 +150,12 @@ function WhoDoesWhat:ConfirmRemoveRaidRole(roleId, OnRemoved)
         message = L.ROLES_STOP_OVERRIDE_PROMPT:format(name)
     else
         local users = self:PlayersAssignedToRole(roleId)
-        local held = #users == 0 and L.ROLES_REMOVE_UNUSED_PROMPT
-            or #users == 1 and L.ROLES_REMOVE_HELD_ONE_PROMPT
-            or L.ROLES_REMOVE_HELD_MANY_PROMPT
-        message = held:format(name, #users)
+        if #users == 0 then
+            message = L.ROLES_REMOVE_UNUSED_PROMPT:format(name)
+        else
+            message = Fill(#users == 1 and L.ROLES_REMOVE_HELD_ONE_PROMPT
+                or L.ROLES_REMOVE_HELD_MANY_PROMPT, { role = name, count = #users })
+        end
     end
     ConfirmRemoval(message, function()
         self:RemoveRaidCustomRole(roleId)

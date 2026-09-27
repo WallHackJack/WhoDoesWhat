@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- Side-by-side paladin-buff grids for the players whose current PallyPower
 -- coverage differs from WhoDoesWhat's suggested plan. Above each grid's
@@ -315,11 +316,13 @@ local function CreatePlanCell(row, index)
     UI.AddTooltip(cell, function(self)
         GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
         if self.buffKey then
-            GameTooltip:AddLine((self.isGreater and L.PP_CELL_GREATER or L.PP_CELL_LESSER)
-                :format(self.sourceLabel, WhoDoesWhat.PaladinBuffs[self.buffKey].name_long),
+            GameTooltip:AddLine(Fill(self.isGreater and L.PP_CELL_GREATER or L.PP_CELL_LESSER,
+                { source = self.sourceLabel,
+                    blessing = WhoDoesWhat.PaladinBuffs[self.buffKey].name_long }),
                 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine(L.PP_CELL_NONE:format(self.sourceLabel, self.raider),
+            GameTooltip:AddLine(Fill(L.PP_CELL_NONE,
+                { source = self.sourceLabel, raider = self.raider }),
                 0.6, 0.6, 0.6, true)
         end
         if self.needsRole then
@@ -406,8 +409,8 @@ local function CellOutline(data, member, paladin, buffKey)
             local currentRank = TalentRank(data, paladin.name, buffKey)
             local betterRank = TalentRank(data, betterPaladin.name, buffKey)
             if currentRank ~= nil and betterRank ~= nil and betterRank > currentRank then
-                return "yellow", L.PP_BETTER_PALADIN:format(betterPaladin.name,
-                    betterRank, talent.maxRank, currentRank, talent.maxRank)
+                return "yellow", Fill(L.PP_BETTER_PALADIN, { paladin = betterPaladin.name,
+                    better = betterRank, current = currentRank, max = talent.maxRank })
             end
         end
     end
@@ -437,8 +440,8 @@ local function CoverageText(correct, total)
         math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
         math.floor(b * 255 + 0.5))
     local percent = math.floor(correct / total * 100 + 0.5)
-    return L.PP_COVERAGE_OF:format("|cff" .. color .. correct .. "|r",
-        "|cffffffff" .. total .. "|r"),
+    return Fill(L.PP_COVERAGE_OF, { applied = "|cff" .. color .. correct .. "|r",
+        total = "|cffffffff" .. total .. "|r" }),
         "(" .. percent .. "%)"
 end
 
@@ -495,8 +498,8 @@ end
 local function SummarySlotTooltip(self)
     if not self.buffKey then return end
     return WhoDoesWhat.PaladinBuffs[self.buffKey].name_long,
-        (self.buffCount == 1 and L.PP_BLESSES_ONE or L.PP_BLESSES_MANY)
-            :format(self.sourceLabel, self.paladin, self.buffCount)
+        Fill(self.buffCount == 1 and L.PP_BLESSES_ONE or L.PP_BLESSES_MANY,
+            { source = self.sourceLabel, paladin = self.paladin, count = self.buffCount })
 end
 
 local function CreateSummaryRow(f, index)

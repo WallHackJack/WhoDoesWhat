@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 local K = WhoDoesWhat.SectionKit
 local S = WhoDoesWhat.SettingsKit
 
@@ -404,8 +405,8 @@ local function EnsureBuffOptionsFrame(owner, key)
     resetRow:SetText(L.COMMON_RESET)
     resetRow:SetScript("OnClick", function()
         local rowKey = f.buffKey
-        S.ConfirmReset(L.SETTINGS_RESET_PAGE_PROMPT:format(
-            WhoDoesWhat.StatusBarChecks[rowKey].name, L.BUFFS_ROW_RESET),
+        S.ConfirmReset(Fill(L.SETTINGS_RESET_PAGE_PROMPT, {
+            page = WhoDoesWhat.StatusBarChecks[rowKey].name, details = L.BUFFS_ROW_RESET }),
             function() ResetBuffOptions(rowKey) end)
     end)
     UI.AddTooltip(resetRow, function()

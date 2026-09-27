@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- About, contact, and release notes. WoW cannot open arbitrary web links, so
 -- link buttons place their value in one copy-ready field instead.
@@ -81,7 +82,8 @@ function WhoDoesWhat:BuildAboutPage(page)
 
     local latest = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     latest:SetPoint("TOPLEFT", installed, "BOTTOMLEFT", 0, -5)
-    latest:SetText(L.ABOUT_LATEST:format(RELEASES[1].version, RELEASES[1].date))
+    latest:SetText(Fill(L.ABOUT_LATEST,
+        { version = RELEASES[1].version, date = RELEASES[1].date }))
 
     local tagline = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     tagline:SetPoint("TOPLEFT", latest, "BOTTOMLEFT", 0, -8)

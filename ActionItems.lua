@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Fill = select(2, ...).Fill
 
 -- The roster-issues model: everything wrong with a group member, derived from
 -- the roster, the board and the last talent scan. No frames -- Views/
@@ -118,8 +119,8 @@ local COMPARISONS = {
 -- Natural-language list: "A", "A and B", "A, B and C".
 local function JoinList(parts)
     if #parts <= 1 then return parts[1] or "" end
-    return L.ISSUE_LIST_AND:format(table.concat(parts, ", ", 1, #parts - 1),
-        parts[#parts])
+    return Fill(L.ISSUE_LIST_AND, { list = table.concat(parts, ", ", 1, #parts - 1),
+        last = parts[#parts] })
 end
 
 local function Capitalize(text)
@@ -198,9 +199,15 @@ local function RowDisagreements(data, talentRoles)
     local best = math.max(agreed.group, agreed.wdw, agreed.talent)
     -- The odd one out, and what it disagrees with (a JoinList of describes).
     local outvoted = {
-        group = function(list) return L.ISSUE_GROUP_DISAGREES:format(groupName, list) end,
-        wdw = function(list) return L.ISSUE_WDW_DISAGREES:format(wdwName, list) end,
-        talent = function(list) return L.ISSUE_TALENT_DISAGREES:format(talentName, list) end,
+        group = function(list)
+            return Fill(L.ISSUE_GROUP_DISAGREES, { role = groupName, others = list })
+        end,
+        wdw = function(list)
+            return Fill(L.ISSUE_WDW_DISAGREES, { role = wdwName, others = list })
+        end,
+        talent = function(list)
+            return Fill(L.ISSUE_TALENT_DISAGREES, { role = talentName, others = list })
+        end,
     }
     local out = {}
 
@@ -400,7 +407,7 @@ function WhoDoesWhat:GetRosterIssues()
         if real and inRaid and role and role.wowRole == "tank"
             and not GetPartyAssignment("MAINTANK", m.name, true) then
             Add(self:IsRaidAssistant()
-                    and L.ISSUE_PROMOTE_TANK:format(m.name, RaidPanelKeyMarkup())
+                    and Fill(L.ISSUE_PROMOTE_TANK, { name = m.name, key = RaidPanelKeyMarkup() })
                     or L.ISSUE_ASK_PROMOTE_TANK:format(m.name),
                 canPromote)
         end

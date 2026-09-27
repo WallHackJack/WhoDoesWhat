@@ -12,7 +12,7 @@ For the user-facing overview, see [README.md](README.md). For the detailed imple
 - Keep `Assignments.lua` model-only. UI frames belong under `Views/`.
 - Preserve the load order in `WhoDoesWhat.toc`; files may localize globals defined by earlier entries.
 - Use `WhoDoesWhat:Print(...)` for verbose development logging.
-- New or edited user-facing text goes in `Locales/enUS.lua` under a short key and is read through `L` inside functions, never at file scope (the player's Language is only known after `OnInitialize`). Chat messages use `WhoDoesWhat:ChatLocale()`, whispers `WhoDoesWhat:WhisperLocale(name)`. Developer logging, sync payloads, saved-variable values and slash-command words stay English literals.
+- New or edited user-facing text goes in `Locales/enUS.lua` under a short key and is read through `L` inside functions, never at file scope (the player's Language is only known after `OnInitialize`). Chat messages use `WhoDoesWhat:ChatLocale()`, whispers `WhoDoesWhat:WhisperLocale(name)`. A string with one input may use `%s`/`%d`; one with two or more names them (`{name}`, `{count}`) and is filled with `Fill(L.KEY, { name = ..., count = ... })` from `Locales/Locale.lua`, so a translation can reorder them. Developer logging, sync payloads, saved-variable values and slash-command words stay English literals.
 - Do not treat comments or historical client observations as proof of API behavior. Trace callers and verify uncertain behavior.
 - Preserve unrelated user changes. Do not edit generated or bundled files to work around addon code.
 

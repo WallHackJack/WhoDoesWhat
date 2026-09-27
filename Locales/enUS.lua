@@ -2,8 +2,10 @@ local L = select(2, ...).Locale:Register("enUS", "English")
 
 -- English: every string WhoDoesWhat shows, and the fallback for any other
 -- language's missing lines. Keys are grouped by where the string appears.
--- Strings with %s or %d are format strings; keep every placeholder when
--- translating. Plurals get a key per form (_ONE / _MANY).
+-- A string with one input takes it as %s or %d; keep it when translating.
+-- A string with two or more names them, like {name} or {count}: keep every
+-- one, spelled exactly, but put them wherever the sentence needs them.
+-- Plurals get a key per form (_ONE / _MANY).
 
 -- Main window
 L["TAB_MEMBERS"] = "Members"
@@ -25,9 +27,9 @@ L["TAB_LOGS"] = "Logs"
 L["TAB_LOGS_TIP"] = "The combined WhoDoesWhat and PallyPower addon-message logs."
 L["BOARD_BLESSINGS"] = "Paladin Blessings"
 L["BOARD_ASSIGNMENTS"] = "Assignments"
--- The first %s is your version, the second the VERSION_PEER_REPORT lines.
-L["VERSION_NEWER_WARNING"] = "You are running WhoDoesWhat v%s, but %s. Update the addon to stay compatible."
-L["VERSION_PEER_REPORT"] = "%s reports using version %s"
+-- {reports} is the VERSION_PEER_REPORT lines.
+L["VERSION_NEWER_WARNING"] = "You are running WhoDoesWhat v{version}, but {reports}. Update the addon to stay compatible."
+L["VERSION_PEER_REPORT"] = "{name} reports using version {version}"
 
 -- Members tab
 L["MEMBERS_TANK_ONE"] = "%d Tank"
@@ -105,7 +107,7 @@ L["PP_UNOPTIMIZED_HEADING"] = "Unoptimized Buffs"
 L["PP_NONE"] = "none"
 L["PP_NO_ASSIGNMENTS"] = "No assignments"
 -- How many of a paladin's blessings are right, out of how many ("19 of 20").
-L["PP_COVERAGE_OF"] = "%s |cff909090of|r %s"
+L["PP_COVERAGE_OF"] = "{applied} |cff909090of|r {total}"
 L["PP_AWAITING_TALENTS"] = "Awaiting talents"
 L["PP_AWAITING_TALENTS_TIP"] = "No blessings for %s until their talents are read. Target them once while nearby, or mark them Non-raider if they're sitting out."
 L["PP_SIMULATED_PALADIN"] = "Simulated Paladin"
@@ -117,17 +119,17 @@ L["PP_LABEL_PALLYPOWER"] = "PallyPower"
 L["PP_LABEL_OPTIMIZED"] = "Optimized"
 L["PP_LABEL_ASSIGNED"] = "Assigned"
 -- A grid label, then the blessing.
-L["PP_CELL_GREATER"] = "%s: Greater Blessing of %s."
-L["PP_CELL_LESSER"] = "%s: Blessing of %s."
+L["PP_CELL_GREATER"] = "{source}: Greater Blessing of {blessing}."
+L["PP_CELL_LESSER"] = "{source}: Blessing of {blessing}."
 -- A grid label, then the raider.
-L["PP_CELL_NONE"] = "%s: no assignment for %s."
+L["PP_CELL_NONE"] = "{source}: no assignment for {raider}."
 L["PP_CELL_DEFAULT_GUESS"] = "%s has no role yet, so this is a default guess."
 -- A grid label, the paladin, then how many raiders.
-L["PP_BLESSES_ONE"] = "%s: %s blesses %d raider."
-L["PP_BLESSES_MANY"] = "%s: %s blesses %d raiders."
+L["PP_BLESSES_ONE"] = "{source}: {paladin} blesses {count} raider."
+L["PP_BLESSES_MANY"] = "{source}: {paladin} blesses {count} raiders."
 L["PP_OUTSIDE_TOP"] = "This blessing is outside the player's top %d buffs."
 -- The better paladin, their rank out of the max, then this paladin's.
-L["PP_BETTER_PALADIN"] = "WDW assigns this to %s at %s/%s instead of %s/%s."
+L["PP_BETTER_PALADIN"] = "WDW assigns this to {paladin} at {better}/{max} instead of {current}/{max}."
 L["PP_FIX"] = "Fix"
 -- %s is the player ("Fix Bigtank").
 L["PP_FIX_PLAYER"] = "Fix %s"
@@ -163,7 +165,7 @@ L["GRID_SOURCE_ADDON"] = "PP Addon"
 -- %s is one of the sources above.
 L["GRID_SOURCE_SHOWS"] = "Paladin blessing cells show %s."
 -- The source on screen, then the one driving the raid.
-L["GRID_SOURCE_WARNING"] = "Blessing cells are showing %s for comparison only. Switch to %s to see the raid's actual plan. Missing-buff markers still show real buffs."
+L["GRID_SOURCE_WARNING"] = "Blessing cells are showing {shown} for comparison only. Switch to {expected} to see the raid's actual plan. Missing-buff markers still show real buffs."
 L["GRID_RAIDER"] = "Raider"
 -- Time left under a minute ("45s").
 L["GRID_SECONDS"] = "%ds"
@@ -174,7 +176,7 @@ L["GRID_PROVIDERS"] = "%s providers:"
 L["GRID_OFFSPEC"] = "(offspec)"
 L["GRID_OFFLINE"] = "(offline)"
 -- The raider, then how long is left.
-L["GRID_ON_REMAINING"] = "On %s, %s remaining."
+L["GRID_ON_REMAINING"] = "On {name}, {time} remaining."
 L["GRID_ON"] = "On %s."
 L["GRID_REMAINING"] = "%s remaining."
 L["GRID_NOT_REQUIRED"] = "Not required for this class."
@@ -184,19 +186,19 @@ L["GRID_NO_DEBUFF"] = "Does not have the debuff."
 L["GRID_MISSING"] = "Missing this buff."
 L["GRID_NOT_CHECKED"] = "Buffs not checked yet."
 -- Who cast it, then their talent rank out of the maximum.
-L["GRID_ACTIVE_MAX"] = "Active from %s (max rank %s/%s)."
-L["GRID_ACTIVE_RANK"] = "Active from %s (%s/%s)."
+L["GRID_ACTIVE_MAX"] = "Active from {source} (max rank {rank}/{max})."
+L["GRID_ACTIVE_RANK"] = "Active from {source} ({rank}/{max})."
 L["GRID_ACTIVE_FROM"] = "Active from %s."
 L["GRID_ACTIVE"] = "Active."
 -- A better caster, then their rank out of the maximum.
-L["GRID_BETTER_FROM"] = "Better available from %s (%s/%s)."
+L["GRID_BETTER_FROM"] = "Better available from {source} ({rank}/{max})."
 -- The raider, then the blessing.
-L["GRID_BLESSES_GREATER"] = "Blesses %s with Greater Blessing of %s."
-L["GRID_BLESSES_LESSER"] = "Blesses %s with Blessing of %s (Lesser)."
+L["GRID_BLESSES_GREATER"] = "Blesses {raider} with Greater Blessing of {blessing}."
+L["GRID_BLESSES_LESSER"] = "Blesses {raider} with Blessing of {blessing} (Lesser)."
 L["GRID_RAIDER_MISSING"] = "%s is missing this buff."
 L["GRID_NOTHING_FOR"] = "Nothing for %s: every blessing they want at this paladin count is already covered."
 -- The raider, then the paladin.
-L["GRID_NOTHING_FOR_TALENTS"] = "Nothing for %s: every blessing they want at this paladin count is already covered, or needs a talent %s doesn't have."
+L["GRID_NOTHING_FOR_TALENTS"] = "Nothing for {raider}: every blessing they want at this paladin count is already covered, or needs a talent {paladin} doesn't have."
 L["GRID_NO_ASSIGNMENT_ADDON"] = "No assignment for %s in the local PallyPower addon."
 L["GRID_NO_ASSIGNMENT_OBSERVED"] = "No assignment for %s in observed PallyPower traffic."
 
@@ -256,7 +258,7 @@ L["CALC_BLOOD_FRENZY_UP"] = "An Arms warrior kept Blood Frenzy up on the boss: +
 L["CALC_FOOTNOTE"] = "Assumes 100% curse uptime; resistance reduction is not valued. CoR is an estimate: ticked debuffs and average armor pen are flat reductions, and known bleeds are excluded. Zero extra pen is conservative unless armor is already zero."
 
 -- About tab (release notes stay in English)
-L["ABOUT_LATEST"] = "Latest release notes: v%s (%s)"
+L["ABOUT_LATEST"] = "Latest release notes: v{version} ({date})"
 L["ABOUT_INSTALLED"] = "Installed version: v%s"
 L["ABOUT_TAGLINE"] = "Raid roles and assignments, with instant fixes for Paladin buff assignments."
 L["ABOUT_LINKS"] = "Links & Contact"
@@ -274,9 +276,9 @@ L["ABOUT_VERSION"] = "Version:"
 
 -- Player tooltips (paladin talents, warlock healthstones)
 -- Healthstone, talent rank, max rank ("Master Healthstone (2/2)").
-L["HEALTHSTONE_DETAIL"] = "%s (%s/%d)"
+L["HEALTHSTONE_DETAIL"] = "{name} ({rank}/{max})"
 -- HEALTHSTONE_DETAIL and how much it heals.
-L["HEALTHSTONE_DETAIL_LIFE"] = "%s - %d life"
+L["HEALTHSTONE_DETAIL_LIFE"] = "{detail} - {life} life"
 L["RAIDER_AWAITING_TALENTS"] = "Awaiting Paladin talents"
 L["RAIDER_AWAITING_TALENTS_TIP"] = "WDW will not assign this paladin any blessings until talent data arrives."
 L["RAIDER_SITTING_OUT_TIP"] = "If they are sitting out, mark them as Non-raider instead."
@@ -293,16 +295,16 @@ L["PARTY_LEVEL"] = "Level %d"
 
 -- Members tab warnings (ActionItems.lua)
 -- The last two items of a list: "A, B and C" is ISSUE_LIST_AND of "A, B" and "C".
-L["ISSUE_LIST_AND"] = "%s and %s"
+L["ISSUE_LIST_AND"] = "{list} and {last}"
 L["ISSUE_NONE"] = "none"
 -- The three things a row's role can be judged by; %s is the role.
 L["ISSUE_DESC_GROUP"] = "their group role (%s)"
 L["ISSUE_DESC_WDW"] = "the WhoDoesWhat role (%s)"
 L["ISSUE_DESC_TALENT"] = "their talents (%s)"
 -- The outvoted one's role, then the ISSUE_DESC_ list it disagrees with.
-L["ISSUE_GROUP_DISAGREES"] = "Group role (%s) disagrees with %s."
-L["ISSUE_WDW_DISAGREES"] = "WhoDoesWhat role (%s) disagrees with %s."
-L["ISSUE_TALENT_DISAGREES"] = "Talents read as %s, which disagrees with %s."
+L["ISSUE_GROUP_DISAGREES"] = "Group role ({role}) disagrees with {others}."
+L["ISSUE_WDW_DISAGREES"] = "WhoDoesWhat role ({role}) disagrees with {others}."
+L["ISSUE_TALENT_DISAGREES"] = "Talents read as {role}, which disagrees with {others}."
 -- %s is a list of ISSUE_DESC_ entries.
 L["ISSUE_BOTH_DISAGREE"] = "%s disagree, and nothing else is known that would say which is right."
 L["ISSUE_ALL_DISAGREE"] = "%s all disagree, and nothing else is known that would say which is right."
@@ -312,7 +314,7 @@ L["ISSUE_NO_ROLE"] = "%s has no role yet. Pick one here, or wait for talent data
 L["ISSUE_ROLE_GONE"] = "%s's saved role no longer exists. Pick a new one."
 L["ISSUE_NO_GROUP_ROLE"] = "%s has no group role set at all. Pick Tank, Healer or Damage so Blizzard's own raid tools agree with the board."
 -- The tank, then the key that opens the raid panel (may be empty).
-L["ISSUE_PROMOTE_TANK"] = "%s is a Tank but isn't promoted to Main Tank. Promote them in the raid UI%s -- SetPartyAssignment is a Blizzard-UI-only action, so no addon can do it for you."
+L["ISSUE_PROMOTE_TANK"] = "{name} is a Tank but isn't promoted to Main Tank. Promote them in the raid UI{key} -- SetPartyAssignment is a Blizzard-UI-only action, so no addon can do it for you."
 L["ISSUE_ASK_PROMOTE_TANK"] = "%s is a Tank but isn't promoted to Main Tank. Ask the raid leader or an assistant to promote them."
 
 -- Editing permissions
@@ -340,25 +342,25 @@ L["PERM_ANNOUNCE"] = "Assignment editing is now: %s."
 
 -- Party and raid chat
 L["CHAT_TAGGED"] = "[WhoDoesWhat] %s"
--- A buff's progress line in chat and whispers: label, applied, total, percent.
-L["COVERAGE_SUMMARY"] = "%s -- %d/%d Applied (%d%%)"
+-- A buff's progress line in chat and whispers.
+L["COVERAGE_SUMMARY"] = "{label} -- {applied}/{total} Applied ({percent}%)"
 -- A COVERAGE_SUMMARY line followed by the names still missing it.
-L["COVERAGE_MISSING"] = "%s -- Missing: %s"
+L["COVERAGE_MISSING"] = "{summary} -- Missing: {names}"
 L["COVERAGE_PALLY_BUFFS"] = "Pally Buffs"
 -- A hunter pet named in raid chat, under its owner's name.
 L["ANNOUNCE_PET"] = "%s (pet)"
 -- A chat name list cut short: "Anna, Bob and 3 more".
 L["ANNOUNCE_AND_MORE"] = "and %d more"
 -- A paladin and their blessings: "Hewmongus (Might, Wisdom)".
-L["ANNOUNCE_PALADIN"] = "%s (%s)"
+L["ANNOUNCE_PALADIN"] = "{paladin} ({blessings})"
 -- A coverage line, then who can fix it: "... -- Priest: Anna".
-L["ANNOUNCE_SUPPLIERS"] = "%s -- %s: %s"
+L["ANNOUNCE_SUPPLIERS"] = "{line} -- {class}: {names}"
 -- Whispered to somebody missing a buff they supply themselves (food).
 L["WHISPER_CHECK_YOURS"] = "Check your %s!"
 L["WHISPER_CHECK_PET"] = "Check your pet's %s!"
-L["WHISPER_CHECK_BOTH"] = "Check your %s (and your pet's %s!)"
+L["WHISPER_CHECK_BOTH"] = "Check your {check} (and your pet's {petCheck}!)"
 -- Announced when a role is changed: "Anna was changed to Holy by Bob."
-L["ROLE_CHANGED_BY"] = "%s was changed to %s by %s."
+L["ROLE_CHANGED_BY"] = "{name} was changed to {role} by {changer}."
 
 -- Assignment sections (main window, whispers, unit menus)
 L["SECTION_TANK"] = "Tank Assignments"
@@ -371,11 +373,11 @@ L["WHISPER_TANK"] = "Tank %s"
 L["WHISPER_CC"] = "CC %s"
 L["WHISPER_MISDIRECT"] = "Misdirect to %s"
 -- Curse assignments: "Curse of Recklessness (Warlocks)".
-L["WHISPER_STATIC"] = "%s (%s)"
+L["WHISPER_STATIC"] = "{labels} ({section})"
 -- A CC spell and its target: "Polymorph {rt6}".
-L["CC_ON_TARGET"] = "%s %s"
+L["CC_ON_TARGET"] = "{spell} {target}"
 -- A misdirect's tank and their marker: "Bigtank (Skull)".
-L["TARGET_WITH_MARKER"] = "%s (%s)"
+L["TARGET_WITH_MARKER"] = "{target} ({marker})"
 L["MARKER_ALL"] = "Everything else"
 L["MARKER_CUSTOM"] = "Custom"
 L["MARKER_NONE"] = "no marker"
@@ -385,14 +387,14 @@ L["WARN_NOT_MARKED_TANK"] = "%s is not marked as a tank. Assign them a tank role
 L["WARN_TANK_NO_MARKER"] = "No marker picked for this tank yet."
 L["WARN_CC_NO_SPELL"] = "No spell picked for this assignment yet."
 -- Player, their class, the spell, the spell's class.
-L["WARN_CC_WRONG_CLASS"] = "%s is a %s and can't cast %s, which is a %s ability."
+L["WARN_CC_WRONG_CLASS"] = "{name} is a {class} and can't cast {spell}, which is a {spellClass} ability."
 -- Player, their class.
-L["WARN_MD_NOT_HUNTER"] = "%s is a %s and can't cast Misdirection."
+L["WARN_MD_NOT_HUNTER"] = "{name} is a {class} and can't cast Misdirection."
 L["WARN_MD_TWICE"] = "%s holds more than one misdirect; a hunter can only misdirect onto one tank."
 L["WARN_MD_NO_TANK"] = "No tank picked for this misdirect yet."
 L["WARN_MD_TANK_NO_MARKER"] = "%s has no marker assigned in Tank Assignments, so there's nothing to misdirect on."
 -- Marker, tank.
-L["WARN_MD_WRONG_MARKER"] = "This misdirect is on %s, but %s isn't tanking that marker."
+L["WARN_MD_WRONG_MARKER"] = "This misdirect is on {marker}, but {tank} isn't tanking that marker."
 L["WARN_NO_RECKLESSNESS"] = "No one is assigned to Curse of Recklessness."
 L["WARN_NO_ELEMENTS"] = "No one is assigned to Curse of the Elements."
 L["WARN_NO_SHADOW"] = "No one is assigned to Curse of Shadow."
@@ -486,33 +488,33 @@ L["RULES_REMOVE_TIP"] = "Rules can't be edited in place - remove this one and ad
 -- One rule row. The first %s is the blessing with its icon; the second is who
 -- it covers, or the paladin. Grey |cff909090...|r marks the fixed words.
 L["RULE_IGNORED"] = "%s |cff909090is ignored|r"
-L["RULE_IGNORED_FOR"] = "%s |cff909090is ignored for|r %s"
-L["RULE_IGNORED_EXCEPT"] = "%s |cff909090is ignored except for|r %s"
-L["RULE_ALL_CASTS"] = "%s |cff909090is all|r %s |cff909090casts|r"
-L["RULE_ASSIGNED"] = "%s |cff909090is|r %s|cff909090's|r"
-L["RULE_GUARANTEED"] = "%s |cff909090is guaranteed for|r %s"
+L["RULE_IGNORED_FOR"] = "{blessing} |cff909090is ignored for|r {who}"
+L["RULE_IGNORED_EXCEPT"] = "{blessing} |cff909090is ignored except for|r {who}"
+L["RULE_ALL_CASTS"] = "{blessing} |cff909090is all|r {who} |cff909090casts|r"
+L["RULE_ASSIGNED"] = "{blessing} |cff909090is|r {who}|cff909090's|r"
+L["RULE_GUARANTEED"] = "{blessing} |cff909090is guaranteed for|r {who}"
 -- A rule row's tooltip. The blessing, then who it covers.
 L["RULE_TIP_IGNORED"] = "Ignored"
-L["RULE_TIP_IGNORED_EXCEPT"] = "%s is planned for %s and nobody else. A raider with no role assigned is nobody else, so they lose it too."
-L["RULE_TIP_IGNORED_FOR"] = "%s is dropped from what %s are planned. Everyone else still receives it normally."
+L["RULE_TIP_IGNORED_EXCEPT"] = "{blessing} is planned for {who} and nobody else. A raider with no role assigned is nobody else, so they lose it too."
+L["RULE_TIP_IGNORED_FOR"] = "{blessing} is dropped from what {who} are planned. Everyone else still receives it normally."
 L["RULE_TIP_IGNORED_ALL"] = "%s is ignored from the plan and won't be assigned."
 L["RULE_TIP_IGNORED_SALV"] = "Automatic in PvP."
 L["RULE_TIP_IGNORED_LIGHT"] = "It only improves a paladin's own heals, so a group with no Holy paladin loses nothing."
 -- The paladin, then the blessing.
 L["RULE_TIP_ASSIGNED_ONLY"] = "Assigned, and nothing else"
-L["RULE_TIP_ASSIGNED_ONLY_BODY"] = "%s casts %s alone and sits out the planning. Raiders who don't want it get nothing from them - empty grid cells are correct here."
+L["RULE_TIP_ASSIGNED_ONLY_BODY"] = "{paladin} casts {blessing} alone and sits out the planning. Raiders who don't want it get nothing from them - empty grid cells are correct here."
 L["RULE_TIP_ASSIGNED"] = "Assigned"
-L["RULE_TIP_ASSIGNED_BODY"] = "%s is handed %s wherever it's wanted, ahead of better-talented paladins. They still cover other blessings elsewhere."
+L["RULE_TIP_ASSIGNED_BODY"] = "{paladin} is handed {blessing} wherever it's wanted, ahead of better-talented paladins. They still cover other blessings elsewhere."
 -- The blessing, who it covers, then the paladin count twice.
 L["RULE_TIP_GUARANTEED"] = "Guaranteed"
-L["RULE_TIP_GUARANTEED_NONE"] = "%s will be pulled into what %s receive - but no paladin is buffing right now."
-L["RULE_TIP_GUARANTEED_BODY"] = "%s reaches %s even when it falls outside their top %s choices, given %s paladins."
+L["RULE_TIP_GUARANTEED_NONE"] = "{blessing} will be pulled into what {who} receive - but no paladin is buffing right now."
+L["RULE_TIP_GUARANTEED_BODY"] = "{blessing} reaches {who} even when it falls outside their top {choices} choices, given {paladins} paladins."
 -- A rule row's warning. The paladin, then the blessing (UNIMPROVED: the paladin,
 -- the talent, the blessing).
-L["RULE_WARN_CANT_CAST"] = "%s can't cast %s at all - this rule does nothing."
-L["RULE_WARN_UNIMPROVED"] = "%s has no %s ranks; their %s will be unimproved."
-L["RULE_WARN_NOW_HAS_ADDON"] = "%s is running an addon now, but this rule still limits them to %s. Delete and re-add to put them back in the plan."
-L["RULE_WARN_NO_BOARD"] = "%s can't see a blessing board, so they'll be planned blessings they never receive. Delete and re-add to give them %s alone."
+L["RULE_WARN_CANT_CAST"] = "{paladin} can't cast {blessing} at all - this rule does nothing."
+L["RULE_WARN_UNIMPROVED"] = "{paladin} has no {talent} ranks; their {blessing} will be unimproved."
+L["RULE_WARN_NOW_HAS_ADDON"] = "{paladin} is running an addon now, but this rule still limits them to {blessing}. Delete and re-add to put them back in the plan."
+L["RULE_WARN_NO_BOARD"] = "{paladin} can't see a blessing board, so they'll be planned blessings they never receive. Delete and re-add to give them {blessing} alone."
 L["TALENT_BLESSING_OF_KINGS"] = "Blessing of Kings"
 L["TALENT_BLESSING_OF_SANCTUARY"] = "Blessing of Sanctuary"
 L["TALENT_IMPROVED_MIGHT"] = "Improved Blessing of Might"
@@ -544,8 +546,8 @@ L["ROLES_ALL_DEFAULT"] = "Every role is on its defaults"
 L["ROLES_STOP_OVERRIDE_PROMPT"] = "Stop overriding %s?\n\nIt goes back to its default blessing order. Nobody loses their role."
 -- The role's name, then how many raiders hold it.
 L["ROLES_REMOVE_UNUSED_PROMPT"] = "Remove %s from the raid?\n\nYour own copy in the Roles window is not deleted."
-L["ROLES_REMOVE_HELD_ONE_PROMPT"] = "Remove %s from the raid?\n\n%d raider is assigned to it and will be set back to no role. Your own copy in the Roles window is not deleted."
-L["ROLES_REMOVE_HELD_MANY_PROMPT"] = "Remove %s from the raid?\n\n%d raiders are assigned to it and will be set back to no role. Your own copy in the Roles window is not deleted."
+L["ROLES_REMOVE_HELD_ONE_PROMPT"] = "Remove {role} from the raid?\n\n{count} raider is assigned to it and will be set back to no role. Your own copy in the Roles window is not deleted."
+L["ROLES_REMOVE_HELD_MANY_PROMPT"] = "Remove {role} from the raid?\n\n{count} raiders are assigned to it and will be set back to no role. Your own copy in the Roles window is not deleted."
 L["ROLES_CLEAR_ONE_PROMPT"] = "Remove all %d role from the raid?\n\nOverridden roles go back to their defaults."
 L["ROLES_CLEAR_MANY_PROMPT"] = "Remove all %d roles from the raid?\n\nOverridden roles go back to their defaults."
 L["ROLES_CLEAR_HELD_ONE"] = "%d raider is assigned to a custom role and will be set back to no role."
@@ -562,7 +564,7 @@ L["CURSES_AUTO_TITLE"] = "Auto-assign"
 L["CURSES_AUTO_ERA_TIP"] = "Put Curse of the Elements, Shadow and Recklessness on separate warlocks. Settings controls which curses Auto fills."
 L["CURSES_AUTO_TIP"] = "Put Curse of the Elements on an Affliction warlock and Curse of Recklessness on another. Settings controls which curses Auto fills; the rest keep their current pick."
 -- Talent rank, max rank, healthstone ("(2/2) Master Healthstone").
-L["HEALTHSTONE_RANK_TITLE"] = "(%d/%d) %s"
+L["HEALTHSTONE_RANK_TITLE"] = "({rank}/{max}) {name}"
 L["HEALTHSTONE_RESTORES"] = "Restores %d life."
 L["HEALTHSTONE_NO_TALENT"] = "No warlocks have this talent"
 
@@ -803,7 +805,7 @@ L["UI_HEX_TIP"] = "Enter a six-digit RGB color, with or without #, then press En
 -- Settings tab
 L["SETTINGS_RESET_DEFAULTS"] = "Reset Defaults"
 L["SETTINGS_RESET_PAGE_TITLE"] = "Reset %s"
-L["SETTINGS_RESET_PAGE_PROMPT"] = "Reset %s to defaults?\n\n%s"
+L["SETTINGS_RESET_PAGE_PROMPT"] = "Reset {page} to defaults?\n\n{details}"
 L["SETTINGS_GENERAL"] = "General"
 L["SETTINGS_GENERAL_RESET"] = "Puts every option on this page back, except the two languages, and returns the minimap button to its default spot."
 L["SETTINGS_ROLES"] = "Roles"
@@ -897,16 +899,16 @@ L["STATUS_ANNOUNCE"] = "Announce"
 L["STATUS_WHISPER_NAME"] = "Whisper %s"
 L["STATUS_WHISPER_BUFFERS"] = "Whisper Buffers"
 L["STATUS_WHISPER_ALL"] = "Whisper All"
--- "12 of 25  (48%)"; the first and last values arrive already coloured.
-L["STATUS_PROGRESS"] = "%s of %d  (%s)"
-L["STATUS_BEST_BUFF"] = "%d/%d with best buff (%d%%)"
+-- "12 of 25  (48%)"; {applied} and {percent} arrive already coloured.
+L["STATUS_PROGRESS"] = "{applied} of {total}  ({percent})"
+L["STATUS_BEST_BUFF"] = "{applied}/{total} with best buff ({percent}%)"
 L["STATUS_WEAKER_BUFF"] = "%d with weaker buff"
 L["STATUS_UNKNOWN_BUFF"] = "%d with unknown buff"
 L["STATUS_MISSING_BUFF"] = "%d missing buff"
 L["STATUS_ANY_CLASS"] = "Any %s"
 -- A talent rank after a caster's name: "(2/2)", "(2/2, offspec)".
-L["STATUS_RANK"] = "(%d/%d)"
-L["STATUS_RANK_OFFSPEC"] = "(%d/%d, offspec)"
+L["STATUS_RANK"] = "({rank}/{max})"
+L["STATUS_RANK_OFFSPEC"] = "({rank}/{max}, offspec)"
 L["STATUS_UNAVAILABLE"] = "Unavailable: requires %s."
 L["STATUS_NOT_COUNTED"] = "Not counted toward raid coverage."
 L["STATUS_NO_CLASS"] = "No %s"
@@ -915,7 +917,7 @@ L["STATUS_EVERYONE_HAS_IT"] = "Everyone has it."
 L["STATUS_NOBODY_HAS_IT"] = "Nobody has it."
 L["STATUS_OUTSIDE_RAID"] = "outside raid"
 L["STATUS_WEAKER"] = "weaker buff"
-L["STATUS_WEAKER_RANK"] = "weaker (%d/%d)"
+L["STATUS_WEAKER_RANK"] = "weaker ({rank}/{max})"
 L["STATUS_AWAITING_TALENTS"] = "Awaiting talents - %s"
 L["STATUS_AWAITING_TALENTS_TIP"] = "Waiting on this paladin's talents; the plan is provisional until they arrive."
 L["STATUS_NO_BLESSINGS"] = "No blessings are assigned."
@@ -938,8 +940,7 @@ L["TOOLTIP_PROVIDED_BY"] = "|cffffd100Provided by:|r %s"
 L["MIGRATE_RULES_CLEARED"] = "Buffing Rules have been rebuilt in this version; your saved rules were cleared. Add them again from Paladin Buffs > Buffing Rules > Add (+)."
 L["MIGRATE_ORDERS_CLEARED_ONE"] = "Blessing orders for built-in roles are now shared with the raid; %d saved customization was cleared. Re-add it from Custom Roles > Add (+)."
 L["MIGRATE_ORDERS_CLEARED_MANY"] = "Blessing orders for built-in roles are now shared with the raid; %d saved customizations were cleared. Re-add them from Custom Roles > Add (+)."
--- Your version, the other player, their version.
-L["SYNC_NEWER_VERSION"] = "You are running WhoDoesWhat v%s, but %s reports using version %s. Update the addon to stay compatible."
+L["SYNC_NEWER_VERSION"] = "You are running WhoDoesWhat v{version}, but {name} reports using version {theirs}. Update the addon to stay compatible."
 L["SYNC_PROTOCOL_MISMATCH"] = "%s runs a different WhoDoesWhat sync version; assignments won't sync with them until versions match."
 L["SYNC_NOT_GROUPED"] = "Sync: you are not in a group."
 L["PP_NOT_INSTALLED"] = "PallyPower is not installed."
@@ -949,17 +950,15 @@ L["PP_SYNC_BLOCKED"] = "%s has Free Assignment disabled; the complete PallyPower
 L["PP_REFUSE_BLOCKED"] = "%s has Free Assignment disabled; this row cannot be fixed."
 L["PP_REFUSE_SIMULATED"] = "That simulated player cannot be sent to PallyPower."
 L["PP_REFUSE_TARGET"] = "That target cannot be represented in PallyPower."
--- Paladins, class blessings, individual exceptions.
-L["PP_SYNC_SUMMARY"] = "Synced %d paladin(s) to PallyPower: %d class blessing(s), %d individual exception(s)."
+L["PP_SYNC_SUMMARY"] = "Synced {paladins} paladin(s) to PallyPower: {classes} class blessing(s), {exceptions} individual exception(s)."
 L["PP_SYNC_ROLELESS"] = "%d assignment(s) left alone for raiders with no role yet."
 L["PP_SYNC_SKIPPED"] = "%d cell(s) skipped (unresolved pet, class, or blessing)."
 L["PP_HEADS_UP"] = "Heads up:"
 L["PP_SYNC_NOT_ASSIST"] = "you are not raid lead/assist, so other paladins' PallyPower will only accept these if they enabled Free Assignment."
 L["RESCAN_NO_PROVIDERS"] = "Rescan: no buff providers in the group."
 L["TALENTS_UNAVAILABLE"] = "LibClassicInspector did not load - talent syncing is unavailable on this client."
--- The WoW Forever welcome: the addon name, "/wdw", "minimap button", the
--- addon name again (each already coloured).
-L["FOREVER_WELCOME"] = "Welcome to %s for Forever!\n\nWe do pally buffs a little bit differently. Assign players' roles (or scan them automatically in range) and their optimal blessings are computed automatically!\n\nIf you notice items missing from the buff checklist, feel free to report their item id and spell id (from the buff).\n\nUse %s or the %s to open %s!"
+-- The WoW Forever welcome; {addon}, {command} and {button} arrive coloured.
+L["FOREVER_WELCOME"] = "Welcome to {addon} for Forever!\n\nWe do pally buffs a little bit differently. Assign players' roles (or scan them automatically in range) and their optimal blessings are computed automatically!\n\nIf you notice items missing from the buff checklist, feel free to report their item id and spell id (from the buff).\n\nUse {command} or the {button} to open {addon}!"
 L["FOREVER_MINIMAP_BUTTON"] = "minimap button"
 
 -- Bar layout dropdowns (Paladin Bar, Warrior Bar)
@@ -1135,13 +1134,13 @@ L["SHOUT_PARTIAL_COLOR_LABEL"] = "Partial color:"
 L["SHOUT_NOBODY_WANTS"] = "Nobody in your party wants it."
 L["SHOUT_ALL_COVERED"] = "All %d in your party covered."
 -- How many are missing it, out of how many.
-L["SHOUT_MISSING_OF"] = "%d of %d missing it:"
+L["SHOUT_MISSING_OF"] = "{missing} of {total} missing it:"
 L["SHOUT_HINT_SHOUT"] = "Shout"
 L["SHOUT_HINT_ASK"] = "Ask for it in party chat"
 L["SHOUT_HINT_SWAP"] = "Swap shout"
 L["SHOUT_HINT_SETTINGS"] = "Shout Bar Settings"
 -- Party chat. The shout, how many have it, how many are in the party.
-L["SHOUT_REQUEST"] = "%s please! (%d/%d in party have it)"
+L["SHOUT_REQUEST"] = "{shout} please! ({have}/{total} in party have it)"
 L["SHOUT_PARTIAL_COLOR_TIP"] = "The color a shout icon glows once some of the party has that shout but not all of it. Right-click the swatch to reset it."
 
 -- The Paladin Buffing Bar itself
@@ -1189,7 +1188,7 @@ L["CHECKLIST_EXPAND"] = "Expand"
 L["CHECKLIST_COLLAPSE"] = "Collapse"
 L["CHECKLIST_PET_NOT_SUMMONED"] = "Pet Not Summoned"
 -- The pet section's divider: buffs covered, out of how many.
-L["CHECKLIST_PET_COUNT"] = "Pet (%d/%d)"
+L["CHECKLIST_PET_COUNT"] = "Pet ({have}/{total})"
 L["CHECKLIST_FROM_OTHERS"] = "From Others"
 L["CHECKLIST_FROM_OTHERS_TIP"] = "Above: what you see to yourself. Below: what other raiders cast on you."
 L["CHECKLIST_CLICK_TO_CAST"] = "Click to cast"
@@ -1243,8 +1242,8 @@ L["CHECKLIST_EMPTY_ELIXIR"] = "No elixirs or flasks for this slot in your bags."
 L["CHECKLIST_EMPTY_ENCHANT"] = "No oils, stones or poisons in your bags."
 -- An icon's tooltip. %s in these is one of the nouns above, or an item or
 -- spell; rephrase freely ("Pick: %s") where a noun won't slot in.
-L["CHECKLIST_IN_BAGS_ONE"] = "In your bags: %s, %d charge."
-L["CHECKLIST_IN_BAGS_MANY"] = "In your bags: %s, %d charges."
+L["CHECKLIST_IN_BAGS_ONE"] = "In your bags: {item}, {count} charge."
+L["CHECKLIST_IN_BAGS_MANY"] = "In your bags: {item}, {count} charges."
 L["CHECKLIST_NONE_IN_BAGS"] = "No %s in your bags."
 L["CHECKLIST_RUNNING"] = "Running: %s."
 L["CHECKLIST_NONE_RUNNING"] = "No %s running."
@@ -1264,15 +1263,15 @@ L["CHECKLIST_MISSING"] = "Missing."
 L["CHECKLIST_ON_YOU"] = "On you"
 L["CHECKLIST_ON_PET"] = "On your pet"
 -- CHECKLIST_ON_YOU or _ON_PET, then what is on.
-L["CHECKLIST_ON_WHO"] = "%s: %s"
+L["CHECKLIST_ON_WHO"] = "{who}: {name}"
 -- A state line, then the time left ("On you, 12:04 left.").
-L["CHECKLIST_TIME_LEFT"] = "%s, %s left."
+L["CHECKLIST_TIME_LEFT"] = "{state}, {time} left."
 L["CHECKLIST_STATE"] = "%s."
 L["CHECKLIST_NOT_PICKED"] = "Not the %s you picked."
 L["CHECKLIST_FROM"] = "From %s."
 L["CHECKLIST_USING"] = "Using %s."
 -- The item, then how many are in your bags.
-L["CHECKLIST_USING_COUNT"] = "Using %s (%d in bags)."
+L["CHECKLIST_USING_COUNT"] = "Using {item} ({count} in bags)."
 L["CHECKLIST_WRONG_EDGE"] = "%s won't take on this weapon."
 L["CHECKLIST_OUT_OF"] = "Out of %s."
 L["CHECKLIST_NONE_PICKED"] = "No %s picked."
@@ -1293,7 +1292,7 @@ L["CHECKLIST_HINT_ASK"] = "Ask %s"
 L["CHECKLIST_ASK"] = "%s please!"
 L["CHECKLIST_ASK_PET"] = "%s on my pet please!"
 -- The request, then who it would have gone to.
-L["CHECKLIST_ASK_TO"] = "%s (to %s)"
+L["CHECKLIST_ASK_TO"] = "{request} (to {name})"
 L["CHECKLIST_NOBODY_TO_ASK"] = "Nobody here to ask for %s."
 
 -- Settings > Checklist
