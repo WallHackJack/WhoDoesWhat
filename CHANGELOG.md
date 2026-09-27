@@ -4,6 +4,20 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.7 — 2026-09-27
+
+- WoW Forever: the Raid tab lists your party when you're not in a raid, and
+  shows just you when you're solo. Each row has class, name, level, role (with
+  a tank/healer/dps badge), talent points and zone. Hover a row for a tooltip,
+  or click it for the unit menu.
+- Raid frame role icons stay on top of the health bar on every client. The
+  Anniversary client started drawing the bar over them the same way Forever
+  did.
+- WoW Forever: WhoDoesWhat's options in the unit menu no longer land inside
+  Blizzard's first section.
+- Class, spell and blessing names read exactly as the game client shows them.
+- Shorter, plainer tooltips and settings text.
+
 ## 2.0.6 — 2026-09-26
 
 - WoW Forever: roles are auto-assigned from talents again, for yourself and
