@@ -64,6 +64,7 @@ local Sync = WhoDoesWhat:NewModule("Sync", "AceComm-3.0", "AceEvent-3.0", "AceTi
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate = LibStub("LibDeflate")
 local Locale = select(2, ...).Locale
+local L = select(2, ...).L
 
 -- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
@@ -539,10 +540,8 @@ local function RecordPeerVersion(name, version)
     peerVersions[name] = version
     for _, peer in ipairs(Sync:GetNewerAddonVersions()) do
         if peer.name == name then
-            WhoDoesWhat:Print("|cffff2020You are running WhoDoesWhat v"
-                .. Sync:GetReportedAddonVersion() .. ", but " .. name
-                .. " reports using version " .. version
-                .. ". Update the addon to stay compatible.|r")
+            WhoDoesWhat:Print("|cffff2020" .. L.SYNC_NEWER_VERSION:format(
+                Sync:GetReportedAddonVersion(), name, version) .. "|r")
             break
         end
     end
@@ -1232,8 +1231,7 @@ function Sync:OnCommReceived(prefix, text, distribution, sender)
     if msg.p ~= PROTOCOL then
         if not warnedProtocol then
             warnedProtocol = true
-            WhoDoesWhat:Print(senderKey .. " runs a different WhoDoesWhat sync version;"
-                .. " assignments won't sync with them until versions match.")
+            WhoDoesWhat:Print(L.SYNC_PROTOCOL_MISMATCH:format(senderKey))
         end
         return
     end
@@ -1369,7 +1367,7 @@ end
 
 function Sync:ForceSync()
     if not GroupChannel() then
-        WhoDoesWhat:Print("Sync: you are not in a group.")
+        WhoDoesWhat:Print(L.SYNC_NOT_GROUPED)
         return
     end
     if UnitIsGroupLeader("player") then

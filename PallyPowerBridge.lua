@@ -1,4 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
+local Locale = select(2, ...).Locale
 
 -- Bridge to the PallyPower addon: push our computed buff grid into it, and
 -- eavesdrop on its addon-channel chatter for the log window and read-only
@@ -81,11 +83,11 @@ end
 function WhoDoesWhat:TogglePallyPower()
     local pp = _G.PallyPower
     if not (pp and pp.opt) then
-        self:Print("PallyPower is not installed.")
+        self:Print(L.PP_NOT_INSTALLED)
         return
     end
     if InCombatLockdown() then
-        self:Print("PallyPower cannot be switched on or off during combat.")
+        self:Print(L.PP_TOGGLE_COMBAT)
         return
     end
     local enabled = not pp.opt.enabled
@@ -100,7 +102,7 @@ end
 function WhoDoesWhat:TogglePallyPowerBlessings()
     if not _G.PallyPowerBlessings_Toggle then return end
     if UnitAffectingCombat("player") then
-        self:Print("PallyPower's blessings window cannot be opened during combat.")
+        self:Print(L.PALLYBAR_PP_COMBAT)
         return
     end
     PallyPowerBlessings_Toggle()
@@ -908,13 +910,12 @@ function WhoDoesWhat:SyncToPallyPower()
     local pp = _G.PallyPower
     local paladins = GroupPaladins(self)
     if #paladins == 0 then
-        self:Print("No paladins in the group; nothing to sync to PallyPower.")
+        self:Print(L.PP_SYNC_NO_PALADINS)
         return
     end
     local canFix, blocked = self:CanFixAllPallyPowerAssignments()
     if not canFix then
-        self:Print(blocked .. " has Free Assignment disabled; the complete"
-            .. " PallyPower plan cannot be applied.")
+        self:Print(L.PP_SYNC_BLOCKED:format(blocked))
         return false
     end
 
@@ -1001,27 +1002,27 @@ function WhoDoesWhat:SyncToPallyPower()
         self:RefreshStatusBarsView()
     end)
 
-    local summary = "Synced " .. #paladins .. " paladin(s) to PallyPower: "
-        .. classCount .. " class blessing(s), " .. singleCount .. " individual exception(s)."
-    if roleless > 0 then
-        summary = summary .. " " .. roleless
-            .. " assignment(s) left alone for raiders with no role yet."
+    -- Only printed when something was held back; otherwise it is a log line,
+    -- which stays in English like the rest of the log.
+    local function Summary(S)
+        local text = S.PP_SYNC_SUMMARY:format(#paladins, classCount, singleCount)
+        if roleless > 0 then
+            text = text .. " " .. S.PP_SYNC_ROLELESS:format(roleless)
+        end
+        if skipped > 0 then
+            text = text .. " " .. S.PP_SYNC_SKIPPED:format(skipped)
+        end
+        return text
     end
     if skipped > 0 or roleless > 0 then
-        if skipped > 0 then
-            summary = summary .. " " .. skipped
-                .. " cell(s) skipped (unresolved pet, class, or blessing)."
-        end
-        self:Print(summary)
+        self:Print(Summary(L))
     else
-        self:LogOperation(summary)
+        self:LogOperation(Summary(Locale:Get("enUS")))
     end
 
     -- Their clients reject rows for anyone but the sender without authority.
     if IsInRaid() and not self:IsRaidAssistant() then
-        self:Print("|cffff6060Heads up:|r you are not raid lead/assist, so other"
-            .. " paladins' PallyPower will only accept these if they enabled"
-            .. " Free Assignment.")
+        self:Print("|cffff6060" .. L.PP_HEADS_UP .. "|r " .. L.PP_SYNC_NOT_ASSIST)
     end
     return true
 end
@@ -1117,7 +1118,7 @@ local function DiffTargetInfo(self)
         local role = roleId and self.RolesAndCategories[roleId]
         targets[ShortName(m.name)] = {
             icon = (role and role.icon) or m.classInfo.classIcon,
-            role = role and role.name or (m.classInfo.name .. " (unassigned)"),
+            role = role and role.name or L.PP_CLASS_UNASSIGNED:format(m.classInfo.label),
         }
     end
     local petNames = {}
@@ -1202,7 +1203,7 @@ local function PushPlayerBuffs(self, playerName, explicit)
         return false
     end
     if not playerName or IsFakeName(playerName) then
-        return Refuse("That simulated player cannot be sent to PallyPower.")
+        return Refuse(L.PP_REFUSE_SIMULATED)
     end
     if not explicit
         and (self.db.profile.settings.pallyBuffSource or "wdw") ~= "wdw" then
@@ -1212,8 +1213,7 @@ local function PushPlayerBuffs(self, playerName, explicit)
     if explicit then
         local canFix, blocked = self:CanFixPlayerBuffsInPallyPower(playerName)
         if not canFix then
-            return Refuse(blocked .. " has Free Assignment disabled; this row"
-                .. " cannot be fixed.")
+            return Refuse(L.PP_REFUSE_BLOCKED:format(blocked))
         end
     end
 
@@ -1237,7 +1237,7 @@ local function PushPlayerBuffs(self, playerName, explicit)
         end
     end
     if not member or not classId or not wireTarget then
-        return Refuse("That target cannot be represented in PallyPower.")
+        return Refuse(L.PP_REFUSE_TARGET)
     end
     local xshort = wireTarget
     local currentAssignments, currentNormal = CurrentPallyPowerBoard()

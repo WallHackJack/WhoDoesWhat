@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 local customizeFrame = nil
 
@@ -30,7 +31,7 @@ end
 
 -- Dropdown display text for a class: class-colored name.
 local function ClassText(classInfo)
-    return "|cff" .. classInfo.colorHex .. classInfo.name .. "|r"
+    return "|cff" .. classInfo.colorHex .. classInfo.label .. "|r"
 end
 
 
@@ -41,7 +42,7 @@ end
 local function UpdateCustomStatus(f)
     if f.isRaidRole then
         f.customStatus:SetText("|T" .. WhoDoesWhat.WARNING_ICON .. ":14:14:0:0|t"
-            .. " |cffff9933Changes affect the entire raid|r")
+            .. " |cffff9933" .. L.EDITOR_AFFECTS_RAID .. "|r")
     else
         f.customStatus:SetText("")
     end
@@ -346,7 +347,7 @@ end
 local function ReadName(f)
     local name = strtrim(f.nameEdit:GetText() or "")
     if name == "" then
-        WhoDoesWhat:Print("Enter a name for the role before saving.")
+        WhoDoesWhat:Print(L.EDITOR_NEEDS_NAME)
         f.nameEdit:SetFocus()
         return nil
     end
@@ -365,7 +366,7 @@ local function OnApply(f)
         local name = ReadName(f)
         if not name then return end
         if not f.selectedClass then
-            WhoDoesWhat:Print("Select a class for the new role before saving.")
+            WhoDoesWhat:Print(L.EDITOR_NEEDS_CLASS)
             return
         end
         local role = WhoDoesWhat:CreateCustomRole(name, f.selectedClass,
@@ -472,8 +473,7 @@ local function EnsureCustomizeFrame()
     iconHighlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
     iconHighlight:SetBlendMode("ADD")
     iconBtn:SetScript("OnClick", function() ToggleIconPicker(f) end)
-    UI.AddTooltip(iconBtn, "Role icon",
-        "Click to pick a different one. Nothing picked means the class icon.")
+    UI.AddTooltip(iconBtn, L.EDITOR_ICON, L.EDITOR_ICON_TIP)
     iconBtn:Hide()
     f.iconBtn = iconBtn
 
@@ -564,7 +564,7 @@ local function EnsureCustomizeFrame()
     f.listTopBase = top + CLASS_ICON_SIZE + 36
     local buffHeading = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     buffHeading:SetPoint("TOPLEFT", 16, -f.headingTop)
-    buffHeading:SetText("Paladin Buff Priority")
+    buffHeading:SetText(L.EDITOR_BUFF_PRIORITY)
     f.buffHeading = buffHeading
 
     -- Buff priority rows: number, icon, spell name, and a drag grip, with an
@@ -583,7 +583,7 @@ local function EnsureCustomizeFrame()
     dividerLabel:SetPoint("TOP")
     dividerLabel:SetPoint("BOTTOM")
     dividerLabel:SetJustifyH("CENTER")
-    dividerLabel:SetText("Never assigned")
+    dividerLabel:SetText(L.EDITOR_NEVER_ASSIGNED)
     dividerLabel:SetTextColor(0.55, 0.55, 0.55)
     local dividerLeft = divider:CreateTexture(nil, "BACKGROUND")
     dividerLeft:SetHeight(8)
@@ -771,19 +771,19 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
     f.classDropdown:Hide()
 
     if raidMode then
-        f:SetTitle(f.identityEditable and "Editing Shared Custom Role"
-            or ("Overriding " .. (isCategory and "Category" or "Role")))
+        f:SetTitle(f.identityEditable and L.EDITOR_TITLE_SHARED
+            or (isCategory and L.EDITOR_TITLE_OVERRIDE_CATEGORY or L.EDITOR_TITLE_OVERRIDE_ROLE))
     elseif role.isCustom then
-        f:SetTitle("Editing Custom Role")
+        f:SetTitle(L.EDITOR_TITLE_CUSTOM)
     elseif isCategory then
-        f:SetTitle("Category Defaults (" .. #raw.allSubRoles .. " roles)")
+        f:SetTitle(L.EDITOR_TITLE_CATEGORY:format(#raw.allSubRoles))
     else
-        f:SetTitle("Role Defaults")
+        f:SetTitle(L.EDITOR_TITLE_DEFAULTS)
     end
 
     -- Big class icon + class-colored class name
     f.classIcon:SetTexture(classInfo.classIcon)
-    f.className:SetText("|cff" .. classInfo.colorHex .. classInfo.name .. "|r")
+    f.className:SetText("|cff" .. classInfo.colorHex .. classInfo.label .. "|r")
     f.className:Show()
 
     -- A category has no group role of its own; take it from the sub-role its
@@ -849,12 +849,12 @@ function WhoDoesWhat:OpenCustomizer(roleId, raidMode)
     f.secondaryBtn:ClearAllPoints()
     if f.isBuiltIn then
         f.secondaryBtn:SetPoint("BOTTOMRIGHT", -12, 12)
-        f.secondaryBtn:SetText("Create a Copy")
+        f.secondaryBtn:SetText(L.EDITOR_COPY)
         f.secondaryBtn:SetWidth(110)
     else
         f.secondaryBtn:SetPoint("RIGHT", f.applyBtn, "LEFT", -8, 0)
-        f.applyBtn:SetText("Save")
-        f.secondaryBtn:SetText(raidMode and "Remove" or "Delete")
+        f.applyBtn:SetText(L.EDITOR_SAVE)
+        f.secondaryBtn:SetText(raidMode and L.ROLES_REMOVE or L.EDITOR_DELETE)
         f.secondaryBtn:SetWidth(raidMode and 80 or 70)
     end
 
@@ -883,7 +883,7 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     f.currentRoleId = nil
     f.selectedClass = nil
 
-    f:SetTitle("New Custom Role")
+    f:SetTitle(L.EDITOR_TITLE_NEW)
     f.classIcon:SetTexture(QUESTION_MARK_ICON)
     -- The icon slot is live from the start: with no class picked the grid still
     -- offers the group-role icons, and the class's own are added to it as soon
@@ -897,7 +897,7 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     f.roleName:Hide()
 
     UIDropDownMenu_SetSelectedValue(f.classDropdown, nil)
-    UIDropDownMenu_SetText(f.classDropdown, "Select class...")
+    UIDropDownMenu_SetText(f.classDropdown, L.EDITOR_SELECT_CLASS)
     f.classDropdown:Show()
 
     f.nameEdit:SetText("")
@@ -913,10 +913,10 @@ function WhoDoesWhat:OpenCustomizerForNewRole()
     RenderBuffRows(f)
 
     f.applyBtn:Show()
-    f.applyBtn:SetText("Save")
+    f.applyBtn:SetText(L.EDITOR_SAVE)
     f.secondaryBtn:ClearAllPoints()
     f.secondaryBtn:SetPoint("RIGHT", f.applyBtn, "LEFT", -8, 0)
-    f.secondaryBtn:SetText("Cancel")
+    f.secondaryBtn:SetText(L.COMMON_CANCEL)
     f.secondaryBtn:SetWidth(70)
 
     UpdateCustomStatus(f)

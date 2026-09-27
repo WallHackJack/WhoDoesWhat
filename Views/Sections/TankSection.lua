@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Tank Assignments section: one row per marked tank, auto-managed from the
 -- roster (EnsureAutoRows) -- no Add, the player cell is a fixed label,
@@ -20,10 +21,7 @@ local K = WhoDoesWhat.SectionKit
 local GetEntries = A.GetEntries
 local EntryHasJob = A.EntryHasJob
 local PlayerTextWithRole = A.PlayerTextWithRole
-local PlayerEntriesText = A.PlayerEntriesText
 local TargetText = A.TargetText
-local TargetChatText = A.TargetChatText
-local TargetPlainText = A.TargetPlainText
 local HasMarkerValue = A.HasMarkerValue
 local MarkersRichText = A.MarkersRichText
 local MarkerMarkup = A.MarkerMarkup
@@ -100,8 +98,8 @@ local function CreateRow(f, index)
             AddToggle(m.index, MarkerMarkup(m.index, 14) .. " " .. m.name)
         end
         UI.AddDropdownDivider(level)
-        AddToggle("all", "Everything else")
-        AddToggle("custom", "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom...")
+        AddToggle("all", L.MARKER_ALL)
+        AddToggle("custom", "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t " .. L.MARKER_CUSTOM_MENU)
     end)
     row.markerDD = markerDD
 
@@ -112,8 +110,8 @@ local function CreateRow(f, index)
         local entry = Entry()
         if entry then WhoDoesWhat:ClearTankMarkers(entry.player) end
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear this tank assignment")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.TANK_CLEAR_ROW)
     row.clearBtn = clearBtn
 
     -- Mail sits immediately left of the row [x], matching the CC rows.
@@ -121,8 +119,8 @@ local function CreateRow(f, index)
         local entry = Entry()
         if entry and entry.player then
             return entry.player,
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetChatText),
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
+                A.SectionWhisper(SECTION, entry.player),
+                A.SectionWhisperDisplay(SECTION, entry.player)
         end
     end)
     row.mailBtn:SetPoint("RIGHT", clearBtn, "LEFT", -2, 0)
@@ -198,8 +196,8 @@ function Refresh(f) -- forward declared above
     end
 
     state.emptyHint:SetText(editable
-        and "No tanks marked yet - assign tank roles from the unit right-click menu."
-        or "No tank assignments yet.")
+        and L.TANK_EMPTY_EDITABLE
+        or L.TANK_EMPTY)
     state.emptyHint:SetShown(#visible == 0)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(hasAssignments)
@@ -223,21 +221,18 @@ local function Build(f)
     -- shared clear-all confirmation. Scanned tank rows repopulate on refresh.
     local clearBtn = UI.CreateCloseButton(chrome.box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
-        StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
-        StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
-            function()
-                A.ClearTankAssignments()
-                A.ReconcileRosterAssignments()
-                WhoDoesWhat:RefreshMainAssignmentsView()
-            end)
+        K.ConfirmClear(L.TANK_CLEAR_PROMPT, function()
+            A.ClearTankAssignments()
+            A.ReconcileRosterAssignments()
+            WhoDoesWhat:RefreshMainAssignmentsView()
+        end)
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear tank assignments",
-        "Clear every tank's marker dropdown back to default (asks first).")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.TANK_CLEAR_ALL, L.TANK_CLEAR_ALL_TIP)
     table.insert(chrome.headerChain, 1, clearBtn)
 
     local hint = UI.CreateEmptyHint(chrome.box)
-    hint:SetText("No tanks marked yet - assign tank roles from the unit right-click menu.")
+    hint:SetText(L.TANK_EMPTY_EDITABLE)
 
     f.tankSection = {
         box = chrome.box,

@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Who may edit the shared assignments board. Raid-only: parties and solo play
 -- are always open (a 5-man doesn't need bureaucracy). The RAID LEADER owns the
@@ -102,8 +103,8 @@ end
 function WhoDoesWhat:PermissionsOpenReason()
     if not IsInRaid() then return nil end
     local _, instanceType = IsInInstance()
-    if instanceType == "pvp" then return "battleground" end
-    if not self:LeaderRunsAddon() then return "leader has no WhoDoesWhat" end
+    if instanceType == "pvp" then return L.PERM_OPEN_BATTLEGROUND end
+    if not self:LeaderRunsAddon() then return L.PERM_OPEN_NO_ADDON end
     return nil
 end
 
@@ -168,23 +169,24 @@ function WhoDoesWhat:CanEditRoleOf(name)
 end
 
 -- Human-readable current rule, for the picker button, the read-only note and
--- the denial print. Plain text (no escapes) so it can go to group chat too.
-function WhoDoesWhat:PermissionModeLabel()
+-- the denial print. Plain text (no escapes) so it can go to group chat too, in
+-- `strings` (ChatLocale) rather than the player's own Language.
+function WhoDoesWhat:PermissionModeLabel(strings)
+    strings = strings or L
     local perms = self.db.profile.permissions
-    if perms.mode == "leader" then return "leader only" end
+    if perms.mode == "leader" then return strings.PERM_MODE_LEADER end
     if perms.mode == "assistant" then
-        return "leader + " .. (perms.assistant or "?")
+        return strings.PERM_MODE_ASSISTANT:format(perms.assistant or "?")
     end
-    if perms.mode == "everyone" then return "everyone" end
-    return "leader + assistants"
+    if perms.mode == "everyone" then return strings.PERM_MODE_EVERYONE end
+    return strings.PERM_MODE_ASSISTANTS
 end
 
 -- Gate for the Set* APIs: true when the local player may edit, otherwise
 -- explains why not in chat and returns false.
 function WhoDoesWhat:RequireEditPermission()
     if self:CanEditAssignments() then return true end
-    self:Print("You can't edit assignments: the raid leader has editing set to "
-        .. self:PermissionModeLabel() .. ".")
+    self:Print(L.PERM_DENIED:format(self:PermissionModeLabel()))
     return false
 end
 
@@ -194,7 +196,7 @@ end
 -- other board edit and every client's UI follows.
 function WhoDoesWhat:SetPermissionMode(mode, assistant)
     if IsInRaid() and not UnitIsGroupLeader("player") then
-        self:Print("Only the raid leader can change editing permissions.")
+        self:Print(L.PERM_LEADER_ONLY_CHANGE)
         return
     end
     local perms = self.db.profile.permissions
@@ -204,8 +206,9 @@ function WhoDoesWhat:SetPermissionMode(mode, assistant)
     perms.mode = mode
     perms.assistant = assistant or false
     self:LogOperation("Editing permissions: " .. self:PermissionModeLabel() .. ".")
-    self:SendGroupMessage("[WhoDoesWhat] Assignment editing is now: "
-        .. self:PermissionModeLabel() .. ".")
+    local M = self:ChatLocale()
+    self:SendGroupMessage(M.CHAT_TAGGED:format(
+        M.PERM_ANNOUNCE:format(self:PermissionModeLabel(M))))
     self:RefreshMainAssignmentsView()
     self:RefreshMembersView()
 end

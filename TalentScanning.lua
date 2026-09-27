@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- LibClassicInspector caches other players' talents from two sources, and only
 -- these two: inspecting people who are in range, and broadcasts from players
@@ -628,7 +629,7 @@ local function RescanUtilityTalents(self, wantedClasses, label)
     end
 
     if total == 0 then
-        self:Print("Rescan: no " .. label .. "s in the group.")
+        self:Print(L.RESCAN_NO_PROVIDERS)
     else
         self:LogOperation(string.format(
             "Rescanning %d %s%s (%d in range, refreshing now).",
@@ -877,7 +878,7 @@ if Inspector then
         WhoDoesWhat:OnTalentsReady(...)
     end)
 else
-    WhoDoesWhat:Print("LibClassicInspector did not load - talent syncing is unavailable on this client.")
+    WhoDoesWhat:Print(L.TALENTS_UNAVAILABLE)
 end
 
 -- Stable player key for a unit: "Name" same-realm, "Name-Realm" foreign.

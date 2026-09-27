@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- About, contact, and release notes. WoW cannot open arbitrary web links, so
 -- link buttons place their value in one copy-ready field instead.
@@ -20,14 +21,14 @@ local NOTES_W = FRAME_W - MARGIN * 2 - 24 - WELL_PAD * 2 - SCROLLBAR_W
 local RELEASES = WhoDoesWhat.Releases
 
 local LINKS = {
-    { label = "Video", value = "https://www.youtube.com/watch?v=g-M2CQ5YFB4" },
-    { label = "CurseForge", value = "https://www.curseforge.com/wow/addons/whodoeswhat" },
-    { label = "GitHub", value = "https://github.com/WallHackJack/WhoDoesWhat" },
-    { label = "Donate", value = "https://ko-fi.com/wallhackjack" },
+    { labelKey = "ABOUT_LINK_VIDEO", value = "https://www.youtube.com/watch?v=g-M2CQ5YFB4" },
+    { labelKey = "ABOUT_LINK_CURSEFORGE", value = "https://www.curseforge.com/wow/addons/whodoeswhat" },
+    { labelKey = "ABOUT_LINK_GITHUB", value = "https://github.com/WallHackJack/WhoDoesWhat" },
+    { labelKey = "ABOUT_LINK_DONATE", value = "https://ko-fi.com/wallhackjack" },
 }
 
 local function SetCopyValue(f, label, value)
-    f.copyLabel:SetText(label .. ":")
+    f.copyLabel:SetText(L.ABOUT_COPY_LABEL:format(label))
     f.copyEdit:SetText(value)
     f.copyEdit:SetFocus()
     f.copyEdit:HighlightText()
@@ -80,14 +81,13 @@ function WhoDoesWhat:BuildAboutPage(page)
 
     local latest = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     latest:SetPoint("TOPLEFT", installed, "BOTTOMLEFT", 0, -5)
-    latest:SetText("Latest release notes: v" .. RELEASES[1].version
-        .. " (" .. RELEASES[1].date .. ")")
+    latest:SetText(L.ABOUT_LATEST:format(RELEASES[1].version, RELEASES[1].date))
 
     local tagline = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     tagline:SetPoint("TOPLEFT", latest, "BOTTOMLEFT", 0, -8)
     tagline:SetPoint("RIGHT", f, "RIGHT", -MARGIN, 0)
     tagline:SetJustifyH("LEFT")
-    tagline:SetText("Raid roles and assignments, with instant fixes for Paladin buff assignments.")
+    tagline:SetText(L.ABOUT_TAGLINE)
 
     local linksBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     linksBox:SetPoint("TOPLEFT", MARGIN, -(y + 88))
@@ -97,11 +97,11 @@ function WhoDoesWhat:BuildAboutPage(page)
 
     local linksTitle = linksBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     linksTitle:SetPoint("TOPLEFT", 10, -9)
-    linksTitle:SetText("Links & Contact")
+    linksTitle:SetText(L.ABOUT_LINKS)
 
     local instruction = linksBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     instruction:SetPoint("LEFT", linksTitle, "RIGHT", 10, 0)
-    instruction:SetText("Choose a link, then press Ctrl+C.")
+    instruction:SetText(L.ABOUT_LINKS_HOW)
     instruction:SetTextColor(0.65, 0.65, 0.65)
 
     local prior
@@ -115,9 +115,9 @@ function WhoDoesWhat:BuildAboutPage(page)
         else
             button:SetPoint("TOPLEFT", 10, -32)
         end
-        button:SetText(selected.label)
+        button:SetText(L[selected.labelKey])
         button:SetScript("OnClick", function()
-            SetCopyValue(f, selected.label, selected.value)
+            SetCopyValue(f, L[selected.labelKey], selected.value)
         end)
         prior = button
     end
@@ -141,12 +141,12 @@ function WhoDoesWhat:BuildAboutPage(page)
 
     local contact = linksBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     contact:SetPoint("BOTTOMLEFT", 12, 10)
-    contact:SetText("Questions or feedback? Message |cff40c7ebwallhackjack|r on Discord.")
+    contact:SetText(L.ABOUT_CONTACT)
 
     local copyName = CreateFrame("Button", nil, linksBox, "UIPanelButtonTemplate")
     copyName:SetSize(82, 18)
     copyName:SetPoint("BOTTOMRIGHT", -10, 7)
-    copyName:SetText("Copy name")
+    copyName:SetText(L.ABOUT_COPY_NAME)
     copyName:SetScript("OnClick", function()
         SetCopyValue(f, "Discord", "wallhackjack")
     end)
@@ -158,11 +158,11 @@ function WhoDoesWhat:BuildAboutPage(page)
 
     local updatesTitle = updatesBox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     updatesTitle:SetPoint("TOPLEFT", 10, -11)
-    updatesTitle:SetText("Update Log")
+    updatesTitle:SetText(L.ABOUT_UPDATE_LOG)
 
     local versionLabel = updatesBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     versionLabel:SetPoint("LEFT", updatesTitle, "RIGHT", 18, 0)
-    versionLabel:SetText("Version:")
+    versionLabel:SetText(L.ABOUT_VERSION)
 
     local releaseDD = UI.CreateMenuDropdown(updatesBox, "WhoDoesWhatAboutReleaseDD", 82)
     releaseDD:SetPoint("LEFT", versionLabel, "RIGHT", -11, -2)
@@ -207,13 +207,13 @@ function WhoDoesWhat:BuildAboutPage(page)
     releaseNotes:SetJustifyV("TOP")
     f.releaseNotes = releaseNotes
 
-    SetCopyValue(f, LINKS[1].label, LINKS[1].value)
+    SetCopyValue(f, L[LINKS[1].labelKey], LINKS[1].value)
     copyEdit:ClearFocus()
     SelectRelease(f, RELEASES[1])
 
     f:SetScript("OnShow", function(self)
-        self.installedVersion:SetText("Installed version: v"
-            .. tostring(WhoDoesWhat.VERSION or "?"))
+        self.installedVersion:SetText(L.ABOUT_INSTALLED:format(
+            tostring(WhoDoesWhat.VERSION or "?")))
         -- Re-measure the notes now the page is up: a wrapped string built
         -- while the frame was hidden can report no height, which would leave
         -- the scroll child too short to reach the bottom of a long release.

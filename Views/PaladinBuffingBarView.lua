@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Developer timing (Profiling.lua); both are no-ops unless /wdw perf on.
 local PBegin, PEnd = WhoDoesWhat.Profiling.Begin, WhoDoesWhat.Profiling.End
@@ -660,7 +661,7 @@ local function UpdatePlayerStatus(p, member, job, unit)
     -- the row casts at `unit`, never at this text.
     local owner = member.isPet and member.owner or member.name
     local short = WhoDoesWhat:ShortName(owner)
-    p.name:SetText(member.isPet and (short .. "'s Pet") or short)
+    p.name:SetText(member.isPet and L.PET_OF:format(short) or short)
     p.nameColor = (member.classInfo or job.classInfo).colorRGB
     UpdatePlayerAura(p)
     return member.isGreater and greater or normal, normal
@@ -1038,7 +1039,7 @@ local function CreateButton(index)
 
     local clickHint = playerMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     clickHint:SetPoint("TOPLEFT", headerBg, "TOPLEFT", 4, -2)
-    clickHint:SetText("Left-click = shown buff\nRight-click = Lesser")
+    clickHint:SetText(L.PALLYBAR_PLAYER_HINT)
     clickHint:SetTextColor(0.4, 0.7, 1)
     clickHint:SetJustifyH("LEFT")
 
@@ -1144,17 +1145,14 @@ local function CreatePallyPowerButton()
 
     UI.AddTooltip(btn, function(self)
         local unassigned = self.unassignedCount or 0
-        GameTooltip:SetText("PallyPower Blessings", unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine(unassigned .. " active raid class"
-            .. (unassigned == 1 and " has" or "es have")
-            .. " no blessing assignment for this paladin."
-            .. " Pets and Non-raiders are excluded.",
+        GameTooltip:SetText(L.PALLYBAR_PP_BLESSINGS, unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:AddLine((unassigned == 1 and L.PALLYBAR_PP_UNASSIGNED_ONE
+            or L.PALLYBAR_PP_UNASSIGNED_MANY):format(unassigned),
             0.8, 0.8, 0.8, true)
         if _G.PallyPower and type(_G.PallyPowerBlessings_Toggle) == "function" then
-            GameTooltip:AddLine("Click to open /pp blessings.", 0.4, 0.7, 1, true)
+            GameTooltip:AddLine(L.PALLYBAR_PP_OPEN, 0.4, 0.7, 1, true)
         else
-            GameTooltip:AddLine("PallyPower is not installed; assignments are"
-                .. " coming from observed PallyPower traffic.", 1, 0.82, 0, true)
+            GameTooltip:AddLine(L.PALLYBAR_PP_OBSERVED, 1, 0.82, 0, true)
         end
         return true
     end)
@@ -1162,9 +1160,9 @@ local function CreatePallyPowerButton()
     btn:SetScript("OnClick", function()
         if not (_G.PallyPower
             and type(_G.PallyPowerBlessings_Toggle) == "function") then
-            WhoDoesWhat:Print("PallyPower is not installed; its Blessings window is unavailable.")
+            WhoDoesWhat:Print(L.PALLYBAR_PP_NOT_INSTALLED)
         elseif InCombatLockdown() then
-            WhoDoesWhat:Print("PallyPower Blessings cannot be opened during combat.")
+            WhoDoesWhat:Print(L.PALLYBAR_PP_COMBAT)
         else
             _G.PallyPowerBlessings_Toggle()
         end
@@ -1662,7 +1660,7 @@ local function CreateAuraMenu(btn)
     -- two-line one.
     local clickHint = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     clickHint:SetPoint("LEFT", headerBg, "LEFT", AURA_PAD, 0)
-    clickHint:SetText("Left-click = Swap + Cast")
+    clickHint:SetText(L.PALLYBAR_AURA_HINT)
     clickHint:SetTextColor(0.4, 0.7, 1)
     clickHint:SetJustifyH("LEFT")
 
@@ -1733,7 +1731,7 @@ local function CreateAuraOption(menu, index)
             GameTooltip:SetHyperlink("spell:" .. self.spellId)
         end
         if menu.owner.activeName == self.aura.name then
-            GameTooltip:AddLine("Running.", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.PALLYBAR_RUNNING, 0.3, 1, 0.3)
         end
         return true
     end)
@@ -1783,8 +1781,8 @@ end
 local function ConfigureAuraMenu(btn)
     local menu = btn.auraMenu
     local rows = {
-        { label = "Auras", auras = {} },
-        { label = "Resistances", auras = {} },
+        { labelKey = "PALLYBAR_AURAS", auras = {} },
+        { labelKey = "PALLYBAR_RESISTANCES", auras = {} },
     }
     for i, aura in ipairs(btn.auras) do
         local row = rows[aura.resist and 2 or 1]
@@ -1803,7 +1801,7 @@ local function ConfigureAuraMenu(btn)
             rowCount = rowCount + 1
             if rowCount > 1 then y = y + AURA_MENU_ROW_GAP end
             local label = menu.labels[rowCount] or CreateAuraMenuLabel(menu, rowCount)
-            label:SetText(row.label)
+            label:SetText(L[row.labelKey])
             label:ClearAllPoints()
             label:SetPoint("TOPLEFT", menu, "TOPLEFT", INSET + AURA_PAD, -y)
             label:Show()
@@ -1950,20 +1948,19 @@ local function CreateRighteousFuryButton()
     btn.FillTooltip = function(self)
         GameTooltip:SetText(RIGHTEOUS_FURY.name, 1, 1, 1)
         if not self.active then
-            GameTooltip:AddLine("Not active - your threat is missing its"
-                .. " biggest multiplier.", 1, 0.3, 0.3, true)
+            GameTooltip:AddLine(L.PALLYBAR_RF_INACTIVE, 1, 0.3, 0.3, true)
         elseif not self.remaining then
-            GameTooltip:AddLine("Active.", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.GRID_ACTIVE, 0.3, 1, 0.3)
         else
             local minutes = math.floor(self.remaining / 60)
             local expiring = self.remaining < RIGHTEOUS_FURY_WARN
-            GameTooltip:AddLine(string.format("%d:%02d remaining.", minutes,
-                math.floor(self.remaining - minutes * 60)),
+            GameTooltip:AddLine(L.GRID_REMAINING:format(string.format("%d:%02d", minutes,
+                math.floor(self.remaining - minutes * 60))),
                 expiring and 1 or 0.3, expiring and 0.82 or 1,
                 expiring and 0.2 or 0.3)
         end
-        GameTooltip:AddLine("Left-click to refresh it.", 0.4, 0.7, 1)
-        GameTooltip:AddLine("Shown because you hold a tank role.", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(L.PALLYBAR_RF_REFRESH, 0.4, 0.7, 1)
+        GameTooltip:AddLine(L.PALLYBAR_RF_WHY, 0.7, 0.7, 0.7)
     end
     -- Hooked so the template's secure _onenter dispatch survives.
     btn:HookScript("OnEnter", ShowBarTooltip)
@@ -2045,7 +2042,7 @@ local function EnsureBar()
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
-    titleText:SetText("Paladin Bar")
+    titleText:SetText(L.PALLYBAR_TITLE)
     -- Kept so a column can drop a couple of points off this same face and the
     -- row can put it straight back.
     bar.titleFont, bar.titleFontSize, bar.titleFontFlags = titleText:GetFont()
@@ -2070,7 +2067,7 @@ local function EnsureBar()
         -- the screen next to whatever else the paladin runs, so its tooltip is
         -- the one place that can say whose it is.
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. "WhoDoesWhat Paladin Bar", 1, 1, 1)
+            .. L.PALLYBAR_TOOLTIP_TITLE, 1, 1, 1)
         -- Test mode renders somebody else's jobs, and everything downstream
         -- follows them -- which class buttons appear, and whether the Righteous
         -- Fury button does, since that reads the RENDERED paladin's tank role.
@@ -2080,9 +2077,8 @@ local function EnsureBar()
         if WhoDoesWhat.db.profile.settings.buffingBarTestMode then
             local previewing = WhoDoesWhat:GetBuffingBarTestPaladin()
             GameTooltip:AddLine("|T" .. WhoDoesWhat.WARNING_ICON .. ":14:14:0:0|t"
-                .. " Previewing Bar for: "
-                .. (previewing and WhoDoesWhat:DisplayName(previewing)
-                    or "nobody"),
+                .. " " .. L.PALLYBAR_PREVIEWING:format(previewing
+                    and WhoDoesWhat:DisplayName(previewing) or L.PALLYBAR_NOBODY),
                 1, 0.25, 0.25, true)
         end
         -- Where the buffing data comes from is a fact about a bar that is
@@ -2090,35 +2086,32 @@ local function EnsureBar()
         -- instead -- one line, not two contradicting each other.
         local standingDown = WhoDoesWhat:PallyPowerIsEnabled()
         if standingDown then
-            GameTooltip:AddLine("PallyPower is switched on, so this bar has"
-                .. " stood down to stay out of its way.", 1, 0.25, 0.25, true)
+            GameTooltip:AddLine(L.PALLYBAR_STOOD_DOWN, 1, 0.25, 0.25, true)
         else
             GameTooltip:AddLine(
                 WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
-                    and "Buffing data is powered by PallyPower assignments."
-                    or "Buffing data is powered by WDW.",
+                    and L.PALLYBAR_DATA_PP
+                    or L.PALLYBAR_DATA_WDW,
                 0.6, 0.6, 0.6, true)
         end
         GameTooltip:AddLine(" ")
-        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
+        UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
         -- The switch, and then a gap: it belongs with the move as something
         -- that acts on the bar itself, not with the two that open a window.
         -- It names the RESULT of the click rather than the mechanism, and
         -- colours it accordingly, so there is no working out which way the
         -- switch currently sits before pressing it.
         if WhoDoesWhat:PallyPowerInstalled() then
-            local label, r, g, b = "Disable for PP", 1, 0.3, 0.3
+            local label, r, g, b = L.PALLYBAR_DISABLE_FOR_PP, 1, 0.3, 0.3
             if standingDown then
-                label, r, g, b = "Enable WhoDoesWhat", 0.3, 1, 0.3
+                label, r, g, b = L.PALLYBAR_ENABLE_WDW, 0.3, 1, 0.3
             end
-            UI.AddTooltipHint(GameTooltip, "Alt-Right-Click:", label,
+            UI.AddTooltipHint(GameTooltip, L.HINT_ALT_RIGHT_CLICK, label,
                 r, g, b)
             GameTooltip:AddLine(" ")
         end
-        UI.AddTooltipHint(GameTooltip, "Shift-Left-Click:",
-            "Buffing Grid")
-        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:",
-            "Paladin Bar Settings")
+        UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_LEFT_CLICK, L.MINIMAP_BUFFING_GRID)
+        UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.PALLYBAR_SETTINGS)
     end
     title:SetScript("OnEnter", ShowBarTooltip)
     title:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2159,7 +2152,7 @@ local function EnsureBar()
     noPaladinIcon:SetTexture(MISSING_ICON)
     noPaladin.tooltipAnchor = bar
     noPaladin.FillTooltip = function()
-        GameTooltip:SetText("No Paladin selected for testing.", 1, 1, 1)
+        GameTooltip:SetText(L.PALLYBAR_NO_TEST_PALADIN, 1, 1, 1)
     end
     noPaladin:SetScript("OnEnter", ShowBarTooltip)
     noPaladin:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2377,7 +2370,7 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
     -- thinner in PP mode. Sizing the token to the strip instead of the strip to
     -- the token keeps every column exactly one icon wide whatever it says --
     -- one point down is as far as that has to go, and two was hard to read.
-    bar.titleText:SetText(vertical and sourceLabel or "Paladin Bar")
+    bar.titleText:SetText(vertical and sourceLabel or L.PALLYBAR_TITLE)
     bar.sourceText:SetText(vertical and "" or sourceLabel)
     -- Red is the whole tell in the collapsed state: the strip is all that's
     -- left of the bar, so it has to carry "this is off on purpose".
@@ -2525,9 +2518,9 @@ function WhoDoesWhat:RefreshPaladinBuffingBar()
         -- rather than wrapping into a column one word wide. An empty bar means
         -- something different once completed classes are being hidden: the work
         -- is done, not missing.
-        bar.hint:SetText((hidden > 0 and "All assigned blessings are up.")
-            or (paladin and (paladin .. " has no assigned blessings."))
-            or "No Paladin selected for testing.")
+        bar.hint:SetText((hidden > 0 and L.PALLYBAR_ALL_UP)
+            or (paladin and L.PALLYBAR_NO_BLESSINGS:format(paladin))
+            or L.PALLYBAR_NO_TEST_PALADIN)
         bar:SetSize(200, CONTENT_TOP + 18 + INSET)
     elseif vertical then
         -- Exactly one icon wide, with nothing left to pad it out past them: no

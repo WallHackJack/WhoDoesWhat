@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Custom Roles section: every role this raid has changed, and the only place a
 -- blessing order deviates from the defaults.
@@ -52,8 +53,6 @@ local addCustomRoleMenu
 -- SectionKit's clear-section dialog.
 StaticPopupDialogs["WHODOESWHAT_REMOVE_CUSTOM_ROLE"] = {
     text = "%s",
-    button1 = "Remove",
-    button2 = "Cancel",
     OnAccept = function(self) self.data() end,
     timeout = 0,
     hideOnEscape = true,
@@ -113,8 +112,9 @@ local function RoleName(display)
         and ("|cff" .. display.classInfo.colorHex .. display.name .. "|r")
         or display.name
     if not display.override then return name end
-    return name .. " |cff909090(default"
-        .. (display.subRoles and (" x" .. display.subRoles) or "") .. ")|r"
+    return name .. " |cff909090" .. (display.subRoles
+        and L.ROLES_DEFAULT_CATEGORY_TAG:format(display.subRoles)
+        or L.ROLES_DEFAULT_TAG) .. "|r"
 end
 
 -- The row's detail column: just the group role, since the class is already
@@ -126,7 +126,10 @@ local function RoleDetail(display)
         .. (meta and meta.name or "?")
 end
 
+-- The dialog's buttons are named here, once the player's Language is known.
 local function ConfirmRemoval(message, Remove)
+    local dialog = StaticPopupDialogs["WHODOESWHAT_REMOVE_CUSTOM_ROLE"]
+    dialog.button1, dialog.button2 = L.ROLES_REMOVE, L.COMMON_CANCEL
     StaticPopup_Show("WHODOESWHAT_REMOVE_CUSTOM_ROLE", message, nil, Remove)
 end
 
@@ -143,16 +146,13 @@ function WhoDoesWhat:ConfirmRemoveRaidRole(roleId, OnRemoved)
     local name = RoleName(RoleDisplay(def))
     local message
     if not self:IsRaidCustomRoleDef(def) then
-        message = "Stop overriding " .. name .. "?\n\nIt goes back to its"
-            .. " default blessing order. Nobody loses their role."
+        message = L.ROLES_STOP_OVERRIDE_PROMPT:format(name)
     else
         local users = self:PlayersAssignedToRole(roleId)
-        message = "Remove " .. name .. " from the raid?\n\n"
-            .. (#users > 0
-                and (#users .. (#users == 1 and " raider is" or " raiders are")
-                    .. " assigned to it and will be set back to no role. ")
-                or "")
-            .. "Your own copy in the Roles window is not deleted."
+        local held = #users == 0 and L.ROLES_REMOVE_UNUSED_PROMPT
+            or #users == 1 and L.ROLES_REMOVE_HELD_ONE_PROMPT
+            or L.ROLES_REMOVE_HELD_MANY_PROMPT
+        message = held:format(name, #users)
     end
     ConfirmRemoval(message, function()
         self:RemoveRaidCustomRole(roleId)
@@ -180,7 +180,7 @@ local function AddLibraryRoles(level)
             local info = UIDropDownMenu_CreateInfo()
             info.text = WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
                 .. ci.colorHex .. role.name .. "|r"
-                .. (published and " |cff909090(already added)|r" or "")
+                .. (published and (" |cff909090" .. L.ROLES_ALREADY_ADDED .. "|r") or "")
             info.notCheckable = true
             info.disabled = published
             info.func = function()
@@ -214,8 +214,8 @@ local function AddOverridableRoles(level, className)
         local info = UIDropDownMenu_CreateInfo()
         info.text = indent .. WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
             .. classInfo.colorHex .. role.name .. "|r"
-            .. (onBoard and " |cff909090(already added)|r"
-                or (covered and " |cff909090(covered by a category)|r" or ""))
+            .. (onBoard and (" |cff909090" .. L.ROLES_ALREADY_ADDED .. "|r")
+                or (covered and (" |cff909090" .. L.ROLES_COVERED_BY_CATEGORY .. "|r") or ""))
         info.notCheckable = true
         info.disabled = onBoard or covered
         info.func = function()
@@ -234,7 +234,7 @@ end
 local function AddOverrideClasses(level)
     for _, ci in ipairs(WhoDoesWhat.Classes) do
         local info = UIDropDownMenu_CreateInfo()
-        info.text = "|cff" .. ci.colorHex .. ci.name .. "|r"
+        info.text = "|cff" .. ci.colorHex .. ci.label .. "|r"
         info.notCheckable = true
         info.hasArrow = true
         info.keepShownOnClick = true
@@ -248,7 +248,7 @@ local function InitAddCustomRoleMenu(_, level)
     if level == 1 then
         if not AddLibraryRoles(level) then
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "|cff909090You have no custom roles|r"
+            info.text = "|cff909090" .. L.ROLES_NONE_OF_YOUR_OWN .. "|r"
             info.notCheckable = true
             info.disabled = true
             UIDropDownMenu_AddButton(info, level)
@@ -258,7 +258,7 @@ local function InitAddCustomRoleMenu(_, level)
         -- Built-in roles can't be edited in place, so retuning one for the raid
         -- is putting an override of it on this list.
         local override = UIDropDownMenu_CreateInfo()
-        override.text = "Override a default role"
+        override.text = L.ROLES_OVERRIDE_DEFAULT
         override.notCheckable = true
         override.hasArrow = true
         override.keepShownOnClick = true
@@ -266,7 +266,7 @@ local function InitAddCustomRoleMenu(_, level)
         UIDropDownMenu_AddButton(override, level)
 
         local create = UIDropDownMenu_CreateInfo()
-        create.text = "Create a new custom role..."
+        create.text = L.ROLES_CREATE_NEW
         create.notCheckable = true
         create.func = function()
             CloseDropDownMenus()
@@ -316,22 +316,18 @@ local function CreateCustomRoleRow(f, index)
             WhoDoesWhat:RefreshBoardViews()
         end)
     end)
-    UI.AddTooltip(delBtn, "Remove from the raid", function()
+    UI.AddTooltip(delBtn, L.ROLES_REMOVE_FROM_RAID, function()
         local def = GetRaidCustomRoles()[index]
         if def and not WhoDoesWhat:IsRaidCustomRoleDef(def) then
-            return "Reset this role to its default blessing order. Nobody loses"
-                .. " their role."
+            return L.ROLES_RESET_OVERRIDE_TIP
         end
-        return "Remove this role from the raid. Anyone assigned to it goes back"
-            .. " to no role. Your copy in Settings > Roles stays."
+        return L.ROLES_REMOVE_CUSTOM_TIP
     end)
     row.delBtn = delBtn
 
     -- A gear, both here and for the role library in the header strip, so the
     -- two read as the same kind of action and share a column down the right.
-    local editBtn = UI.CreateGearButton(row, "Edit this role",
-        "Change the raid's blessing order for this role. For your own custom"
-        .. " roles, also the name, icon and group role.",
+    local editBtn = UI.CreateGearButton(row, L.ROLES_EDIT, L.ROLES_EDIT_TIP,
         function()
             local def = GetRaidCustomRoles()[index]
             if def then WhoDoesWhat:OpenCustomizer(def.id, true) end
@@ -404,7 +400,7 @@ end
 
 local function Build(f)
     local chrome = K.CreateSectionChrome(f, {
-        title = "Custom Roles",
+        title = L.SECTION_CUSTOM_ROLES,
         stack = K.STACK_BLESSINGS,
     })
     local box = chrome.box
@@ -422,15 +418,12 @@ local function Build(f)
                 affected = affected + #WhoDoesWhat:PlayersAssignedToRole(def.id)
             end
         end
-        local message = "Remove all " .. #list .. " role"
-            .. (#list == 1 and "" or "s") .. " from the raid?\n\n"
-            .. "Overridden roles go back to their defaults."
-            .. (affected > 0
-                and (" " .. affected
-                    .. (affected == 1 and " raider is" or " raiders are")
-                    .. " assigned to a custom role and will be set back to no"
-                    .. " role.")
-                or "")
+        local message = (#list == 1 and L.ROLES_CLEAR_ONE_PROMPT
+            or L.ROLES_CLEAR_MANY_PROMPT):format(#list)
+        if affected > 0 then
+            message = message .. " " .. (affected == 1 and L.ROLES_CLEAR_HELD_ONE
+                or L.ROLES_CLEAR_HELD_MANY):format(affected)
+        end
         ConfirmRemoval(message, function()
             local removed = WhoDoesWhat:ClearRaidCustomRoles()
             WhoDoesWhat:LogOperation("Custom Roles: " .. removed .. " role"
@@ -439,32 +432,27 @@ local function Build(f)
             WhoDoesWhat:RefreshBoardViews()
         end)
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear the list",
-        "Reset every built-in role and remove every custom role from the raid."
-        .. " Anyone on a removed role goes back to no role. Your copies stay.")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.ROLES_CLEAR_LIST, L.ROLES_CLEAR_LIST_TIP)
     K.ChainHeaderButton(chrome, clearBtn)
 
     -- Chained between Add (+) and the clear-all X, which puts it in the same
     -- column as the rows' own gears: one gear per role below, and above them the
     -- gear for the library those roles are published from.
-    local rolesBtn = UI.CreateGearButton(box, "Roles",
-        "Every role WDW knows, plus your own custom ones. Built-in roles are a"
-        .. " read-only reference there -- change one by overriding it here.",
+    local rolesBtn = UI.CreateGearButton(box, L.SETTINGS_ROLES, L.ROLES_LIBRARY_TIP,
         function() WhoDoesWhat:OpenAddonSettingsView("Roles") end)
     K.ChainHeaderButton(chrome, rolesBtn)
 
     local addBtn
-    addBtn = UI.CreateTextButton(box, "Add (+)", "Add a role",
-        "Share one of your custom roles with the raid, or override a built-in"
-        .. " role or category to retune its blessing order.", function()
+    addBtn = UI.CreateTextButton(box, L.ADD_BUTTON, L.ROLES_ADD, L.ROLES_ADD_TIP,
+        function()
             if not WhoDoesWhat:RequireEditPermission() then return end
             OpenAddCustomRoleMenu(addBtn)
         end)
     K.ChainHeaderButton(chrome, addBtn)
 
     local emptyHint = UI.CreateEmptyHint(box)
-    emptyHint:SetText("Every role is on its defaults")
+    emptyHint:SetText(L.ROLES_ALL_DEFAULT)
 
     f.customRolesSection = {
         box = box,

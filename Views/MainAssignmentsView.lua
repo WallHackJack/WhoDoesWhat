@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Main /wdw window: one fixed-size window, one tab per page.
 --
@@ -51,7 +52,7 @@ local WINDOW_H = 560
 -- Page key -> the content height that page asked for.
 local pageHeights = {}
 
-local SETTINGS_LABEL = "|T" .. UI.GEAR_ICON .. ":14:14:0:0|t Settings"
+local SETTINGS_ICON = "|T" .. UI.GEAR_ICON .. ":14:14:0:0|t "
 local ISSUE_MARKUP = " |T" .. UI.WARNING_ICON .. ":14:14:0:0|t"
 
 -- Page backgrounds over the window's blue panel. The roster-style pages sit on
@@ -71,9 +72,9 @@ local PAGE_COLORS = {
 -- own class tints. `sections` lists what the page
 -- builds, in anchor-chain order within each column.
 local BOARD_PAGES = {
-    blessings = { title = "Paladin Blessings", palette = THEME.blessings,
+    blessings = { titleKey = "BOARD_BLESSINGS", palette = THEME.blessings,
         sections = { "PaladinBuffs", "CustomRoles" } },
-    assignments = { title = "Assignments",
+    assignments = { titleKey = "BOARD_ASSIGNMENTS",
         sections = { "WarlockCurses", "Tank", "Misdirect", "CC" } },
 }
 
@@ -102,10 +103,10 @@ local COLUMN_GAP = 10
 -- SetPermissionMode, which announces, repaints, and lets the sync poll carry
 -- the new rule to everyone.
 local PERMISSION_OPTIONS = {
-    { mode = "leader", text = "Only me (leader)" },
-    { mode = "assistant", text = "One assistant", hasArrow = true },
-    { mode = "assists", text = "All assistants" },
-    { mode = "everyone", text = "Everyone" },
+    { mode = "leader", textKey = "PERM_LEADER" },
+    { mode = "assistant", textKey = "PERM_ONE_ASSISTANT", hasArrow = true },
+    { mode = "assists", textKey = "PERM_ALL_ASSISTANTS" },
+    { mode = "everyone", textKey = "PERM_EVERYONE" },
 }
 
 local function InitPermissionsDropdown(_, level)
@@ -131,7 +132,7 @@ local function InitPermissionsDropdown(_, level)
         end
         if found == 0 then
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "|cff909090No assistants - promote one first|r"
+            info.text = "|cff909090" .. L.PERM_NO_ASSISTANTS .. "|r"
             info.notCheckable = true
             info.disabled = true
             UIDropDownMenu_AddButton(info, level)
@@ -141,7 +142,7 @@ local function InitPermissionsDropdown(_, level)
 
     for _, opt in ipairs(PERMISSION_OPTIONS) do
         local info = UIDropDownMenu_CreateInfo()
-        info.text = opt.text
+        info.text = L[opt.textKey]
         if opt.hasArrow then
             info.hasArrow = true
             info.value = "assistant"
@@ -173,19 +174,19 @@ local function UpdatePermissionStrip(dd, note)
     local openReason = WhoDoesWhat:PermissionsOpenReason()
     if openReason then
         dd:Hide()
-        note:SetText("|cff909090Editing: everyone (" .. openReason .. ")|r")
+        note:SetText("|cff909090" .. L.PERM_EVERYONE_BECAUSE:format(openReason) .. "|r")
         note:Show()
         return
     end
     if UnitIsGroupLeader("player") then
-        UIDropDownMenu_SetText(dd, "Editing: " .. WhoDoesWhat:PermissionModeLabel())
+        UIDropDownMenu_SetText(dd, L.PERM_EDITING:format(WhoDoesWhat:PermissionModeLabel()))
         dd:Show()
         note:Hide()
     else
         dd:Hide()
         note:SetText("|cff909090" .. (WhoDoesWhat:CanEditAssignments()
-            and ("Editing: " .. WhoDoesWhat:PermissionModeLabel())
-            or "Read Only Mode") .. "|r")
+            and L.PERM_EDITING:format(WhoDoesWhat:PermissionModeLabel())
+            or L.PERM_READ_ONLY) .. "|r")
         note:Show()
     end
 end
@@ -204,11 +205,10 @@ local function UpdateVersionWarning(f)
     end
     local reports = {}
     for _, peer in ipairs(newer) do
-        reports[#reports + 1] = peer.name .. " reports using version " .. peer.version
+        reports[#reports + 1] = L.VERSION_PEER_REPORT:format(peer.name, peer.version)
     end
-    f.versionWarn.tooltipText = "You are running WhoDoesWhat v" .. current
-        .. ", but " .. table.concat(reports, "; ")
-        .. ". Update the addon to stay compatible."
+    f.versionWarn.tooltipText = L.VERSION_NEWER_WARNING:format(current,
+        table.concat(reports, "; "))
     f.versionWarn:Show()
 end
 
@@ -225,13 +225,13 @@ local function UpdateTabs(f)
     -- "25 Raiders - 3 (!)": the group's size and kind, then how many issues it
     -- has. Solo, it is just "Members". A fake raid (solo-only) reads as the
     -- raid it simulates, counted off the roster that folds the fakes in.
-    local label = "Members"
+    local label = L.TAB_MEMBERS
     if WhoDoesWhat:IsFakeRaidEnabled() then
-        label = #WhoDoesWhat:GetGroupMembers(nil) .. " Raiders"
+        label = L.TAB_RAIDERS:format(#WhoDoesWhat:GetGroupMembers(nil))
     elseif IsInRaid() then
-        label = GetNumGroupMembers() .. " Raiders"
+        label = L.TAB_RAIDERS:format(GetNumGroupMembers())
     elseif IsInGroup() then
-        label = GetNumGroupMembers() .. " Party Members"
+        label = L.TAB_PARTY_MEMBERS:format(GetNumGroupMembers())
     end
     f:SetTabLabel("members", label .. (count > 0 and (" - " .. count) or "")
         .. (actionable > 0 and ISSUE_MARKUP or ""))
@@ -312,7 +312,7 @@ end
 local function BuildBoardPage(f, page, key)
     local spec = BOARD_PAGES[key]
     local palette = spec.palette or {}
-    WhoDoesWhat:LogUiBuilding("Building the " .. spec.title .. " page.")
+    WhoDoesWhat:LogUiBuilding("Building the " .. spec.titleKey .. " page.")
 
     local panel = CreateFrame("Frame", nil, page, UI.TEMPLATE)
     panel:SetAllPoints(page)
@@ -328,7 +328,7 @@ local function BuildBoardPage(f, page, key)
     header:SetHeight(HEADER_H)
     local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("CENTER", 0, 3)
-    title:SetText(spec.title)
+    title:SetText(L[spec.titleKey])
     title:SetTextColor(THEME.gold[1], THEME.gold[2], THEME.gold[3])
 
     -- Editing-permission picker, hard right: the raid leader sees the picker,
@@ -457,31 +457,24 @@ local function EnsureMainFrame()
     -- Left to right, then the right-hand run from the window's right edge
     -- inward: About is outermost.
     local pages = UI.AddTabs(f, {
-        { label = "Members", page = "members",
-            tooltip = "Everyone in your group, sorted by role. Assign roles and fix"
-                .. " problems here.",
+        { label = L.TAB_MEMBERS, page = "members", tooltip = L.TAB_MEMBERS_TIP,
             build = ViewPage("BuildMembersPage") },
-        { label = "Blessings", page = "blessings",
-            tooltip = "Paladin blessings: the source of truth, buffing rules, custom"
-                .. " roles, each paladin's progress, and PallyPower differences.",
+        { label = L.TAB_BLESSINGS, page = "blessings", tooltip = L.TAB_BLESSINGS_TIP,
             build = BoardPage("blessings") },
-        { label = "Assignments", page = "assignments",
-            tooltip = "Tanks, crowd control, misdirects and warlock curses.",
+        { label = L.TAB_ASSIGNMENTS, page = "assignments",
+            tooltip = L.TAB_ASSIGNMENTS_TIP,
             build = BoardPage("assignments") },
-        { label = "Buff Grid", page = "grid",
-            tooltip = "The raid-wide paladin blessing plan and live buff status.",
+        { label = L.TAB_BUFF_GRID, page = "grid", tooltip = L.TAB_BUFF_GRID_TIP,
             build = ViewPage("BuildBuffingGridPage") },
-        { label = "Calculator", page = "calculator",
-            tooltip = "Estimate the raid damage each curse added in a fight, using"
-                .. " Details! data.",
+        { label = L.TAB_CALCULATOR, page = "calculator",
+            tooltip = L.TAB_CALCULATOR_TIP,
             build = ViewPage("BuildCurseCalculatorPage") },
-        { label = SETTINGS_LABEL, page = "settings",
+        { label = SETTINGS_ICON .. L.TAB_SETTINGS, page = "settings",
             build = ViewPage("BuildAddonSettingsPage") },
-        { label = "About", page = "about", right = true,
-            tooltip = "Links, contact information, version details, and release notes.",
+        { label = L.TAB_ABOUT, page = "about", right = true, tooltip = L.TAB_ABOUT_TIP,
             build = ViewPage("BuildAboutPage") },
-        { label = "Logs", page = "logs", right = true, hidden = true,
-            tooltip = "The combined WhoDoesWhat and PallyPower addon-message logs.",
+        { label = L.TAB_LOGS, page = "logs", right = true, hidden = true,
+            tooltip = L.TAB_LOGS_TIP,
             build = ViewPage("BuildSyncLogPage") },
     }, { initial = "members", colors = THEME.tabs })
     for key, color in pairs(PAGE_COLORS) do UI.SetTabPageColor(pages[key], color) end

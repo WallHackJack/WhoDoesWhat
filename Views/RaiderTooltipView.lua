@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Shared player tooltip used by roster-style views. Paladins get the full
 -- talent/addon summary; Warlocks get their Improved Healthstone result.
@@ -74,9 +75,9 @@ function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
         local healthstone = self.WarlockHealthstone
         local rank = self:GetWarlockHealthstoneTalent(name)
         local amount = rank ~= nil and healthstone.lifeByTalentRank[rank]
-        local detail = healthstone.name .. " (" .. (rank == nil and "?" or rank)
-            .. "/" .. healthstone.maxRank .. ")"
-        if amount then detail = detail .. " - " .. amount .. " life" end
+        local detail = L.HEALTHSTONE_DETAIL:format(healthstone.name,
+            rank == nil and "?" or tostring(rank), healthstone.maxRank)
+        if amount then detail = L.HEALTHSTONE_DETAIL_LIFE:format(detail, amount) end
         tooltip:AddLine(Icon(healthstone.icon) .. " |cff909090" .. detail .. "|r",
             1, 1, 1)
         return className
@@ -85,16 +86,16 @@ function WhoDoesWhat:AddRaiderTooltipDetail(tooltip, name)
     local talents = self:GetPaladinBuffTalents(name)
     if not talents then
         tooltip:AddLine(Icon(self.WARNING_ICON)
-            .. " |cffff9f40Awaiting Paladin talents|r", 1, 1, 1)
-        tooltip:AddLine("WDW will not assign this paladin any blessings until talent data arrives.",
+            .. " |cffff9f40" .. L.RAIDER_AWAITING_TALENTS .. "|r", 1, 1, 1)
+        tooltip:AddLine(L.RAIDER_AWAITING_TALENTS_TIP,
             0.9, 0.8, 0.6, true)
-        tooltip:AddLine("If they are sitting out, mark them as Non-raider instead.",
+        tooltip:AddLine(L.RAIDER_SITTING_OUT_TIP,
             0.8, 0.8, 0.8, true)
         tooltip:AddLine(" ")
     elseif talents._source == "pallypower" then
-        tooltip:AddLine("|cff909090Talent data from external addon (PallyPower).|r",
+        tooltip:AddLine("|cff909090" .. L.RAIDER_TALENTS_FROM_PP .. "|r",
             1, 1, 1)
-        tooltip:AddLine("Targeting them in range will confirm and replace it.",
+        tooltip:AddLine(L.RAIDER_TALENTS_FROM_PP_TIP,
             0.8, 0.8, 0.8, true)
         tooltip:AddLine(" ")
     end

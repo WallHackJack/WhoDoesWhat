@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 local features = WhoDoesWhat.ClientFeatures
 
 WhoDoesWhat.DisconnectedGridRowColors = {
@@ -10,7 +11,7 @@ WhoDoesWhat.DisconnectedGridRowColors = {
 -- Add this directly to your Roles.lua or where WhoDoesWhat.Classes is declared
 WhoDoesWhat.Classes = {
     {
-        name = "Warrior",
+        name = "Warrior", labelKey = "CLASS_WARRIOR", pluralKey = "CLASS_WARRIOR_PLURAL",
         classIcon = 135328, -- FileDataID for class_warrior
         colorHex = "C69B6D",
         colorRGB = { r = 0.78, g = 0.61, b = 0.43 },
@@ -19,17 +20,17 @@ WhoDoesWhat.Classes = {
             { r = 0.78, g = 0.61, b = 0.43, a = 0.06 },
         },
         roles = {
-            { name = "Fury", icon = 132347, id = "warrior_fury", wowRole = "dps" },
-            { name = "Arms", icon = 132355, id = "warrior_arms", wowRole = "dps" },  -- Ability_Warrior_SavageBlow (Mortal Strike)
-            { name = "Tank", icon = 132341, id = "warrior_prot", wowRole = "tank" }
+            { nameKey = "ROLE_FURY", icon = 132347, id = "warrior_fury", wowRole = "dps" },
+            { nameKey = "ROLE_ARMS", icon = 132355, id = "warrior_arms", wowRole = "dps" },  -- Ability_Warrior_SavageBlow (Mortal Strike)
+            { nameKey = "ROLE_TANK", icon = 132341, id = "warrior_prot", wowRole = "tank" }
         },
         categories = {
-            { name = "DPS",  icon = 135328, id = "cat_warrior_dps",  allSubRoles = { "warrior_fury", "warrior_arms" } }, -- class icon
-            { name = "Tank", icon = 132341, id = "cat_warrior_tank", allSubRoles = { "warrior_prot" } }
+            { nameKey = "ROLE_DPS",  icon = 135328, id = "cat_warrior_dps",  allSubRoles = { "warrior_fury", "warrior_arms" } }, -- class icon
+            { nameKey = "ROLE_TANK", icon = 132341, id = "cat_warrior_tank", allSubRoles = { "warrior_prot" } }
         }
     },
     {
-        name = "Paladin",
+        name = "Paladin", labelKey = "CLASS_PALADIN", pluralKey = "CLASS_PALADIN_PLURAL",
         classIcon = 626003, -- FileDataID for ClassIcon_Paladin
         colorHex = "F48CBA",
         colorRGB = { r = 0.96, g = 0.55, b = 0.73 },
@@ -38,13 +39,13 @@ WhoDoesWhat.Classes = {
             { r = 0.96, g = 0.55, b = 0.73, a = 0.06 },
         },
         roles = {
-            { name = "Tank", icon = 135893, id = "paladin_prot", wowRole = "tank" },
-            { name = "Holy", icon = 135907, id = "paladin_holy", wowRole = "healer" },
-            { name = "Retribution", icon = 135873, id = "paladin_ret", wowRole = "dps" }
+            { nameKey = "ROLE_TANK", icon = 135893, id = "paladin_prot", wowRole = "tank" },
+            { nameKey = "ROLE_HOLY", icon = 135907, id = "paladin_holy", wowRole = "healer" },
+            { nameKey = "ROLE_RETRIBUTION", icon = 135873, id = "paladin_ret", wowRole = "dps" }
         }
     },
     {
-        name = "Hunter",
+        name = "Hunter", labelKey = "CLASS_HUNTER", pluralKey = "CLASS_HUNTER_PLURAL",
         classIcon = 626000, -- FileDataID for ClassIcon_Hunter
         colorHex = "AAD372",
         colorRGB = { r = 0.67, g = 0.83, b = 0.45 },
@@ -53,22 +54,22 @@ WhoDoesWhat.Classes = {
             { r = 0.67, g = 0.83, b = 0.45, a = 0.06 },
         },
         roles = {
-            { name = "Beast Mastery", icon = 132164, id = "hunter_bm", wowRole = "dps" },
-            { name = "Survival", icon = 132215, id = "hunter_surv", wowRole = "dps" },
-            { name = "Marksmanship", icon = 132222, id = "hunter_mm", wowRole = "dps" }, -- Ability_Marksmanship
+            { nameKey = "ROLE_BEAST_MASTERY", icon = 132164, id = "hunter_bm", wowRole = "dps" },
+            { nameKey = "ROLE_SURVIVAL", icon = 132215, id = "hunter_surv", wowRole = "dps" },
+            { nameKey = "ROLE_MARKSMANSHIP", icon = 132222, id = "hunter_mm", wowRole = "dps" }, -- Ability_Marksmanship
             -- A hunter who stands in melee. Spec-wise it is the three above
             -- (same blessing order); what it says is where they stand, which
             -- is the one thing the raid can't read off a talent tree -- and
             -- what puts them inside a Battle Shout (BattleShoutWantedByRole
             -- below). It wears Raptor Strike's icon to say so.
-            { name = "Melee Hunter", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" }
+            { nameKey = "ROLE_MELEE_HUNTER", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" }
         },
         categories = {
-            { name = "DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm", "hunter_melee" } } -- class icon
+            { nameKey = "ROLE_DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm", "hunter_melee" } } -- class icon
         }
     },
     {
-        name = "Rogue",
+        name = "Rogue", labelKey = "CLASS_ROGUE", pluralKey = "CLASS_ROGUE_PLURAL",
         classIcon = 626005, -- FileDataID for ClassIcon_Rogue
         colorHex = "FFF468",
         colorRGB = { r = 1.00, g = 0.96, b = 0.41 },
@@ -77,16 +78,16 @@ WhoDoesWhat.Classes = {
             { r = 1.00, g = 0.96, b = 0.41, a = 0.06 },
         },
         roles = {
-            { name = "Combat", icon = 132306, id = "rogue_combat", wowRole = "dps" },          -- Ability_Rogue_SliceDice
-            { name = "Assassination", icon = 132292, id = "rogue_assassin", wowRole = "dps" }, -- Ability_Rogue_Eviscerate
-            { name = "Subtlety", icon = 132320, id = "rogue_sub", wowRole = "dps" }            -- Ability_Stealth
+            { nameKey = "ROLE_COMBAT", icon = 132306, id = "rogue_combat", wowRole = "dps" },          -- Ability_Rogue_SliceDice
+            { nameKey = "ROLE_ASSASSINATION", icon = 132292, id = "rogue_assassin", wowRole = "dps" }, -- Ability_Rogue_Eviscerate
+            { nameKey = "ROLE_SUBTLETY", icon = 132320, id = "rogue_sub", wowRole = "dps" }            -- Ability_Stealth
         },
         categories = {
-            { name = "DPS", icon = 626005, id = "cat_rogue_dps", allSubRoles = { "rogue_combat", "rogue_assassin", "rogue_sub" } } -- class icon
+            { nameKey = "ROLE_DPS", icon = 626005, id = "cat_rogue_dps", allSubRoles = { "rogue_combat", "rogue_assassin", "rogue_sub" } } -- class icon
         }
     },
     {
-        name = "Priest",
+        name = "Priest", labelKey = "CLASS_PRIEST", pluralKey = "CLASS_PRIEST_PLURAL",
         classIcon = 626004, -- FileDataID for ClassIcon_Priest
         colorHex = "FFFFFF",
         colorRGB = { r = 1.00, g = 1.00, b = 1.00 },
@@ -95,13 +96,13 @@ WhoDoesWhat.Classes = {
             { r = 1.00, g = 1.00, b = 1.00, a = 0.06 },
         },
         roles = {
-            { name = "Discipline", icon = 135987, id = "priest_disc", wowRole = "healer" }, -- Spell_Holy_WordFortitude
-            { name = "Holy", icon = 135920, id = "priest_holy", wowRole = "healer" },       -- Spell_Holy_HolyBolt
-            { name = "Shadow", icon = 136207, id = "priest_shadow", wowRole = "dps" }    -- Spell_Shadow_ShadowWordPain
+            { nameKey = "ROLE_DISCIPLINE", icon = 135987, id = "priest_disc", wowRole = "healer" }, -- Spell_Holy_WordFortitude
+            { nameKey = "ROLE_HOLY", icon = 135920, id = "priest_holy", wowRole = "healer" },       -- Spell_Holy_HolyBolt
+            { nameKey = "ROLE_SHADOW", icon = 136207, id = "priest_shadow", wowRole = "dps" }    -- Spell_Shadow_ShadowWordPain
         }
     },
     {
-        name = "Shaman",
+        name = "Shaman", labelKey = "CLASS_SHAMAN", pluralKey = "CLASS_SHAMAN_PLURAL",
         classIcon = 626006, -- FileDataID for ClassIcon_Shaman
         colorHex = "0070DD",
         colorRGB = { r = 0.00, g = 0.44, b = 0.87 },
@@ -110,13 +111,13 @@ WhoDoesWhat.Classes = {
             { r = 0.00, g = 0.44, b = 0.87, a = 0.06 },
         },
         roles = {
-            { name = "Elemental", icon = 136048, id = "shaman_ele", wowRole = "dps" },    -- Spell_Nature_Lightning
-            { name = "Enhancement", icon = 132314, id = "shaman_enh", wowRole = "dps" },  -- Ability_Shaman_Stormstrike
-            { name = "Restoration", icon = 136043, id = "shaman_resto", wowRole = "healer" } -- Spell_Nature_HealingWaveGreater
+            { nameKey = "ROLE_ELEMENTAL", icon = 136048, id = "shaman_ele", wowRole = "dps" },    -- Spell_Nature_Lightning
+            { nameKey = "ROLE_ENHANCEMENT", icon = 132314, id = "shaman_enh", wowRole = "dps" },  -- Ability_Shaman_Stormstrike
+            { nameKey = "ROLE_RESTORATION", icon = 136043, id = "shaman_resto", wowRole = "healer" } -- Spell_Nature_HealingWaveGreater
         }
     },
     {
-        name = "Mage",
+        name = "Mage", labelKey = "CLASS_MAGE", pluralKey = "CLASS_MAGE_PLURAL",
         classIcon = 626001, -- FileDataID for ClassIcon_Mage
         colorHex = "3FC7EB",
         colorRGB = { r = 0.25, g = 0.78, b = 0.92 },
@@ -125,16 +126,16 @@ WhoDoesWhat.Classes = {
             { r = 0.25, g = 0.78, b = 0.92, a = 0.06 },
         },
         roles = {
-            { name = "Arcane", icon = 135932, id = "mage_arcane", wowRole = "dps" }, -- Spell_Holy_MagicalSentry
-            { name = "Fire", icon = 135810, id = "mage_fire", wowRole = "dps" },     -- Spell_Fire_FireBolt02
-            { name = "Frost", icon = 135846, id = "mage_frost", wowRole = "dps" }    -- Spell_Frost_FrostBolt02
+            { nameKey = "ROLE_ARCANE", icon = 135932, id = "mage_arcane", wowRole = "dps" }, -- Spell_Holy_MagicalSentry
+            { nameKey = "ROLE_FIRE", icon = 135810, id = "mage_fire", wowRole = "dps" },     -- Spell_Fire_FireBolt02
+            { nameKey = "ROLE_FROST", icon = 135846, id = "mage_frost", wowRole = "dps" }    -- Spell_Frost_FrostBolt02
         },
         categories = {
-            { name = "DPS", icon = 626001, id = "cat_mage_dps", allSubRoles = { "mage_arcane", "mage_fire", "mage_frost" } } -- class icon
+            { nameKey = "ROLE_DPS", icon = 626001, id = "cat_mage_dps", allSubRoles = { "mage_arcane", "mage_fire", "mage_frost" } } -- class icon
         }
     },
     {
-        name = "Warlock",
+        name = "Warlock", labelKey = "CLASS_WARLOCK", pluralKey = "CLASS_WARLOCK_PLURAL",
         classIcon = 626007, -- FileDataID for ClassIcon_Warlock
         colorHex = "8788EE",
         colorRGB = { r = 0.53, g = 0.53, b = 0.93 },
@@ -143,18 +144,18 @@ WhoDoesWhat.Classes = {
             { r = 0.53, g = 0.53, b = 0.93, a = 0.06 },
         },
         roles = {
-            { name = "Affliction", icon = 136145, id = "warlock_affl", wowRole = "dps" },   -- Spell_Shadow_DeathCoil
-            { name = "Demonology", icon = 136172, id = "warlock_demo", wowRole = "dps" },    -- Spell_Shadow_Metamorphosis
-            { name = "Destruction", icon = 136186, id = "warlock_destro", wowRole = "dps" }, -- Spell_Shadow_RainOfFire
-            { name = "Warlock Tank", icon = 135817, id = "warlock_firetank", wowRole = "tank" } -- Spell_Fire_Immolation
+            { nameKey = "ROLE_AFFLICTION", icon = 136145, id = "warlock_affl", wowRole = "dps" },   -- Spell_Shadow_DeathCoil
+            { nameKey = "ROLE_DEMONOLOGY", icon = 136172, id = "warlock_demo", wowRole = "dps" },    -- Spell_Shadow_Metamorphosis
+            { nameKey = "ROLE_DESTRUCTION", icon = 136186, id = "warlock_destro", wowRole = "dps" }, -- Spell_Shadow_RainOfFire
+            { nameKey = "ROLE_WARLOCK_TANK", icon = 135817, id = "warlock_firetank", wowRole = "tank" } -- Spell_Fire_Immolation
         },
         categories = {
-            { name = "DPS",  icon = 626007, id = "cat_warlock_dps",  allSubRoles = { "warlock_affl", "warlock_demo", "warlock_destro" } }, -- class icon
-            { name = "Tank", icon = 135817, id = "cat_warlock_tank", allSubRoles = { "warlock_firetank" } }
+            { nameKey = "ROLE_DPS",  icon = 626007, id = "cat_warlock_dps",  allSubRoles = { "warlock_affl", "warlock_demo", "warlock_destro" } }, -- class icon
+            { nameKey = "ROLE_TANK", icon = 135817, id = "cat_warlock_tank", allSubRoles = { "warlock_firetank" } }
         }
     },
     {
-        name = "Druid",
+        name = "Druid", labelKey = "CLASS_DRUID", pluralKey = "CLASS_DRUID_PLURAL",
         classIcon = 625999, -- FileDataID for ClassIcon_Druid
         colorHex = "FF7C0A",
         colorRGB = { r = 1.00, g = 0.49, b = 0.04 },
@@ -163,11 +164,11 @@ WhoDoesWhat.Classes = {
             { r = 1.00, g = 0.49, b = 0.04, a = 0.06 },
         },
         roles = {
-            { name = "Feral DPS", icon = 132115, id = "druid_feral_dps", wowRole = "dps" },  -- Ability_Druid_CatForm
-            { name = "Feral Tank", icon = 132276, id = "druid_feral_tank", wowRole = "tank" }, -- Ability_Racial_BearForm
-            { name = "Balance", icon = 136096, id = "druid_balance", wowRole = "dps" },       -- Spell_Nature_StarFall
-            { name = "Restoration", icon = 136041, id = "druid_resto", wowRole = "healer" },     -- Spell_Nature_HealingTouch
-            { name = "Dreamstate", icon = 132123, id = "druid_dreamstate", wowRole = "healer" }  -- Ability_Druid_Dreamstate
+            { nameKey = "ROLE_FERAL_DPS", icon = 132115, id = "druid_feral_dps", wowRole = "dps" },  -- Ability_Druid_CatForm
+            { nameKey = "ROLE_FERAL_TANK", icon = 132276, id = "druid_feral_tank", wowRole = "tank" }, -- Ability_Racial_BearForm
+            { nameKey = "ROLE_BALANCE", icon = 136096, id = "druid_balance", wowRole = "dps" },       -- Spell_Nature_StarFall
+            { nameKey = "ROLE_RESTORATION", icon = 136041, id = "druid_resto", wowRole = "healer" },     -- Spell_Nature_HealingTouch
+            { nameKey = "ROLE_DREAMSTATE", icon = 132123, id = "druid_dreamstate", wowRole = "healer" }  -- Ability_Druid_Dreamstate
         }
     }
 }
@@ -177,19 +178,19 @@ WhoDoesWhat.Classes = {
 -- roles are TBC-specific; the paladin tank split is shared.
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
     if classInfo.name == "Paladin" then
-        classInfo.roles[1].name = "Main Tank"
+        classInfo.roles[1].nameKey = "ROLE_MAIN_TANK"
         table.insert(classInfo.roles, 2,
-            { name = "Threat Tank", icon = 135911, id = "paladin_prot_trash", wowRole = "tank" })  -- Spell_Holy_GreaterBlessingofSanctuary
+            { nameKey = "ROLE_THREAT_TANK", icon = 135911, id = "paladin_prot_trash", wowRole = "tank" })  -- Spell_Holy_GreaterBlessingofSanctuary
     elseif not features.isClassicEra then
         if classInfo.name == "Hunter" then
             table.insert(classInfo.roles,
-                { name = "Hunter Tank", icon = 132164, id = "hunter_tank", wowRole = "tank" })
+                { nameKey = "ROLE_HUNTER_TANK", icon = 132164, id = "hunter_tank", wowRole = "tank" })
         elseif classInfo.name == "Mage" then
             table.insert(classInfo.roles,
-                { name = "Mage Tank", icon = 135846, id = "mage_tank", wowRole = "tank" })
+                { nameKey = "ROLE_MAGE_TANK", icon = 135846, id = "mage_tank", wowRole = "tank" })
         elseif classInfo.name == "Druid" then
             table.insert(classInfo.roles, 4,
-                { name = "Boomkin Tank", icon = 136096, id = "druid_balance_tank", wowRole = "tank" })
+                { nameKey = "ROLE_BOOMKIN_TANK", icon = 136096, id = "druid_balance_tank", wowRole = "tank" })
         end
     end
 end
@@ -200,48 +201,48 @@ WhoDoesWhat.PaladinBuffs = {
     salv = {
         icon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSalvation",
         iconId = 135910,
-        name_short = "Salv",
-        name_long = "Salvation",
+        name_shortKey = "BLESSING_SALVATION_SHORT",
+        name_longKey = "BLESSING_SALVATION",
         spellId = 25895, -- Greater Blessing of Salvation
         normalSpellId = 1038 -- Blessing of Salvation
     },
     kings = {
         icon = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
         iconId = 135993,
-        name_short = "Kings",
-        name_long = "Kings",
+        name_shortKey = "BLESSING_KINGS_SHORT",
+        name_longKey = "BLESSING_KINGS",
         spellId = 25898, -- Greater Blessing of Kings
         normalSpellId = 20217 -- Blessing of Kings
     },
     might = {
         icon = 135908, -- Spell_Holy_GreaterBlessingofKings (Greater Might in this client)
         iconId = 135908,
-        name_short = "Might",
-        name_long = "Might",
+        name_shortKey = "BLESSING_MIGHT_SHORT",
+        name_longKey = "BLESSING_MIGHT",
         spellId = 27141, -- Greater Blessing of Might (Rank 3)
         normalSpellId = 27140 -- Blessing of Might (Rank 7)
     },
     light = {
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfHealing02",
         iconId = 135943,
-        name_short = "Light",
-        name_long = "Light",
+        name_shortKey = "BLESSING_LIGHT_SHORT",
+        name_longKey = "BLESSING_LIGHT",
         spellId = 27145, -- Greater Blessing of Light (Rank 2)
         normalSpellId = 27144 -- Blessing of Light (Rank 4)
     },
     wisdom = {
         icon = 135912, -- Spell_Holy_GreaterBlessingofWisdom
         iconId = 135912,
-        name_short = "Wisdom",
-        name_long = "Wisdom",
+        name_shortKey = "BLESSING_WISDOM_SHORT",
+        name_longKey = "BLESSING_WISDOM",
         spellId = 27143, -- Greater Blessing of Wisdom (Rank 3)
         normalSpellId = 27142 -- Blessing of Wisdom (Rank 6)
     },
     sanctuary = {
         icon = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSanctuary",
         iconId = 135911,
-        name_short = "Sanc",
-        name_long = "Sanctuary",
+        name_shortKey = "BLESSING_SANCTUARY_SHORT",
+        name_longKey = "BLESSING_SANCTUARY",
         spellId = 27169, -- Greater Blessing of Sanctuary (Rank 2)
         normalSpellId = 27168 -- Blessing of Sanctuary (Rank 5)
     }
@@ -268,25 +269,25 @@ end
 -- are talent-granted and Crusader Aura is TBC-only at level 62, so the view
 -- filters this list down to what the paladin actually knows.
 WhoDoesWhat.PaladinAuras = {
-    { key = "devotion",      spellId = 465,   name_short = "Devo" },
-    { key = "retribution",   spellId = 7294,  name_short = "Ret" },
-    { key = "concentration", spellId = 19746, name_short = "Conc" },
+    { key = "devotion",      spellId = 465,   name_shortKey = "AURA_DEVOTION_SHORT" },
+    { key = "retribution",   spellId = 7294,  name_shortKey = "AURA_RETRIBUTION_SHORT" },
+    { key = "concentration", spellId = 19746, name_shortKey = "AURA_CONCENTRATION_SHORT" },
     -- `resist` splits the situational school auras onto their own row in the
     -- buffing bar's aura picker.
-    { key = "fireResist",    spellId = 19891, name_short = "Fire",   resist = true },
-    { key = "frostResist",   spellId = 19888, name_short = "Frost",  resist = true },
-    { key = "shadowResist",  spellId = 19876, name_short = "Shadow", resist = true },
+    { key = "fireResist",    spellId = 19891, name_shortKey = "AURA_FIRE_SHORT", resist = true },
+    { key = "frostResist",   spellId = 19888, name_shortKey = "AURA_FROST_SHORT", resist = true },
+    { key = "shadowResist",  spellId = 19876, name_shortKey = "AURA_SHADOW_SHORT", resist = true },
     -- `talent` marks an aura a TALENT grants outright, so a paladin who didn't
     -- spec for it can't cast it -- and the client's spell database knows its
     -- name either way, so the buffing bar has to ask the talent tree instead of
     -- a name lookup. Sanctity Aura is the only one: Concentration Aura is
     -- trained, and its talent only improves it.
-    { key = "sanctity",      spellId = 20218, name_short = "Sanctity", talent = true },
+    { key = "sanctity",      spellId = 20218, name_shortKey = "AURA_SANCTITY_SHORT", talent = true },
 }
 if not features.isClassicEra then
     -- Crusader Aura arrived with TBC (level 62, mounted speed).
     table.insert(WhoDoesWhat.PaladinAuras,
-        { key = "crusader", spellId = 32223, name_short = "Crusader" })
+        { key = "crusader", spellId = 32223, name_shortKey = "AURA_CRUSADER_SHORT" })
 end
 -- Resolve names and icons off the ids, dropping anything this client's spell
 -- database doesn't know rather than carrying a nameless entry into the bar.
@@ -481,11 +482,11 @@ WhoDoesWhat.RighteousFury = {
 -- goes to the roles that want it (WantsBattleShout below); Commanding Shout
 -- is health, which nobody in the group turns down.
 WhoDoesWhat.WarriorShouts = {
-    { key = "battleShout", spellId = 6673, name_short = "Battle" },
+    { key = "battleShout", spellId = 6673, name_shortKey = "SHOUT_BATTLE_SHORT" },
 }
 if not features.isClassicEra then
     table.insert(WhoDoesWhat.WarriorShouts,
-        { key = "commandingShout", spellId = 469, name_short = "Commanding",
+        { key = "commandingShout", spellId = 469, name_shortKey = "SHOUT_COMMANDING_SHORT",
           everyone = true })
 end
 -- Resolve names and icons off the ids, dropping anything this client's spell
@@ -846,19 +847,19 @@ WhoDoesWhat.ManaExcludedClasses = { Warrior = true, Rogue = true }
 -- Legacy palette values remain readable so existing profiles migrate cleanly;
 -- new color-picker choices are stored directly as RGB.
 WhoDoesWhat.StatusBarBackgrounds = {
-    default = { name = "Default" },
-    red = { name = "Red", colorRGB = { r = 0.85, g = 0.15, b = 0.15 } },
-    orange = { name = "Orange", colorRGB = { r = 0.95, g = 0.45, b = 0.10 } },
-    yellow = { name = "Yellow", colorRGB = { r = 0.95, g = 0.80, b = 0.10 } },
-    green = { name = "Green", colorRGB = { r = 0.15, g = 0.80, b = 0.25 } },
-    blue = { name = "Blue", colorRGB = { r = 0.20, g = 0.50, b = 0.95 } },
-    purple = { name = "Purple", colorRGB = { r = 0.65, g = 0.30, b = 0.90 } },
-    gray = { name = "Gray", colorRGB = { r = 0.55, g = 0.55, b = 0.60 } },
+    default = { nameKey = "COLOR_DEFAULT" },
+    red = { nameKey = "COLOR_RED", colorRGB = { r = 0.85, g = 0.15, b = 0.15 } },
+    orange = { nameKey = "COLOR_ORANGE", colorRGB = { r = 0.95, g = 0.45, b = 0.10 } },
+    yellow = { nameKey = "COLOR_YELLOW", colorRGB = { r = 0.95, g = 0.80, b = 0.10 } },
+    green = { nameKey = "COLOR_GREEN", colorRGB = { r = 0.15, g = 0.80, b = 0.25 } },
+    blue = { nameKey = "COLOR_BLUE", colorRGB = { r = 0.20, g = 0.50, b = 0.95 } },
+    purple = { nameKey = "COLOR_PURPLE", colorRGB = { r = 0.65, g = 0.30, b = 0.90 } },
+    gray = { nameKey = "COLOR_GRAY", colorRGB = { r = 0.55, g = 0.55, b = 0.60 } },
 }
 WhoDoesWhat.CoreRaidBuffs = {
     fortitude = {
-        name = "Fortitude",
-        description = "Increases Stamina and maximum health.",
+        nameKey = "CHECK_FORTITUDE",
+        descriptionKey = "CHECK_FORTITUDE_TIP",
         icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
         auraSpellIds = {
             1243,  -- Power Word: Fortitude
@@ -868,14 +869,14 @@ WhoDoesWhat.CoreRaidBuffs = {
         colorRGB = { r = 225 / 255, g = 1, b = 202 / 255 }, -- #E1FFCA
         defaultHunterPets = true,
         improvedTalent = {
-            name = "Improved Power Word: Fortitude",
+            nameKey = "TALENT_IMPROVED_FORTITUDE",
             tab = 1, tier = 2, column = 2, maxRank = 2,
         },
     },
     gift = {
-        name = "Gift of the Wild",
-        gridName = "Mark / Gift of the Wild",
-        description = "Increases armor, attributes, and resistances.",
+        nameKey = "CHECK_GIFT",
+        gridNameKey = "CHECK_GIFT_GRID",
+        descriptionKey = "CHECK_GIFT_TIP",
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
         auraSpellIds = {
             1126,  -- Mark of the Wild
@@ -884,14 +885,14 @@ WhoDoesWhat.CoreRaidBuffs = {
         className = "Druid",
         defaultHunterPets = true,
         improvedTalent = {
-            name = "Improved Mark of the Wild",
+            nameKey = "TALENT_IMPROVED_MARK",
             tab = 3, tier = 1, column = 2, maxRank = 5,
         },
     },
     food = {
-        name = "Food Buff",
-        gridName = "Well Fed",
-        description = "Provides a Well Fed stat bonus from food.",
+        nameKey = "CHECK_FOOD",
+        gridNameKey = "CHECK_FOOD_GRID",
+        descriptionKey = "CHECK_FOOD_TIP",
         icon = 136000, -- Spell_Misc_Food
         auraSpellIds = {
             19705, -- Well Fed
@@ -921,11 +922,11 @@ WhoDoesWhat.CoreRaidBuffs = {
         },
     },
     shadowProtection = {
-        name = "Shadow",
-        gridName = "Shadow Protection",
+        nameKey = "CHECK_SHADOW",
+        gridNameKey = "CHECK_SHADOW_GRID",
         -- The raid callout spells it out: "Shadow 18/25" reads as anything.
-        announceName = "Prayer of Shadow Protection",
-        description = "Increases Shadow resistance.",
+        announceNameKey = "CHECK_SHADOW_ANNOUNCE",
+        descriptionKey = "CHECK_SHADOW_TIP",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraSpellIds = {
             976,   -- Shadow Protection
@@ -935,9 +936,9 @@ WhoDoesWhat.CoreRaidBuffs = {
         colorRGB = { r = 109 / 255, g = 60 / 255, b = 129 / 255 }, -- #6D3C81
     },
     intellect = {
-        name = "Intellect",
-        gridName = "Arcane Intellect / Brilliance",
-        description = "Increases Intellect, mana, and spell critical chance.",
+        nameKey = "CHECK_INTELLECT",
+        gridNameKey = "CHECK_INTELLECT_GRID",
+        descriptionKey = "CHECK_INTELLECT_TIP",
         icon = "Interface\\Icons\\Spell_Holy_ArcaneIntellect",
         auraSpellIds = {
             1459,  -- Arcane Intellect
@@ -962,10 +963,9 @@ WhoDoesWhat.CoreRaidBuffs = {
 -- this", just a slower one than a priest already carrying it.
 if not features.isClassicEra then
     WhoDoesWhat.CoreRaidBuffs.spirit = {
-        name = "Divine Spirit",
-        gridName = "Divine Spirit / Prayer of Spirit",
-        description = "Increases Spirit, and spell power where the caster has"
-            .. " Improved Divine Spirit.",
+        nameKey = "CHECK_SPIRIT",
+        gridNameKey = "CHECK_SPIRIT_GRID",
+        descriptionKey = "CHECK_SPIRIT_TIP",
         icon = "Interface\\Icons\\Spell_Holy_PrayerofSpirit",
         auraSpellIds = {
             14752, -- Divine Spirit
@@ -977,11 +977,11 @@ if not features.isClassicEra then
         -- a rogue, so the default targets match Arcane Intellect's.
         defaultOnlyManaUsers = true,
         improvedTalent = {
-            name = "Improved Divine Spirit",
+            nameKey = "TALENT_IMPROVED_DIVINE_SPIRIT",
             tab = 1, tier = 5, column = 4, maxRank = 2,
         },
         requiredTalent = {
-            name = "Divine Spirit",
+            nameKey = "TALENT_DIVINE_SPIRIT",
             tab = 1, tier = 5, column = 3,
         },
     }
@@ -1014,8 +1014,8 @@ for _, classInfo in ipairs(WhoDoesWhat.Classes) do
     if classInfo.name == "Shaman" then shamanInfo = classInfo end
 end
 WhoDoesWhat.StatusBarChecks.paladinBuffs = {
-    name = "Paladin Buff Progress",
-    description = "Shows assigned blessing coverage for each Paladin.",
+    nameKey = "CHECK_PALADIN_BUFFS",
+    descriptionKey = "CHECK_PALADIN_BUFFS_TIP",
     icon = paladinInfo.classIcon,
     colorRGB = paladinInfo.colorRGB,
     className = "Paladin",
@@ -1032,8 +1032,8 @@ WhoDoesWhat.StatusBarChecks.paladinBuffs = {
     },
 }
 WhoDoesWhat.StatusBarChecks.pallyPower = {
-    name = "Paladin Buff Notifications",
-    description = "Shows whether the active blessing assignments match PallyPower.",
+    nameKey = "CHECK_PALLYPOWER",
+    descriptionKey = "CHECK_PALLYPOWER_TIP",
     customOptions = "pallyPower",
     gridOptionDisabled = true,
 }
@@ -1049,9 +1049,8 @@ WhoDoesWhat.StatusBarChecks.pallyPower = {
 -- Members window: it is what saved options and `statusBarOrder` are stored
 -- under, and renaming it would silently reset both.
 WhoDoesWhat.StatusBarChecks.actionItems = {
-    name = "Action Items",
-    description = "Shows players still waiting on a role, group roles that "
-        .. "disagree, and tanks not promoted to Main Tank.",
+    nameKey = "CHECK_ACTION_ITEMS",
+    descriptionKey = "CHECK_ACTION_ITEMS_TIP",
     -- The group-role tank shield, the same one the Action Items dropdowns
     -- draw. `icon` is the fallback for clients without the micro role atlas,
     -- spelled out rather than read from BasicWowRoles: that table is defined
@@ -1063,8 +1062,8 @@ WhoDoesWhat.StatusBarChecks.actionItems = {
     defaultEnabled = true,
 }
 WhoDoesWhat.StatusBarChecks.thorns = {
-    name = "Thorns",
-    description = "Deals Nature damage to attackers.",
+    nameKey = "CHECK_THORNS",
+    descriptionKey = "CHECK_THORNS_TIP",
     icon = "Interface\\Icons\\Spell_Nature_Thorns",
     auraSpellIds = {
         467, -- Thorns
@@ -1078,13 +1077,13 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     -- taking the hits is the usual ask, but not the only one.
     hiddenOptions = { negative = true, onlyManaUsers = true, hunterPets = true },
     improvedTalent = {
-        name = features.isClassicEra and "Improved Thorns" or "Brambles",
+        nameKey = features.isClassicEra and "TALENT_IMPROVED_THORNS" or "TALENT_BRAMBLES",
         tab = 1, tier = 3, column = 1, maxRank = 3,
     },
 }
 WhoDoesWhat.StatusBarChecks.dead = {
-    name = "Dead",
-    description = "Shows whether each raider is dead or a ghost.",
+    nameKey = "CHECK_DEAD",
+    descriptionKey = "CHECK_DEAD_TIP",
     icon = 132331,
     colorRGB = { r = 0.46, g = 0.48, b = 0.52 },
     -- The one check corpses don't drop out of mid-fight; counting them is the
@@ -1100,8 +1099,8 @@ WhoDoesWhat.StatusBarChecks.dead = {
 }
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.sated = {
-        name = "Sated (lust / hero)",
-        description = "Shows Sated or Exhaustion after Bloodlust or Heroism.",
+        nameKey = "CHECK_SATED",
+        descriptionKey = "CHECK_SATED_TIP",
         icon = 136090, -- Spell_Nature_Sleep
         auraSpellIds = {
             57724, -- Sated
@@ -1144,8 +1143,8 @@ if WhoDoesWhat.ElixirItems then
         flagOutsideRaid = true,
     }
     WhoDoesWhat.StatusBarChecks.battleElixir = {
-        name = "Battle Elixir",
-        description = "Shows who has a battle elixir or a flask up.",
+        nameKey = "CHECK_BATTLE_ELIXIR",
+        descriptionKey = "CHECK_BATTLE_ELIXIR_TIP",
         icon = 134873,
         elixirCategory = "battle",
         colorRGB = { r = 119 / 255, g = 183 / 255, b = 40 / 255 }, -- #77B728
@@ -1153,8 +1152,8 @@ if WhoDoesWhat.ElixirItems then
         hiddenOptions = ELIXIR_HIDDEN_OPTIONS,
     }
     WhoDoesWhat.StatusBarChecks.guardianElixir = {
-        name = "Guardian Elixir",
-        description = "Shows who has a guardian elixir or a flask up.",
+        nameKey = "CHECK_GUARDIAN_ELIXIR",
+        descriptionKey = "CHECK_GUARDIAN_ELIXIR_TIP",
         icon = 134823,
         elixirCategory = "guardian",
         colorRGB = { r = 208 / 255, g = 94 / 255, b = 156 / 255 }, -- #D05E9C
@@ -1166,9 +1165,8 @@ end
 -- TBC the drinks count as food instead). Each drink's buff is its use-spell.
 if features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.alcohol = {
-        name = "Alcohol Buff",
-        description = "Shows who has a drink buff up: Kreeg's Stout Beatdown,"
-            .. " Gordok Green Grog or Rumsey Rum.",
+        nameKey = "CHECK_ALCOHOL",
+        descriptionKey = "CHECK_ALCOHOL_TIP",
         icon = (GetItemIcon or C_Item.GetItemIconByID)(21151), -- Rumsey Rum Black Label
         itemSpells = WhoDoesWhat.AlcoholItems,
         colorRGB = { r = 0.80, g = 0.52, b = 0.20 },
@@ -1182,8 +1180,8 @@ if features.isClassicEra then
 end
 if not features.isClassicEra then
     WhoDoesWhat.StatusBarChecks.drumsUsed = {
-        name = "Tinnitus (drums)",
-        description = "Shows Tinnitus after a party receives a drums effect.",
+        nameKey = "CHECK_DRUMS",
+        descriptionKey = "CHECK_DRUMS_TIP",
         icon = 133854, -- INV_Misc_Ear_Human_01
         -- Two spells share the name; whichever this client has resolves it.
         auraSpellIds = {
@@ -1582,22 +1580,22 @@ local curseSpellIds = features.warlockCurseSpellIds
 WhoDoesWhat.WarlockCurses = {
     reck = {
         icon = "Interface\\Icons\\Spell_Shadow_UnholyStrength",
-        name_short = "Reck",
-        name_long = "Curse of Recklessness",
+        name_shortKey = "CURSE_RECKLESSNESS_SHORT",
+        name_longKey = "CURSE_RECKLESSNESS",
         spellId = curseSpellIds.reck
     },
     elements = {
         icon = "Interface\\Icons\\Spell_Shadow_ChillTouch",
-        name_short = "Elements",
-        name_long = "Curse of the Elements",
+        name_shortKey = "CURSE_ELEMENTS_SHORT",
+        name_longKey = "CURSE_ELEMENTS",
         spellId = curseSpellIds.elements
     }
 }
 if curseSpellIds.shadow then
     WhoDoesWhat.WarlockCurses.shadow = {
         icon = "Interface\\Icons\\Spell_Shadow_CurseOfAchimonde",
-        name_short = "Shadow",
-        name_long = "Curse of Shadow",
+        name_shortKey = "CURSE_SHADOW_SHORT",
+        name_longKey = "CURSE_SHADOW",
         spellId = curseSpellIds.shadow,
     }
 end
@@ -1609,7 +1607,7 @@ WhoDoesWhat.WarlockHealthstone = healthstoneClient and {
     icon = "Interface\\Icons\\INV_Stone_04",
     talent = "Improved Healthstone",
     maxRank = 2,
-    name = healthstoneClient.name,
+    nameKey = healthstoneClient.nameKey,
     lifeByTalentRank = healthstoneClient.lifeByTalentRank,
     talentRankByItemId = healthstoneClient.talentRankByItemId,
 } or nil
@@ -1626,25 +1624,25 @@ WhoDoesWhat.WarlockHealthstone = healthstoneClient and {
 -- Counterspell) -- they're not the kind of thing you assign a target to.
 -- Shamans have no assignable CC in TBC.
 local ccSpells = {
-    { id = "polymorph",   name = "Polymorph",       class = "Mage",    spellId = 12826 }, -- Rank 4
-    { id = "banish",      name = "Banish",          class = "Warlock", spellId = 18647 }, -- Rank 2
-    { id = "fear",        name = "Fear",            class = "Warlock", spellId = 6215 },  -- Rank 3
-    { id = "seduction",   name = "Seduction",       class = "Warlock", spellId = 6358 },  -- Succubus pet ability
-    { id = "enslave",     name = "Enslave Demon",   class = "Warlock", spellId = 11726 }, -- Rank 3
-    { id = "shackle",     name = "Shackle Undead",  class = "Priest",  spellId = 10955 }, -- Rank 3
-    { id = "mindcontrol", name = "Mind Control",    class = "Priest",  spellId = 10912 }, -- Rank 3
-    { id = "cyclone",     name = "Cyclone",         class = "Druid",   spellId = 33786 },
-    { id = "hibernate",   name = "Hibernate",       class = "Druid",   spellId = 18658 }, -- Rank 3
-    { id = "roots",       name = "Entangling Roots", class = "Druid",  spellId = 26989 }, -- Rank 7
-    { id = "freezetrap",  name = "Freezing Trap",   class = "Hunter",  spellId = 14311 }, -- Rank 3
-    { id = "wyvern",      name = "Wyvern Sting",    class = "Hunter",  spellId = 27068 }, -- Rank 4
-    { id = "scatter",     name = "Scatter Shot",    class = "Hunter",  spellId = 19503 },
-    { id = "sap",         name = "Sap",             class = "Rogue",   spellId = 11297 }, -- Rank 3
-    { id = "blind",       name = "Blind",           class = "Rogue",   spellId = 2094 },
-    { id = "kidneyshot",  name = "Kidney Shot",     class = "Rogue",   spellId = 8643 },  -- Rank 2
-    { id = "turnundead",  name = "Turn Undead",     class = "Paladin", spellId = 10326 }, -- Rank 3
-    { id = "repentance",  name = "Repentance",      class = "Paladin", spellId = 20066 },
-    { id = "disarm",      name = "Disarm",          class = "Warrior", spellId = 676 },
+    { id = "polymorph",   nameKey = "CC_POLYMORPH", class = "Mage",    spellId = 12826 }, -- Rank 4
+    { id = "banish",      nameKey = "CC_BANISH", class = "Warlock", spellId = 18647 }, -- Rank 2
+    { id = "fear",        nameKey = "CC_FEAR", class = "Warlock", spellId = 6215 },  -- Rank 3
+    { id = "seduction",   nameKey = "CC_SEDUCTION", class = "Warlock", spellId = 6358 },  -- Succubus pet ability
+    { id = "enslave",     nameKey = "CC_ENSLAVE_DEMON", class = "Warlock", spellId = 11726 }, -- Rank 3
+    { id = "shackle",     nameKey = "CC_SHACKLE_UNDEAD", class = "Priest",  spellId = 10955 }, -- Rank 3
+    { id = "mindcontrol", nameKey = "CC_MIND_CONTROL", class = "Priest",  spellId = 10912 }, -- Rank 3
+    { id = "cyclone",     nameKey = "CC_CYCLONE", class = "Druid",   spellId = 33786 },
+    { id = "hibernate",   nameKey = "CC_HIBERNATE", class = "Druid",   spellId = 18658 }, -- Rank 3
+    { id = "roots",       nameKey = "CC_ENTANGLING_ROOTS", class = "Druid",  spellId = 26989 }, -- Rank 7
+    { id = "freezetrap",  nameKey = "CC_FREEZING_TRAP", class = "Hunter",  spellId = 14311 }, -- Rank 3
+    { id = "wyvern",      nameKey = "CC_WYVERN_STING", class = "Hunter",  spellId = 27068 }, -- Rank 4
+    { id = "scatter",     nameKey = "CC_SCATTER_SHOT", class = "Hunter",  spellId = 19503 },
+    { id = "sap",         nameKey = "CC_SAP", class = "Rogue",   spellId = 11297 }, -- Rank 3
+    { id = "blind",       nameKey = "CC_BLIND", class = "Rogue",   spellId = 2094 },
+    { id = "kidneyshot",  nameKey = "CC_KIDNEY_SHOT", class = "Rogue",   spellId = 8643 },  -- Rank 2
+    { id = "turnundead",  nameKey = "CC_TURN_UNDEAD", class = "Paladin", spellId = 10326 }, -- Rank 3
+    { id = "repentance",  nameKey = "CC_REPENTANCE", class = "Paladin", spellId = 20066 },
+    { id = "disarm",      nameKey = "CC_DISARM", class = "Warrior", spellId = 676 },
 }
 
 WhoDoesWhat.CCSpells = {}
@@ -1674,21 +1672,21 @@ end
 -- them). index is the client's raid target index (SetRaidTarget /
 -- UI-RaidTargetingIcon_<index> texture).
 WhoDoesWhat.RaidTargetMarkers = {
-    { index = 8, name = "Skull" },
-    { index = 7, name = "Cross" },
-    { index = 6, name = "Square" },
-    { index = 5, name = "Moon" },
-    { index = 4, name = "Triangle" },
-    { index = 3, name = "Diamond" },
-    { index = 2, name = "Circle" },
-    { index = 1, name = "Star" },
+    { index = 8, nameKey = "MARKER_SKULL" },
+    { index = 7, nameKey = "MARKER_CROSS" },
+    { index = 6, nameKey = "MARKER_SQUARE" },
+    { index = 5, nameKey = "MARKER_MOON" },
+    { index = 4, nameKey = "MARKER_TRIANGLE" },
+    { index = 3, nameKey = "MARKER_DIAMOND" },
+    { index = 2, nameKey = "MARKER_CIRCLE" },
+    { index = 1, nameKey = "MARKER_STAR" },
 }
 
 -- Basic WoW Roles Metadata with dual icon choices. blizzRole is the client's
 -- role token (UnitGroupRolesAssigned / GetMicroIconForRole vocabulary).
 WhoDoesWhat.BasicWowRoles = {
     dps = {
-        name = "DPS",
+        nameKey = "WOW_ROLE_DPS",
         blizzRole = "DAMAGER",
         iconType1 = "Interface\\Icons\\INV_Sword_39",
         iconIdType1 = 132415,
@@ -1696,7 +1694,7 @@ WhoDoesWhat.BasicWowRoles = {
         iconIdType2 = 135804
     },
     tank = {
-        name = "Tank",
+        nameKey = "WOW_ROLE_TANK",
         blizzRole = "TANK",
         iconType1 = "Interface\\Icons\\INV_Shield_06",
         iconIdType1 = 134944,
@@ -1704,7 +1702,7 @@ WhoDoesWhat.BasicWowRoles = {
         iconIdType2 = 132341
     },
     healer = {
-        name = "Healer",
+        nameKey = "WOW_ROLE_HEALER",
         blizzRole = "HEALER",
         iconType1 = "Interface\\Icons\\Spell_Holy_LayOnHands",
         iconIdType1 = 135928,
@@ -1972,7 +1970,7 @@ end
 -- an icon and a sane buff order.
 WhoDoesWhat.HUNTER_PET_ROLE_ID = "hunter_pets"
 WhoDoesWhat.HunterPetRole = {
-    name = "Pets",
+    nameKey = "ROLE_HUNTER_PETS",
     icon = 132179, -- Ability_Hunter_MendPet
     id = WhoDoesWhat.HUNTER_PET_ROLE_ID,
     wowRole = "dps",
@@ -1987,12 +1985,12 @@ WhoDoesWhat.HunterPetRole = {
 -- role lists, custom-role registration) never sees it.
 WhoDoesWhat.NON_RAIDER_ROLE_ID = "non_raider"
 WhoDoesWhat.NonRaiderClass = {
-    name = "Non-raider",
+    name = "Non-raider", labelKey = "ROLE_NON_RAIDER",
     colorHex = "909090",
     roles = {},
 }
 WhoDoesWhat.NonRaiderRole = {
-    name = "Non-raider",
+    nameKey = "ROLE_NON_RAIDER",
     icon = 136090, -- Spell_Nature_Sleep ("zzz")
     id = WhoDoesWhat.NON_RAIDER_ROLE_ID,
     wowRole = false, -- no Blizzard role flag to sync
@@ -2393,15 +2391,15 @@ end
 -- Returns nil (and explains) when the arguments don't satisfy it.
 local function ValidateCustomRole(self, name, className, wowRole)
     if type(name) ~= "string" or strtrim(name) == "" then
-        self:Print("A custom role needs a name.")
+        self:Print(L.CUSTOM_ROLE_NEEDS_NAME)
         return nil
     end
     if type(className) ~= "string" or className == "" then
-        self:Print("A custom role needs a class.")
+        self:Print(L.CUSTOM_ROLE_NEEDS_CLASS)
         return nil
     end
     if not self.BasicWowRoles[wowRole] then
-        self:Print("A custom role needs a group role (Tank, Healer or DPS).")
+        self:Print(L.CUSTOM_ROLE_NEEDS_GROUP_ROLE)
         return nil
     end
     return strtrim(name)
@@ -2426,7 +2424,7 @@ function WhoDoesWhat:CustomRoleIconChoices(className)
     end
     for _, classInfo in ipairs(self.Classes) do
         if classInfo.name == className then
-            Add(classInfo.classIcon, classInfo.name)
+            Add(classInfo.classIcon, classInfo.label)
             for _, role in ipairs(classInfo.roles) do
                 Add(role.icon, role.name)
             end
@@ -2489,7 +2487,7 @@ end
 function WhoDoesWhat:CloneRoleToCustom(roleId)
     local classInfo, role = self:FindRoleById(roleId)
     if not role or not classInfo or role.isCustom then
-        self:Print("That role can't be copied.")
+        self:Print(L.CUSTOM_ROLE_CANT_COPY)
         return nil
     end
     -- A category has no single icon or group role of its own; take them from the
@@ -2499,7 +2497,7 @@ function WhoDoesWhat:CloneRoleToCustom(roleId)
         source = self.RolesAndCategories[role.allSubRoles[1]] or role
     end
     local order, allowed = self:GetEffectiveBuffSetup(roleId)
-    return self:CreateCustomRole(role.name .. " copy", classInfo.name,
+    return self:CreateCustomRole(L.CUSTOM_ROLE_COPY_NAME:format(role.name), classInfo.name,
         source.wowRole or "dps", source.icon, order, allowed)
 end
 
@@ -2600,8 +2598,7 @@ end
 local function RoomOnBoard(self)
     local list = self:GetRaidCustomRoles()
     if #list < MAX_RAID_CUSTOM_ROLES then return list end
-    self:Print("The raid's custom role list is full (" .. MAX_RAID_CUSTOM_ROLES
-        .. " roles). Remove one before adding another.")
+    self:Print(L.CUSTOM_ROLE_LIST_FULL:format(MAX_RAID_CUSTOM_ROLES))
     return nil
 end
 
@@ -2770,9 +2767,7 @@ function WhoDoesWhat:EnsureRoleIsShareable(roleId)
     local entry = self.RolesAndCategories[roleId]
     if not entry or not entry.isCustom or entry.isRaid then return true end
     if not self:CanEditAssignments() then
-        self:Print("'" .. tostring(entry.name) .. "' is one of your own custom roles"
-            .. " and is not part of this raid's list yet. Somebody who can edit"
-            .. " assignments has to add it in the main window's Custom Roles section.")
+        self:Print(L.CUSTOM_ROLE_NOT_IN_RAID:format(tostring(entry.name)))
         return false
     end
     return self:PublishCustomRole(roleId)
@@ -2813,4 +2808,85 @@ function WhoDoesWhat:FindRoleById(roleId)
     end
 
     return entry.classInfo, entry
+end
+
+-- A class's name as the player reads it, from the English name that saved
+-- settings and synced data key it by ("Priest").
+function WhoDoesWhat:ClassLabel(className)
+    for _, classInfo in ipairs(self.Classes) do
+        if classInfo.name == className then return classInfo.label end
+    end
+    if className == self.NonRaiderClass.name then return self.NonRaiderClass.label end
+    return className
+end
+
+-- ---------------------------------------------------------------------------
+-- Display text
+-- ---------------------------------------------------------------------------
+
+-- The text fields a record here may carry as a string key instead:
+-- `nameKey = "ROLE_FURY"` is filled in as `name` in the player's Language.
+-- Keys, not text, because this file loads before that Language is known; and
+-- kept after, so a whisper can read the same record in someone else's.
+local TEXT_FIELDS = {
+    "name", "name_short", "name_long", "description", "gridName",
+    "announceName", "label", "shortLabel", "title", "noun", "plural",
+}
+
+local function LocalizeRecord(record)
+    if not record then return end
+    for _, field in ipairs(TEXT_FIELDS) do
+        local key = record[field .. "Key"]
+        if key then record[field] = L[key] end
+    end
+end
+
+-- Arrays of records files after this one define while they load
+-- (Assignments.lua's sections), filled in along with the ones here.
+local laterRecords = {}
+
+-- Have LocalizeData fill `records` too. Call at file scope.
+function WhoDoesWhat:LocalizeOnInit(records)
+    laterRecords[#laterRecords + 1] = records
+end
+
+-- Fill every record's display text from its keys. Called once, from
+-- OnInitialize, straight after the Language is settled and before anything
+-- (PopulateRolesAndCategories first) copies a name out of these tables.
+function WhoDoesWhat:LocalizeData()
+    for _, classInfo in ipairs(self.Classes) do
+        LocalizeRecord(classInfo)
+        for _, role in ipairs(classInfo.roles) do LocalizeRecord(role) end
+        for _, category in ipairs(classInfo.categories or {}) do
+            LocalizeRecord(category)
+        end
+    end
+    LocalizeRecord(self.NonRaiderClass)
+    LocalizeRecord(self.NonRaiderRole)
+    LocalizeRecord(self.HunterPetRole)
+    LocalizeRecord(self.WarlockHealthstone)
+    for _, list in ipairs({ self.PaladinAuras, self.WarriorShouts, self.CCSpells,
+        self.RaidTargetMarkers }) do
+        for _, record in ipairs(list) do LocalizeRecord(record) end
+    end
+    for _, map in ipairs({ self.PaladinBuffs, self.StatusBarBackgrounds,
+        self.WarlockCurses, self.BasicWowRoles }) do
+        for _, record in pairs(map) do LocalizeRecord(record) end
+    end
+    for _, check in pairs(self.StatusBarChecks) do
+        LocalizeRecord(check)
+        LocalizeRecord(check.improvedTalent)
+        LocalizeRecord(check.requiredTalent)
+    end
+    for _, records in ipairs(laterRecords) do
+        for _, record in ipairs(records) do LocalizeRecord(record) end
+    end
+end
+
+-- One of a record's text fields in `strings` -- a whisper's or chat's
+-- (WhisperLocale, ChatLocale) rather than the player's own. A record with no
+-- key for it (a custom role, named by whoever made it) reads as it is.
+function WhoDoesWhat:DataText(record, field, strings)
+    local key = record[field .. "Key"]
+    return key and strings[key] or record[field]
 end

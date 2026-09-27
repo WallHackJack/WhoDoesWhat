@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Points a healthstone tooltip at the warlocks who can conjure that exact
 -- stone. Aimed at the action-bar button that has run dry: the line only
@@ -24,7 +25,7 @@ local function AddHealthstoneLine(tooltip, itemId)
     end
     if #names == 0 then return end
 
-    tooltip:AddLine("|cffffd100Provided by:|r " .. table.concat(names, ", "), 1, 1, 1, true)
+    tooltip:AddLine(L.TOOLTIP_PROVIDED_BY:format(table.concat(names, ", ")), 1, 1, 1, true)
     tooltip:Show()
 end
 

@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Side-by-side paladin-buff grids for the players whose current PallyPower
 -- coverage differs from WhoDoesWhat's suggested plan. Above each grid's
@@ -57,9 +58,6 @@ local CELL_SIZE = K.PALADIN_GRID_CELL_SIZE
 -- The line under the Differences heading, in one of three styles: the fix
 -- warning in small red, a plain note in small grey, and "all in sync" in large
 -- green behind a tick, since that one is the good news the panel exists for.
-local FIX_WARNING = "PallyPower is this raid's buff source and you have no edit"
-    .. " rights. Use fixes sparingly; they rely on paladins who enabled"
-    .. " Free Assignment."
 local WARNING_STYLE = { font = "GameFontHighlightSmall", color = { 1, 0.2, 0.2 } }
 local NOTE_STYLE = { font = "GameFontHighlightSmall", color = { 0.7, 0.7, 0.7 } }
 local SYNCED_STYLE = { font = "GameFontNormalLarge", color = { 0.3, 1, 0.3 },
@@ -68,10 +66,10 @@ local NOTE_ICON_SIZE = 22
 local NOTE_ICON_GAP = 6
 local COL_W = K.PALADIN_GRID_COL_W
 
+-- Its text and buttons are set as it opens, once the player's Language is
+-- known; `data` is the fix to run.
 StaticPopupDialogs["WHODOESWHAT_FIX_ALL_PALLYPOWER"] = {
-    text = "This will overwrite %d PallyPower buff choices and may upset the raid. Continue?",
-    button1 = "Fix All",
-    button2 = "Cancel",
+    text = "%s",
     OnAccept = function(self) self.data() end,
     timeout = 0,
     hideOnEscape = true,
@@ -233,7 +231,7 @@ local function CreatePaladinHeader(content, side, index)
         if self.paladinMember and not self.paladinMember.isTestFallback then
             WhoDoesWhat:ShowRaiderTooltip(self, self.paladin)
         else
-            UI.ShowTooltip(self, self.paladin, "Simulated Paladin")
+            UI.ShowTooltip(self, self.paladin, L.PP_SIMULATED_PALADIN)
         end
     end)
     header:SetScript("OnLeave", function() WhoDoesWhat:HideRaiderTooltip() end)
@@ -271,7 +269,7 @@ local function CreateComparisonRow(content, side, index)
             if not (member and member.classInfo) then return end
             local role = AssignedRole(row.data, member)
             return member.displayName, role and RoleText(role, member.classInfo)
-                or "No role yet."
+                or L.PP_NO_ROLE_YET
         end)
         UIDropDownMenu_Initialize(dropdown, function(_, level)
             local member, data, frame = row.member, row.data, row.ownerFrame
@@ -317,17 +315,16 @@ local function CreatePlanCell(row, index)
     UI.AddTooltip(cell, function(self)
         GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
         if self.buffKey then
-            GameTooltip:AddLine(self.sourceLabel .. ": "
-                .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
-                .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long .. ".",
+            GameTooltip:AddLine((self.isGreater and L.PP_CELL_GREATER or L.PP_CELL_LESSER)
+                :format(self.sourceLabel, WhoDoesWhat.PaladinBuffs[self.buffKey].name_long),
                 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine(self.sourceLabel .. ": no assignment for "
-                .. self.raider .. ".", 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine(L.PP_CELL_NONE:format(self.sourceLabel, self.raider),
+                0.6, 0.6, 0.6, true)
         end
         if self.needsRole then
-            GameTooltip:AddLine(self.raider .. " has no role yet, so this is a"
-                .. " default guess.", 1, 0.82, 0, true)
+            GameTooltip:AddLine(L.PP_CELL_DEFAULT_GUESS:format(self.raider),
+                1, 0.82, 0, true)
         end
         if self.alertMessage then
             local color = self.alertKind == "red" and { 1, 0.3, 0.3 }
@@ -343,7 +340,7 @@ end
 local function CreateFixButton(content, index)
     local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     button:SetSize(FIX_W, 20)
-    button:SetText("Fix")
+    button:SetText(L.PP_FIX)
     button:SetScript("OnClick", function(self)
         if not self.member or self.isDemo then return end
         if WhoDoesWhat:FixPlayerBuffsInPallyPower(self.member.planName) then
@@ -352,21 +349,21 @@ local function CreateFixButton(content, index)
         RenderDiffs(self.ownerFrame)
     end)
     UI.AddTooltip(button, function(self)
-        GameTooltip:SetText("Fix " .. (self.member and self.member.displayName or "row"),
+        GameTooltip:SetText(L.PP_FIX_PLAYER:format(self.member and self.member.displayName or L.PP_ROW),
             unpack(UI.TOOLTIP_TITLE))
         if self.isDemo then
-            GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L.PP_DEMO_DISABLED, 0.8, 0.8, 0.8, true)
         elseif self.member and self.member.needsRole then
-            GameTooltip:AddLine("This player has no role yet.", 1, 0.82, 0, true)
-            GameTooltip:AddLine("Pick a role before pushing a blessing plan for them.",
+            GameTooltip:AddLine(L.PP_PLAYER_NO_ROLE, 1, 0.82, 0, true)
+            GameTooltip:AddLine(L.PP_PICK_ROLE_FIRST,
                 0.8, 0.8, 0.8, true)
         elseif self.blockedPaladin then
-            GameTooltip:AddLine(self.blockedPaladin
-                .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
-            GameTooltip:AddLine("This row cannot be fixed by a non-assistant.",
+            GameTooltip:AddLine(L.PP_FREE_ASSIGNMENT_OFF:format(self.blockedPaladin),
+                1, 0.2, 0.2, true)
+            GameTooltip:AddLine(L.PP_ROW_NEEDS_ASSIST,
                 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine("Send only this player's WDW blessing plan to PallyPower.",
+            GameTooltip:AddLine(L.PP_FIX_ROW_TIP,
                 0.8, 0.8, 0.8, true)
         end
         return true
@@ -397,8 +394,7 @@ end
 local function CellOutline(data, member, paladin, buffKey)
     if not buffKey then return nil end
     if not member.topBuffs[buffKey] then
-        return "red", "This blessing is outside the player's top "
-            .. #data.paladins .. " buffs."
+        return "red", L.PP_OUTSIDE_TOP:format(#data.paladins)
     end
 
     local talent = A.BuffTalents[buffKey]
@@ -410,9 +406,8 @@ local function CellOutline(data, member, paladin, buffKey)
             local currentRank = TalentRank(data, paladin.name, buffKey)
             local betterRank = TalentRank(data, betterPaladin.name, buffKey)
             if currentRank ~= nil and betterRank ~= nil and betterRank > currentRank then
-                return "yellow", "WDW assigns this to " .. betterPaladin.name
-                    .. " at " .. betterRank .. "/" .. talent.maxRank
-                    .. " instead of " .. currentRank .. "/" .. talent.maxRank .. "."
+                return "yellow", L.PP_BETTER_PALADIN:format(betterPaladin.name,
+                    betterRank, talent.maxRank, currentRank, talent.maxRank)
             end
         end
     end
@@ -436,19 +431,19 @@ local function CoverageTextColor(correct, total)
 end
 
 local function CoverageText(correct, total)
-    if total == 0 then return "|cff909090No assignments|r", "" end
+    if total == 0 then return "|cff909090" .. L.PP_NO_ASSIGNMENTS .. "|r", "" end
     local r, g, b = CoverageTextColor(correct, total)
     local color = string.format("%02x%02x%02x",
         math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5),
         math.floor(b * 255 + 0.5))
     local percent = math.floor(correct / total * 100 + 0.5)
-    return "|cff" .. color .. correct .. "|r |cff909090of|r |cffffffff"
-        .. total .. "|r",
+    return L.PP_COVERAGE_OF:format("|cff" .. color .. correct .. "|r",
+        "|cffffffff" .. total .. "|r"),
         "(" .. percent .. "%)"
 end
 
 function WhoDoesWhat:TestPaladinCoverageText()
-    assert(CoverageText(0, 0):find("No assignments", 1, true))
+    assert(CoverageText(0, 0):find(L.PP_NO_ASSIGNMENTS, 1, true))
     assert(CoverageText(0, 10):find("|cffff33330|r", 1, true))
     local text, percent = CoverageText(19, 20)
     assert(text:find("|cffffd13319|r", 1, true) and percent == "(95%)")
@@ -500,8 +495,8 @@ end
 local function SummarySlotTooltip(self)
     if not self.buffKey then return end
     return WhoDoesWhat.PaladinBuffs[self.buffKey].name_long,
-        self.sourceLabel .. ": " .. self.paladin .. " blesses " .. self.buffCount
-            .. (self.buffCount == 1 and " raider" or " raiders") .. "."
+        (self.buffCount == 1 and L.PP_BLESSES_ONE or L.PP_BLESSES_MANY)
+            :format(self.sourceLabel, self.paladin, self.buffCount)
 end
 
 local function CreateSummaryRow(f, index)
@@ -529,7 +524,7 @@ local function CreateSummaryRow(f, index)
         local paladin = row.paladin
         if not paladin then return end
         if paladin.isTestFallback then
-            UI.ShowTooltip(self, paladin.name, "Simulated Paladin")
+            UI.ShowTooltip(self, paladin.name, L.PP_SIMULATED_PALADIN)
         else
             WhoDoesWhat:ShowRaiderTooltip(self, paladin.name)
         end
@@ -541,8 +536,9 @@ local function CreateSummaryRow(f, index)
     row.mailBtn = K.CreateMailButton(row, function()
         local paladin = row.paladin
         if not paladin then return end
+        -- Worded per recipient; the tooltip shows it in the player's own.
         local msg = A.GetPaladinBuffWhisper(paladin.name)
-        if msg then return paladin.name, msg, msg, true end
+        if msg then return paladin.name, msg, msg(L), true end
     end)
     row.mailBtn:SetPoint("RIGHT", row, "RIGHT", -6, 0)
 
@@ -568,7 +564,7 @@ local function CreateSummaryRow(f, index)
     progressHover:SetSize(PROGRESS_W, SUMMARY_ROW_H)
     progressHover:SetPoint("RIGHT", percent, "RIGHT")
     UI.AddTooltip(progressHover, function()
-        if row.progressTip then return "Awaiting talents", row.progressTip end
+        if row.progressTip then return L.PP_AWAITING_TALENTS, row.progressTip end
     end)
 
     local warn = UI.CreateWarningIcon(row)
@@ -594,7 +590,7 @@ local function CreateSummaryRow(f, index)
         more:SetText("...")
         more:Hide()
         local none = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        none:SetText("none")
+        none:SetText(L.PP_NONE)
         none:Hide()
         row.sides[side] = { slots = slots, more = more, none = none }
     end
@@ -672,12 +668,10 @@ local function RenderSummary(f, paladins, columnX, plans, sourceLabels, columnW,
         row.coverageIcon:SetTexture(awaiting and WhoDoesWhat.WARNING_ICON or COVERAGE_OK_ICON)
         row.coverageIcon:SetShown(awaiting or complete)
         if awaiting then
-            row.coverageText:SetText("Awaiting talents")
+            row.coverageText:SetText(L.PP_AWAITING_TALENTS)
             row.coverageText:SetTextColor(1, 0.62, 0.25)
             row.coveragePercent:SetText("")
-            row.progressTip = "No blessings for " .. name .. " until their"
-                .. " talents are read. Target them once while nearby, or mark them"
-                .. " Non-raider if they're sitting out."
+            row.progressTip = L.PP_AWAITING_TALENTS_TIP:format(name)
         else
             local text, percent = CoverageText(coverage.correct, coverage.total)
             row.coverageText:SetText(text)
@@ -742,7 +736,7 @@ local function SetCompact(f)
     f.heading:ClearAllPoints()
     f.heading:SetPoint("LEFT", f, "TOPLEFT", MARGIN, -BAR_H / 2)
     f.heading:SetPoint("RIGHT", f, "TOPRIGHT", -MARGIN, -BAR_H / 2)
-    f.emptyText:SetText("No paladins in the group.")
+    f.emptyText:SetText(L.RULES_NO_PALADINS)
     f.emptyText:Show()
 end
 
@@ -766,8 +760,8 @@ local function PlaceDiffHeading(f, y, contentW, note, noteStyle, showFix)
     heading:ClearAllPoints()
     heading:SetPoint("LEFT", f.header, "TOPLEFT", 0, mid)
     heading:SetPoint("RIGHT", f.header, "TOPLEFT", contentW, mid)
-    heading.label:SetText(PallyPowerMode() and "Unoptimized Buffs"
-        or "PallyPower Differences")
+    heading.label:SetText(PallyPowerMode() and L.PP_UNOPTIMIZED_HEADING
+        or L.PP_DIFFERENCES)
     f.sendBtn:SetShown(showFix)
 
     local rule = heading.right
@@ -880,15 +874,15 @@ local function RenderGrid(f, data)
     local plans = { data.current, data.suggested }
     -- In PallyPower mode its board IS the plan, and WDW's is only the better
     -- one on offer.
-    local sourceLabels = PallyPowerMode() and { "PallyPower", "Optimized" }
-        or { "Current", "Suggested" }
+    local sourceLabels = PallyPowerMode() and { L.PP_LABEL_PALLYPOWER, L.PP_LABEL_OPTIMIZED }
+        or { L.PP_LABEL_CURRENT, L.PP_LABEL_SUGGESTED }
 
     -- Every paladin gets a row, including any VisiblePaladins left out of the
     -- grids: their progress still counts.
     local headerIconsTop = RenderSummary(f, data.paladins, { columnStart[1], rightX },
         plans, sourceLabels, paladinW, contentW)
     headerIconsTop = PlaceDiffHeading(f, headerIconsTop, contentW,
-        warn and FIX_WARNING or nil, WARNING_STYLE, true)
+        warn and L.PP_FIX_WARNING or nil, WARNING_STYLE, true)
     f.header:SetSize(contentW, headerIconsTop + HEADER_H)
 
     -- A raider with no role yet only gets the canonical fallback order, so the
@@ -1052,7 +1046,7 @@ local function RenderPlan(f, paladins, plan, note, noteStyle)
     SetExpanded(f, contentW)
     f.content:SetWidth(contentW)
 
-    local y = RenderSummary(f, paladins, { buffsX }, { plan }, { "Assigned" },
+    local y = RenderSummary(f, paladins, { buffsX }, { plan }, { L.PP_LABEL_ASSIGNED },
         buffsW, contentW)
     y = PlaceDiffHeading(f, y, contentW, note, noteStyle, false)
     f.header:SetSize(contentW, y)
@@ -1094,19 +1088,18 @@ RenderDiffs = function(f)
             SetCompact(f)
         elseif WhoDoesWhat:IsFakeRaidEnabled() then
             RenderPlan(f, paladins, A.GetActivePaladinBuffPlan(),
-                "Simulated raid: PallyPower can't see these paladins, so there is"
-                    .. " nothing to compare.", NOTE_STYLE)
+                L.PP_SIMULATED_RAID, NOTE_STYLE)
         else
             RenderPlan(f, paladins, A.GetActivePaladinBuffPlan(),
-                PallyPowerMode() and "No unoptimized buffs."
-                    or "PallyPower matches WDW's plan.", SYNCED_STYLE)
+                PallyPowerMode() and L.PP_NO_UNOPTIMIZED
+                    or L.PP_MATCHES, SYNCED_STYLE)
         end
         return false
     end
 
     RenderGrid(f, data)
     f.diffCount = data.fixableCount or data.diffCount
-    f.sendBtn:SetText("Fix All (" .. f.diffCount .. ")")
+    f.sendBtn:SetText(L.PP_FIX_ALL_COUNT:format(f.diffCount))
     f.sendBtn:SetWidth(f.sendBtn:GetTextWidth() + 24)
     if data.isDemo then
         f.sendBtn:Disable()
@@ -1133,7 +1126,7 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     bar:SetPoint("TOPRIGHT")
     bar:SetHeight(BAR_H)
     -- Spans the rows under it, not the whole panel; FitCanvas places it.
-    local heading = UI.CreateDivider(bar, "Blessing Assignments", accent)
+    local heading = UI.CreateDivider(bar, L.PP_BLESSING_ASSIGNMENTS, accent)
     heading:SetPoint("LEFT", MARGIN, 0)
     heading:SetPoint("RIGHT", -MARGIN, 0)
     f.heading = heading
@@ -1155,21 +1148,24 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     f.content = content
 
     local progressTitle = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    progressTitle:SetText("Progress")
+    progressTitle:SetText(L.PP_PROGRESS)
     progressTitle:Hide()
     f.progressTitle = progressTitle
 
     -- Placed by PlaceDiffHeading under the paladin rows.
-    f.diffHeading = UI.CreateDivider(header, "PallyPower Differences", accent)
+    f.diffHeading = UI.CreateDivider(header, L.PP_DIFFERENCES, accent)
 
     local sendBtn = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
     sendBtn:SetHeight(22)
     sendBtn:SetPoint("RIGHT", f.diffHeading, "RIGHT", 0, 0)
-    sendBtn:SetText("Fix All (0)")
+    sendBtn:SetText(L.PP_FIX_ALL_COUNT:format(0))
     sendBtn:SetScript("OnClick", function()
         if f.demoData then return end
         StaticPopup_Hide("WHODOESWHAT_FIX_ALL_PALLYPOWER")
-        StaticPopup_Show("WHODOESWHAT_FIX_ALL_PALLYPOWER", f.diffCount, nil,
+        local dialog = StaticPopupDialogs["WHODOESWHAT_FIX_ALL_PALLYPOWER"]
+        dialog.button1, dialog.button2 = L.PP_FIX_ALL, L.COMMON_CANCEL
+        StaticPopup_Show("WHODOESWHAT_FIX_ALL_PALLYPOWER",
+            L.PP_FIX_ALL_PROMPT:format(f.diffCount), nil,
             function()
                 if WhoDoesWhat:SyncToPallyPower() then
                     WhoDoesWhat:RefreshMainAssignmentsView()
@@ -1178,22 +1174,19 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
             end)
     end)
     UI.AddTooltip(sendBtn, function(self)
-        GameTooltip:SetText("Fix all PallyPower assignments", unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:SetText(L.PP_FIX_ALL_TITLE, unpack(UI.TOOLTIP_TITLE))
         if f.demoData then
-            GameTooltip:AddLine("Disabled for view-only demo data.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L.PP_DEMO_DISABLED, 0.8, 0.8, 0.8, true)
         elseif self.noneFixable then
-            GameTooltip:AddLine("Every remaining difference is for a raider with"
-                .. " no role yet.", 1, 0.82, 0, true)
-            GameTooltip:AddLine("Give them roles and their rows become fixable.",
+            GameTooltip:AddLine(L.PP_ALL_NEED_ROLES, 1, 0.82, 0, true)
+            GameTooltip:AddLine(L.PP_GIVE_ROLES,
                 0.8, 0.8, 0.8, true)
         elseif not self.canFix then
-            GameTooltip:AddLine(self.blockedPaladin
-                .. " has Free Assignment turned off.", 1, 0.2, 0.2, true)
-            GameTooltip:AddLine("Needs raid assist, or Free Assignment turned on"
-                .. " by every paladin.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L.PP_FREE_ASSIGNMENT_OFF:format(self.blockedPaladin),
+                1, 0.2, 0.2, true)
+            GameTooltip:AddLine(L.PP_FIX_ALL_NEEDS_ASSIST, 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine("Send WDW's blessing plan to every paladin's"
-                .. " PallyPower.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L.PP_FIX_ALL_TIP, 0.8, 0.8, 0.8, true)
         end
         return true
     end)
@@ -1203,7 +1196,7 @@ function WhoDoesWhat:BuildPallyPowerDiffPanel(f)
     local closeDemoBtn = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
     closeDemoBtn:SetSize(80, 22)
     closeDemoBtn:SetPoint("RIGHT", sendBtn, "LEFT", -4, 0)
-    closeDemoBtn:SetText("End Demo")
+    closeDemoBtn:SetText(L.PP_END_DEMO)
     closeDemoBtn:SetScript("OnClick", function()
         f.demoData = nil
         RenderDiffs(f)

@@ -200,12 +200,12 @@ WhoDoesWhat.ClientFeatures = {
     -- nil on Forever: Improved Healthstone is gone, so there are no ranks to
     -- scan, share or show.
     warlockHealthstone = not isForever and (isClassicEra and {
-        name = "Major Healthstone",
+        nameKey = "HEALTHSTONE_MAJOR",
         lifeByTalentRank = { [0] = 1200, [1] = 1320, [2] = 1440 },
         -- Each Improved Healthstone rank conjures a distinct item.
         talentRankByItemId = { [9421] = 0, [19012] = 1, [19013] = 2 },
     } or {
-        name = "Master Healthstone",
+        nameKey = "HEALTHSTONE_MASTER",
         lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
         talentRankByItemId = { [22103] = 0, [22104] = 1, [22105] = 2 },
     }) or nil,

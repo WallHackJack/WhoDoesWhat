@@ -264,8 +264,8 @@ local WINDFURY_ICON = "Interface\\Icons\\Spell_Nature_Windfury"
 -- hand is GetWeaponEnchantInfo's 1 or 2; slot is the inventory slot, which the
 -- secure "cancelaura" action takes as target-slot.
 local WEAPON_SLOTS = {
-    { key = "mainHand", slot = 16, hand = 1, name = "Main Hand" },
-    { key = "offHand", slot = 17, hand = 2, name = "Off Hand" },
+    { key = "mainHand", slot = 16, hand = 1, nameKey = "CHECKLIST_MAIN_HAND" },
+    { key = "offHand", slot = 17, hand = 2, nameKey = "CHECKLIST_OFF_HAND" },
 }
 
 -- Item id -> the weapon pickers' entry: "sharp" / "blunt" for a stone that
@@ -324,7 +324,7 @@ local function ItemName(id)
             C_Item.RequestLoadItemDataByID(id)
         end
     end
-    return "Gathering Data... (" .. id .. ")"
+    return L.CHECKLIST_GATHERING:format(id)
 end
 
 -- The consumable slots that fill from an aura: two elixir slots (TBC only;
@@ -332,17 +332,17 @@ end
 -- plus flasks, which fill both; and two scroll slots (ScrollItems), one per
 -- scroll family, each picker listing that family's ranks.
 local ELIXIR_SLOTS = {
-    { key = "battleElixir", category = "battle", name = "Battle Elixir",
+    { key = "battleElixir", category = "battle", nameKey = "CHECK_BATTLE_ELIXIR",
       defaultIcon = 22831 }, -- Elixir of Major Agility
-    { key = "guardianElixir", category = "guardian", name = "Guardian Elixir",
+    { key = "guardianElixir", category = "guardian", nameKey = "CHECK_GUARDIAN_ELIXIR",
       defaultIcon = 32067 }, -- Elixir of Draenic Wisdom
 }
 -- petKey is the pick for the pet section's copy of the slot.
 local SCROLL_SLOTS = {
     { key = "agilityScroll", petKey = "petAgilityScroll", category = "agility",
-      name = "Scroll of Agility", defaultIcon = 3012 }, -- Scroll of Agility
+      nameKey = "CHECKLIST_SCROLL_AGILITY", defaultIcon = 3012 }, -- Scroll of Agility
     { key = "strengthScroll", petKey = "petStrengthScroll", category = "strength",
-      name = "Scroll of Strength", defaultIcon = 954 }, -- Scroll of Strength
+      nameKey = "CHECKLIST_SCROLL_STRENGTH", defaultIcon = 954 }, -- Scroll of Strength
 }
 
 -- item id -> category ("battle" / "guardian" / "flask" / "agility" /
@@ -521,31 +521,42 @@ end
 -- conjures a gem and right-click uses it if held, conjuring it otherwise.
 local SWAPPERS = {
     PALADIN = { {
-        key = "aura", name = "Aura", noun = "aura",
+        key = "aura", nameKey = "CHECKLIST_SWAP_AURA", nounKey = "CHECKLIST_SWAP_AURA_NOUN",
+        pluralKey = "CHECKLIST_SWAP_AURAS",
         List = function() return WhoDoesWhat:GetKnownPaladinAuras() end,
     } },
     HUNTER = { {
-        key = "aspect", name = "Aspect", noun = "aspect",
+        key = "aspect", nameKey = "CHECKLIST_SWAP_ASPECT", nounKey = "CHECKLIST_SWAP_ASPECT_NOUN",
+        pluralKey = "CHECKLIST_SWAP_ASPECTS",
         List = function() return KnownSpells(WhoDoesWhat.HunterAspects) end,
     } },
     MAGE = { {
-        key = "mageArmor", name = "Armor", noun = "armor",
+        key = "mageArmor", nameKey = "CHECKLIST_SWAP_ARMOR", nounKey = "CHECKLIST_SWAP_ARMOR_NOUN",
+        pluralKey = "CHECKLIST_SWAP_ARMORS",
         List = function() return KnownSpells(WhoDoesWhat.MageArmors) end,
     }, {
-        key = "manaGem", name = "Mana Gem", noun = "gem",
+        key = "manaGem", nameKey = "CHECKLIST_SWAP_GEM", nounKey = "CHECKLIST_SWAP_GEM_NOUN",
+        pluralKey = "CHECKLIST_SWAP_GEMS",
         List = KnownManaGems,
         Running = HeldManaGem,
         conjures = true,
     } },
     WARLOCK = { {
-        key = "warlockArmor", name = "Armor", noun = "armor",
+        key = "warlockArmor", nameKey = "CHECKLIST_SWAP_ARMOR", nounKey = "CHECKLIST_SWAP_ARMOR_NOUN",
+        pluralKey = "CHECKLIST_SWAP_ARMORS",
         List = function() return KnownSpells(WhoDoesWhat.WarlockArmors) end,
     }, {
-        key = "demon", name = "Demon", noun = "demon",
+        key = "demon", nameKey = "CHECKLIST_SWAP_DEMON", nounKey = "CHECKLIST_SWAP_DEMON_NOUN",
+        pluralKey = "CHECKLIST_SWAP_DEMONS",
         List = function() return KnownSpells(WhoDoesWhat.WarlockDemons) end,
         Running = RunningDemon,
     } },
 }
+-- Names, nouns and plurals are filled in once the player's Language is known.
+WhoDoesWhat:LocalizeOnInit(WEAPON_SLOTS)
+WhoDoesWhat:LocalizeOnInit(ELIXIR_SLOTS)
+WhoDoesWhat:LocalizeOnInit(SCROLL_SLOTS)
+for _, swappers in pairs(SWAPPERS) do WhoDoesWhat:LocalizeOnInit(swappers) end
 
 -- Item id sets for the food, pet food and alcohol pickers.
 local function ItemSet(ids)
@@ -773,7 +784,7 @@ local function CollectEntries()
         for _, entry in ipairs(pet or {}) do
             entry.forPet = true
             if entry.key == "food" then
-                entry.name = "Pet Food"
+                entry.name = L.CHECKLIST_PET_FOOD
                 entry.pick, entry.pickNoun, entry.useVerb = "petFood", "pet food", "Feed"
                 ApplyPick(entry, picks.petFood)
             end
@@ -924,7 +935,7 @@ local function CollectEntries()
             }
             if pick == "none" then
                 entry.bare = true
-                entry.name = weapon.name .. ": No Enchant"
+                entry.name = L.CHECKLIST_WEAPON_BARE:format(weapon.name)
                 entry.windfury = enchanted and windfuryEnchants[state[3]] == true
                 -- Windfury Totem reaches the shaman's party and no further, like
                 -- a shout: with no shaman in yours, a bare weapon waits for
@@ -932,7 +943,7 @@ local function CollectEntries()
                 entry.noShaman = not entry.windfury and not PartyHasShaman()
                 entry.has = entry.windfury or (not enchanted and not entry.noShaman)
             else
-                entry.name = weapon.name .. " Enchant"
+                entry.name = L.CHECKLIST_WEAPON_ENCHANT:format(weapon.name)
                 entry.has = enchanted
                 local ms = state[2]
                 entry.remaining = enchanted and ms and ms > 0 and ms / 1000 or nil
@@ -994,24 +1005,30 @@ local function AskFor(entry)
         return
     end
     lastRequest[entry.id] = now
-    local text = "[WhoDoesWhat] " .. entry.name
-        .. (entry.forPet and " on my pet please!" or " please!")
+    -- In `S`: party chat's strings, or the whispered caster's.
+    local function Request(S)
+        local name = entry.NameIn and entry.NameIn(S) or entry.name
+        return S.CHAT_TAGGED:format((entry.forPet and S.CHECKLIST_ASK_PET
+            or S.CHECKLIST_ASK):format(name))
+    end
     if entry.isShout then
         if IsInGroup() then
-            SendChatMessage(text, "PARTY")
+            SendChatMessage(Request(WhoDoesWhat:ChatLocale()), "PARTY")
         else
-            WhoDoesWhat:Print(text)
+            WhoDoesWhat:Print(Request(L))
         end
         return
     end
     local target = entry.askName
     local member = target and Assign.FindMember(target)
     if member and not member.isFake and IsInGroup() then
-        SendChatMessage(text, "WHISPER", nil, WhoDoesWhat:WhisperName(target))
+        SendChatMessage(Request(WhoDoesWhat:WhisperLocale(target)), "WHISPER", nil,
+            WhoDoesWhat:WhisperName(target))
     elseif target then
-        WhoDoesWhat:Print(text .. " (to " .. WhoDoesWhat:DisplayName(target) .. ")")
+        WhoDoesWhat:Print(L.CHECKLIST_ASK_TO:format(Request(L),
+            WhoDoesWhat:DisplayName(target)))
     else
-        WhoDoesWhat:Print("Nobody here to ask for " .. entry.name .. ".")
+        WhoDoesWhat:Print(L.CHECKLIST_NOBODY_TO_ASK:format(entry.name))
     end
 end
 
@@ -1026,7 +1043,6 @@ local PICKER_ROW_H = 20
 -- window's dress: gold edge, its blue title strip as a header, the Paladin
 -- Bar's near-black navy inside.
 local POPOUT_HEADER_H = 18
-local POPOUT_HINT = "Right-click to use"
 -- Alternating rows, a faint lift over the dark fill.
 local POPOUT_ROW_COLORS = { { 1, 1, 1, 0.025 }, { 1, 1, 1, 0.07 } }
 
@@ -1072,23 +1088,38 @@ function ItemUseAction(entry, itemID)
     return "item", "item:" .. itemID
 end
 
+-- String keys, by picker kind.
 local PICKER_TITLES = {
-    food = "Food", alcohol = "Alcohol",
-    mainHand = "Main Hand", offHand = "Off Hand",
-    battleElixir = "Battle Elixir", guardianElixir = "Guardian Elixir",
-    petFood = "Pet Food",
-    agilityScroll = "Scroll of Agility", strengthScroll = "Scroll of Strength",
-    petAgilityScroll = "Pet: Scroll of Agility", petStrengthScroll = "Pet: Scroll of Strength",
+    food = "CHECKLIST_PICKER_FOOD", alcohol = "CHECKLIST_PICKER_ALCOHOL",
+    mainHand = "CHECKLIST_MAIN_HAND", offHand = "CHECKLIST_OFF_HAND",
+    battleElixir = "CHECK_BATTLE_ELIXIR", guardianElixir = "CHECK_GUARDIAN_ELIXIR",
+    petFood = "CHECKLIST_PET_FOOD",
+    agilityScroll = "CHECKLIST_SCROLL_AGILITY", strengthScroll = "CHECKLIST_SCROLL_STRENGTH",
+    petAgilityScroll = "CHECKLIST_PET_SCROLL_AGILITY",
+    petStrengthScroll = "CHECKLIST_PET_SCROLL_STRENGTH",
 }
--- By the entry's pickNoun.
+-- By the entry's pickNoun, an English id: the noun as the tooltips say it,
+-- and what an empty picker says.
+local PICK_NOUN_KEYS = {
+    food = "CHECKLIST_NOUN_FOOD", drink = "CHECKLIST_NOUN_DRINK",
+    ["pet food"] = "CHECKLIST_NOUN_PET_FOOD", scroll = "CHECKLIST_NOUN_SCROLL",
+    elixir = "CHECKLIST_NOUN_ELIXIR", enchant = "CHECKLIST_NOUN_ENCHANT",
+}
 local PICKER_EMPTY = {
-    food = "No buff food in your bags.",
-    drink = "No Kreeg's, Gordok Green Grog or Rumsey Rum in your bags.",
-    ["pet food"] = "No Kibler's Bits or Sporeling Snacks in your bags.",
-    scroll = "No scrolls of this kind in your bags.",
-    elixir = "No elixirs or flasks for this slot in your bags.",
-    enchant = "No oils, stones or poisons in your bags.",
+    food = "CHECKLIST_EMPTY_FOOD", drink = "CHECKLIST_EMPTY_DRINK",
+    ["pet food"] = "CHECKLIST_EMPTY_PET_FOOD", scroll = "CHECKLIST_EMPTY_SCROLL",
+    elixir = "CHECKLIST_EMPTY_ELIXIR", enchant = "CHECKLIST_EMPTY_ENCHANT",
 }
+-- By the entry's useVerb, also an English id: its right-click hint.
+local USE_VERB_KEYS = {
+    Eat = "CHECKLIST_HINT_EAT", Drink = "CHECKLIST_HINT_DRINK",
+    Feed = "CHECKLIST_HINT_FEED", Read = "CHECKLIST_HINT_READ",
+    Apply = "CHECKLIST_HINT_APPLY",
+}
+
+local function PickNoun(entry)
+    return L[PICK_NOUN_KEYS[entry.pickNoun]]
+end
 
 -- One picker per slot kind ("food", "mainHand", "battleElixir", ...), each a
 -- secure frame of secure rows: a right-click on a row uses what it picks, and
@@ -1236,8 +1267,8 @@ local function EnsurePicker(kind)
         "SecureHandlerShowHideTemplate, BackdropTemplate")
     StylePopout(p)
     p:SetWidth(PICKER_W)
-    p.title:SetText(PICKER_TITLES[kind] or kind)
-    p.hint:SetText(POPOUT_HINT)
+    p.title:SetText(PICKER_TITLES[kind] and L[PICKER_TITLES[kind]] or kind)
+    p.hint:SetText(L.CHECKLIST_RIGHT_CLICK_TO_USE)
     p.kind = kind
     p.rows = {}
     p:Hide()
@@ -1256,7 +1287,7 @@ local function PickerSpecs(entry)
     local current = Picks()[kind]
     local specs = {}
     if entry.slot then
-        specs[#specs + 1] = { value = "none", text = "No enchant (for Windfury)",
+        specs[#specs + 1] = { value = "none", text = L.CHECKLIST_NO_ENCHANT_WINDFURY,
             icon = WINDFURY_ICON }
         for _, imbue in ipairs(KnownImbues()) do
             specs[#specs + 1] = { value = "imbue:" .. imbue.key, spell = imbue,
@@ -1356,7 +1387,7 @@ local function FillPicker(entry)
             row:SetAttribute("choosable", nil)
             row:SetAttribute("type2", nil)
             row.icon:SetTexture(nil)
-            row.text:SetText("|cff999999" .. PICKER_EMPTY[entry.pickNoun] .. "|r")
+            row.text:SetText("|cff999999" .. L[PICKER_EMPTY[entry.pickNoun]] .. "|r")
             row.count:SetText("")
             row.selected:Hide()
             row:Show()
@@ -1421,13 +1452,13 @@ local function StripsEnchant(entry)
             or (entry.useSpell ~= nil and entry.otherActive))
 end
 
-local function AddTimeLeftLine(btn, prefix)
+local function AddTimeLeftLine(btn, text)
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     if remaining and remaining > 0 then
-        GameTooltip:AddLine(string.format("%s, %d:%02d left.", prefix,
-            math.floor(remaining / 60), math.floor(remaining % 60)), 0.3, 1, 0.3)
+        GameTooltip:AddLine(L.CHECKLIST_TIME_LEFT:format(text, string.format("%d:%02d",
+            math.floor(remaining / 60), math.floor(remaining % 60))), 0.3, 1, 0.3)
     else
-        GameTooltip:AddLine(prefix .. ".", 0.3, 1, 0.3)
+        GameTooltip:AddLine(L.CHECKLIST_STATE:format(text), 0.3, 1, 0.3)
     end
 end
 
@@ -1442,124 +1473,128 @@ local function ShowTooltip(btn)
     end
     GameTooltip:SetOwner(btn, "ANCHOR_NONE")
     GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-    GameTooltip:SetText((entry.forPet and "Pet: " or "") .. entry.name, 1, 1, 1)
+    GameTooltip:SetText(entry.forPet and L.CHECKLIST_PET_ENTRY:format(entry.name)
+        or entry.name, 1, 1, 1)
     if entry.swap and entry.swap.conjures then
         if entry.running then
-            GameTooltip:AddLine(string.format("In your bags: %s, %d charge%s.",
-                ItemName(entry.running.itemId), entry.useCount or 0,
-                entry.useCount == 1 and "" or "s"), 0.3, 1, 0.3)
+            GameTooltip:AddLine((entry.useCount == 1 and L.CHECKLIST_IN_BAGS_ONE
+                or L.CHECKLIST_IN_BAGS_MANY):format(ItemName(entry.running.itemId),
+                entry.useCount or 0), 0.3, 1, 0.3)
         else
-            GameTooltip:AddLine("No " .. entry.swap.noun .. " in your bags.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_NONE_IN_BAGS:format(entry.swap.noun), 1, 0.3, 0.3)
         end
     elseif entry.swap then
         if entry.running then
-            GameTooltip:AddLine("Running: " .. entry.running.name .. ".", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_RUNNING:format(entry.running.name), 0.3, 1, 0.3)
         else
-            GameTooltip:AddLine("No " .. entry.swap.noun .. " running.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_NONE_RUNNING:format(entry.swap.noun), 1, 0.3, 0.3)
         end
         if entry.selected and entry.selected ~= entry.running then
-            GameTooltip:AddLine("Picked: " .. entry.selected.name .. ".", 1, 0.6, 0.2)
+            GameTooltip:AddLine(L.CHECKLIST_PICKED:format(entry.selected.name), 1, 0.6, 0.2)
         end
     elseif entry.bare then
         if entry.windfury then
-            GameTooltip:AddLine("Windfury is on it.", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_WINDFURY_ON, 0.3, 1, 0.3)
         elseif entry.enchanted then
-            GameTooltip:AddLine("Has an enchant, so Windfury can't land.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_WINDFURY_BLOCKED, 1, 0.3, 0.3)
         elseif entry.noShaman then
-            GameTooltip:AddLine("Bare, but no shaman in your party to Windfury it.",
-                1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_WINDFURY_NO_SHAMAN, 1, 0.3, 0.3)
         else
-            GameTooltip:AddLine("Bare, ready for Windfury.", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_WINDFURY_READY, 0.3, 1, 0.3)
         end
         if entry.noShaman and entry.enchanted then
-            GameTooltip:AddLine("No shaman in your party either.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_NO_SHAMAN_EITHER, 1, 0.3, 0.3)
         end
     elseif entry.slot then
         if entry.enchanted then
             AddTimeLeftLine(btn, entry.activeName
-                and ("On it: " .. entry.activeName) or "Enchanted")
+                and L.CHECKLIST_ON_WEAPON:format(entry.activeName) or L.CHECKLIST_ENCHANTED)
             if entry.otherActive then
                 local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
-                GameTooltip:AddLine("Not the enchant you picked.", c.r, c.g, c.b)
+                GameTooltip:AddLine(L.CHECKLIST_NOT_PICKED:format(PickNoun(entry)),
+                    c.r, c.g, c.b)
             end
         else
-            GameTooltip:AddLine("No enchant.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.CHECKLIST_NO_ENCHANT_ON, 1, 0.3, 0.3)
         end
     elseif entry.has == nil then
-        GameTooltip:AddLine("Not scanned yet.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L.CHECKLIST_NOT_SCANNED, 0.6, 0.6, 0.6)
     elseif entry.eatingUntil and entry.eatingUntil > GetTime() then
         local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
-        GameTooltip:AddLine(string.format("Eating: Well Fed in %ds.",
+        GameTooltip:AddLine(L.CHECKLIST_EATING:format(
             math.ceil(entry.eatingUntil - GetTime())), c.r, c.g, c.b)
     elseif entry.has == false then
-        GameTooltip:AddLine("Missing.", 1, 0.3, 0.3)
+        GameTooltip:AddLine(L.CHECKLIST_MISSING, 1, 0.3, 0.3)
     else
-        local onWho = entry.forPet and "On your pet" or "On you"
-        AddTimeLeftLine(btn, entry.activeName and (onWho .. ": " .. entry.activeName)
-            or onWho)
+        local onWho = entry.forPet and L.CHECKLIST_ON_PET or L.CHECKLIST_ON_YOU
+        AddTimeLeftLine(btn, entry.activeName
+            and L.CHECKLIST_ON_WHO:format(onWho, entry.activeName) or onWho)
         if entry.otherActive then
             local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
-            GameTooltip:AddLine("Not the " .. entry.pickNoun .. " you picked.",
+            GameTooltip:AddLine(L.CHECKLIST_NOT_PICKED:format(PickNoun(entry)),
                 c.r, c.g, c.b)
         end
         local source = not entry.selfSupplied
             and WhoDoesWhat:GetBuffSource(entry.target or WhoDoesWhat:PlayerKey(), entry.key)
         if source then
-            GameTooltip:AddLine("From " .. WhoDoesWhat:DisplayName(source) .. ".",
+            GameTooltip:AddLine(L.CHECKLIST_FROM:format(WhoDoesWhat:DisplayName(source)),
                 0.8, 0.8, 0.8)
         end
         if entry.note then GameTooltip:AddLine(entry.note, 1, 0.6, 0.2, true) end
     end
 
-    local noun = entry.pickNoun
     if entry.pick and not entry.bare then
         if entry.useSpell then
-            GameTooltip:AddLine("Using " .. entry.useSpell .. ".", 0.8, 0.8, 0.8)
+            GameTooltip:AddLine(L.CHECKLIST_USING:format(entry.useSpell), 0.8, 0.8, 0.8)
         elseif entry.useItem then
             local name = ItemName(entry.useItem)
             if CanUse(entry) then
-                GameTooltip:AddLine("Using " .. name .. " (" .. entry.useCount
-                    .. " in bags).", 0.8, 0.8, 0.8)
+                GameTooltip:AddLine(L.CHECKLIST_USING_COUNT:format(name, entry.useCount),
+                    0.8, 0.8, 0.8)
             else
                 GameTooltip:AddLine(entry.wrongEdge
-                    and (name .. " won't take on this weapon.")
-                    or ("Out of " .. name .. "."), 1, 0.3, 0.3)
+                    and L.CHECKLIST_WRONG_EDGE:format(name)
+                    or L.CHECKLIST_OUT_OF:format(name), 1, 0.3, 0.3)
             end
         else
-            GameTooltip:AddLine("No " .. noun .. " picked.", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine(L.CHECKLIST_NONE_PICKED:format(PickNoun(entry)),
+                0.6, 0.6, 0.6)
         end
     end
 
     GameTooltip:AddLine(" ")
     if entry.swap then
-        UI.AddTooltipHint(GameTooltip, "Left-Click:", entry.swap.conjures
-            and ("Conjure a " .. entry.swap.noun)
-            or ("Pick " .. entry.swap.noun .. " (casts it)"))
+        UI.AddTooltipHint(GameTooltip, L.HINT_LEFT_CLICK, entry.swap.conjures
+            and L.CHECKLIST_HINT_CONJURE:format(entry.swap.noun)
+            or L.CHECKLIST_HINT_PICK_CASTS:format(entry.swap.noun))
         if entry.swap.conjures and entry.running then
-            UI.AddTooltipHint(GameTooltip, "Right-Click:",
-                "Use " .. ItemName(entry.running.itemId))
+            UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
+                L.CHECKLIST_HINT_USE:format(ItemName(entry.running.itemId)))
         elseif entry.selected then
-            UI.AddTooltipHint(GameTooltip, "Right-Click:", "Cast " .. entry.selected.name)
+            UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
+                L.CHECKLIST_HINT_CAST:format(entry.selected.name))
         end
     elseif entry.castSpell then
-        UI.AddTooltipHint(GameTooltip, "Right-Click:", "Cast " .. entry.castSpell)
+        UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
+            L.CHECKLIST_HINT_CAST:format(entry.castSpell))
     end
     if entry.pick then
-        UI.AddTooltipHint(GameTooltip, "Left-Click:", "Pick " .. noun)
+        UI.AddTooltipHint(GameTooltip, L.HINT_LEFT_CLICK,
+            L.CHECKLIST_HINT_PICK:format(PickNoun(entry)))
         if StripsEnchant(entry) then
-            UI.AddTooltipHint(GameTooltip, "Right-Click:", "Remove "
-                .. (entry.activeName or "enchant"))
+            UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
+                L.CHECKLIST_HINT_REMOVE:format(entry.activeName or PickNoun(entry)))
         elseif CanUse(entry) and not entry.bare then
-            UI.AddTooltipHint(GameTooltip, "Right-Click:", entry.useSpell
-                and ("Cast " .. entry.useSpell)
-                or (entry.useVerb .. " " .. ItemName(entry.useItem)))
+            UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK, entry.useSpell
+                and L.CHECKLIST_HINT_CAST:format(entry.useSpell)
+                or L[USE_VERB_KEYS[entry.useVerb]]:format(ItemName(entry.useItem)))
         end
     end
-    local ask = not entry.selfSupplied and (entry.isShout and "Ask your party"
-        or entry.askName and ("Ask " .. WhoDoesWhat:DisplayName(entry.askName)))
-    if ask then UI.AddTooltipHint(GameTooltip, "Shift-Click:", ask) end
-    UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-    UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
+    local ask = not entry.selfSupplied and (entry.isShout and L.CHECKLIST_HINT_ASK_PARTY
+        or entry.askName and L.CHECKLIST_HINT_ASK:format(WhoDoesWhat:DisplayName(entry.askName)))
+    if ask then UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_CLICK, ask) end
+    UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
+    UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.CHECKLIST_SETTINGS)
     GameTooltip:Show()
 end
 
@@ -1709,7 +1744,7 @@ local function EnsureSwapper(kind)
     menu = CreateFrame("Frame", "WhoDoesWhatBuffChecklistSwap_" .. kind, frame,
         "SecureHandlerShowHideTemplate, BackdropTemplate")
     StylePopout(menu)
-    menu.hint:SetText("Click to cast")
+    menu.hint:SetText(L.CHECKLIST_CLICK_TO_CAST)
     menu.kind = kind
     menu.options = {}
     menu:Hide()
@@ -1736,7 +1771,7 @@ local function ConfigureSwapMenu(entry)
     local stamp = table.concat(keys, ",")
     if menu.stamp == stamp then return end
     menu.stamp = stamp
-    menu.title:SetText(entry.swap.name .. "s")
+    menu.title:SetText(entry.swap.plural)
     local count = #entry.swapOptions
     for i, spell in ipairs(entry.swapOptions) do
         local option = menu.options[i] or CreateSwapOption(menu, i)
@@ -2110,18 +2145,18 @@ local function EnsureFrame()
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("CENTER")
-    titleText:SetText("Buff Checklist |cff808080(Beta)|r")
+    titleText:SetText(L.CHECKLIST_TITLE .. " |cff808080" .. L.CHECKLIST_BETA .. "|r")
     title.text = titleText
     UI.AttachDrag(title, frame)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. "WhoDoesWhat Buff Checklist |cff808080(Beta)|r", 1, 1, 1)
-        GameTooltip:AddLine("The buffs your character should have.", 0.6, 0.6, 0.6)
+            .. L.CHECKLIST_TOOLTIP_TITLE .. " |cff808080" .. L.CHECKLIST_BETA .. "|r", 1, 1, 1)
+        GameTooltip:AddLine(L.CHECKLIST_TOOLTIP_TIP, 0.6, 0.6, 0.6)
         GameTooltip:AddLine(" ")
-        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
+        UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
+        UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.CHECKLIST_SETTINGS)
         GameTooltip:Show()
     end)
     title:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2222,13 +2257,13 @@ local function EnsureDivider()
     divider:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-        GameTooltip:SetText("Pet Buffs", 1, 1, 1)
-        GameTooltip:AddLine("Your pet's buffs, counted as covered/total.", 0.6, 0.6, 0.6)
+        GameTooltip:SetText(L.CHECKLIST_PET_BUFFS, 1, 1, 1)
+        GameTooltip:AddLine(L.CHECKLIST_PET_BUFFS_TIP, 0.6, 0.6, 0.6)
         GameTooltip:AddLine(" ")
-        UI.AddTooltipHint(GameTooltip, "Left-Click:",
-            WhoDoesWhat.db.char.buffChecklistPetCollapsed and "Expand" or "Collapse")
-        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
+        UI.AddTooltipHint(GameTooltip, L.HINT_LEFT_CLICK,
+            WhoDoesWhat.db.char.buffChecklistPetCollapsed and L.CHECKLIST_EXPAND or L.CHECKLIST_COLLAPSE)
+        UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
+        UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.CHECKLIST_SETTINGS)
         GameTooltip:Show()
     end)
     divider:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2241,7 +2276,7 @@ local splitDivider = nil
 local function EnsureSplitDivider()
     if splitDivider then return splitDivider end
     splitDivider = CreateDividerFrame()
-    splitDivider.label:SetText("From Others")
+    splitDivider.label:SetText(L.CHECKLIST_FROM_OTHERS)
     splitDivider.label:SetTextColor(0.62, 0.66, 0.75)
     splitDivider.arrow:Hide()
     splitDivider:SetScript("OnClick", function(_, button)
@@ -2253,12 +2288,11 @@ local function EnsureSplitDivider()
     splitDivider:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
-        GameTooltip:SetText("From Others", 1, 1, 1)
-        GameTooltip:AddLine("Above: what you see to yourself. Below: what other"
-            .. " raiders cast on you.", 0.6, 0.6, 0.6, true)
+        GameTooltip:SetText(L.CHECKLIST_FROM_OTHERS, 1, 1, 1)
+        GameTooltip:AddLine(L.CHECKLIST_FROM_OTHERS_TIP, 0.6, 0.6, 0.6, true)
         GameTooltip:AddLine(" ")
-        UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-        UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:", "Buff Checklist Settings")
+        UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
+        UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.CHECKLIST_SETTINGS)
         GameTooltip:Show()
     end)
     splitDivider:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2285,7 +2319,7 @@ end
 -- `pet` is CollectEntries' second return: false for no pet out.
 local function PaintDivider(pet, collapsed)
     if pet == false then
-        divider.label:SetText("Pet Not Summoned")
+        divider.label:SetText(L.CHECKLIST_PET_NOT_SUMMONED)
         divider.label:SetTextColor(1, 0.25, 0.25)
         divider.arrow:Hide()
         return
@@ -2294,7 +2328,7 @@ local function PaintDivider(pet, collapsed)
     for _, entry in ipairs(pet) do
         if entry.has == true and not entry.missing then covered = covered + 1 end
     end
-    divider.label:SetFormattedText("Pet (%d/%d)", covered, #pet)
+    divider.label:SetText(L.CHECKLIST_PET_COUNT:format(covered, #pet))
     if covered >= #pet then
         divider.label:SetTextColor(0.3, 1, 0.3)
     else

@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Buffing Grid (the main window's Buff Grid tab): raid-wide buff status
 -- columns followed by every paladin's blessing for each raider. The blessing
@@ -47,12 +48,14 @@ local CORE_CELL_ICON_SIZE = 16
 local CORE_MISSING_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local PALADIN_SECTION_GAP = 12
 
-local SOURCE_OPTIONS = {
-    { key = "wdw", label = "WDW" },
-    { key = "observed", label = "PP Mirror" },
-    { key = "addon", label = "PP Addon" },
+local SOURCE_ORDER = { "wdw", "observed", "addon" }
+local SOURCE_KEYS = {
+    wdw = "GRID_SOURCE_WDW", observed = "GRID_SOURCE_MIRROR", addon = "GRID_SOURCE_ADDON",
 }
-local SOURCE_LABELS = { wdw = "WDW", observed = "PP Mirror", addon = "PP Addon" }
+
+local function SourceLabel(source)
+    return L[SOURCE_KEYS[source] or SOURCE_KEYS.wdw]
+end
 
 -- Grid blocks: at this many raiders (or more) the rows split into two
 -- side-by-side blocks (balanced halves).
@@ -65,7 +68,7 @@ local function RemainingText(seconds)
     if seconds >= 60 then
         return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
     end
-    return seconds .. "s"
+    return L.GRID_SECONDS:format(seconds)
 end
 
 local function VisibleCoreBuffKeys(coverageByKey)
@@ -185,21 +188,21 @@ local function CreateCoreHeader(f, index)
     UI.AddTooltip(header, function(self)
         local buff = WhoDoesWhat.StatusBarChecks[self.buffKey]
         GameTooltip:SetText(buff.gridName or buff.name, unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine(buff.description or "Tracked raid status.",
+        GameTooltip:AddLine(buff.description or L.GRID_TRACKED_STATUS,
             0.8, 0.8, 0.8, true)
         if self.available == false then
-            GameTooltip:AddLine("Unavailable: requires " .. self.requiredClass .. ".",
+            GameTooltip:AddLine(L.GRID_UNAVAILABLE_CLASS:format(WhoDoesWhat:ClassLabel(self.requiredClass)),
                 1, 0.45, 0.2, true)
         end
         if buff.improvedTalent then
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(buff.improvedTalent.name .. " providers:", 1, 0.82, 0)
+            GameTooltip:AddLine(L.GRID_PROVIDERS:format(buff.improvedTalent.name), 1, 0.82, 0)
             for _, provider in ipairs(self.providers or {}) do
                 local rank = provider.rank == nil and "?" or provider.rank
                 -- "offspec": the rank is real but their current spec can't
                 -- cast the buff at all (see requiredTalent in Data.lua).
-                local suffix = (provider.offspec and " (offspec)" or "")
-                    .. (provider.available and "" or " (offline)")
+                local suffix = (provider.offspec and (" " .. L.GRID_OFFSPEC) or "")
+                    .. (provider.available and "" or (" " .. L.GRID_OFFLINE))
                 GameTooltip:AddLine(provider.name .. ": " .. rank .. "/"
                     .. buff.improvedTalent.maxRank .. suffix,
                     RankColor(provider.rank, buff.improvedTalent.maxRank))
@@ -331,39 +334,40 @@ local function CreateCoreCell(row, column)
             local remaining = WhoDoesWhat:GetBuffTimeRemaining(
                 self.raider, self.buffKey)
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("On " .. WhoDoesWhat:DisplayName(self.raider)
-                .. (remaining and (", " .. RemainingText(remaining)
-                    .. " remaining.") or "."), 1, 0.82, 0)
+            local who = WhoDoesWhat:DisplayName(self.raider)
+            GameTooltip:AddLine(remaining
+                and L.GRID_ON_REMAINING:format(who, RemainingText(remaining))
+                or L.GRID_ON:format(who), 1, 0.82, 0)
             return true
         end
         GameTooltip:SetText(buff.name .. " - "
             .. WhoDoesWhat:DisplayName(self.raider), unpack(UI.TOOLTIP_TITLE))
         if self.notNeeded then
-            GameTooltip:AddLine("Not required for this class.", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine(L.GRID_NOT_REQUIRED, 0.6, 0.6, 0.6)
         elseif not self.connected then
-            GameTooltip:AddLine("Offline, so their buffs can't be checked.",
+            GameTooltip:AddLine(L.GRID_OFFLINE_UNCHECKED,
                 0.6, 0.6, 0.6, true)
         elseif self.negative and self.hasBuff == true then
-            GameTooltip:AddLine("Has the debuff.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.GRID_HAS_DEBUFF, 1, 0.3, 0.3)
             local remaining = WhoDoesWhat:GetBuffTimeRemaining(
                 self.raider, self.buffKey)
             if remaining then
-                GameTooltip:AddLine(RemainingText(remaining) .. " remaining.",
+                GameTooltip:AddLine(L.GRID_REMAINING:format(RemainingText(remaining)),
                     1, 0.82, 0)
             end
         elseif self.hasBuff == true then
             local status, source, rank, maxRank =
                 WhoDoesWhat:GetImprovedBuffState(self.raider, self.buffKey)
             if status == "max" then
-                GameTooltip:AddLine("Active from " .. source .. " (max rank "
-                    .. rank .. "/" .. maxRank .. ").", 0.3, 1, 0.3, true)
+                GameTooltip:AddLine(L.GRID_ACTIVE_MAX:format(source, rank, maxRank),
+                    0.3, 1, 0.3, true)
             elseif status == "partial" or status == "base" then
-                GameTooltip:AddLine("Active from " .. source .. " (" .. rank
-                    .. "/" .. maxRank .. ").", 1, 0.7, 0.2, true)
+                GameTooltip:AddLine(L.GRID_ACTIVE_RANK:format(source, rank, maxRank),
+                    1, 0.7, 0.2, true)
             else
                 source = WhoDoesWhat:GetBuffSource(self.raider, self.buffKey)
-                GameTooltip:AddLine(source and ("Active from " .. source .. ".")
-                    or "Active.", 0.3, 1, 0.3, true)
+                GameTooltip:AddLine(source and L.GRID_ACTIVE_FROM:format(source)
+                    or L.GRID_ACTIVE, 0.3, 1, 0.3, true)
             end
             -- Otherwise this cell reads "Active." in green for a buff the
             -- status bar is counting as missing.
@@ -372,21 +376,19 @@ local function CreateCoreCell(row, column)
                     self.buffKey).flagOutsideRaid
                 and WhoDoesWhat:IsBuffFromOutsideRaid(
                     self.raider, self.buffKey) then
-                GameTooltip:AddLine("Cast from outside the raid; pulling a boss"
-                    .. " strips it.", 1, 0.45, 0.2, true)
+                GameTooltip:AddLine(L.CHECKLIST_NOTE_OUTSIDE_RAID, 1, 0.45, 0.2, true)
             end
             if self.betterProvider then
-                GameTooltip:AddLine("Better available from "
-                    .. self.betterProvider.name .. " ("
-                    .. self.betterProvider.rank .. "/" .. maxRank .. ").",
+                GameTooltip:AddLine(L.GRID_BETTER_FROM:format(self.betterProvider.name,
+                    self.betterProvider.rank, maxRank),
                     1, 0.45, 0.2, true)
             end
         elseif self.negative and self.hasBuff == false then
-            GameTooltip:AddLine("Does not have the debuff.", 0.3, 1, 0.3)
+            GameTooltip:AddLine(L.GRID_NO_DEBUFF, 0.3, 1, 0.3)
         elseif self.hasBuff == false then
-            GameTooltip:AddLine("Missing this buff.", 1, 0.3, 0.3)
+            GameTooltip:AddLine(L.GRID_MISSING, 1, 0.3, 0.3)
         else
-            GameTooltip:AddLine("Buffs not checked yet.", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine(L.GRID_NOT_CHECKED, 0.6, 0.6, 0.6)
         end
         return true
     end)
@@ -406,30 +408,26 @@ local function CreatePaladinCell(row, c)
         local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
             GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
-            GameTooltip:AddLine("Blesses " .. raider .. " with "
-                .. (self.isGreater and "Greater Blessing of " or "Blessing of ")
-                .. WhoDoesWhat.PaladinBuffs[self.buffKey].name_long
-                .. (self.isGreater and "." or " (Lesser)."),
+            GameTooltip:AddLine((self.isGreater and L.GRID_BLESSES_GREATER
+                or L.GRID_BLESSES_LESSER):format(raider,
+                WhoDoesWhat.PaladinBuffs[self.buffKey].name_long),
                 0.8, 0.8, 0.8, true)
             if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
                 and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
-                GameTooltip:AddLine(raider .. " is missing this buff.",
+                GameTooltip:AddLine(L.GRID_RAIDER_MISSING:format(raider),
                     1, 0.3, 0.3, true)
             end
         else
             GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), 1, 1, 1)
             if self.gridSource == "wdw" then
-                GameTooltip:AddLine("Nothing for " .. raider .. ": every blessing"
-                    .. " they want at this paladin count is already covered"
-                    .. (WhoDoesWhat.ClientFeatures.buffTalents
-                        and (", or needs a talent " .. self.paladin .. " doesn't have.")
-                        or "."),
+                GameTooltip:AddLine(WhoDoesWhat.ClientFeatures.buffTalents
+                    and L.GRID_NOTHING_FOR_TALENTS:format(raider, self.paladin)
+                    or L.GRID_NOTHING_FOR:format(raider),
                     0.6, 0.6, 0.6, true)
             else
-                local source = self.gridSource == "addon"
-                    and "the local PallyPower addon" or "observed PallyPower traffic"
-                GameTooltip:AddLine("No assignment for " .. raider .. " in "
-                    .. source .. ".", 0.6, 0.6, 0.6, true)
+                GameTooltip:AddLine((self.gridSource == "addon"
+                    and L.GRID_NO_ASSIGNMENT_ADDON or L.GRID_NO_ASSIGNMENT_OBSERVED)
+                    :format(raider), 0.6, 0.6, 0.6, true)
             end
         end
         return true
@@ -489,11 +487,8 @@ local function UpdateSourceControl(f)
     local matchesMode = f.gridSource == expected
         or (pallyPowerMode and (f.gridSource == "addon" or f.gridSource == "observed"))
     if not matchesMode then
-        f.sourceWarningText = "Blessing cells are showing "
-            .. (SOURCE_LABELS[f.gridSource] or "this source")
-            .. " for comparison only. Switch to " .. SOURCE_LABELS[expected]
-            .. " to see the raid's actual plan. Missing-buff markers still show"
-            .. " real buffs."
+        f.sourceWarningText = L.GRID_SOURCE_WARNING:format(SourceLabel(f.gridSource),
+            SourceLabel(expected))
     else
         f.sourceWarningText = nil
     end
@@ -797,14 +792,13 @@ local function OpenSourceMenu(f, button)
     end
     UIDropDownMenu_Initialize(sourceMenu, function(_, level)
         local title = UIDropDownMenu_CreateInfo()
-        title.text = "Show Pally Buff Source"
+        title.text = L.GRID_SHOW_SOURCE
         title.isTitle = true
         title.notCheckable = true
         UIDropDownMenu_AddButton(title, level)
-        for _, option in ipairs(SOURCE_OPTIONS) do
-            local key = option.key
+        for _, key in ipairs(SOURCE_ORDER) do
             local info = UIDropDownMenu_CreateInfo()
-            info.text = option.label
+            info.text = SourceLabel(key)
             info.checked = f.gridSource == key
             info.disabled = key == "addon" and not HasPallyPowerAddon()
             info.func = function()
@@ -834,9 +828,8 @@ function WhoDoesWhat:BuildBuffingGridPage(page)
     -- scrollbar's gutter above the rows, so it takes nothing from the grid.
     local gear = UI.CreateBareIconButton(f, UI.GEAR_ICON, GEAR_SIZE,
         function()
-            GameTooltip:SetText("Pally Buff Source", unpack(UI.TOOLTIP_TITLE))
-            GameTooltip:AddLine("Paladin blessing cells show "
-                .. (SOURCE_LABELS[f.gridSource] or "WDW") .. ".",
+            GameTooltip:SetText(L.GRID_SOURCE, unpack(UI.TOOLTIP_TITLE))
+            GameTooltip:AddLine(L.GRID_SOURCE_SHOWS:format(SourceLabel(f.gridSource)),
                 0.8, 0.8, 0.8, true)
             if f.sourceWarningText then
                 GameTooltip:AddLine(f.sourceWarningText, 1, 0.45, 0.2, true)
@@ -858,7 +851,7 @@ function WhoDoesWhat:BuildBuffingGridPage(page)
     f.raiderLabels = {}
     for b = 1, 2 do
         local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        label:SetText("Raider")
+        label:SetText(L.GRID_RAIDER)
         f.raiderLabels[b] = label
     end
 

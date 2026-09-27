@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Assignment model for the main /wdw window -- the non-UI half of what used
 -- to be one large MainAssignmentsView.lua: group-member helpers, marker /
@@ -237,7 +238,7 @@ end
 -- Forever, the key itself elsewhere).
 local function PlayerText(name, label)
     if not name then
-        return "|cff909090Unassigned|r"
+        return "|cff909090" .. L.ASSIGN_UNASSIGNED .. "|r"
     end
     label = label or WhoDoesWhat:LabelName(name)
     local m = FindMember(name)
@@ -319,31 +320,40 @@ local function MarkerValueText(v)
     if v == "custom" then
         return "|T" .. CUSTOM_TARGET_ICON .. ":14:14:0:0|t"
     elseif v == "all" then
-        return "Everything else"
+        return L.MARKER_ALL
     end
     local m = MarkerByIndex(v)
     return m and MarkerMarkup(m.index, 14) or "?"
 end
 
--- Plain words (marker names, the custom text spelled out).
-local function MarkerValuePlain(v, customText)
+-- Plain words (marker names, the custom text spelled out), in `S` (the
+-- player's own strings unless a whisper passes the recipient's).
+local function MarkerValuePlain(v, customText, S)
+    S = S or L
     if v == "custom" then
-        return (customText and customText ~= "") and customText or "Custom"
+        return (customText and customText ~= "") and customText or S.MARKER_CUSTOM
     elseif v == "all" then
-        return "Everything else"
+        return S.MARKER_ALL
     end
     local m = MarkerByIndex(v)
-    return m and m.name or "?"
+    return m and WhoDoesWhat:DataText(m, "name", S) or "?"
 end
 
--- Chat form: {skull}-style tokens the receiving client expands into icons;
+-- The {rt8}-style token the receiving client expands into a marker icon.
+-- Numbered rather than named: {skull} is only understood by an English client,
+-- and a marker's name is no longer English once translated.
+local function MarkerChatToken(m)
+    return "{rt" .. m.index .. "}"
+end
+
+-- Chat form: marker tokens the receiving client expands into icons;
 -- Custom / Everything else have no token and stay words.
-local function MarkerValueChat(v, customText)
+local function MarkerValueChat(v, customText, S)
     if type(v) == "number" then
         local m = MarkerByIndex(v)
-        return m and ("{" .. m.name:lower() .. "}") or "?"
+        return m and MarkerChatToken(m) or "?"
     end
-    return MarkerValuePlain(v, customText)
+    return MarkerValuePlain(v, customText, S)
 end
 
 -- Collapsed marker-dropdown text: the bare icon(s), since the box is only
@@ -371,7 +381,7 @@ local function MarkersRichText(entry, iconSize)
         if v == "custom" then
             parts[#parts + 1] = (entry.custom and entry.custom ~= "") and entry.custom
                 or ("|T" .. CUSTOM_TARGET_ICON .. ":" .. iconSize .. ":" .. iconSize
-                    .. ":0:0|t Custom")
+                    .. ":0:0|t " .. L.MARKER_CUSTOM)
         elseif type(v) == "number" then
             parts[#parts + 1] = MarkerMarkup(v, iconSize)
         else
@@ -386,46 +396,48 @@ end
 -- literally here; the words are what we want in our own chat anyway.
 -- Player-target entries (Misdirects) name the player, with their optional
 -- marker in words after it.
-local function TargetPlainText(entry)
+local function TargetPlainText(entry, S)
+    S = S or L
     if entry.target then
         local m = MarkerByIndex(entry.marker)
-        return m and (entry.target .. " (" .. m.name .. ")") or entry.target
+        return m and S.TARGET_WITH_MARKER:format(entry.target,
+            WhoDoesWhat:DataText(m, "name", S)) or entry.target
     end
     if entry.markers then
-        if #entry.markers == 0 then return "no marker" end
+        if #entry.markers == 0 then return S.MARKER_NONE end
         local parts = {}
         for _, v in ipairs(entry.markers) do
-            parts[#parts + 1] = MarkerValuePlain(v, entry.custom)
+            parts[#parts + 1] = MarkerValuePlain(v, entry.custom, S)
         end
         return table.concat(parts, ", ")
     end
-    return MarkerValuePlain(entry.marker, entry.custom)
+    return MarkerValuePlain(entry.marker, entry.custom, S)
 end
 
 -- Target text for whispers: chat's raid-marker tokens (see MarkerValueChat).
 -- Player targets (Misdirects) lead with the name, marker token after when set.
-local function TargetChatText(entry)
+local function TargetChatText(entry, S)
+    S = S or L
     if entry.target then
         local m = MarkerByIndex(entry.marker)
-        local token = m and ("{" .. m.name:lower() .. "}")
-        return token and (entry.target .. " " .. token) or entry.target
+        return m and (entry.target .. " " .. MarkerChatToken(m)) or entry.target
     end
     if entry.markers then
-        if #entry.markers == 0 then return "no marker" end
+        if #entry.markers == 0 then return S.MARKER_NONE end
         local parts = {}
         for _, v in ipairs(entry.markers) do
-            parts[#parts + 1] = MarkerValueChat(v, entry.custom)
+            parts[#parts + 1] = MarkerValueChat(v, entry.custom, S)
         end
         return table.concat(parts, " ")
     end
-    return MarkerValueChat(entry.marker, entry.custom)
+    return MarkerValueChat(entry.marker, entry.custom, S)
 end
 
 -- Collapsed spell-dropdown text: icon + class-colored name, or a prompt while
 -- nothing is picked yet.
 local function SpellText(spell)
     if not spell then
-        return "|cff909090Choose...|r"
+        return "|cff909090" .. L.ASSIGN_CHOOSE .. "|r"
     end
     local classInfo = GetClassInfoByToken(spell.class:upper())
     return "|T" .. WhoDoesWhat:GetSpellIcon(spell.spellId) .. ":14:14:0:0|t |cff"
@@ -524,10 +536,10 @@ end
 local DynamicSections = {
     {
         key = "tank",
-        title = "Tank Assignments",
+        titleKey = "SECTION_TANK",
         store = "tankAssignments",
         noun = "tank assignment",
-        whisperLead = "Tank ",
+        whisperKey = "WHISPER_TANK",
         -- One row per marked tank, auto-managed; the marker dropdown is a
         -- multi-select so one tank holds all their markers on a single row.
         autoRows = true,
@@ -540,40 +552,39 @@ local DynamicSections = {
         end,
         GetWarning = function(entry)
             if entry.player and not WhoDoesWhat:IsMarkedTank(entry.player) then
-                return entry.player .. " is not marked as a tank. Assign them a"
-                    .. " tank role from the unit right-click menu."
+                return L.WARN_NOT_MARKED_TANK:format(entry.player)
             end
             if #(entry.markers or {}) == 0 then
-                return "No marker picked for this tank yet."
+                return L.WARN_TANK_NO_MARKER
             end
         end,
     },
     {
         key = "cc",
-        title = "CC Assignments",
+        titleKey = "SECTION_CC",
         store = "ccAssignments",
         noun = "CC assignment",
-        whisperLead = "CC ",
+        whisperKey = "WHISPER_CC",
         spells = WhoDoesWhat.CCSpells,
         GetWarning = function(entry)
             local spell = SpellById(entry.spell)
             if not spell then
-                return "No spell picked for this assignment yet."
+                return L.WARN_CC_NO_SPELL
             end
             local m = entry.player and FindMember(entry.player)
             if m and m.classInfo.name ~= spell.class then
-                return entry.player .. " is a " .. m.classInfo.name .. " and can't cast "
-                    .. spell.name .. ", which is a " .. spell.class .. " ability."
+                return L.WARN_CC_WRONG_CLASS:format(entry.player, m.classInfo.label,
+                    spell.name, WhoDoesWhat:ClassLabel(spell.class))
             end
         end,
     },
     {
         key = "md",
         enabled = WhoDoesWhat.ClientFeatures.misdirectAssignments,
-        title = "Misdirect Assignments",
+        titleKey = "SECTION_MISDIRECT",
         store = "mdAssignments",
         noun = "misdirect assignment",
-        whisperLead = "Misdirect to ",
+        whisperKey = "WHISPER_MISDIRECT",
         targetPlayer = true,
         -- One row per hunter, auto-managed from the roster (EnsureAutoRows):
         -- every hunter should have a misdirect every fight, so there's no
@@ -583,29 +594,25 @@ local DynamicSections = {
             if entry.player then
                 local m = FindMember(entry.player)
                 if m and m.classInfo.name ~= "Hunter" then
-                    return entry.player .. " is a " .. m.classInfo.name
-                        .. " and can't cast Misdirection."
+                    return L.WARN_MD_NOT_HUNTER:format(entry.player, m.classInfo.label)
                 end
                 local count = 0
                 for _, e in ipairs(WhoDoesWhat.db.profile.mdAssignments) do
                     if e.player == entry.player then count = count + 1 end
                 end
                 if count > 1 then
-                    return entry.player .. " holds more than one misdirect;"
-                        .. " a hunter can only misdirect onto one tank."
+                    return L.WARN_MD_TWICE:format(entry.player)
                 end
             end
             if not entry.target then
-                return "No tank picked for this misdirect yet."
+                return L.WARN_MD_NO_TANK
             end
             if not WhoDoesWhat:IsMarkedTank(entry.target) then
-                return entry.target .. " is not marked as a tank. Assign them a"
-                    .. " tank role from the unit right-click menu."
+                return L.WARN_NOT_MARKED_TANK:format(entry.target)
             end
             local markers = WhoDoesWhat:TankMarkers(entry.target)
             if #markers == 0 then
-                return entry.target .. " has no marker assigned in Tank"
-                    .. " Assignments, so there's nothing to misdirect on."
+                return L.WARN_MD_TANK_NO_MARKER:format(entry.target)
             end
             if entry.marker then
                 local onTankMarker = false
@@ -614,13 +621,15 @@ local DynamicSections = {
                 end
                 if not onTankMarker then
                     local m = MarkerByIndex(entry.marker)
-                    return "This misdirect is on " .. (m and m.name or "?")
-                        .. ", but " .. entry.target .. " isn't tanking that marker."
+                    return L.WARN_MD_WRONG_MARKER:format(m and m.name or "?",
+                        entry.target)
                 end
             end
         end,
     },
 }
+-- Their titles are filled in once the player's Language is known.
+WhoDoesWhat:LocalizeOnInit(DynamicSections)
 
 -- A dynamic section's definition by its stable key ("tank"/"cc"/"md") --
 -- how the view files and AssignmentsActions reach their section's model.
@@ -638,22 +647,39 @@ end
 -- {skull}" for a CC row. TargetFmt picks chat tokens or plain words. A CC row
 -- with no spell picked yet just names its target -- the row's warning icon is
 -- what nags about the gap, no need to whisper someone a "?".
-local function EntryText(section, entry, TargetFmt)
-    local target = TargetFmt(entry)
+local function EntryText(section, entry, TargetFmt, S)
+    S = S or L
+    local target = TargetFmt(entry, S)
     local spell = section.spells and SpellById(entry.spell)
-    return spell and (spell.name .. " " .. target) or target
+    return spell and S.CC_ON_TARGET:format(WhoDoesWhat:DataText(spell, "name", S),
+        target) or target
 end
 
 -- Every row this player holds in a section, joined into one list, so each of
 -- their mail buttons whispers the whole job rather than one line of it.
-local function PlayerEntriesText(section, playerName, TargetFmt)
+local function PlayerEntriesText(section, playerName, TargetFmt, S)
     local out = {}
     for _, entry in ipairs(GetEntries(section)) do
         if entry.player == playerName then
-            out[#out + 1] = EntryText(section, entry, TargetFmt)
+            out[#out + 1] = EntryText(section, entry, TargetFmt, S)
         end
     end
     return table.concat(out, ", ")
+end
+
+-- A player's whole job in a section as it is whispered: a function of the
+-- recipient's strings (AssignmentWhisperText), so it reads in their Language.
+local function SectionWhisper(section, playerName)
+    return function(S)
+        return S[section.whisperKey]:format(
+            PlayerEntriesText(section, playerName, TargetChatText, S))
+    end
+end
+
+-- The same job in the player's own words, for the mail button's tooltip.
+local function SectionWhisperDisplay(section, playerName)
+    return L[section.whisperKey]:format(
+        PlayerEntriesText(section, playerName, TargetPlainText))
 end
 
 -- ---------------------------------------------------------------------------
@@ -686,7 +712,7 @@ local function CollectDynamicWhispers(section)
             seen[entry.player] = true
             out[#out + 1] = {
                 name = entry.player,
-                msg = section.whisperLead .. PlayerEntriesText(section, entry.player, TargetChatText),
+                msg = SectionWhisper(section, entry.player),
             }
         end
     end
@@ -705,14 +731,23 @@ local function CollectStaticWhispers(section)
                 order[#order + 1] = name
             end
             local list = jobs[name]
-            list[#list + 1] = def.label
+            list[#list + 1] = def
         end
     end
     local out = {}
     for _, name in ipairs(order) do
+        local defs = jobs[name]
         out[#out + 1] = {
             name = name,
-            msg = table.concat(jobs[name], ", ") .. " (" .. section.title .. ")",
+            -- In the recipient's strings (AssignmentWhisperText).
+            msg = function(S)
+                local labels = {}
+                for i, def in ipairs(defs) do
+                    labels[i] = WhoDoesWhat:DataText(def, "label", S)
+                end
+                return S.WHISPER_STATIC:format(table.concat(labels, ", "),
+                    WhoDoesWhat:DataText(section, "title", S))
+            end,
         }
     end
     return out
@@ -772,10 +807,10 @@ end
 -- have no talent, so any paladin carries them equally well. Empty on a client
 -- where no talent affects a blessing: nothing is gated or weighed by rank.
 local BuffTalents = not WhoDoesWhat.ClientFeatures.buffTalents and {} or {
-    kings     = { talent = "Blessing of Kings", maxRank = 1 },
-    sanctuary = { talent = "Blessing of Sanctuary", maxRank = 1 },
-    might     = { talent = "Improved Blessing of Might", maxRank = 5 },
-    wisdom    = { talent = "Improved Blessing of Wisdom", maxRank = 2 },
+    kings     = { talentKey = "TALENT_BLESSING_OF_KINGS", maxRank = 1 },
+    sanctuary = { talentKey = "TALENT_BLESSING_OF_SANCTUARY", maxRank = 1 },
+    might     = { talentKey = "TALENT_IMPROVED_MIGHT", maxRank = 5 },
+    wisdom    = { talentKey = "TALENT_IMPROVED_WISDOM", maxRank = 2 },
 }
 
 -- A player's rank in a buff's talent: 0..max once their talents have been
@@ -2132,7 +2167,13 @@ local function BuildBuffChecklist(forPet)
                     entries[#entries + 1] = {
                         id = prefix .. "blessing:" .. key, key = key, target = target,
                         className = "Paladin",
-                        name = "Blessing of " .. buff.name_long,
+                        name = L.BLESSING_OF:format(buff.name_long),
+                        -- The same name in a whisper's strings (the Buff
+                        -- Checklist's ask).
+                        NameIn = function(S)
+                            return S.BLESSING_OF:format(
+                                WhoDoesWhat:DataText(buff, "name_long", S))
+                        end,
                         icon = buff.icon, has = has, missing = has == false,
                         remaining = WhoDoesWhat:GetBuffTimeRemaining(target, key),
                         askName = paladin ~= me and paladin or nil,
@@ -2165,12 +2206,12 @@ local function BuildBuffChecklist(forPet)
                 if bestRank and bestRank > 0 then
                     local _, _, rank = WhoDoesWhat:GetImprovedBuffState(target, key)
                     if not (rank and rank >= bestRank) then
-                        missing, note = true, "A better-talented caster is here."
+                        missing, note = true, L.CHECKLIST_NOTE_BETTER_CASTER
                     end
                 end
                 if options.flagOutsideRaid
                     and WhoDoesWhat:IsBuffFromOutsideRaid(target, key) then
-                    missing, note = true, "Cast from outside the raid; the pull strips it."
+                    missing, note = true, L.CHECKLIST_NOTE_OUTSIDE_RAID
                 end
             end
             -- The best caster who can cast it as they stand; an offspec or
@@ -2186,6 +2227,10 @@ local function BuildBuffChecklist(forPet)
                 id = prefix .. "buff:" .. key, key = key, target = target,
                 className = options.requiredClass or buff.className,
                 name = buff.gridName or buff.name,
+                NameIn = function(S)
+                    return buff.gridName and WhoDoesWhat:DataText(buff, "gridName", S)
+                        or WhoDoesWhat:DataText(buff, "name", S)
+                end,
                 icon = buff.icon, has = has, missing = missing, note = note,
                 remaining = WhoDoesWhat:GetBuffTimeRemaining(target, key),
                 askName = askName ~= me and askName or nil,
@@ -2291,6 +2336,8 @@ end
 -- Names only, no "Target->Blessing" pairs: a paladin knows their own
 -- assignment, and spelling it out per raider turned one line into a paragraph.
 -- A raider short of two blessings is one name, not two.
+-- Returns a function of the recipient's strings (AssignmentWhisperText), or
+-- nil with nothing missing.
 local function PaladinBuffWhisperText(coverage)
     local missing = coverage and coverage.missing or {}
     if #missing == 0 then return nil end
@@ -2305,12 +2352,14 @@ local function PaladinBuffWhisperText(coverage)
     end
     table.sort(names)
 
-    local text = WhoDoesWhat:CoverageSummary("Pally Buffs", coverage.correct,
-        coverage.total)
-    if #names <= WhoDoesWhat.MAX_NAMED_MISSING then
-        text = text .. " -- Missing: " .. table.concat(names, ", ")
+    return function(S)
+        local text = WhoDoesWhat:CoverageSummary(S.COVERAGE_PALLY_BUFFS,
+            coverage.correct, coverage.total, S)
+        if #names <= WhoDoesWhat.MAX_NAMED_MISSING then
+            text = S.COVERAGE_MISSING:format(text, table.concat(names, ", "))
+        end
+        return text
     end
-    return text
 end
 
 local function GetPaladinBuffWhisper(name)
@@ -2382,20 +2431,20 @@ do
     local reck = {
         id = "curse_reck",
         icon = curses.reck.icon,
-        label = curses.reck.name_long,
+        labelKey = curses.reck.name_longKey, shortLabelKey = "CURSE_RECKLESSNESS_ROW",
         spellId = curses.reck.spellId,
         class = "Warlock",
         exclusiveWith = OtherCurseIds("curse_reck"),
         GetWarning = function()
             if not GetAssignment("curse_reck") then
-                return "No one is assigned to Curse of Recklessness."
+                return L.WARN_NO_RECKLESSNESS
             end
         end,
     }
     local elements = {
         id = "curse_elements",
         icon = curses.elements.icon,
-        label = curses.elements.name_long,
+        labelKey = curses.elements.name_longKey, shortLabelKey = "CURSE_ELEMENTS_ROW",
         spellId = curses.elements.spellId,
         class = "Warlock",
         preferRoleId = not isClassicEra and "warlock_affl" or nil,
@@ -2403,24 +2452,23 @@ do
         GetWarning = function()
             local name = GetAssignment("curse_elements")
             if not name then
-                return "No one is assigned to Curse of the Elements."
+                return L.WARN_NO_ELEMENTS
             end
             if not isClassicEra and WhoDoesWhat:GetAssignedRole(name) ~= "warlock_affl" then
-                return name .. " is not marked as Affliction. Without Malediction,"
-                    .. " Curse of the Elements is less effective."
+                return L.WARN_ELEMENTS_NOT_AFFLICTION:format(name)
             end
         end,
     }
     local shadow = curses.shadow and {
         id = "curse_shadow",
         icon = curses.shadow.icon,
-        label = curses.shadow.name_long,
+        labelKey = curses.shadow.name_longKey, shortLabelKey = "CURSE_SHADOW_ROW",
         spellId = curses.shadow.spellId,
         class = "Warlock",
         exclusiveWith = OtherCurseIds("curse_shadow"),
         GetWarning = function()
             if not GetAssignment("curse_shadow") then
-                return "No one is assigned to Curse of Shadow."
+                return L.WARN_NO_SHADOW
             end
         end,
     }
@@ -2436,7 +2484,7 @@ do
         local settings = WhoDoesWhat.db.profile.settings
         local locks = MembersOfClass("Warlock")
         if #locks == 0 then
-            WhoDoesWhat:Print("Warlock Curses: no warlocks in the group to auto-assign.")
+            WhoDoesWhat:Print(L.CURSES_AUTO_NO_WARLOCKS)
             return
         end
 
@@ -2513,7 +2561,7 @@ do
                 .. (reckLock or "nobody (no free warlock)")
         end
         if #parts == 0 then
-            WhoDoesWhat:Print("Warlock Curses: curse auto-assigns are disabled in Settings.")
+            WhoDoesWhat:Print(L.CURSES_AUTO_DISABLED)
         else
             WhoDoesWhat:LogOperation("Warlock Curses auto-assigned: " .. table.concat(parts, ", ") .. ".")
         end
@@ -2522,10 +2570,13 @@ do
     Sections = {
         -- Paladin blessings aren't stored in this assignment model. The
         -- section renders the active WDW/PallyPower plan as read-only rows.
-        { title = "Paladin Buffs", rows = {} },
-        { title = "Warlocks", rows = shadow and { reck, elements, shadow }
+        { titleKey = "SECTION_PALADIN_BUFFS", rows = {} },
+        { titleKey = "SECTION_WARLOCKS", rows = shadow and { reck, elements, shadow }
             or { reck, elements } },
     }
+    -- Labels and titles are filled in once the player's Language is known.
+    WhoDoesWhat:LocalizeOnInit({ reck, elements, shadow })
+    WhoDoesWhat:LocalizeOnInit(Sections)
 end
 
 -- Named whisper collectors, one per section, so the section views (and any
@@ -2866,6 +2917,8 @@ WhoDoesWhat.Assign = {
     EntryText = EntryText,
     EntryHasJob = EntryHasJob,
     PlayerEntriesText = PlayerEntriesText,
+    SectionWhisper = SectionWhisper,
+    SectionWhisperDisplay = SectionWhisperDisplay,
     FirstUnusedMarker = FirstUnusedMarker,
     -- whispers (generic collectors kept for future sections)
     CollectDynamicWhispers = CollectDynamicWhispers,

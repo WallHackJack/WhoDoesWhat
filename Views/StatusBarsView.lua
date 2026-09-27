@@ -152,22 +152,29 @@ end
 
 -- Every line WDW says out loud signs itself, the way its whispers already do
 -- (MassWhisper), so a raider reading raid chat knows which addon is talking --
--- and which one to go and get.
-local ANNOUNCE_PREFIX = "[WhoDoesWhat] "
+-- and which one to go and get. Everything below takes `S`, the strings the
+-- line is written in: raid chat's (ChatLocale), or a whisper recipient's.
 
 -- Chat cuts a message at 255 bytes; stop short so the "and N more" tail always
--- survives, and leave the signature room on top of that.
-local ANNOUNCE_BUDGET = 240 - #ANNOUNCE_PREFIX
+-- survives, and leave room for the signature (CHAT_TAGGED) on top of that.
+local ANNOUNCE_BUDGET = 240 - 32
 -- A burst of SendChatMessage risks the server throttle, so several paladin
 -- lines go out spaced apart. Same value the assignment mass-mail uses.
 local ANNOUNCE_STAGGER = 0.25
 
 -- Chat has no class colour and no room for realm tags. A pet answers under its
 -- owner's name, which is who has to fix it.
-local function AnnounceName(name)
+local function AnnounceName(name, S)
     local owner = name:match("^(.+)'s Pet$")
-    if owner then return WhoDoesWhat:ShortName(owner) .. " (pet)" end
+    if owner then return S.ANNOUNCE_PET:format(WhoDoesWhat:ShortName(owner)) end
     return WhoDoesWhat:ShortName(name)
+end
+
+-- A class's name in `S`, singular or plural, by its English name.
+local function ClassText(className, plural, S)
+    local classInfo = classByName[className]
+    if not classInfo then return className end
+    return WhoDoesWhat:DataText(classInfo, plural and "plural" or "label", S)
 end
 
 -- A pet cannot read a whisper; its owner can, and the owner is who feeds or
@@ -233,17 +240,18 @@ local function SuppliersForCheck(key, definition, options)
     return out, dropped or (best or 0) > 0
 end
 
--- nil when there is nobody left to name. A finished bar is never announced at
--- all (see canAnnounce), and inside a combined paladin bar a paladin who is
--- done has no line of their own.
-local function AnnounceLine(prefix, names)
+-- `summary` followed by "-- Missing: <names>", the names as far as fit with an
+-- "and N more" tail for the rest. nil when there is nobody left to name. A
+-- finished bar is never announced at all (see canAnnounce), and inside a
+-- combined paladin bar a paladin who is done has no line of their own.
+local function AnnounceLine(summary, names, S)
     if #names == 0 then return nil end
     local limit = TooltipNameLimit()
-    local budget = ANNOUNCE_BUDGET - #prefix
+    local budget = ANNOUNCE_BUDGET - #summary - 16
     local shown, used = {}, 0
     for _, name in ipairs(names) do
         if #shown >= limit then break end
-        local text = AnnounceName(name)
+        local text = AnnounceName(name, S)
         if used + #text + 2 > budget then break end
         used = used + #text + 2
         shown[#shown + 1] = text
@@ -251,28 +259,29 @@ local function AnnounceLine(prefix, names)
     local rest = #names - #shown
     local body = table.concat(shown, ", ")
     if rest > 0 then
-        body = (#shown > 0 and body .. " " or "") .. "and " .. rest .. " more"
+        local more = S.ANNOUNCE_AND_MORE:format(rest)
+        body = #shown > 0 and (body .. " " .. more) or more
     end
-    return prefix .. body
+    return S.COVERAGE_MISSING:format(summary, body)
 end
 
 -- Shared with the paladin buff mail (Core.lua), so every line WDW sends out
 -- about a check reads the same whichever window sent it.
 local MAX_NAMED_MISSING = WhoDoesWhat.MAX_NAMED_MISSING
 
-local function CoverageSummary(label, applied, total)
-    return WhoDoesWhat:CoverageSummary(label, applied, total)
+local function CoverageSummary(label, applied, total, S)
+    return WhoDoesWhat:CoverageSummary(label, applied, total, S)
 end
 
 -- "Hewmongus (Might, Wisdom) -- 18/25 Applied (72%)". Which blessing each
 -- raider is missing is deliberately left out -- the paladin knows their own
 -- assignment, and naming it per raider turns one line into five.
-local function AnnouncePaladinLine(paladin, coverage)
+local function AnnouncePaladinLine(paladin, coverage, S)
     local blessings = {}
     for _, buff in ipairs(paladin.buffs or {}) do
         local definition = WhoDoesWhat.PaladinBuffs[buff.key]
-        blessings[#blessings + 1] = definition and definition.name_short
-            or buff.key
+        blessings[#blessings + 1] = definition
+            and WhoDoesWhat:DataText(definition, "name_short", S) or buff.key
     end
     local seen, names = {}, {}
     for _, cell in ipairs(coverage.missing or {}) do
@@ -281,19 +290,19 @@ local function AnnouncePaladinLine(paladin, coverage)
             names[#names + 1] = cell.target
         end
     end
-    local label = AnnounceName(paladin.name)
+    local label = AnnounceName(paladin.name, S)
     if #blessings > 0 then
-        label = label .. " (" .. table.concat(blessings, ", ") .. ")"
+        label = S.ANNOUNCE_PALADIN:format(label, table.concat(blessings, ", "))
     end
-    local summary = CoverageSummary(label, coverage.correct, coverage.total)
+    local summary = CoverageSummary(label, coverage.correct, coverage.total, S)
     if #names == 0 or #names > MAX_NAMED_MISSING then return summary end
-    return AnnounceLine(summary .. " -- Missing: ", names)
+    return AnnounceLine(summary, names, S)
 end
 
 -- Recomputed at click time rather than read off the painted row: a combined
 -- paladin bar carries one flattened list, and this wants it split back apart
 -- per paladin. A click can afford the model call that a repaint could not.
-local function AnnounceLines(row)
+local function AnnounceLines(row, S)
     local lines = {}
     if row.isPaladinRow then
         local Assign = WhoDoesWhat.Assign
@@ -309,7 +318,7 @@ local function AnnounceLines(row)
             if coverage and coverage.correct < coverage.total
                 and (row.paladinName == nil
                     or row.paladinName == paladin.name) then
-                local line = AnnouncePaladinLine(paladin, coverage)
+                local line = AnnouncePaladinLine(paladin, coverage, S)
                 if line then lines[#lines + 1] = line end
             end
         end
@@ -324,12 +333,17 @@ local function AnnounceLines(row)
         -- "25/25 Applied" where the old bare name list came out empty and sent
         -- nothing at all.
         if #names == 0 then return lines end
-        local line = CoverageSummary(definition and (definition.announceName
-            or definition.name) or row.buffKey, row.correct or 0, row.total or 0)
+        local label = row.buffKey
+        if definition then
+            label = definition.announceNameKey
+                and WhoDoesWhat:DataText(definition, "announceName", S)
+                or WhoDoesWhat:DataText(definition, "name", S)
+        end
+        local line = CoverageSummary(label, row.correct or 0, row.total or 0, S)
         -- Named as what they are: after a forwards-counting fraction, a bare
         -- list behind a colon could as easily be read as the ones who have it.
         if #names <= MAX_NAMED_MISSING then
-            line = AnnounceLine(line .. " -- Missing: ", names)
+            line = AnnounceLine(line, names, S)
         end
         -- Who can fix it, on the same line -- but only when that is news. "Int
         -- missing -- Mages: <every mage>" tells the raid nothing it did not
@@ -342,11 +356,11 @@ local function AnnounceLines(row)
                 local className = options.requiredClass or definition.className
                 local shown = {}
                 for _, name in ipairs(suppliers) do
-                    shown[#shown + 1] = AnnounceName(name)
+                    shown[#shown + 1] = AnnounceName(name, S)
                 end
-                line = line .. " -- " .. className
-                    .. (#shown > 1 and "s: " or ": ")
-                    .. table.concat(shown, ", ")
+                line = S.ANNOUNCE_SUPPLIERS:format(line,
+                    ClassText(className, #shown > 1, S),
+                    table.concat(shown, ", "))
             end
         end
         lines[1] = line
@@ -354,11 +368,11 @@ local function AnnounceLines(row)
     return lines
 end
 
-local function SendAnnounce(lines)
+local function SendAnnounce(lines, S)
     if #lines == 0 then return end
     local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or nil)
     for i, line in ipairs(lines) do
-        local text = ANNOUNCE_PREFIX .. line
+        local text = S.CHAT_TAGGED:format(line)
         if not channel then
             -- Solo it has nowhere to go, but seeing it is how you check the
             -- wording before a raid does -- signature included, since that is
@@ -401,7 +415,8 @@ local function AnnounceRow(row)
     -- State rows (PallyPower, Action Items) have an optionsKey but no
     -- coverage, so they fall out here along with the debuffs.
     if not row or not row.canAnnounce then return end
-    SendAnnounce(AnnounceLines(FreshRow(row)))
+    local S = WhoDoesWhat:ChatLocale()
+    SendAnnounce(AnnounceLines(FreshRow(row), S), S)
 end
 
 -- ---------------------------------------------------------------------------
@@ -450,12 +465,15 @@ local function RowWhispers(row)
         for _, name in ipairs(missing) do
             if CanWhisper(name) then
                 local who = seen[name]
-                local msg = "Check your " .. definition.name .. "!"
-                if who.self and who.pet then
-                    msg = "Check your " .. definition.name .. " (and your pet's "
-                        .. definition.name:lower() .. "!)"
-                elseif who.pet then
-                    msg = "Check your pet's " .. definition.name .. "!"
+                -- Worded in the recipient's language (MassWhisper).
+                local function msg(S)
+                    local check = WhoDoesWhat:DataText(definition, "name", S)
+                    if who.self and who.pet then
+                        return S.WHISPER_CHECK_BOTH:format(check, check:lower())
+                    elseif who.pet then
+                        return S.WHISPER_CHECK_PET:format(check)
+                    end
+                    return S.WHISPER_CHECK_YOURS:format(check)
                 end
                 out[#out + 1] = { name = name, bare = true, msg = msg }
             end
@@ -464,10 +482,13 @@ local function RowWhispers(row)
     end
     -- The announce's own line, minus the supplier clause naming the person
     -- reading it: one wording for a check wherever it turns up.
-    local msg = CoverageSummary(definition.name, row.correct or 0,
-        row.total or 0)
-    if #missing <= MAX_NAMED_MISSING then
-        msg = AnnounceLine(msg .. " -- Missing: ", missing)
+    local function msg(S)
+        local line = CoverageSummary(WhoDoesWhat:DataText(definition, "name", S),
+            row.correct or 0, row.total or 0, S)
+        if #missing <= MAX_NAMED_MISSING then
+            line = AnnounceLine(line, missing, S) or line
+        end
+        return line
     end
     for _, name in ipairs(SuppliersForCheck(row.buffKey, definition, options)) do
         if CanWhisper(name) then
@@ -537,8 +558,8 @@ end
 -- live on the rows' own tooltips now, where they apply.
 local function AddShortcutTooltipLines()
     GameTooltip:AddLine(" ")
-    AddHintLine("Shift-Left-Click:", "Buffing Grid")
-    AddHintLine("Shift-Right-Click:", "Settings")
+    AddHintLine(L.HINT_SHIFT_LEFT_CLICK, L.MINIMAP_BUFFING_GRID)
+    AddHintLine(L.HINT_SHIFT_RIGHT_CLICK, L.MINIMAP_SETTINGS)
 end
 
 local function RoleIcon(name)
@@ -1221,8 +1242,8 @@ end
 local function AddProgressLine(correct, total, negative)
     local percent = total > 0 and math.floor(correct / total * 100 + 0.5) or 0
     local hex = "|cff" .. ProgressHex(correct, total, negative)
-    GameTooltip:AddLine(hex .. correct .. "|r of " .. total
-        .. "  " .. hex .. "(" .. percent .. "%)|r", 1, 1, 1)
+    GameTooltip:AddLine(L.STATUS_PROGRESS:format(hex .. correct .. "|r", total,
+        hex .. percent .. "%|r"), 1, 1, 1)
 end
 
 -- Where a best-rank requirement is in force, one number can't tell the story:
@@ -1234,20 +1255,20 @@ end
 -- raid loses on the pull, and nothing at all.
 local function AddSplitProgressLines(correct, anyCorrect, outside, total)
     local percent = math.floor(correct / total * 100 + 0.5)
-    GameTooltip:AddLine("|cff4dff4d" .. correct .. "/" .. total
-        .. " with best buff (" .. percent .. "%)|r", 1, 1, 1)
+    GameTooltip:AddLine("|cff4dff4d" .. L.STATUS_BEST_BUFF:format(correct, total,
+        percent) .. "|r", 1, 1, 1)
     local weaker = anyCorrect - correct - outside
     if weaker > 0 then
-        GameTooltip:AddLine("|cffffd133" .. weaker
-            .. " with weaker buff|r", 1, 1, 1)
+        GameTooltip:AddLine("|cffffd133" .. L.STATUS_WEAKER_BUFF:format(weaker)
+            .. "|r", 1, 1, 1)
     end
     if outside > 0 then
-        GameTooltip:AddLine("|cff909090" .. outside
-            .. " with unknown buff|r", 1, 1, 1)
+        GameTooltip:AddLine("|cff909090" .. L.STATUS_UNKNOWN_BUFF:format(outside)
+            .. "|r", 1, 1, 1)
     end
     if anyCorrect < total then
-        GameTooltip:AddLine("|cffff4d4d" .. (total - anyCorrect)
-            .. " missing buff|r", 1, 1, 1)
+        GameTooltip:AddLine("|cffff4d4d" .. L.STATUS_MISSING_BUFF:format(
+            total - anyCorrect) .. "|r", 1, 1, 1)
     end
 end
 
@@ -1282,7 +1303,7 @@ local function AddEntryLines(entries, Format)
         end
     end
     if shown < #entries then
-        GameTooltip:AddLine("... and " .. (#entries - shown) .. " more",
+        GameTooltip:AddLine(L.AND_MORE:format(#entries - shown),
             0.6, 0.6, 0.6)
     end
 end
@@ -1322,11 +1343,13 @@ local function AddProviderLines(key, definition)
     -- Never on the offspec pool: there "any Priest" is exactly what it is not.
     if best == 0 and not bestOffspec and #matches > 1 then
         GameTooltip:AddLine("|cff" .. ((classInfo and classInfo.colorHex)
-            or "FFFFFF") .. "Any " .. definition.className .. "|r", 1, 1, 1)
+            or "FFFFFF") .. L.STATUS_ANY_CLASS:format(classInfo and classInfo.label
+            or definition.className) .. "|r", 1, 1, 1)
         return
     end
-    local rankText = best and (" |cff909090(" .. best .. "/"
-        .. talent.maxRank .. (bestOffspec and ", offspec" or "") .. ")|r") or ""
+    local rankText = best and (" |cff909090" .. (bestOffspec
+        and L.STATUS_RANK_OFFSPEC or L.STATUS_RANK):format(best, talent.maxRank)
+        .. "|r") or ""
     for _, name in ipairs(matches) do
         GameTooltip:AddLine(ColoredName(name, classInfo) .. rankText, 1, 1, 1)
     end
@@ -1345,10 +1368,9 @@ local function FillCoreTooltip(row)
     -- point naming everyone who lacks it: the missing class is the whole
     -- story, and the check sits out of the raid's total coverage entirely.
     if row.unavailableClass then
-        GameTooltip:AddLine("Unavailable: requires "
-            .. row.unavailableClass .. ".", 1, 0.45, 0.2, true)
-        GameTooltip:AddLine("Not counted toward raid coverage.",
-            0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(L.STATUS_UNAVAILABLE:format(
+            WhoDoesWhat:ClassLabel(row.unavailableClass)), 1, 0.45, 0.2, true)
+        GameTooltip:AddLine(L.STATUS_NOT_COUNTED, 0.6, 0.6, 0.6, true)
         return
     end
     AddProviderLines(row.buffKey, definition)
@@ -1356,7 +1378,7 @@ local function FillCoreTooltip(row)
     -- Nothing in the group matches this check's target filters, so a 0 of 0
     -- count would say less than the words do.
     if row.total == 0 then
-        GameTooltip:AddLine("No Targets", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L.STATUS_NO_TARGETS, 0.6, 0.6, 0.6)
         return
     end
     local split = row.anyCorrect ~= nil and row.anyCorrect > row.correct
@@ -1379,8 +1401,8 @@ local function FillCoreTooltip(row)
         -- Which emptiness this is follows the list, not the check's polarity:
         -- a debuff that lists the people missing it is empty when everyone has
         -- it (see flaggedAreMissing in Assignments.lua).
-        GameTooltip:AddLine(row.flaggedAreMissing and "Everyone has it."
-            or "Nobody has it.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(row.flaggedAreMissing and L.STATUS_EVERYONE_HAS_IT
+            or L.STATUS_NOBODY_HAS_IT, 0.6, 0.6, 0.6)
     else
         if split then
             -- Nothing beats nothing: the unbuffed lead the list, so a truncated
@@ -1400,11 +1422,11 @@ local function FillCoreTooltip(row)
             if entry.outside then
                 -- The distinction that matters: this one is not weak, it is
                 -- temporary. It goes away by itself when the boss is pulled.
-                right = "outside raid"
+                right = L.STATUS_OUTSIDE_RAID
             elseif entry.unoptimal then
                 right = entry.rank and maxRank
-                    and ("weaker (" .. entry.rank .. "/" .. maxRank .. ")")
-                    or "weaker buff"
+                    and L.STATUS_WEAKER_RANK:format(entry.rank, maxRank)
+                    or L.STATUS_WEAKER
             end
             local pet = PetIconMarkup(entry.isPet)
             if pet ~= "" then pet = pet .. " " end
@@ -1422,17 +1444,16 @@ local function FillPaladinTooltip(row)
         GameTooltip:SetText(WhoDoesWhat.StatusBarChecks.paladinBuffs.name, 1, 1, 1)
     end
     if row.awaitingTalents then
-        GameTooltip:AddLine("Waiting on this paladin's talents; the plan is"
-            .. " provisional until they arrive.", 1, 0.55, 0, true)
+        GameTooltip:AddLine(L.STATUS_AWAITING_TALENTS_TIP, 1, 0.55, 0, true)
     end
     GameTooltip:AddLine(" ")
     AddProgressLine(row.correct, row.total)
 
     local missing = row.missing or {}
     if row.total == 0 then
-        GameTooltip:AddLine("No blessings are assigned.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L.STATUS_NO_BLESSINGS, 0.6, 0.6, 0.6)
     elseif #missing == 0 then
-        GameTooltip:AddLine("Every assigned blessing is up.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L.STATUS_ALL_BLESSINGS_UP, 0.6, 0.6, 0.6)
     else
         AddEntryLines(missing, function(entry)
             local buff = WhoDoesWhat.PaladinBuffs[entry.key]
@@ -1440,7 +1461,7 @@ local function FillPaladinTooltip(row)
                 .. TOOLTIP_ICON .. ":0:0|t" .. PetIconMarkup(entry.isPet)
                 .. " " .. ColoredName(entry.target, entry.classInfo),
                 entry.isGreater and buff.name_long
-                    or (buff.name_long .. " (Lesser)")
+                    or L.STATUS_LESSER:format(buff.name_long)
         end)
     end
 end
@@ -1470,16 +1491,16 @@ end
 local function WhisperLabel(row)
     if row.isPaladinRow then
         if row.paladinName then
-            return "Whisper " .. WhisperName(row.paladinName)
+            return L.STATUS_WHISPER_NAME:format(WhisperName(row.paladinName))
         end
-        return "Whisper Buffers"
+        return L.STATUS_WHISPER_BUFFERS
     end
     local definition = row.buffKey and WhoDoesWhat.StatusBarChecks[row.buffKey]
     if not definition then return nil end
     -- Nobody casts food for you, so the nudge goes to everyone still without
     -- it rather than to a provider there isn't one of.
     if definition.selfSupplied then
-        return #(row.flagged or {}) > 0 and "Whisper All" or nil
+        return #(row.flagged or {}) > 0 and L.STATUS_WHISPER_ALL or nil
     end
     local options = WhoDoesWhat:GetStatusBarCheckOptions(row.buffKey)
     local targets = {}
@@ -1487,8 +1508,8 @@ local function WhisperLabel(row)
         if CanWhisper(name) then targets[#targets + 1] = name end
     end
     if #targets == 0 then return nil end
-    if #targets == 1 then return "Whisper " .. WhisperName(targets[1]) end
-    return "Whisper Buffers"
+    if #targets == 1 then return L.STATUS_WHISPER_NAME:format(WhisperName(targets[1])) end
+    return L.STATUS_WHISPER_BUFFERS
 end
 
 -- Where anything this window hovers puts its tooltip: beside the window on the
@@ -1518,19 +1539,19 @@ local function ShowRowTooltip(frame)
     -- Alt moves or configures, Shift chases the buff.
     if frame.optionsKey then
         GameTooltip:AddLine(" ")
-        AddHintLine("Alt-Drag:", "Move")
-        AddHintLine("Alt-Right-Click:", "Settings")
+        AddHintLine(L.HINT_ALT_DRAG, L.HINT_MOVE)
+        AddHintLine(L.HINT_ALT_RIGHT_CLICK, L.MINIMAP_SETTINGS)
         if frame.canAnnounce then
             GameTooltip:AddLine(" ")
             local whisper = WhisperLabel(frame)
             if whisper then
-                AddHintLine("Shift-Left-Click:", whisper)
+                AddHintLine(L.HINT_SHIFT_LEFT_CLICK, whisper)
             end
-            AddHintLine("Shift-Right-Click:", "Announce")
+            AddHintLine(L.HINT_SHIFT_RIGHT_CLICK, L.STATUS_ANNOUNCE)
         elseif frame.optionsKey == "pallyPower"
             and WhoDoesWhat:PallyPowerInstalled() then
             GameTooltip:AddLine(" ")
-            AddHintLine("Shift-Right-Click:", "PallyPower Blessings")
+            AddHintLine(L.HINT_SHIFT_RIGHT_CLICK, L.PALLYBAR_PP_BLESSINGS)
         end
     end
     GameTooltip:Show()
@@ -1578,7 +1599,7 @@ local function LayoutProgressLabel(row)
         -- The missing class goes where the percentage would have been; at
         -- ultra-compact widths the warning icon carries it alone.
         if row.unavailableClass and view:GetWidth() >= ULTRA_COMPACT_W then
-            row.percent:SetText("No " .. row.unavailableClass)
+            row.percent:SetText(L.STATUS_NO_CLASS:format(WhoDoesWhat:ClassLabel(row.unavailableClass)))
             row.percent:Show()
             row.percent:ClearAllPoints()
             row.percent:SetPoint("RIGHT", row.completeIcon, "LEFT", -3, 0)
@@ -1618,8 +1639,8 @@ end
 -- Blessings page, which is worth reaching whether or not anything is wrong.
 local STATE_ROW_TYPES = {
     pallyPower = {
-        title = "PallyPower status",
-        openHint = "Click to open Paladin Blessings.",
+        titleKey = "STATUS_PP_TITLE",
+        openHintKey = "STATUS_PP_OPEN",
         alwaysOpens = true,
         Open = function() WhoDoesWhat:OpenPallyPowerDiffView() end,
         CreateIcon = function(row)
@@ -1627,12 +1648,12 @@ local STATE_ROW_TYPES = {
         end,
     },
     actionItems = {
-        title = "Action Items",
+        titleKey = "CHECK_ACTION_ITEMS",
         -- The window that fixes these used to be Action Items; it merged into
         -- the Members window, which is where the same rows live now. The check
         -- keeps its own key -- it is what the saved options and the bar order
         -- are stored under.
-        openHint = "Click to open Group Members.",
+        openHintKey = "STATUS_ACTION_ITEMS_OPEN",
         Open = function() WhoDoesWhat:OpenMembersView() end,
         CreateIcon = function(row)
             local icon = row:CreateTexture(nil, "ARTWORK")
@@ -1767,14 +1788,14 @@ local function CreateStateRow(key)
     end)
     row:SetScript("OnMouseUp", StatusBarsClick)
     row.FillTooltip = function(self)
-        GameTooltip:SetText(kind.title, 1, 1, 1)
+        GameTooltip:SetText(L[kind.titleKey], 1, 1, 1)
         if self.bucket == "ok" then
             GameTooltip:AddLine(self.label or "", 0.3, 1, 0.3, true)
         else
             GameTooltip:AddLine(self.label or "", 1, 0.55, 0, true)
         end
         if self.bucket == "attention" or kind.alwaysOpens then
-            GameTooltip:AddLine(kind.openHint, 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L[kind.openHintKey], 0.8, 0.8, 0.8, true)
         end
     end
     row:SetScript("OnEnter", ShowRowTooltip)
@@ -1844,7 +1865,7 @@ local function PallyPowerRowState(paladinCount)
             or ppState == "inactive" and "inactive" or "attention",
         label = ppText,
         count = count,
-        shortLabel = count .. " issue" .. (count == 1 and "" or "s"),
+        shortLabel = (count == 1 and L.STATUS_ISSUES_ONE or L.STATUS_ISSUES_MANY):format(count),
     }
 end
 
@@ -1854,17 +1875,17 @@ local function ActionItemsRowState()
     -- mostly can't fail, and a green tick for that says nothing. Short-circuits
     -- before GetRosterIssues, which does still report a roleless solo player.
     if not IsInGroup() then
-        return { bucket = "inactive", label = "Not in a group.", count = 0 }
+        return { bucket = "inactive", label = L.STATUS_NOT_GROUPED, count = 0 }
     end
     local count, actionable = WhoDoesWhat:CountActionItems()
     if count == 0 then
-        return { bucket = "ok", label = "Nothing to fix.", count = 0 }
+        return { bucket = "ok", label = L.STATUS_NOTHING_TO_FIX, count = 0 }
     end
     return {
         bucket = "attention",
-        label = count .. " action" .. (count == 1 and "" or "s") .. " waiting.",
+        label = (count == 1 and L.STATUS_ACTIONS_ONE or L.STATUS_ACTIONS_MANY):format(count),
         count = count,
-        shortLabel = count .. " to fix",
+        shortLabel = L.STATUS_TO_FIX:format(count),
         -- Nothing here is yours to set: the row still reports the count, but
         -- it doesn't pulse about it.
         actionable = actionable > 0,
@@ -1896,7 +1917,7 @@ local function LayoutHeader()
     -- window instead.
     view.titleText:Show()
     view.titleText:SetText(view:GetWidth() < ULTRA_COMPACT_W
-        and "Status" or "WDW Status")
+        and L.STATUS_TITLE_SHORT or L.STATUS_TITLE)
     view.titleText:ClearAllPoints()
     view.titleText:SetPoint("CENTER", 0, 0)
 end
@@ -1962,7 +1983,7 @@ local function EnsureView()
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("LEFT", 5, 0)
-    titleText:SetText("WDW Status")
+    titleText:SetText(L.STATUS_TITLE)
     view.titleText = titleText
     AttachAltDrag(title)
     title:SetScript("OnMouseUp", StatusBarsClick)
@@ -1971,10 +1992,10 @@ local function EnsureView()
         -- Signed like the Paladin Bar's: a loose window on a busy screen, and
         -- this is the one place it can say whose it is.
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. "WhoDoesWhat Status Bars", 1, 1, 1)
+            .. L.STATUS_WINDOW_TITLE, 1, 1, 1)
         GameTooltip:AddLine(" ")
-        AddHintLine("Alt-Drag:", "Move")
-        AddHintLine("Alt-Drag-Edge:", "Resize")
+        AddHintLine(L.HINT_ALT_DRAG, L.HINT_MOVE)
+        AddHintLine(L.HINT_ALT_DRAG_EDGE, L.STATUS_RESIZE)
         AddShortcutTooltipLines()
         GameTooltip:Show()
     end)
@@ -2000,9 +2021,9 @@ local function EnsureView()
         GameTooltip:SetOwner(self, IsRightAnchor(StatusBarsAnchor())
             and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
-        GameTooltip:SetText("Resize WDW Status Bars", 1, 1, 1)
-        GameTooltip:AddLine("(" .. width .. "px)", 1, 0.82, 0)
-        AddHintLine("Alt-Drag:", "Resize")
+        GameTooltip:SetText(L.STATUS_RESIZE_TITLE, 1, 1, 1)
+        GameTooltip:AddLine(L.STATUS_RESIZE_WIDTH:format(width), 1, 0.82, 0)
+        AddHintLine(L.HINT_ALT_DRAG, L.STATUS_RESIZE)
         GameTooltip:Show()
     end
     local function FinishResize(self)
@@ -2390,7 +2411,7 @@ function WhoDoesWhat:RefreshStatusBarsView()
             local coverage = entry.coverage
             SetTextureCached(row.icon, entry.icon)
             SetTextCached(row.name, entry.awaitingTalents
-                and ("Awaiting talents - " .. entry.name) or entry.name)
+                and L.STATUS_AWAITING_TALENTS:format(entry.name) or entry.name)
             SetTextCached(row.initial,
                 entry.isPaladin and WhoDoesWhat:NameInitials(entry.name) or "")
             row.isPaladin = entry.isPaladin

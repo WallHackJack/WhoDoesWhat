@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Appends the WDW role assignment to Blizzard's unit tooltip, so a raider's
 -- job is readable by hovering them in the world or on a raid frame instead of
@@ -43,7 +44,7 @@ local function TalentLine(unit)
     local snapshot = WhoDoesWhat:GetTalentSnapshot(unit)
     if not (snapshot and snapshot.roleIds) then
         if WhoDoesWhat:UnitTalentsReadEmpty(unit) then
-            return "|cffff4040No Talents|r"
+            return "|cffff4040" .. L.TOOLTIP_NO_TALENTS .. "|r"
         end
         WhoDoesWhat:RequestStrangerInspect(unit)
         return nil

@@ -49,10 +49,10 @@ WhoDoesWhat.ADDON_ICON = "Interface\\AddOns\\WhoDoesWhat\\Media\\Icon.tga"
 -- than a wall -- MAX_NAMED_MISSING is where that stops.
 WhoDoesWhat.MAX_NAMED_MISSING = 5
 
-function WhoDoesWhat:CoverageSummary(label, applied, total)
+-- In `strings` (ChatLocale / WhisperLocale), the player's own unless given.
+function WhoDoesWhat:CoverageSummary(label, applied, total, strings)
     local percent = total > 0 and math.floor(applied * 100 / total + 0.5) or 0
-    return string.format("%s -- %d/%d Applied (%d%%)", label, applied, total,
-        percent)
+    return (strings or L).COVERAGE_SUMMARY:format(label, applied, total, percent)
 end
 
 -- The single letter that stands in for a name in tight spaces (status bar
@@ -792,6 +792,7 @@ function WhoDoesWhat:OnInitialize()
     -- First, before anything reads a string: nothing before this point can
     -- know the player's Language (see Locales/Locale.lua).
     Locale:SetPrimary(self.db.global.language)
+    self:LocalizeData()
     -- The UI kit's own words (WallhackUiKit.lua), before any window is built.
     local strings = UI.Strings
     strings.warning, strings.reset, strings.add = L.UI_WARNING, L.COMMON_RESET, L.UI_ADD
@@ -1000,9 +1001,7 @@ function WhoDoesWhat:OnInitialize()
     -- migrated, which is true, but this has to fire for existing ones.
     if (self.db.profile.paladinBuffRuleVersion or 1) < 2 then
         if #self.db.profile.paladinBuffRules > 0 then
-            self:Print("Buffing Rules have been rebuilt in this version;"
-                .. " your saved rules were cleared. Add them again from"
-                .. " Paladin Buffs > Buffing Rules > Add (+).")
+            self:Print(L.MIGRATE_RULES_CLEARED)
         end
         wipe(self.db.profile.paladinBuffRules)
         self.db.profile.paladinBuffRuleVersion = 2
@@ -1067,10 +1066,8 @@ function WhoDoesWhat:OnInitialize()
             end
         end
         if dropped > 0 then
-            self:Print("Blessing orders for built-in roles are now shared with"
-                .. " the raid; " .. dropped .. " saved customization"
-                .. (dropped == 1 and " was" or "s were") .. " cleared."
-                .. " Re-add them from Custom Roles > Add (+).")
+            self:Print((dropped == 1 and L.MIGRATE_ORDERS_CLEARED_ONE
+                or L.MIGRATE_ORDERS_CLEARED_MANY):format(dropped))
         end
         p.roleCustomizations = nil
     end

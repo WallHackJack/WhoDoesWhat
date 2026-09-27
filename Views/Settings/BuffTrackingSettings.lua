@@ -228,7 +228,8 @@ local function RefreshBuffOptionsFrame()
     end
 
     UIDropDownMenu_SetText(f.displayDD, StatusDisplayLabel(options.display, "default"))
-    UIDropDownMenu_SetText(f.classDD, options.requiredClass or L.BUFFS_CLASS_NONE)
+    UIDropDownMenu_SetText(f.classDD, options.requiredClass
+        and WhoDoesWhat:ClassLabel(options.requiredClass) or L.BUFFS_CLASS_NONE)
     UIDropDownMenu_SetText(f.saturatedDD, SaturatedLabel(options.saturatedStyle))
     f.colorField:Refresh()
     for option, check in pairs(f.optionChecks) do
@@ -291,7 +292,7 @@ local function RefreshBuffOptionsFrame()
     y = PlaceOption("offspecResponsible", y, 14)
     -- Names the check's class where it has one.
     f.optionLabels.partialGlowOnlyClass:SetText(options.requiredClass
-        and L.BUFFS_PARTIAL_GLOW_ONLY_AS:format(options.requiredClass)
+        and L.BUFFS_PARTIAL_GLOW_ONLY_AS:format(WhoDoesWhat:ClassLabel(options.requiredClass))
         or L.BUFFS_PARTIAL_GLOW_ONLY_CLASS)
     y = PlaceOption("partialGlow", y)
     y = PlaceOption("partialGlowOnlyClass", y, 14)
@@ -491,7 +492,7 @@ local function EnsureBuffOptionsFrame(owner, key)
         for _, classInfo in ipairs(WhoDoesWhat.Classes) do
             local className = classInfo.name
             local info = UIDropDownMenu_CreateInfo()
-            info.text = className
+            info.text = classInfo.label
             info.checked = saved == className
             info.func = function()
                 SetStatusBuffOption(owner, f.buffKey, "requiredClass", className)

@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- Injects a "WhoDoesWhat" section into the unit right-click menus via the
 -- client's Menu API (same mechanism SetRoleButtons uses), inserted right
@@ -294,8 +295,10 @@ function WhoDoesWhat:SetAssignedRole(playerName, roleId, unit, manual)
         if not unchanged then
             self:LogOperation(playerName .. " set to " .. (role and role.name or roleId) .. ".")
             if role and self.db.profile.settings.announceRoleChanges then
-                self:SendGroupMessage("[WhoDoesWhat] " .. playerName .. " was changed to "
-                    .. role.name .. " by " .. (UnitName("player") or "?") .. ".")
+                local M = self:ChatLocale()
+                self:SendGroupMessage(M.CHAT_TAGGED:format(M.ROLE_CHANGED_BY:format(
+                    playerName, self:DataText(role, "name", M),
+                    UnitName("player") or "?")))
             end
         end
     else
@@ -370,7 +373,7 @@ local function CollectAssignmentSummaries(playerName)
         if section.enabled ~= false then
             local text = A.PlayerEntriesText(section, playerName, A.TargetPlainText)
             if text ~= "" then
-                out[#out + 1] = section.whisperLead .. text
+                out[#out + 1] = L[section.whisperKey]:format(text)
             end
         end
     end
@@ -382,7 +385,7 @@ local function CollectAssignmentSummaries(playerName)
             end
         end
         if #labels > 0 then
-            out[#out + 1] = table.concat(labels, ", ") .. " (" .. section.title .. ")"
+            out[#out + 1] = L.WHISPER_STATIC:format(table.concat(labels, ", "), section.title)
         end
     end
     return out
@@ -405,7 +408,7 @@ local function SetRoleText(playerName)
             icon = role.icon
         end
     end
-    return WhoDoesWhat:RoleIconMarkup(icon, 16) .. " Set Role"
+    return WhoDoesWhat:RoleIconMarkup(icon, 16) .. " " .. L.MENU_SET_ROLE
 end
 
 -- The row shown in place of the "Set Role" pop-out when we can't assign: the
@@ -418,7 +421,7 @@ local function CurrentRoleText(playerName, classInfo)
             return RoleRowText(role, classInfo)
         end
     end
-    return "|cff909090None|r"
+    return "|cff909090" .. L.MENU_NONE .. "|r"
 end
 
 -- Raid-marker menu-row text: icon + name (same markup the main window uses;
@@ -492,7 +495,7 @@ local function FillCCSubmenu(submenu, playerName, spells)
             )
         end
         spellMenu:CreateRadio(
-            "|cff909090None|r",
+            "|cff909090" .. L.MENU_NONE .. "|r",
             function() return WhoDoesWhat:GetPlayerCCTarget(spell.id, playerName) == nil end,
             function() WhoDoesWhat:SetCCAssignment(spell.id, nil, playerName) end
         )
@@ -517,7 +520,7 @@ local function FillHunterMisdirectSubmenu(submenu, hunterName)
     end
 
     if #tanks == 0 then
-        submenu:CreateTitle("|cff909090No tanks marked yet - assign tank roles first|r")
+        submenu:CreateTitle("|cff909090" .. L.MENU_NO_TANKS .. "|r")
         return
     end
     for _, m in ipairs(tanks) do
@@ -529,13 +532,13 @@ local function FillHunterMisdirectSubmenu(submenu, hunterName)
         )
     end
     submenu:CreateRadio(
-        "|cff909090None|r",
+        "|cff909090" .. L.MENU_NONE .. "|r",
         function() return WhoDoesWhat:GetMisdirectTarget(hunterName) == nil end,
         function() WhoDoesWhat:SetMisdirectTarget(hunterName, nil) end
     )
 
     submenu:CreateDivider()
-    local markerMenu = submenu:CreateButton("Target Marker", NoOp)
+    local markerMenu = submenu:CreateButton(L.MENU_TARGET_MARKER, NoOp)
     for _, m in ipairs(WhoDoesWhat.RaidTargetMarkers) do
         local index = m.index
         markerMenu:CreateRadio(
@@ -545,7 +548,7 @@ local function FillHunterMisdirectSubmenu(submenu, hunterName)
         )
     end
     markerMenu:CreateRadio(
-        "|cff909090None|r",
+        "|cff909090" .. L.MENU_NONE .. "|r",
         function() return WhoDoesWhat:GetMisdirectMarker(hunterName) == nil end,
         function() WhoDoesWhat:SetMisdirectMarker(hunterName, nil) end
     )
@@ -557,7 +560,7 @@ end
 local function FillTankMisdirectSubmenu(submenu, tankName)
     local hunters = WhoDoesWhat:GetGroupMembers("Hunter")
     if #hunters == 0 then
-        submenu:CreateTitle("|cff909090No hunters in group|r")
+        submenu:CreateTitle("|cff909090" .. L.MENU_NO_HUNTERS .. "|r")
         return
     end
     for _, m in ipairs(hunters) do
@@ -647,17 +650,17 @@ local function AddWdwSection(rootDescription, contextData)
         rootDescription:Insert(roleEntry, insertIndex + 1)
         local nextIndex = insertIndex + 2
         if canAssignGroup then
-            tankMenu = MenuUtil.CreateButton("Tank Assignments", NoOp)
+            tankMenu = MenuUtil.CreateButton(L.SECTION_TANK, NoOp)
             rootDescription:Insert(tankMenu, nextIndex)
             nextIndex = nextIndex + 1
         end
         if #ccSpells > 0 then
-            ccMenu = MenuUtil.CreateButton("CC Assignments", NoOp)
+            ccMenu = MenuUtil.CreateButton(L.SECTION_CC, NoOp)
             rootDescription:Insert(ccMenu, nextIndex)
             nextIndex = nextIndex + 1
         end
         if mdMode then
-            mdMenu = MenuUtil.CreateButton("Misdirect Assignments", NoOp)
+            mdMenu = MenuUtil.CreateButton(L.SECTION_MISDIRECT, NoOp)
             rootDescription:Insert(mdMenu, nextIndex)
             nextIndex = nextIndex + 1
         end
@@ -677,13 +680,13 @@ local function AddWdwSection(rootDescription, contextData)
             setRole = rootDescription:CreateButton(SetRoleText(playerName), NoOp)
         end
         if canAssignGroup then
-            tankMenu = rootDescription:CreateButton("Tank Assignments", NoOp)
+            tankMenu = rootDescription:CreateButton(L.SECTION_TANK, NoOp)
         end
         if #ccSpells > 0 then
-            ccMenu = rootDescription:CreateButton("CC Assignments", NoOp)
+            ccMenu = rootDescription:CreateButton(L.SECTION_CC, NoOp)
         end
         if mdMode then
-            mdMenu = rootDescription:CreateButton("Misdirect Assignments", NoOp)
+            mdMenu = rootDescription:CreateButton(L.SECTION_MISDIRECT, NoOp)
         end
         if summaries then
             for _, s in ipairs(summaries) do
@@ -738,7 +741,7 @@ local function AddWdwSection(rootDescription, contextData)
     -- current state); once assigned, the way to change is picking another role.
     if not WhoDoesWhat:GetAssignedRole(playerName) then
         setRole:CreateRadio(
-            "|cff909090None|r",
+            "|cff909090" .. L.MENU_NONE .. "|r",
             function() return true end,
             NoOp
         )
@@ -750,7 +753,7 @@ end
 -- the current assignments and custom roles.
 function WhoDoesWhat:SetupUnitMenus()
     if not (Menu and Menu.ModifyMenu) then
-        self:Print("Unit menu integration skipped: Menu API not available on this client.")
+        self:Print(L.MENU_UNSUPPORTED)
         return
     end
     for _, tag in ipairs(MENU_TAGS) do

@@ -1,4 +1,5 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
+local L = select(2, ...).L
 
 -- The roster-issues model: everything wrong with a group member, derived from
 -- the roster, the board and the last talent scan. No frames -- Views/
@@ -117,8 +118,8 @@ local COMPARISONS = {
 -- Natural-language list: "A", "A and B", "A, B and C".
 local function JoinList(parts)
     if #parts <= 1 then return parts[1] or "" end
-    if #parts == 2 then return parts[1] .. " and " .. parts[2] end
-    return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+    return L.ISSUE_LIST_AND:format(table.concat(parts, ", ", 1, #parts - 1),
+        parts[#parts])
 end
 
 local function Capitalize(text)
@@ -172,10 +173,12 @@ local function RowDisagreements(data, talentRoles)
         talentMatchesWdw,
     }
 
+    local groupName = WowRoleName(groupWow) or L.ISSUE_NONE
+    local wdwName = data.role and data.role.name or L.ISSUE_NONE
     local describes = {
-        group = "their group role (" .. (WowRoleName(groupWow) or "none") .. ")",
-        wdw = "the WhoDoesWhat role (" .. (data.role and data.role.name or "none") .. ")",
-        talent = "their talents (" .. talentName .. ")",
+        group = L.ISSUE_DESC_GROUP:format(groupName),
+        wdw = L.ISSUE_DESC_WDW:format(wdwName),
+        talent = L.ISSUE_DESC_TALENT:format(talentName),
     }
     local agreed = { group = 0, wdw = 0, talent = 0 }
     local against = { group = {}, wdw = {}, talent = {} }
@@ -193,12 +196,11 @@ local function RowDisagreements(data, talentRoles)
     end
 
     local best = math.max(agreed.group, agreed.wdw, agreed.talent)
-    local leads = {
-        group = "Group role (" .. (WowRoleName(groupWow) or "none")
-            .. ") disagrees with ",
-        wdw = "WhoDoesWhat role (" .. (data.role and data.role.name or "none")
-            .. ") disagrees with ",
-        talent = "Talents read as " .. talentName .. ", which disagrees with ",
+    -- The odd one out, and what it disagrees with (a JoinList of describes).
+    local outvoted = {
+        group = function(list) return L.ISSUE_GROUP_DISAGREES:format(groupName, list) end,
+        wdw = function(list) return L.ISSUE_WDW_DISAGREES:format(wdwName, list) end,
+        talent = function(list) return L.ISSUE_TALENT_DISAGREES:format(talentName, list) end,
     }
     local out = {}
 
@@ -208,7 +210,7 @@ local function RowDisagreements(data, talentRoles)
             if #against[key] > 0 and agreed[key] < best then
                 out[#out + 1] = {
                     blames = key,
-                    text = leads[key] .. JoinList(against[key]) .. ".",
+                    text = outvoted[key](JoinList(against[key])),
                 }
             end
         end
@@ -222,9 +224,8 @@ local function RowDisagreements(data, talentRoles)
         if #against[key] > 0 then parties[#parties + 1] = describes[key] end
     end
     if #parties == 0 then return out end
-    out[1] = { text = Capitalize(JoinList(parties))
-        .. (#parties > 2 and " all disagree" or " disagree")
-        .. ", and nothing else is known that would say which is right." }
+    out[1] = { text = (#parties > 2 and L.ISSUE_ALL_DISAGREE or L.ISSUE_BOTH_DISAGREE)
+        :format(Capitalize(JoinList(parties))) }
     return out
 end
 
@@ -260,12 +261,11 @@ end
 function WhoDoesWhat:CanEditGroupRoleOf(name, unit)
     local token = unit or name
     if not token then
-        return false, "They are not in the group right now."
+        return false, L.MEMBERS_NOT_IN_GROUP
     end
     if UnitIsUnit(token, "player") then return true end
     if not self:CanSetOthersBlizzardRoleManually() then
-        return false, "Only the raid leader or an assistant can set another"
-            .. " player's group role. Your own is always yours to set."
+        return false, L.ISSUE_FLAG_NEEDS_ASSIST
     end
     return true
 end
@@ -361,8 +361,7 @@ function WhoDoesWhat:GetRosterIssues()
         end
 
         local mayRole = self:CanEditRoleOf(m.name)
-        local mayFlag, flagBlocker = false,
-            "A fake raider's group role is simulated from their WhoDoesWhat role."
+        local mayFlag, flagBlocker = false, L.ISSUE_FAKE_FLAG
         if real then
             mayFlag, flagBlocker = self:CanEditGroupRoleOf(m.name, unit)
         end
@@ -374,11 +373,9 @@ function WhoDoesWhat:GetRosterIssues()
         end
 
         if not roleId then
-            Add(m.name .. " has no role yet. Pick one here, or wait for talent"
-                .. " data to fill it in automatically.", mayRole)
+            Add(L.ISSUE_NO_ROLE:format(m.name), mayRole)
         elseif not role then
-            Add(m.name .. "'s saved role no longer exists. Pick a new one.",
-                mayRole)
+            Add(L.ISSUE_ROLE_GONE:format(m.name), mayRole)
         end
 
         -- One entry per disagreement. A line that blames the group flag is
@@ -394,9 +391,7 @@ function WhoDoesWhat:GetRosterIssues()
         end
 
         if real and inGroup and role and not blizzRole then
-            Add(m.name .. " has no group role set at all. Pick Tank, Healer or"
-                .. " Damage so Blizzard's own raid tools agree with the board.",
-                mayFlag)
+            Add(L.ISSUE_NO_GROUP_ROLE:format(m.name), mayFlag)
         end
 
         -- Promoting is protected, so this is a prompt for a human, never
@@ -404,12 +399,9 @@ function WhoDoesWhat:GetRosterIssues()
         -- it; everyone else is told who to ask.
         if real and inRaid and role and role.wowRole == "tank"
             and not GetPartyAssignment("MAINTANK", m.name, true) then
-            Add(m.name .. " is a Tank but isn't promoted to Main Tank. "
-                .. (self:IsRaidAssistant()
-                    and ("Promote them in the raid UI" .. RaidPanelKeyMarkup()
-                        .. " -- SetPartyAssignment is a Blizzard-UI-only"
-                        .. " action, so no addon can do it for you.")
-                    or "Ask the raid leader or an assistant to promote them."),
+            Add(self:IsRaidAssistant()
+                    and L.ISSUE_PROMOTE_TANK:format(m.name, RaidPanelKeyMarkup())
+                    or L.ISSUE_ASK_PROMOTE_TANK:format(m.name),
                 canPromote)
         end
 

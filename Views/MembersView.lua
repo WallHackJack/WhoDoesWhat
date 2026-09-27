@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Members page (the main window's Members tab): every group member in one
 -- of four role grids, bucketed by their assigned role's tank/healer/dps
@@ -61,13 +62,13 @@ local CLASS_ICON_SIZE = 20
 -- shorter any other way. The grid header tightens a little alongside. Picked
 -- off the whole roster, not per bucket, so every grid on the page matches.
 local DENSITIES = {
-    { minMembers = 30, label = "Compact", rowH = 22, iconSize = 16, tickSize = 12,
+    { minMembers = 30, labelKey = "MEMBERS_DENSITY_COMPACT", rowH = 22, iconSize = 16, tickSize = 12,
       headerH = 42, headingsY = 24, nameFont = "GameFontHighlightSmall",
       controlScale = 0.76, buttonSize = 18, buttonIcon = 12 },
-    { minMembers = 20, label = "Condensed", rowH = 26, iconSize = 18, tickSize = 14,
+    { minMembers = 20, labelKey = "MEMBERS_DENSITY_CONDENSED", rowH = 26, iconSize = 18, tickSize = 14,
       headerH = 45, headingsY = 26, nameFont = "GameFontHighlight",
       controlScale = 0.88, buttonSize = 21, buttonIcon = 14 },
-    { minMembers = 0, label = "Roomy", rowH = 30, iconSize = 20, tickSize = 16,
+    { minMembers = 0, labelKey = "MEMBERS_DENSITY_ROOMY", rowH = 30, iconSize = 20, tickSize = 16,
       headerH = 48, headingsY = 28, nameFont = "GameFontHighlight",
       controlScale = 1, buttonSize = 24, buttonIcon = 16 },
 }
@@ -108,18 +109,17 @@ local DD_INSET = 15
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NOT_READY_ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local HEADER_ICON_SIZE = 16
-local COMBAT_REASON = "Can't change roles in combat."
 
 local BLIZZ_TO_WOW = WhoDoesWhat.BLIZZ_ROLE_TO_WOW_ROLE
 local GROUP_ROLE_ORDER = { "tank", "healer", "dps" }
 
 local SECTIONS = {
-    { key = "tank",   one = "Tank",   many = "Tanks" },
-    { key = "healer", one = "Healer", many = "Healers" },
-    { key = "dps",    one = "DPS",    many = "DPS" },
+    { key = "tank",   oneKey = "MEMBERS_TANK_ONE", manyKey = "MEMBERS_TANK_MANY" },
+    { key = "healer", oneKey = "MEMBERS_HEALER_ONE", manyKey = "MEMBERS_HEALER_MANY" },
+    { key = "dps",    oneKey = "MEMBERS_DPS_ONE", manyKey = "MEMBERS_DPS_MANY" },
     -- Non-raiders and unclassified custom roles land here too, so this bucket
     -- isn't purely a to-do list -- hence the vaguer label.
-    { key = "none",   one = "Unknown or Inactive", many = "Unknown or Inactive" },
+    { key = "none",   oneKey = "MEMBERS_NONE_ONE", manyKey = "MEMBERS_NONE_MANY" },
 }
 
 -- A bucket's icon: the three wow roles wear the client's micro role icon (same
@@ -133,10 +133,10 @@ local function SectionIcon(section, size)
     return WhoDoesWhat:GetWowRoleIconMarkup(section.key, size)
 end
 
--- Grid header: "[icon] 2 Tanks".
+-- Grid header: "[icon] 2 Tanks" (the count is in the string: word order varies).
 local function SectionHeaderText(section, count)
-    return SectionIcon(section) .. " " .. count .. " "
-        .. (count == 1 and section.one or section.many)
+    return SectionIcon(section) .. " "
+        .. L[count == 1 and section.oneKey or section.manyKey]:format(count)
 end
 
 -- The overview strip's first line: each bucket's icon and count. The three
@@ -170,21 +170,22 @@ end
 -- is wrong, and a clean board before a pull is worth stating outright. So zero
 -- gets a green line of its own rather than silence.
 local function OverviewDetail(total, withAddon, offline, issues)
-    local text = total .. (total == 1 and " member" or " members")
-        .. "  |cff606060-|r  " .. withAddon .. " with WhoDoesWhat"
+    local sep = "  |cff606060-|r  "
+    local text = (total == 1 and L.MEMBERS_COUNT_ONE or L.MEMBERS_COUNT_MANY):format(total)
+        .. sep .. L.MEMBERS_WITH_WDW:format(withAddon)
     if offline > 0 then
-        text = text .. "  |cff606060-|r  " .. offline .. " offline"
+        text = text .. sep .. L.MEMBERS_OFFLINE:format(offline)
     end
-    text = text .. "  |cff606060-|r  " .. (issues > 0
-        and ("|cffff8000" .. issues .. (issues == 1 and " issue" or " issues")
-            .. "|r")
-        or "|cff40ff40Nothing to fix|r")
+    text = text .. sep .. (issues > 0
+        and ("|cffff8000" .. (issues == 1 and L.MEMBERS_ISSUES_ONE
+            or L.MEMBERS_ISSUES_MANY):format(issues) .. "|r")
+        or ("|cff40ff40" .. L.MEMBERS_NOTHING_TO_FIX .. "|r"))
     return text
 end
 
 -- Dropdown row / collapsed text for a role: spec icon + class-colored name.
 local function RoleText(role, classInfo)
-    if not role then return "|cff909090None|r" end
+    if not role then return "|cff909090" .. L.MENU_NONE .. "|r" end
     return WhoDoesWhat:RoleIconMarkup(role.icon, 14) .. " |cff"
         .. ((classInfo and classInfo.colorHex) or "ffffff") .. role.name .. "|r"
 end
@@ -194,7 +195,7 @@ end
 local function GroupRoleText(blizzRole)
     local wowRole = blizzRole and BLIZZ_TO_WOW[blizzRole]
     local meta = wowRole and WhoDoesWhat.BasicWowRoles[wowRole]
-    if not meta then return "|cff909090None|r" end
+    if not meta then return "|cff909090" .. L.MENU_NONE .. "|r" end
     return WhoDoesWhat:GetWowRoleIconMarkup(wowRole, 14) .. " " .. meta.name
 end
 
@@ -230,8 +231,8 @@ local function CreateIssueIcon(row)
     return UI.CreateWarningIcon(row, ISSUE_COL_W - 2, function(self)
         local issues = self.issues
         if not (issues and #issues > 0) then return end
-        GameTooltip:SetText(#issues == 1 and "1 issue"
-            or (#issues .. " issues"), unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:SetText((#issues == 1 and L.MEMBERS_ISSUES_ONE or L.MEMBERS_ISSUES_MANY)
+            :format(#issues), unpack(UI.TOOLTIP_TITLE))
         for index, text in ipairs(issues) do
             -- Blank line between them: several wrapped sentences run together
             -- read as one paragraph, and the count in the title then lies.
@@ -430,9 +431,7 @@ local function CreateRow(f, section, index)
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(groupDD, "Group role",
-        "Blizzard's own Tank / Healer / Damage flag. Picking here changes only "
-            .. "the flag.")
+    AddDropdownTooltip(groupDD, L.MEMBERS_GROUP_ROLE, L.MEMBERS_GROUP_ROLE_TIP)
     row.groupDD = groupDD
 
     -- WhoDoesWhat role: writes the board, which pushes the flag to match.
@@ -477,14 +476,13 @@ local function CreateRow(f, section, index)
         -- panel un-assigns a role back to roleless.
         if saved == nil then
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "None"
+            info.text = L.MENU_NONE
             info.checked = true
             info.disabled = true
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    AddDropdownTooltip(dropdown, "WhoDoesWhat role",
-        "Sets their spec on the board and pushes their group role to match.")
+    AddDropdownTooltip(dropdown, L.MEMBERS_WDW_ROLE, L.MEMBERS_WDW_ROLE_TIP)
     row.dropdown = dropdown
 
     -- Talents: what we have actually seen, not what anyone picked, stated as a
@@ -505,21 +503,20 @@ local function CreateRow(f, section, index)
     talentHover:SetWidth(TALENT_PAD + TALENT_TEXT_W)
     talentHover:EnableMouse(true)
     UI.AddTooltip(talentHover, function(self)
-        GameTooltip:SetText("Talents", unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:SetText(L.MEMBERS_TALENTS, unpack(UI.TOOLTIP_TITLE))
         local snapshot = self.snapshot
         if not snapshot then
-            GameTooltip:AddLine("Nobody has been close enough to inspect them "
-                .. "yet -- the refresh button queues one.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine(L.MEMBERS_TALENTS_NOT_SEEN, 0.8, 0.8, 0.8, true)
         else
             for i, points in ipairs(snapshot.points) do
                 GameTooltip:AddDoubleLine(
                     (snapshot.specNames and snapshot.specNames[i])
-                        or ("Tree " .. i),
+                        or L.MEMBERS_TREE:format(i),
                     tostring(points), 1, 0.82, 0, 1, 1, 1)
             end
             if self.readsAs then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("Reads as " .. self.readsAs .. ".",
+                GameTooltip:AddLine(L.MEMBERS_READS_AS:format(self.readsAs),
                     0.8, 0.8, 0.8, true)
             end
         end
@@ -532,10 +529,8 @@ local function CreateRow(f, section, index)
     -- of the row is judged against. Wears the LFG tool's refresh arrows rather
     -- than a word; the tooltip says what it does.
     local rescanBtn = UI.CreateIconButton(row, UI.REFRESH_ICON, function(self)
-        GameTooltip:SetText("Rescan talents", unpack(UI.TOOLTIP_TITLE))
-        GameTooltip:AddLine("Queue a fresh inspect. They have to be in range "
-            .. "-- out of range, their last-known talents stand.",
-            0.8, 0.8, 0.8, true)
+        GameTooltip:SetText(L.MEMBERS_RESCAN, unpack(UI.TOOLTIP_TITLE))
+        GameTooltip:AddLine(L.MEMBERS_RESCAN_TIP, 0.8, 0.8, 0.8, true)
         if self.blockedReason then
             GameTooltip:AddLine(self.blockedReason, 1, 0.4, 0.4, true)
         end
@@ -589,7 +584,7 @@ local function LayoutRow(row, m, data, index, connected)
     end
 
     local combat = InCombatLockdown()
-    local combatReason = combat and COMBAT_REASON or nil
+    local combatReason = combat and L.MEMBERS_COMBAT or nil
 
     -- Permission and combat both end at the same place -- a dropdown that can't
     -- answer -- so both simply disable it. A disabled dropdown still reads its
@@ -608,10 +603,10 @@ local function LayoutRow(row, m, data, index, connected)
         -- confusion rather than pretending it's unassigned.
         UIDropDownMenu_SetText(row.dropdown, "|cff909090?|r")
     else
-        UIDropDownMenu_SetText(row.dropdown, "|cff909090None|r")
+        UIDropDownMenu_SetText(row.dropdown, "|cff909090" .. L.MENU_NONE .. "|r")
     end
     row.dropdown.blockedReason = combatReason
-        or (not data.mayRole and "The raid leader has editing restricted." or nil)
+        or (not data.mayRole and L.MEMBERS_EDITING_RESTRICTED or nil)
     SetDropdownEnabled(row.dropdown, data.mayRole and not combat)
     row.dropdown:SetAlpha(connected and 1 or 0.55)
 
@@ -628,10 +623,10 @@ local function LayoutRow(row, m, data, index, connected)
         -- map (there is no such class today, but a bad spec index would land
         -- here). Fall back to the spread rather than claiming nothing is known.
         or (data.snapshot and table.concat(data.snapshot.points, "/"))
-        or "|cff909090not scanned|r")
+        or ("|cff909090" .. L.MEMBERS_NOT_SCANNED .. "|r"))
     row.talentHover.snapshot = data.snapshot
     row.talentHover.readsAs = #talentNames > 0
-        and table.concat(talentNames, " or ") or nil
+        and table.concat(talentNames, L.MEMBERS_OR) or nil
 
     -- Already queued: the button has done its job and pressing it again just
     -- re-queues the same inspect, so it goes quiet until the answer lands or
@@ -642,10 +637,10 @@ local function LayoutRow(row, m, data, index, connected)
     -- The template greys its own chrome but not the icon laid over it.
     row.rescanBtn.icon:SetDesaturated(not canScan)
     row.rescanBtn.blockedReason = (m.isFake
-            and "Fake raiders' talents are simulated -- there is nobody to inspect.")
-        or (combat and "Can't inspect in combat.")
-        or (pendingScan and "Queued -- waiting for their talents to arrive.")
-        or (not data.unit and "They aren't in the group right now.") or nil
+            and L.MEMBERS_FAKE_NO_INSPECT)
+        or (combat and L.MEMBERS_NO_INSPECT_COMBAT)
+        or (pendingScan and L.MEMBERS_SCAN_QUEUED)
+        or (not data.unit and L.MEMBERS_NOT_IN_GROUP) or nil
 
     row.warnIcon.issues = data.issues
     row.warnIcon:SetShown(#data.issues > 0)
@@ -768,13 +763,13 @@ local function OpenSizeMenu(f, button)
     end
     UIDropDownMenu_Initialize(sizeMenu, function(_, level)
         local title = UIDropDownMenu_CreateInfo()
-        title.text = "Row Size"
+        title.text = L.MEMBERS_ROW_SIZE
         title.isTitle = true
         title.notCheckable = true
         UIDropDownMenu_AddButton(title, level)
 
         local auto = UIDropDownMenu_CreateInfo()
-        auto.text = "Automatic"
+        auto.text = L.MEMBERS_ROW_SIZE_AUTO
         auto.checked = f.pickedDensity == nil
         auto.func = function()
             f.pickedDensity, f.pickedInTier = nil, nil
@@ -786,7 +781,7 @@ local function OpenSizeMenu(f, button)
         for i = #DENSITIES, 1, -1 do
             local density = DENSITIES[i]
             local info = UIDropDownMenu_CreateInfo()
-            info.text = density.label
+            info.text = L[density.labelKey]
             info.checked = f.pickedDensity == density
             info.func = function()
                 f.pickedDensity, f.pickedInTier = density, f.autoDensity
@@ -824,11 +819,10 @@ function WhoDoesWhat:BuildMembersPage(page)
     -- Buff Grid's source gear.
     local gear = UI.CreateBareIconButton(f, UI.GEAR_ICON, GEAR_SIZE,
         function()
-            GameTooltip:SetText("Row Size", unpack(UI.TOOLTIP_TITLE))
+            GameTooltip:SetText(L.MEMBERS_ROW_SIZE, unpack(UI.TOOLTIP_TITLE))
             GameTooltip:AddLine(f.pickedDensity
-                and (f.pickedDensity.label .. ", until the group grows or"
-                    .. " shrinks into another size.")
-                or "Automatic: rows tighten as the group grows.",
+                and L.MEMBERS_ROW_SIZE_PICKED:format(L[f.pickedDensity.labelKey])
+                or L.MEMBERS_ROW_SIZE_AUTO_TIP,
                 0.8, 0.8, 0.8, true)
             return true
         end, nil,
@@ -898,11 +892,11 @@ function WhoDoesWhat:BuildMembersPage(page)
             fs.x = x
             headings[#headings + 1] = fs
         end
-        Heading("Player", ICON_X, NAME_W + CLASS_ICON_SIZE)
-        Heading("Has WDW?", ADDON_X, ADDON_COL_W, "CENTER")
-        Heading("Group role", GROUP_X + 8, GROUP_DD_W)
-        Heading("WhoDoesWhat", WDW_X + 8, WDW_DD_W)
-        Heading("Talents", TALENT_X + TALENT_PAD, TALENT_TEXT_W)
+        Heading(L.MEMBERS_COL_PLAYER, ICON_X, NAME_W + CLASS_ICON_SIZE)
+        Heading(L.MEMBERS_COL_HAS_WDW, ADDON_X, ADDON_COL_W, "CENTER")
+        Heading(L.MEMBERS_GROUP_ROLE, GROUP_X + 8, GROUP_DD_W)
+        Heading(L.MEMBERS_COL_WDW, WDW_X + 8, WDW_DD_W)
+        Heading(L.MEMBERS_TALENTS, TALENT_X + TALENT_PAD, TALENT_TEXT_W)
 
         local line = box:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(unpack(WhoDoesWhat.Theme.goldDivider))

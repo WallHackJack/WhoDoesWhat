@@ -41,10 +41,10 @@ end
 
 local function MinimapTooltip(tooltip)
     tooltip:AddLine("WhoDoesWhat", 1, 1, 1)
-    UI.AddTooltipHint(tooltip, L.MINIMAP_LEFT_CLICK, L.MINIMAP_ASSIGNMENTS)
-    UI.AddTooltipHint(tooltip, L.MINIMAP_RIGHT_CLICK, L.MINIMAP_BUFFING_GRID)
-    UI.AddTooltipHint(tooltip, L.MINIMAP_SHIFT_LEFT_CLICK, L.MINIMAP_MEMBERS)
-    UI.AddTooltipHint(tooltip, L.MINIMAP_SHIFT_RIGHT_CLICK, L.MINIMAP_SETTINGS)
+    UI.AddTooltipHint(tooltip, L.HINT_LEFT_CLICK, L.MINIMAP_ASSIGNMENTS)
+    UI.AddTooltipHint(tooltip, L.HINT_RIGHT_CLICK, L.MINIMAP_BUFFING_GRID)
+    UI.AddTooltipHint(tooltip, L.HINT_SHIFT_LEFT_CLICK, L.MINIMAP_MEMBERS)
+    UI.AddTooltipHint(tooltip, L.HINT_SHIFT_RIGHT_CLICK, L.MINIMAP_SETTINGS)
 end
 
 -- LibDBIcon, and nothing of our own on top of it. That is the whole point.

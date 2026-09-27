@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Misdirect Assignments section: one row per hunter, auto-managed from the
 -- roster (EnsureAutoRows) -- no Add, the hunter cell is a fixed label, and the
@@ -20,9 +21,6 @@ local GetEntries = A.GetEntries
 local EntryHasJob = A.EntryHasJob
 local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
-local PlayerEntriesText = A.PlayerEntriesText
-local TargetChatText = A.TargetChatText
-local TargetPlainText = A.TargetPlainText
 local MarkerMarkup = A.MarkerMarkup
 
 local SECTION = A.SectionByKey("md")
@@ -57,7 +55,7 @@ local function CreateRow(f, index)
     -- Misdirects read "Hunter for Tank on Skull".
     local forLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     forLabel:SetPoint("LEFT", playerLabel, "RIGHT", -10, 0)
-    forLabel:SetText("for")
+    forLabel:SetText(L.MD_FOR)
     row.forLabel = forLabel
 
     -- Tank picker: the whole group, marked tanks floated above a divider,
@@ -80,7 +78,7 @@ local function CreateRow(f, index)
     local onLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     -- The +2 y compensates for the dropdown-frame anchor sitting at y=-2.
     onLabel:SetPoint("LEFT", targetDD, "RIGHT", -10, 2)
-    onLabel:SetText("on")
+    onLabel:SetText(L.MD_ON)
     row.onLabel = onLabel
 
     -- Marker on the pair (which pull the hunter misdirects on): plain
@@ -102,7 +100,7 @@ local function CreateRow(f, index)
         end
         UI.AddDropdownDivider(level)
         local info = UIDropDownMenu_CreateInfo()
-        info.text = "None"
+        info.text = L.MENU_NONE
         info.checked = (entry.marker == nil)
         info.func = function()
             entry.marker = nil
@@ -124,9 +122,8 @@ local function CreateRow(f, index)
             .. "'s misdirect cleared.")
         Refresh(f)
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear this misdirect",
-        "Clear the tank and marker. The hunter's row stays.")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.MD_CLEAR_ROW, L.MD_CLEAR_ROW_TIP)
     row.clearBtn = clearBtn
 
     -- Mail immediately left of the row [x], matching the Tank and CC rows.
@@ -134,8 +131,8 @@ local function CreateRow(f, index)
         local entry = Entry()
         if entry and entry.player then
             return entry.player,
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetChatText),
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
+                A.SectionWhisper(SECTION, entry.player),
+                A.SectionWhisperDisplay(SECTION, entry.player)
         end
     end)
     row.mailBtn:SetPoint("RIGHT", clearBtn, "LEFT", -2, 0)
@@ -219,7 +216,7 @@ function Refresh(f) -- forward declared above
     end
 
     state.emptyHint:SetText(editable
-        and "No hunters in the group." or "No misdirect assignments yet.")
+        and L.MD_EMPTY_EDITABLE or L.MD_EMPTY)
     state.emptyHint:SetShown(#visible == 0)
     state.clearBtn:SetShown(editable)
     state.clearBtn:SetEnabled(hasAssignments)
@@ -243,21 +240,18 @@ local function Build(f)
     -- hunter rows repopulate blank on refresh.
     local clearBtn = UI.CreateCloseButton(chrome.box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
-        StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
-        StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
-            function()
-                A.ClearMisdirectAssignments()
-                A.ReconcileRosterAssignments()
-                Refresh(f)
-            end)
+        K.ConfirmClear(L.MD_CLEAR_PROMPT, function()
+            A.ClearMisdirectAssignments()
+            A.ReconcileRosterAssignments()
+            Refresh(f)
+        end)
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear misdirect assignments",
-        "Clear every misdirect back to default (asks first).")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.MD_CLEAR_ALL, L.MD_CLEAR_ALL_TIP)
     table.insert(chrome.headerChain, 1, clearBtn)
 
     local hint = UI.CreateEmptyHint(chrome.box)
-    hint:SetText("No hunters in the group.")
+    hint:SetText(L.MD_EMPTY_EDITABLE)
 
     f.mdSection = {
         box = chrome.box,

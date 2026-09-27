@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Curse value calculator. Pulls a fight from Details! and estimates how much
 -- raid damage each client flavor's raid curses provided (or could provide).
@@ -98,23 +99,23 @@ end
 -- The Fight box's breakdown, one striped row per damage pool, indented under
 -- the pool it splits. `key` is the BossPoolsFromCombat stat it shows.
 local BREAKDOWN = {
-    { key = "total", label = "Total damage to target", color = C_TOTAL },
-    { key = "physAll", label = "Physical", depth = 1 },
-    { key = "physNonBleed", label = "Armor-mitigated (CoR)", depth = 2, color = C_COR },
-    { key = "bleeds", label = "Bleeds, which ignore armor", depth = 2, color = C_MUTED },
-    { key = "magicAll", label = "Magic", depth = 1 },
+    { key = "total", labelKey = "CALC_TOTAL", color = C_TOTAL },
+    { key = "physAll", labelKey = "CALC_PHYSICAL", depth = 1 },
+    { key = "physNonBleed", labelKey = "CALC_ARMOR_MITIGATED", depth = 2, color = C_COR },
+    { key = "bleeds", labelKey = "CALC_BLEEDS", depth = 2, color = C_MUTED },
+    { key = "magicAll", labelKey = "CALC_MAGIC", depth = 1 },
 }
 if IS_CLASSIC_ERA then
     BREAKDOWN[#BREAKDOWN + 1] =
-        { key = "coeRelevant", label = "Fire and Frost (CoE)", depth = 2, color = C_COE }
+        { key = "coeRelevant", labelKey = "CALC_FIRE_FROST", depth = 2, color = C_COE }
     BREAKDOWN[#BREAKDOWN + 1] =
-        { key = "cosRelevant", label = "Shadow and Arcane (CoS)", depth = 2, color = C_COE }
+        { key = "cosRelevant", labelKey = "CALC_SHADOW_ARCANE", depth = 2, color = C_COE }
 else
     BREAKDOWN[#BREAKDOWN + 1] = { key = "coeRelevant",
-        label = "Fire, Frost, Shadow and Arcane (CoE)", depth = 2, color = C_COE }
+        labelKey = "CALC_FIRE_FROST_SHADOW_ARCANE", depth = 2, color = C_COE }
 end
 BREAKDOWN[#BREAKDOWN + 1] =
-    { key = "magicOther", label = "Nature and Holy", depth = 2, color = C_MUTED }
+    { key = "magicOther", labelKey = "CALC_NATURE_HOLY", depth = 2, color = C_MUTED }
 
 -- Physical-school abilities that ignore armor (bleeds) -- they must not count
 -- toward the CoR pool. Keyed by spell id; TBC ranks of the usual offenders.
@@ -160,7 +161,7 @@ end
 local function CombatLabel(combat)
     local name = combat.GetEncounterName and combat:GetEncounterName()
     if not name or name == "" then
-        name = "Segment " .. tostring(combat.GetCombatNumber and combat:GetCombatNumber() or "?")
+        name = L.CALC_SEGMENT:format(tostring(combat.GetCombatNumber and combat:GetCombatNumber() or "?"))
     end
     local t = (combat.GetCombatTime and combat:GetCombatTime()) or 0
     return string.format("%s (%d:%02d)", tostring(name), math.floor(t / 60), t % 60)
@@ -350,28 +351,28 @@ end
 local function Recompute(f)
     local Details = GetDetails()
     if not Details then
-        ShowStatus(f, "|cffff5555Install or enable Details! to use the calculator.|r")
+        ShowStatus(f, "|cffff5555" .. L.CALC_NEEDS_DETAILS .. "|r")
         return
     end
 
     local combat = f.selectedCombat
     if not combat then
-        ShowStatus(f, "|cffaaaaaaPick a fight.|r")
+        ShowStatus(f, "|cffaaaaaa" .. L.CALC_PICK_FIGHT .. "|r")
         return
     end
 
     local boss, stats = BossPoolsFromCombat(combat)
     if not boss then
-        ShowStatus(f, "|cffaaaaaaNo damage recorded in this fight.|r")
+        ShowStatus(f, "|cffaaaaaa" .. L.CALC_NO_DAMAGE .. "|r")
         return
     end
 
     local coePool, physPool = stats.coeRelevant, stats.physNonBleed
 
     local duration = (combat.GetCombatTime and combat:GetCombatTime()) or 0
-    f.target:SetText("Target: |cffffffff" .. boss .. "|r")
-    f.duration:SetText(string.format("Duration: |cffffffff%d:%02d|r",
-        math.floor(duration / 60), duration % 60))
+    f.target:SetText(L.CALC_TARGET:format("|cffffffff" .. boss .. "|r"))
+    f.duration:SetText(L.CALC_DURATION:format(string.format("|cffffffff%d:%02d|r",
+        math.floor(duration / 60), duration % 60)))
     for _, row in ipairs(f.breakdownRows) do
         row.value:SetText(Commafy(stats[row.key]))
     end
@@ -379,8 +380,8 @@ local function Recompute(f)
     -- A value with its per-second rate after it, in grey.
     local function WithDps(total)
         if duration > 0 then
-            return Commafy(total) .. "  " .. MUTED_ESCAPE .. "(" .. Commafy(total / duration)
-                .. " DPS)|r"
+            return Commafy(total) .. "  " .. MUTED_ESCAPE .. L.CALC_DPS:format(Commafy(total / duration))
+                .. "|r"
         end
         return Commafy(total)
     end
@@ -395,17 +396,17 @@ local function Recompute(f)
             local before = normalPool / multiplier
                 + (specialPool or 0) / (specialMultiplier or multiplier)
             SetResult(result, tag, {
-                { "Damage with " .. noun, Commafy(pool) },
-                { "Damage before " .. noun, Commafy(before) },
-                { "Provided", WithDps(pool - before), C_PROVIDED },
+                { L.CALC_DAMAGE_WITH:format(noun), Commafy(pool) },
+                { L.CALC_DAMAGE_BEFORE:format(noun), Commafy(before) },
+                { L.CALC_PROVIDED, WithDps(pool - before), C_PROVIDED },
             })
         else
             local withBonus = normalPool * multiplier
                 + (specialPool or 0) * (specialMultiplier or multiplier)
             SetResult(result, tag, {
-                { "Damage now", Commafy(pool) },
-                { "Damage with " .. noun, Commafy(withBonus) },
-                { "Could have provided", WithDps(withBonus - pool), C_MISSED },
+                { L.CALC_DAMAGE_NOW, Commafy(pool) },
+                { L.CALC_DAMAGE_WITH:format(noun), Commafy(withBonus) },
+                { L.CALC_COULD_HAVE, WithDps(withBonus - pool), C_MISSED },
             })
         end
     end
@@ -413,11 +414,11 @@ local function Recompute(f)
     -- Curse of the Elements ---------------------------------------------------
     local coeRate = f.state.malediction and COE_MALEDICTION or COE_BASE
     local ignitePool = IS_CLASSIC_ERA and f.state.igniteDoubleDip and stats.ignite or 0
-    PercentBonus(f.results.coe, "curse", coePool, coeRate, f.state.coe,
+    PercentBonus(f.results.coe, L.CALC_NOUN_CURSE, coePool, coeRate, f.state.coe,
         ignitePool, ignitePool > 0 and 1.21 or nil)
 
     if IS_CLASSIC_ERA then
-        PercentBonus(f.results.cos, "curse", stats.cosRelevant, COE_BASE, f.state.cos)
+        PercentBonus(f.results.cos, L.CALC_NOUN_CURSE, stats.cosRelevant, COE_BASE, f.state.cos)
     end
 
     -- Curse of Recklessness ---------------------------------------------------
@@ -427,7 +428,7 @@ local function Recompute(f)
     local base = f.state.bossArmor
     local C = ARMOR_C
     local nonCorReduction = armorDebuff + ff + pen
-    local corTag = "-" .. Commafy(COR_ARMOR) .. " armor"
+    local corTag = L.CALC_MINUS_ARMOR:format(Commafy(COR_ARMOR))
 
     if f.state.cor then
         -- Reconstruct both states independently so a debuff set that already
@@ -436,9 +437,9 @@ local function Recompute(f)
         local aWith = math.max(aWithout - COR_ARMOR, 0)
         local before = physPool * (aWith + C) / (aWithout + C)
         SetResult(f.results.cor, corTag, {
-            { "Damage with curse", Commafy(physPool) },
-            { "Damage before curse", Commafy(before) },
-            { "Provided", WithDps(physPool - before), C_PROVIDED },
+            { L.CALC_DAMAGE_WITH:format(L.CALC_NOUN_CURSE), Commafy(physPool) },
+            { L.CALC_DAMAGE_BEFORE:format(L.CALC_NOUN_CURSE), Commafy(before) },
+            { L.CALC_PROVIDED, WithDps(physPool - before), C_PROVIDED },
         })
     else
         -- No CoR was up; recorded physical is the without-CoR number.
@@ -446,15 +447,15 @@ local function Recompute(f)
         local aWithCor = math.max(aNow - COR_ARMOR, 0)
         local withCor = physPool * (aNow + C) / (aWithCor + C)
         SetResult(f.results.cor, corTag, {
-            { "Damage now", Commafy(physPool) },
-            { "Damage with curse", Commafy(withCor) },
-            { "Could have provided", WithDps(withCor - physPool), C_MISSED },
+            { L.CALC_DAMAGE_NOW, Commafy(physPool) },
+            { L.CALC_DAMAGE_WITH:format(L.CALC_NOUN_CURSE), Commafy(withCor) },
+            { L.CALC_COULD_HAVE, WithDps(withCor - physPool), C_MISSED },
         })
     end
 
     if not IS_CLASSIC_ERA then
         -- All physical damage, bleeds included.
-        PercentBonus(f.results.arms, "Blood Frenzy", stats.physAll, BLOOD_FRENZY,
+        PercentBonus(f.results.arms, L.CALC_BLOOD_FRENZY, stats.physAll, BLOOD_FRENZY,
             f.state.bloodFrenzy)
     end
 end
@@ -469,7 +470,7 @@ end
 local function RefreshFightList(f)
     local Details = GetDetails()
     if not Details then
-        UIDropDownMenu_SetText(f.fightDD, "Details! not installed")
+        UIDropDownMenu_SetText(f.fightDD, L.CALC_NO_DETAILS)
         f.selectedCombat = nil
         return
     end
@@ -490,7 +491,7 @@ local function RefreshFightList(f)
     UIDropDownMenu_Initialize(f.fightDD, function(_, level)
         if current then
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "Current: " .. CombatLabel(current)
+            info.text = L.CALC_CURRENT_FIGHT:format(CombatLabel(current))
             info.checked = (f.selectedCombat == current)
             info.func = function()
                 f.selectedCombat = current
@@ -517,7 +518,7 @@ local function RefreshFightList(f)
     end)
 
     UIDropDownMenu_SetText(f.fightDD,
-        f.selectedCombat and CombatLabel(f.selectedCombat) or "No fights logged")
+        f.selectedCombat and CombatLabel(f.selectedCombat) or L.CALC_NO_FIGHTS)
 end
 
 -- ---------------------------------------------------------------------------
@@ -540,7 +541,7 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
 
     -- Fight: the picker on the title strip, the target and duration under it,
     -- then the damage breakdown ------------------------------------------------
-    local fight = CreateBox(f, "Fight")
+    local fight = CreateBox(f, L.CALC_FIGHT)
     fight:SetPoint("TOPLEFT")
     fight:SetWidth(LEFT_W)
     UI.ReserveSectionStrip(fight, TARGET_STRIP_H)
@@ -563,7 +564,7 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         local row = AddValueRow(fight, i, def.depth)
         local color = def.color or C_WHITE
         row.key = def.key
-        row.label:SetText(def.label)
+        row.label:SetText(L[def.labelKey])
         row.label:SetTextColor(unpack(color))
         row.value:SetTextColor(unpack(color))
         f.breakdownRows[i] = row
@@ -571,7 +572,7 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     fight:SetHeight(BoxHeight(fight, #BREAKDOWN))
 
     -- Boss Armor: the armor CoR's estimate is reconstructed from -------------
-    local armor = CreateBox(f, "Boss Armor")
+    local armor = CreateBox(f, L.CALC_BOSS_ARMOR)
     armor:SetPoint("TOPLEFT", fight, "BOTTOMLEFT", 0, -GAP)
     armor:SetWidth(LEFT_W)
     armor:SetHeight(BoxHeight(armor, 6))
@@ -586,7 +587,7 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     end
 
     local baseRow = AddValueRow(armor, 1)
-    baseRow.label:SetText("Base armor")
+    baseRow.label:SetText(L.CALC_BASE_ARMOR)
     f.armorDD = UI.CreateMenuDropdown(baseRow, "WhoDoesWhatCurseCalcArmorDD", 60)
     f.armorDD:SetPoint("RIGHT", baseRow, "RIGHT", DD_OVERHANG - LABEL_X + 6, -2)
     UIDropDownMenu_Initialize(f.armorDD, function(_, level)
@@ -606,31 +607,31 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
 
     -- Sunder / Expose are mutually exclusive (at most one), so each unticks the
     -- other. Unticking the checked one leaves neither -> no armor debuff.
-    f.sunderCheck = AddCheckRow(armor, 2, "Sunder Armor", "-" .. Commafy(SUNDER),
-        "Five stacks of Sunder Armor on the boss. Replaces Improved Expose Armor.",
+    f.sunderCheck = AddCheckRow(armor, 2, L.CALC_SUNDER, "-" .. Commafy(SUNDER),
+        L.CALC_SUNDER_TIP,
         function(on)
             f.state.sunder = on
             if on then f.state.expose = false; f.exposeCheck:SetChecked(false) end
             Recompute(f)
         end)
-    f.exposeCheck = AddCheckRow(armor, 3, "Improved Expose Armor", "-" .. Commafy(EXPOSE),
-        "Improved Expose Armor on the boss. Replaces Sunder Armor.",
+    f.exposeCheck = AddCheckRow(armor, 3, L.CALC_EXPOSE, "-" .. Commafy(EXPOSE),
+        L.CALC_EXPOSE_TIP,
         function(on)
             f.state.expose = on
             if on then f.state.sunder = false; f.sunderCheck:SetChecked(false) end
             Recompute(f)
         end)
-    f.ffCheck = AddCheckRow(armor, 4, "Faerie Fire", "-" .. Commafy(FAERIE_FIRE),
-        "Faerie Fire on the boss.",
+    f.ffCheck = AddCheckRow(armor, 4, L.CALC_FAERIE_FIRE, "-" .. Commafy(FAERIE_FIRE),
+        L.CALC_FAERIE_FIRE_TIP,
         function(on)
             f.state.ff = on
             Recompute(f)
         end)
     corChecks[#corChecks + 1] = AddCheckRow(armor, 5, CURSES.reck.name_long,
-        "-" .. Commafy(COR_ARMOR), "Curse of Recklessness was up on the boss.", SetCor)
+        "-" .. Commafy(COR_ARMOR), L.CALC_COR_UP, SetCor)
 
     local penRow = AddValueRow(armor, 6)
-    penRow.label:SetText("Extra armor pen")
+    penRow.label:SetText(L.CALC_EXTRA_PEN)
     f.penEdit = CreateFrame("EditBox", nil, penRow, "InputBoxTemplate")
     f.penEdit:SetSize(48, 18)
     f.penEdit:SetPoint("RIGHT", penRow, "RIGHT", -LABEL_X, 0)
@@ -644,13 +645,8 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         if userInput then Recompute(f) end
     end)
     f.penEdit.tooltip = IS_CLASSIC_ERA
-        and "Average armor penetration per physical raider, from gear like"
-            .. " Annihilator or Badge of the Swarmguard. Not detected automatically;"
-            .. " leave at 0 to skip."
-        or "Average armor penetration per physical raider, from trinkets, enchants"
-            .. " and gear like Executioner or Madness. Not detected automatically;"
-            .. " leave at 0 to skip."
-    UI.AddTooltip(f.penEdit, "Extra armor penetration",
+        and L.CALC_EXTRA_PEN_ERA_TIP or L.CALC_EXTRA_PEN_TIP
+    UI.AddTooltip(f.penEdit, L.CALC_EXTRA_PEN_TITLE,
         function(self) return self.tooltip end)
 
     -- Results, one box each down the right-hand column. A box's options take
@@ -673,22 +669,20 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
 
     local corBox = AddResult("cor", CURSES.reck.name_long,
         { icon = CURSES.reck.icon, titleColor = C_COR, tintColor = C_COR }, 1, 3)
-    corChecks[#corChecks + 1] = AddCheckRow(corBox, 1, "Applied during the fight", nil,
-        "Curse of Recklessness was up on the boss.", SetCor)
+    corChecks[#corChecks + 1] = AddCheckRow(corBox, 1, L.CALC_APPLIED, nil,
+        L.CALC_COR_UP, SetCor)
 
     local coeBox = AddResult("coe", CURSES.elements.name_long,
         { icon = CURSES.elements.icon, titleColor = C_COE, tintClass = "Warlock" },
         2, 3, corBox)
-    f.coeCheck = AddCheckRow(coeBox, 1, "Applied during the fight", nil,
-        "Curse of the Elements was up on the boss.",
+    f.coeCheck = AddCheckRow(coeBox, 1, L.CALC_APPLIED, nil,
+        L.CALC_COE_UP,
         function(on)
             f.state.coe = on
             Recompute(f)
         end)
     if IS_CLASSIC_ERA then
-        f.igniteCheck = AddCheckRow(coeBox, 2, "Ignite double-dips", "1.21x",
-            "Ignite copies a fire crit that Curse of the Elements already raised,"
-                .. " then the curse raises the Ignite damage again.",
+        f.igniteCheck = AddCheckRow(coeBox, 2, L.CALC_IGNITE, "1.21x", L.CALC_IGNITE_TIP,
             function(on)
                 f.state.igniteDoubleDip = on
                 Recompute(f)
@@ -697,26 +691,24 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         local cosBox = AddResult("cos", CURSES.shadow.name_long,
             { icon = CURSES.shadow.icon, titleColor = C_COE, tintClass = "Warlock" },
             1, 3, coeBox)
-        f.cosCheck = AddCheckRow(cosBox, 1, "Applied during the fight", nil,
-            "Curse of Shadow was up on the boss.",
+        f.cosCheck = AddCheckRow(cosBox, 1, L.CALC_APPLIED, nil,
+            L.CALC_COS_UP,
             function(on)
                 f.state.cos = on
                 Recompute(f)
             end)
     else
-        f.maledictionCheck = AddCheckRow(coeBox, 2, "Malediction", "13%",
-            "The Affliction talent that raises Curse of the Elements to 13%.",
+        f.maledictionCheck = AddCheckRow(coeBox, 2, L.CALC_MALEDICTION, "13%",
+            L.CALC_MALEDICTION_TIP,
             function(on)
                 f.state.malediction = on
                 Recompute(f)
             end)
 
-        local armsBox = AddResult("arms", "Blood Frenzy",
+        local armsBox = AddResult("arms", L.CALC_BLOOD_FRENZY,
             { icon = BLOOD_FRENZY_ICON, titleColor = C_ARMS, tintClass = "Warrior" },
             1, 3, coeBox)
-        f.bloodFrenzyCheck = AddCheckRow(armsBox, 1, "Applied during the fight", nil,
-            "An Arms warrior kept Blood Frenzy up on the boss: +4% to all physical"
-                .. " damage, bleeds included.",
+        f.bloodFrenzyCheck = AddCheckRow(armsBox, 1, L.CALC_APPLIED, nil, L.CALC_BLOOD_FRENZY_UP,
             function(on)
                 f.state.bloodFrenzy = on
                 Recompute(f)
@@ -727,9 +719,7 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     f.footnote:SetPoint("BOTTOMLEFT", 4, 2)
     f.footnote:SetPoint("BOTTOMRIGHT", -4, 2)
     f.footnote:SetJustifyH("LEFT")
-    f.footnote:SetText("Assumes 100% curse uptime; resistance reduction is not valued. CoR is an"
-        .. " estimate: ticked debuffs and average armor pen are flat reductions, and known"
-        .. " bleeds are excluded. Zero extra pen is conservative unless armor is already zero.")
+    f.footnote:SetText(L.CALC_FOOTNOTE)
 
     -- Reflect the default checkbox states.
     f.sunderCheck:SetChecked(f.state.sunder)

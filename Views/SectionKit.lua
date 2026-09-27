@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Shared widget kit for the main window's assignment sections. Every section
 -- (Views/Sections/*.lua) builds its chrome and rows from these primitives so
@@ -107,9 +108,8 @@ function K.DisabledPaladinTooltip(names)
     for i, name in ipairs(names) do
         who[i] = "|cff" .. hex .. A.ShortAssignmentName(name) .. "|r"
     end
-    return table.concat(who, ", ") .. (#names == 1 and " has" or " have")
-        .. " neither WhoDoesWhat nor PallyPower. Give them a blessing (Add (+) >"
-        .. " Assign a Paladin) and whisper it to them."
+    return (#names == 1 and L.PALADIN_NO_ADDON_ONE or L.PALADIN_NO_ADDON_MANY)
+        :format(table.concat(who, ", "))
 end
 
 function K.OrderPaladinsLocalFirst(paladins)
@@ -247,7 +247,7 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
 
     local function AddNone()
         local info = UIDropDownMenu_CreateInfo()
-        info.text = "None"
+        info.text = L.MENU_NONE
         info.checked = (saved == nil)
         info.func = function() OnPick(nil) end
         UIDropDownMenu_AddButton(info, level)
@@ -260,7 +260,9 @@ function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate
 
     if #members == 0 then
         local info = UIDropDownMenu_CreateInfo()
-        info.text = "|cff909090No " .. (class and class:lower() .. "s" or "players") .. " in group|r"
+        info.text = "|cff909090" .. (class
+            and L.MENU_NO_CLASS_IN_GROUP:format(WhoDoesWhat:ClassLabel(class))
+            or L.MENU_NO_PLAYERS_IN_GROUP) .. "|r"
         info.notCheckable = true
         info.disabled = true
         UIDropDownMenu_AddButton(info, level)
@@ -306,20 +308,20 @@ end
 
 -- One source of truth for the PallyPower status text shown in both views.
 function K.GetPallyPowerState(paladinCount)
-    if paladinCount == 0 then return "inactive", "No Paladins, Inactive" end
+    if paladinCount == 0 then return "inactive", L.PP_STATE_NO_PALADINS end
     local diffs, reason, unoptimized = WhoDoesWhat:CheckPallyPowerSync()
-    if reason == "no-paladins" then return "inactive", "No Paladins, Inactive" end
+    if reason == "no-paladins" then return "inactive", L.PP_STATE_NO_PALADINS end
     local ppMode = WhoDoesWhat.db.profile.settings.pallyBuffSource == "pallypower"
     local count = ppMode and unoptimized or #diffs
     if count == 0 then
-        return "synced", ppMode and "Optimized" or "Optimized and synced", 0
+        return "synced", ppMode and L.PP_STATE_OPTIMIZED or L.PP_STATE_SYNCED, 0
     end
     if ppMode then
-        return "desynced", count .. " unoptimized buff"
-            .. (count == 1 and "" or "s"), count
+        return "desynced", (count == 1 and L.PP_STATE_UNOPTIMIZED_ONE
+            or L.PP_STATE_UNOPTIMIZED_MANY):format(count), count
     end
-    return "desynced", count .. " Buff" .. (count == 1 and "" or "s")
-        .. " out of sync", count
+    return "desynced", (count == 1 and L.PP_STATE_OUT_OF_SYNC_ONE
+        or L.PP_STATE_OUT_OF_SYNC_MANY):format(count), count
 end
 
 -- The free-text target box a row shows while its marker is "Custom", filling
@@ -358,24 +360,30 @@ end
 -- Small red mail button: whispers the assigned player their job. GetWhisper
 -- returns (playerName, whisperText, displayText, bare), or nothing while
 -- unassigned; the refresh passes disable/desaturate it accordingly.
--- displayText is the version for our own chat and the hover tooltip (it
--- defaults to whisperText) -- they differ where the whisper uses chat's
--- {skull} tokens, which only expand into icons on the receiving end.
+-- whisperText may be a function of the recipient's strings, worded in their
+-- Language (AssignmentWhisperText). displayText is the version for our own
+-- chat and the hover tooltip (it defaults to whisperText in the player's own
+-- words) -- they differ where the whisper uses chat's {rt8} tokens, which only
+-- expand into icons on the receiving end.
 -- bare omits the generic "Your assignment:" lead after the addon tag.
 function K.CreateMailButton(row, GetWhisper)
+    local function Display(job, display)
+        return display or (type(job) == "function" and job(L) or job)
+    end
     -- Spell out what will be sent: one player can hold several rows, and every
     -- one of their buttons whispers the same full list.
     local function Tooltip()
         local name, job, display = GetWhisper()
-        if name then return "Whisper " .. name, display or job end
-        return "Whisper assignment", "No one assigned to whisper."
+        if name then return L.MAIL_WHISPER_PLAYER:format(name), Display(job, display) end
+        return L.MAIL_WHISPER_ASSIGNMENT, L.MAIL_NO_ONE
     end
     return UI.CreateIconButton(row, K.MAIL_ICON, Tooltip, nil, function()
         local name, job, display, bare = GetWhisper()
         if not name then return end
         SendChatMessage(WhoDoesWhat:AssignmentWhisperText(name, job, bare),
             "WHISPER", nil, WhoDoesWhat:WhisperName(name))
-        WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: " .. (display or job) .. ".")
+        WhoDoesWhat:LogOperation("Whispered " .. name .. " their assignment: "
+            .. Display(job, display) .. ".")
     end)
 end
 
@@ -457,13 +465,13 @@ local function AddHeaderMailButton(f, box, sectionTitle, Collect)
     local function Tooltip()
         local list = CollectOthers()
         if #list == 0 then
-            return "Whisper everyone their assignment", "No one assigned to whisper."
+            return L.MAIL_WHISPER_EVERYONE, L.MAIL_NO_ONE
         end
         local names = {}
         for _, w in ipairs(list) do
             names[#names + 1] = PlayerText(w.name)
         end
-        return "Whisper everyone their assignment", table.concat(names, ", ")
+        return L.MAIL_WHISPER_EVERYONE, table.concat(names, ", ")
     end
 
     local btn = UI.CreateIconButton(box, K.MAIL_ICON, Tooltip, nil, function()
@@ -472,7 +480,7 @@ local function AddHeaderMailButton(f, box, sectionTitle, Collect)
             WhoDoesWhat:LogOperation(sectionTitle .. ": whispered " .. sent
                 .. (sent == 1 and " player" or " players") .. " their assignments.")
         else
-            WhoDoesWhat:Print(sectionTitle .. ": no one assigned to whisper.")
+            WhoDoesWhat:Print(L.MAIL_NO_ONE_IN_SECTION:format(sectionTitle))
         end
     end)
 
@@ -553,11 +561,18 @@ end
 -- function to run on Yes, so one dialog serves every section that wants it.
 -- preferredIndex 3 keeps us off the frames the default UI cycles through.
 StaticPopupDialogs["WHODOESWHAT_CLEAR_SECTION"] = {
-    text = "Remove all %s?",
-    button1 = "Clear All",
-    button2 = "Cancel",
+    text = "%s",
     OnAccept = function(self) self.data() end,
     timeout = 0,
     hideOnEscape = true,
     preferredIndex = 3,
 }
+
+-- Ask `question`, and run `clear` on Yes. The buttons are named here, once
+-- the player's Language is known.
+function K.ConfirmClear(question, clear)
+    local dialog = StaticPopupDialogs["WHODOESWHAT_CLEAR_SECTION"]
+    dialog.button1, dialog.button2 = L.CLEAR_ALL, L.COMMON_CANCEL
+    StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
+    StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", question, nil, clear)
+end

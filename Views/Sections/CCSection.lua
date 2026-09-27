@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- CC Assignments section: user-grown rows added with the header's "Add (+)"
 -- and removed with each row's [x] (or the header X clear-all, behind a
@@ -13,7 +14,7 @@ local UI = select(2, ...).UI
 --
 -- NOTE: this is the TEMPLATE for future user-grown sections (healer
 -- assignments, fully custom assignments, ...). To add one: give it a model
--- def in Assignments.lua (key/title/store/noun/whisperLead + GetWarning), a
+-- def in Assignments.lua (key/titleKey/store/whisperKey + GetWarning), a
 -- db store + sync slot, copy this file, strip the spell dropdown if the new
 -- section doesn't need one, and register the Build/Refresh pair on
 -- WhoDoesWhat.SectionViews + the main view's build order.
@@ -26,9 +27,7 @@ local EntryText = A.EntryText
 local EntryHasJob = A.EntryHasJob
 local FindMember = A.FindMember
 local PlayerTextWithRole = A.PlayerTextWithRole
-local PlayerEntriesText = A.PlayerEntriesText
 local TargetText = A.TargetText
-local TargetChatText = A.TargetChatText
 local TargetPlainText = A.TargetPlainText
 local SpellText = A.SpellText
 local SpellById = A.SpellById
@@ -61,7 +60,7 @@ local function ReadOnlyAssignmentText(entry)
     if entry.marker == "custom" then
         target = (entry.custom and entry.custom ~= "") and entry.custom
             or ("|T" .. K.CUSTOM_TARGET_ICON .. ":" .. K.ROW_ICON_SIZE .. ":"
-                .. K.ROW_ICON_SIZE .. ":0:0|t Custom")
+                .. K.ROW_ICON_SIZE .. ":0:0|t " .. L.MARKER_CUSTOM)
     elseif type(entry.marker) == "number" then
         target = MarkerMarkup(entry.marker, K.ROW_ICON_SIZE)
     else
@@ -119,8 +118,8 @@ local function CreateRow(f, index)
             -- Shaman); say so rather than showing an empty menu.
             local m = FindMember(entry.player)
             local info = UIDropDownMenu_CreateInfo()
-            info.text = "|cff909090No CC spells for a "
-                .. (m and m.classInfo.name or "this class") .. "|r"
+            info.text = "|cff909090" .. L.CC_NO_SPELLS_FOR:format(
+                m and m.classInfo.label or L.CC_THIS_CLASS) .. "|r"
             info.notCheckable = true
             info.disabled = true
             UIDropDownMenu_AddButton(info, level)
@@ -168,7 +167,7 @@ local function CreateRow(f, index)
         UI.AddDropdownDivider(level)
 
         local info = UIDropDownMenu_CreateInfo()
-        info.text = "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t Custom..."
+        info.text = "|T" .. K.CUSTOM_TARGET_ICON .. ":14:14:0:0|t " .. L.MARKER_CUSTOM_MENU
         info.checked = (entry.marker == "custom")
         info.func = function()
             entry.marker = "custom"
@@ -188,15 +187,15 @@ local function CreateRow(f, index)
         WhoDoesWhat:LogOperation(SECTION.title .. ": " .. SECTION.noun .. " removed.")
         Refresh(f)
     end)
-    UI.AddTooltip(delBtn, "Remove this assignment")
+    UI.AddTooltip(delBtn, L.CC_REMOVE_ROW)
     row.delBtn = delBtn
 
     row.mailBtn = K.CreateMailButton(row, function()
         local entry = Entry()
         if entry and entry.player then
             return entry.player,
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetChatText),
-                SECTION.whisperLead .. PlayerEntriesText(SECTION, entry.player, TargetPlainText)
+                A.SectionWhisper(SECTION, entry.player),
+                A.SectionWhisperDisplay(SECTION, entry.player)
         end
     end)
     row.mailBtn:SetPoint("RIGHT", delBtn, "LEFT", -2, 0)
@@ -285,8 +284,8 @@ function Refresh(f) -- forward declared above
     end
 
     state.emptyHint:SetText(editable
-        and ("No " .. SECTION.noun .. "s yet - click Add (+) to add one.")
-        or ("No " .. SECTION.noun .. "s yet."))
+        and L.CC_EMPTY_EDITABLE
+        or L.CC_EMPTY)
     state.emptyHint:SetShown(#visible == 0)
     state.plusBtn:SetShown(editable)
     state.clearBtn:SetShown(editable)
@@ -313,17 +312,14 @@ local function Build(f)
     -- frame, so it still lines up with the mail column.
     local clearBtn = UI.CreateCloseButton(box, nil, 0.25)
     clearBtn:SetScript("OnClick", function()
-        StaticPopup_Hide("WHODOESWHAT_CLEAR_SECTION") -- re-arm for this section
-        StaticPopup_Show("WHODOESWHAT_CLEAR_SECTION", SECTION.noun .. "s", nil,
-            function()
-                wipe(GetEntries(SECTION))
-                WhoDoesWhat:LogOperation(SECTION.title .. ": all " .. SECTION.noun .. "s removed.")
-                Refresh(f)
-            end)
+        K.ConfirmClear(L.CC_CLEAR_PROMPT, function()
+            wipe(GetEntries(SECTION))
+            WhoDoesWhat:LogOperation(SECTION.title .. ": all " .. SECTION.noun .. "s removed.")
+            Refresh(f)
+        end)
     end)
-    clearBtn.disabledReason = "Nothing to clear."
-    UI.AddTooltip(clearBtn, "Clear this section",
-        "Remove every " .. SECTION.noun .. " (asks first).")
+    clearBtn.disabledReason = L.NOTHING_TO_CLEAR
+    UI.AddTooltip(clearBtn, L.CLEAR_SECTION, L.CC_CLEAR_ALL_TIP)
     -- Insert at the front of the chain (rightmost) so the clear-all X sits at
     -- the far right with the mail button to its left -- matching the rows'
     -- [mail][x] order below.
@@ -331,9 +327,8 @@ local function Build(f)
 
     -- "Add (+)" appends an empty row, starting on the first marker no
     -- sibling row is using yet.
-    local plusBtn = UI.CreateTextButton(box, "Add (+)",
-        "Add a " .. SECTION.noun,
-        "Append an empty " .. SECTION.noun .. " row.", function()
+    local plusBtn = UI.CreateTextButton(box, L.ADD_BUTTON,
+        L.CC_ADD, L.CC_ADD_TIP, function()
             local entries = GetEntries(SECTION)
             entries[#entries + 1] = { marker = FirstUnusedMarker(SECTION), custom = "" }
             WhoDoesWhat:LogUiBuilding("Added " .. SECTION.noun .. " row " .. #entries)

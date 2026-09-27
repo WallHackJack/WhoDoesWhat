@@ -486,33 +486,32 @@ local function ShowShoutTooltip(btn)
     GameTooltip:SetText(btn.shout.name, 1, 1, 1)
     local missing, total = btn.missing or {}, btn.total or 0
     if total == 0 then
-        GameTooltip:AddLine("Nobody in your party wants it.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(L.SHOUT_NOBODY_WANTS, 0.6, 0.6, 0.6)
     elseif #missing == 0 then
-        GameTooltip:AddLine("All " .. total .. " in your party covered.",
+        GameTooltip:AddLine(L.SHOUT_ALL_COVERED:format(total),
             0.3, 1, 0.3)
     else
-        GameTooltip:AddLine(#missing .. " of " .. total .. " missing it:",
+        GameTooltip:AddLine(L.SHOUT_MISSING_OF:format(#missing, total),
             1, 0.3, 0.3)
         for i = 1, math.min(#missing, TOOLTIP_NAMES) do
             local m = missing[i]
             GameTooltip:AddLine(LineIcon(m) .. ColoredName(m), 1, 1, 1)
         end
         if #missing > TOOLTIP_NAMES then
-            GameTooltip:AddLine("... and " .. (#missing - TOOLTIP_NAMES)
-                .. " more", 0.6, 0.6, 0.6)
+            GameTooltip:AddLine(L.AND_MORE:format(#missing - TOOLTIP_NAMES),
+                0.6, 0.6, 0.6)
         end
     end
     -- The bar has no title strip to hang these off any more, so every button
     -- carries them.
     GameTooltip:AddLine(" ")
-    UI.AddTooltipHint(GameTooltip, "Left-Click:",
-        WhoDoesWhat:IsShoutBarWarriorMode() and "Shout" or "Ask for it in party chat")
+    UI.AddTooltipHint(GameTooltip, L.HINT_LEFT_CLICK,
+        WhoDoesWhat:IsShoutBarWarriorMode() and L.SHOUT_HINT_SHOUT or L.SHOUT_HINT_ASK)
     if btn.isSoloIcon then
-        UI.AddTooltipHint(GameTooltip, "Right-Click:", "Swap shout")
+        UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK, L.SHOUT_HINT_SWAP)
     end
-    UI.AddTooltipHint(GameTooltip, "Alt-Drag:", "Move")
-    UI.AddTooltipHint(GameTooltip, "Shift-Right-Click:",
-        "Shout Bar Settings")
+    UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
+    UI.AddTooltipHint(GameTooltip, L.HINT_SHIFT_RIGHT_CLICK, L.SHOUT_HINT_SETTINGS)
     GameTooltip:Show()
 end
 
@@ -554,8 +553,8 @@ local function RequestShout(btn)
     lastRequest = now
     local total = btn.total or 0
     local covered = total - #(btn.missing or {})
-    local text = "[WhoDoesWhat] " .. btn.shout.name .. " please! ("
-        .. covered .. "/" .. total .. " in party have it)"
+    local M = WhoDoesWhat:ChatLocale()
+    local text = M.CHAT_TAGGED:format(M.SHOUT_REQUEST:format(btn.shout.name, covered, total))
     if IsInGroup() then
         SendChatMessage(text, "PARTY")
     else

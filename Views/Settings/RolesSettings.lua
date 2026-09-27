@@ -128,7 +128,7 @@ local function BuildClassBlock(column, classInfo)
     -- Class divider (no icon, bolder font):  ----- Warrior -----
     local header = AceGUI:Create("Heading")
     header.label:SetFontObject(GameFontNormalLarge) -- bolder/larger class name
-    header:SetText("|cff" .. classInfo.colorHex .. classInfo.name .. "|r")
+    header:SetText("|cff" .. classInfo.colorHex .. classInfo.label .. "|r")
     header:SetFullWidth(true)
     block:AddChild(header)
 

@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local UI = select(2, ...).UI
+local L = select(2, ...).L
 
 -- Warlocks section: three compact Improved Healthstone header icons followed
 -- by one fixed row per curse, rendered as
@@ -26,11 +27,11 @@ local HEALTHSTONE = WhoDoesWhat.WarlockHealthstone
 local HEALTHSTONE_RANKS = HEALTHSTONE and { 2, 1, 0 } or {}
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
--- Our static-section def (title + row definitions), found by title so a
--- reordering of A.Sections can't silently swap our rows.
+-- Our static-section def (title + row definitions), found by its title's key
+-- so a reordering of A.Sections can't silently swap our rows.
 local SECTION
 for _, s in ipairs(A.Sections) do
-    if s.title == "Warlocks" then SECTION = s end
+    if s.titleKey == "SECTION_WARLOCKS" then SECTION = s end
 end
 
 local function CollectWarlockWhispers()
@@ -44,12 +45,12 @@ local function HealthstoneTooltip(self)
     local confirmedNames = self.confirmedNames or {}
     local unknownNames = state.healthstoneUnknownNames or {}
 
-    GameTooltip:SetText("(" .. rank .. "/" .. HEALTHSTONE.maxRank .. ") "
-        .. HEALTHSTONE.name, unpack(UI.TOOLTIP_TITLE))
-    GameTooltip:AddLine("Restores " .. HEALTHSTONE.lifeByTalentRank[rank] .. " life.",
+    GameTooltip:SetText(L.HEALTHSTONE_RANK_TITLE:format(rank, HEALTHSTONE.maxRank,
+        HEALTHSTONE.name), unpack(UI.TOOLTIP_TITLE))
+    GameTooltip:AddLine(L.HEALTHSTONE_RESTORES:format(HEALTHSTONE.lifeByTalentRank[rank]),
         0.6, 0.6, 0.6, true)
     if state.healthstoneTotal == 0 then
-        GameTooltip:AddLine("No warlocks in the group.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(L.WARLOCKS_NONE, 0.6, 0.6, 0.6, true)
     elseif #confirmedNames > 0 then
         for _, name in ipairs(confirmedNames) do
             local roleIcon = RoleIconMarkup(name, 16)
@@ -57,7 +58,7 @@ local function HealthstoneTooltip(self)
                 .. "|cff40ff40" .. name .. "|r", 1, 1, 1)
         end
     elseif #unknownNames == 0 then
-        GameTooltip:AddLine("No warlocks have this talent", 1, 0.35, 0.35, true)
+        GameTooltip:AddLine(L.HEALTHSTONE_NO_TALENT, 1, 0.35, 0.35, true)
     end
     return true
 end
@@ -103,8 +104,7 @@ local function AddAssignmentRow(f, box, y, def)
 
     local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
-    local shortLabel = def.label:gsub("^Curse of the ", "")
-    label:SetText(shortLabel:gsub("^Curse of ", ""))
+    label:SetText(def.shortLabel)
 
     -- Ability tooltip when hovering the spell icon only (textures can't take
     -- mouse events, so a small invisible frame sits over it).
@@ -119,7 +119,11 @@ local function AddAssignmentRow(f, box, y, def)
     local mailBtn = K.CreateMailButton(row, function()
         local name = GetAssignment(def.id)
         if name then
-            return name, def.label .. " (" .. SECTION.title .. ")"
+            -- Worded in the recipient's Language; the tooltip in the player's.
+            return name, function(S)
+                return S.WHISPER_STATIC:format(WhoDoesWhat:DataText(def, "label", S),
+                    WhoDoesWhat:DataText(SECTION, "title", S))
+            end, L.WHISPER_STATIC:format(def.label, SECTION.title)
         end
     end)
     mailBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
@@ -232,7 +236,7 @@ local function Refresh(f)
         enabled and state.box.titleColor or { 0.5, 0.5, 0.5 })
     for _, btn in ipairs(state.buttons) do
         btn:SetEnabled(enabled)
-        btn.disabledReason = not enabled and "No warlocks in the group."
+        btn.disabledReason = not enabled and L.WARLOCKS_NONE
             or nil
     end
 
@@ -248,13 +252,8 @@ local function Build(f)
     })
     local box = chrome.box
 
-    local autoTooltip = IS_CLASSIC_ERA
-        and "Put Curse of the Elements, Shadow and Recklessness on separate"
-            .. " warlocks. Settings controls which curses Auto fills."
-        or "Put Curse of the Elements on an Affliction warlock and Curse of"
-            .. " Recklessness on another. Settings controls which curses Auto"
-            .. " fills; the rest keep their current pick."
-    local autoBtn = UI.CreateTextButton(box, "Auto", "Auto-assign",
+    local autoTooltip = IS_CLASSIC_ERA and L.CURSES_AUTO_ERA_TIP or L.CURSES_AUTO_TIP
+    local autoBtn = UI.CreateTextButton(box, L.CURSES_AUTO, L.CURSES_AUTO_TITLE,
         autoTooltip,
         function()
             A.AutoAssignWarlockCurses()
@@ -273,7 +272,7 @@ local function Build(f)
         emptyHint = UI.CreateEmptyHint(box),
         rows = {},
     }
-    f.curseSection.emptyHint:SetText("No Warlock assignments yet.")
+    f.curseSection.emptyHint:SetText(L.WARLOCKS_EMPTY)
     f.curseSection.emptyHint:Hide()
     AddHealthstoneHeaderIcons(f, chrome)
 

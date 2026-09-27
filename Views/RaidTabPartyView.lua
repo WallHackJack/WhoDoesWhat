@@ -1,6 +1,7 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local _, ns = ...
 local UI = ns.UI
+local L = ns.L
 
 -- ---------------------------------------------------------------------------
 -- Party summary on the Raid tab, solo or in a party. On Forever the tab outside
@@ -30,12 +31,12 @@ local dirty = false
 
 local function RoleText(key)
     local roleId = key and WhoDoesWhat:GetAssignedRole(key)
-    if not roleId then return "|cff909090No role|r" end
+    if not roleId then return "|cff909090" .. L.PARTY_NO_ROLE .. "|r" end
     local _, role = WhoDoesWhat:FindRoleById(roleId)
     if role and role.name then
         return WhoDoesWhat.Assign.RoleIconMarkup(key, ROLE_ICON_SIZE) .. role.name
     end
-    return "|cff909090No role|r"
+    return "|cff909090" .. L.PARTY_NO_ROLE .. "|r"
 end
 
 -- tank / healer / dps: the board role's group role, else the Blizzard role
@@ -142,12 +143,12 @@ local function PaintRow(row, unit)
     local online = UnitIsConnected(unit) ~= false
     local label = WhoDoesWhat:LabelName(key or UNKNOWN)
     if not online then
-        label = "|cff808080" .. label .. " (Offline)|r"
+        label = "|cff808080" .. L.PARTY_OFFLINE:format(label) .. "|r"
     elseif classInfo then
         label = "|cff" .. classInfo.colorHex .. label .. "|r"
     end
     if online and UnitIsDeadOrGhost(unit) then
-        label = label .. " |cffff4040(Dead)|r"
+        label = label .. " |cffff4040" .. L.PARTY_DEAD .. "|r"
     end
     row.name:SetText(label)
     row.icon:SetDesaturated(not online)
@@ -162,7 +163,7 @@ local function PaintRow(row, unit)
     end
 
     local level = UnitLevel(unit)
-    row.level:SetText(level and level > 0 and ("Level " .. level) or "")
+    row.level:SetText(level and level > 0 and L.PARTY_LEVEL:format(level) or "")
     row.role:SetText(RoleText(key) .. TalentText(unit))
     row.zone:SetText(online and ZoneText(unit) or "")
     row:Show()
@@ -225,10 +226,10 @@ local function Build()
 
     panel.header = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     panel.header:SetPoint("TOPLEFT", 2, -4)
-    panel.header:SetText("Party (WhoDoesWhat)")
+    panel.header:SetText(L.PARTY_HEADER)
 
-    local members = UI.CreateTextButton(panel, "Members", "Members",
-        "Open the WhoDoesWhat Members tab.", function()
+    local members = UI.CreateTextButton(panel, L.TAB_MEMBERS, L.TAB_MEMBERS,
+        L.PARTY_MEMBERS_TIP, function()
             WhoDoesWhat:ShowMainTab("members", true)
         end)
     members:SetPoint("RIGHT", panel, "TOPRIGHT", -PAD, -10)
