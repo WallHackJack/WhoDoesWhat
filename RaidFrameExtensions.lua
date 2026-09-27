@@ -285,29 +285,18 @@ local hosts = {} -- frame -> the overlay of ours everything is drawn into
 --
 -- One overlay per compact frame, at most one per raid slot, reused as the
 -- client reuses the frame beneath it.
--- Re-read on every draw AND on the visibility tick below: the client moves
--- compact frames between strata and levels as groups are built, and an overlay
--- left behind draws underneath. A draw alone is not enough -- the first role
--- assigned in a fresh group lands while the client is still building that
--- frame, before its container has lifted it to its final level, and nothing
--- redraws once it does. The overlay then sits under the health bar until
--- something else happens to repaint it.
---
--- Measured against the HEALTH BAR as well as the frame. The bar is a child
--- with a level of its own, and on some clients it outranks its parent by
--- more than a step -- which is how a band ends up behind the health fill it
--- is supposed to run down, reading as washed out rather than drawn over.
+
 -- Not being their child, the overlay does not fade with the frame either: the
--- client dims an out-of-range player's whole frame, and an icon still at full
+-- client dims an out-of-range player's frame, and an icon still at full
 -- strength on top of it reads as stuck on. Copy the frame's effective alpha
 -- (the container's fades included), less UIParent's, which the overlay gets
 -- anyway.
 --
--- Forever keeps range secret: the frame's outOfRange is a secret boolean, its
--- alpha reads nil, and each part is faded separately. There the overlay is
--- faded from that same flag through SetAlphaFromBoolean, which applies a
--- secret without anyone reading it -- at our own OUT_OF_RANGE_ALPHA, since the
--- client's figure is as unreadable as the flag.
+-- Where range is secret -- Forever: the frame's outOfRange is a secret
+-- boolean, its alpha reads nil, and each part is faded separately -- the
+-- overlay is faded from that same flag through SetAlphaFromBoolean, which
+-- applies a secret without anyone reading it, at our own OUT_OF_RANGE_ALPHA
+-- since the client's figure is as unreadable as the flag.
 local OUT_OF_RANGE_ALPHA = 0.7
 
 local function SyncAlpha(host, frame)
@@ -325,45 +314,37 @@ local function SyncAlpha(host, frame)
     if math.abs(host:GetAlpha() - alpha) > 0.01 then host:SetAlpha(alpha) end
 end
 
--- Keep the client's own role icon invisible under ours. On Forever the client
--- does write this alpha: it range-fades each part of the frame separately from
--- a secret in-range flag (the frame's own alpha reads nil there), the role icon
--- included, which puts its larger icon back up around ours -- reading as ours
--- sunk behind the frame. Zeroing that alpha back lost the race against a range
--- check that runs far more often than any tick of ours, so the icon is HIDDEN
--- instead: the range fade only ever writes alpha, and the one place the client
--- shows it again is its role update, which our hook follows straight away. A
--- hidden texture keeps its size and anchors, so the name hung off it stays put.
--- Re-stated on the overlay tick as well, which costs one call per drawn frame.
+-- Keep the client's own role icon out of sight under ours. Hidden rather than
+-- zeroed: where range is secret the client fades each part of the frame on its
+-- own, this icon included, rewriting its alpha far more often than we could
+-- zero it back, and its larger icon resurfaced around ours. The fade never
+-- shows anything, and the one place the client does -- its role update -- is
+-- followed straight away by our hook. A hidden texture keeps its size and
+-- anchors, so the name hung off it stays put.
 local function HideClientIcon(frame)
     if frame.roleIcon then frame.roleIcon:Hide() end
 end
 
--- On Forever a level above the health bar is not enough: with the overlay at
--- LOW:8 over a bar at LOW:3, and nothing on screen outranking it, the bar still
--- drew over our icons there. Frame level evidently no longer orders our
--- overlay against the compact frames within a strata on that client, so the
--- overlay goes one strata up instead. One step and no more: MEDIUM clears the
--- party and raid frames' LOW while bags (also MEDIUM, higher levels) still
--- cover the icons, and the map and dialogs sit above it anyway -- HIGH drew
--- the icons over the map. Other clients order by level as expected and keep
--- the frame's own strata.
-local STRATA_ABOVE = WhoDoesWhat.ClientFeatures.isForever and {
+-- The overlay sits one strata ABOVE its compact frame. Frame level no longer
+-- orders it against the compact frames within a strata -- first on Forever,
+-- then on the Anniversary client too: at LOW:8 over a health bar at LOW:3, with
+-- nothing on screen outranking it, the bar still drew over our icons. One step
+-- and no more: MEDIUM clears the party and raid frames' LOW while bags (also
+-- MEDIUM, higher levels) still cover the icons, and the map and dialogs sit
+-- above it anyway -- HIGH drew the icons over the map. Level is left alone:
+-- across strata it orders nothing against the frame beneath.
+local STRATA_ABOVE = {
     BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
     DIALOG = "FULLSCREEN", FULLSCREEN = "FULLSCREEN_DIALOG",
     FULLSCREEN_DIALOG = "TOOLTIP",
-} or nil
+}
 
+-- Re-read on every draw and on the overlay tick, in case the client moves a
+-- compact frame to another strata (a profile or Edit Mode change).
 local function SyncLayer(host, frame)
-    local level = frame:GetFrameLevel()
-    local healthBar = frame.healthBar
-    if healthBar and healthBar.GetFrameLevel then
-        level = math.max(level, healthBar:GetFrameLevel())
-    end
     local strata = frame:GetFrameStrata()
-    strata = STRATA_ABOVE and STRATA_ABOVE[strata] or strata
+    strata = STRATA_ABOVE[strata] or strata
     if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
-    if host:GetFrameLevel() ~= level + 5 then host:SetFrameLevel(level + 5) end
     SyncAlpha(host, frame)
 end
 
@@ -908,8 +889,9 @@ end
 -- the profile switching between party and raid frames. Nothing tells us, so the
 -- overlays are matched to their frames on a slow tick.
 --
--- The same tick re-checks each shown overlay's strata and level (see SyncLayer),
--- for a compact frame the client re-levelled after we drew on it.
+-- The same tick re-checks each shown overlay's strata and alpha (SyncLayer),
+-- and hides the client's icon again as a safety net should anything besides
+-- its role update ever show it (HideClientIcon).
 --
 -- Cheap by construction: it returns on the first line until something is drawn,
 -- and then costs a few getters per raid slot twice a second. The alternative --
@@ -949,7 +931,6 @@ local function InstallHook()
         hooksecurefunc("CompactUnitFrame_UpdateInRange", function(frame)
             local host = frame and hosts[frame]
             if host and host:IsShown() then SyncAlpha(host, frame) end
-            if frame and taken[frame] then HideClientIcon(frame) end
         end)
     end
     return true
