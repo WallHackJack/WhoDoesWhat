@@ -690,6 +690,7 @@ WhoDoesWhat.TBCBuffFoodItems = {
 -- whether or not its own spell id was ever written down.
 WhoDoesWhat.ForeverBuffFoodItems = {
     249865, -- Peace Tea (healing power and experience gained)
+    263509, -- Skywall Souffle (same Well Fed aura as Herb Baked Egg, 1248406)
     2679, -- Charred Wolf Meat
     2681, -- Roasted Boar Meat
     787, -- Slitherskin Mackerel
