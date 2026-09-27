@@ -1,5 +1,6 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local L = select(2, ...).L
+local Locale = select(2, ...).Locale
 local features = WhoDoesWhat.ClientFeatures
 
 WhoDoesWhat.DisconnectedGridRowColors = {
@@ -12,6 +13,7 @@ WhoDoesWhat.DisconnectedGridRowColors = {
 WhoDoesWhat.Classes = {
     {
         name = "Warrior", labelKey = "CLASS_WARRIOR", pluralKey = "CLASS_WARRIOR_PLURAL",
+        labelClass = "WARRIOR",
         classIcon = 135328, -- FileDataID for class_warrior
         colorHex = "C69B6D",
         colorRGB = { r = 0.78, g = 0.61, b = 0.43 },
@@ -31,6 +33,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Paladin", labelKey = "CLASS_PALADIN", pluralKey = "CLASS_PALADIN_PLURAL",
+        labelClass = "PALADIN",
         classIcon = 626003, -- FileDataID for ClassIcon_Paladin
         colorHex = "F48CBA",
         colorRGB = { r = 0.96, g = 0.55, b = 0.73 },
@@ -46,6 +49,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Hunter", labelKey = "CLASS_HUNTER", pluralKey = "CLASS_HUNTER_PLURAL",
+        labelClass = "HUNTER",
         classIcon = 626000, -- FileDataID for ClassIcon_Hunter
         colorHex = "AAD372",
         colorRGB = { r = 0.67, g = 0.83, b = 0.45 },
@@ -70,6 +74,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Rogue", labelKey = "CLASS_ROGUE", pluralKey = "CLASS_ROGUE_PLURAL",
+        labelClass = "ROGUE",
         classIcon = 626005, -- FileDataID for ClassIcon_Rogue
         colorHex = "FFF468",
         colorRGB = { r = 1.00, g = 0.96, b = 0.41 },
@@ -88,6 +93,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Priest", labelKey = "CLASS_PRIEST", pluralKey = "CLASS_PRIEST_PLURAL",
+        labelClass = "PRIEST",
         classIcon = 626004, -- FileDataID for ClassIcon_Priest
         colorHex = "FFFFFF",
         colorRGB = { r = 1.00, g = 1.00, b = 1.00 },
@@ -103,6 +109,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Shaman", labelKey = "CLASS_SHAMAN", pluralKey = "CLASS_SHAMAN_PLURAL",
+        labelClass = "SHAMAN",
         classIcon = 626006, -- FileDataID for ClassIcon_Shaman
         colorHex = "0070DD",
         colorRGB = { r = 0.00, g = 0.44, b = 0.87 },
@@ -118,6 +125,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Mage", labelKey = "CLASS_MAGE", pluralKey = "CLASS_MAGE_PLURAL",
+        labelClass = "MAGE",
         classIcon = 626001, -- FileDataID for ClassIcon_Mage
         colorHex = "3FC7EB",
         colorRGB = { r = 0.25, g = 0.78, b = 0.92 },
@@ -136,6 +144,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Warlock", labelKey = "CLASS_WARLOCK", pluralKey = "CLASS_WARLOCK_PLURAL",
+        labelClass = "WARLOCK",
         classIcon = 626007, -- FileDataID for ClassIcon_Warlock
         colorHex = "8788EE",
         colorRGB = { r = 0.53, g = 0.53, b = 0.93 },
@@ -156,6 +165,7 @@ WhoDoesWhat.Classes = {
     },
     {
         name = "Druid", labelKey = "CLASS_DRUID", pluralKey = "CLASS_DRUID_PLURAL",
+        labelClass = "DRUID",
         classIcon = 625999, -- FileDataID for ClassIcon_Druid
         colorHex = "FF7C0A",
         colorRGB = { r = 1.00, g = 0.49, b = 0.04 },
@@ -203,6 +213,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135910,
         name_shortKey = "BLESSING_SALVATION_SHORT",
         name_longKey = "BLESSING_SALVATION",
+        normalNameKey = "BLESSING_SALVATION_FULL",
+        greaterNameKey = "BLESSING_SALVATION_GREATER",
         spellId = 25895, -- Greater Blessing of Salvation
         normalSpellId = 1038 -- Blessing of Salvation
     },
@@ -211,6 +223,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135993,
         name_shortKey = "BLESSING_KINGS_SHORT",
         name_longKey = "BLESSING_KINGS",
+        normalNameKey = "BLESSING_KINGS_FULL",
+        greaterNameKey = "BLESSING_KINGS_GREATER",
         spellId = 25898, -- Greater Blessing of Kings
         normalSpellId = 20217 -- Blessing of Kings
     },
@@ -219,6 +233,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135908,
         name_shortKey = "BLESSING_MIGHT_SHORT",
         name_longKey = "BLESSING_MIGHT",
+        normalNameKey = "BLESSING_MIGHT_FULL",
+        greaterNameKey = "BLESSING_MIGHT_GREATER",
         spellId = 27141, -- Greater Blessing of Might (Rank 3)
         normalSpellId = 27140 -- Blessing of Might (Rank 7)
     },
@@ -227,6 +243,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135943,
         name_shortKey = "BLESSING_LIGHT_SHORT",
         name_longKey = "BLESSING_LIGHT",
+        normalNameKey = "BLESSING_LIGHT_FULL",
+        greaterNameKey = "BLESSING_LIGHT_GREATER",
         spellId = 27145, -- Greater Blessing of Light (Rank 2)
         normalSpellId = 27144 -- Blessing of Light (Rank 4)
     },
@@ -235,6 +253,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135912,
         name_shortKey = "BLESSING_WISDOM_SHORT",
         name_longKey = "BLESSING_WISDOM",
+        normalNameKey = "BLESSING_WISDOM_FULL",
+        greaterNameKey = "BLESSING_WISDOM_GREATER",
         spellId = 27143, -- Greater Blessing of Wisdom (Rank 3)
         normalSpellId = 27142 -- Blessing of Wisdom (Rank 6)
     },
@@ -243,6 +263,8 @@ WhoDoesWhat.PaladinBuffs = {
         iconId = 135911,
         name_shortKey = "BLESSING_SANCTUARY_SHORT",
         name_longKey = "BLESSING_SANCTUARY",
+        normalNameKey = "BLESSING_SANCTUARY_FULL",
+        greaterNameKey = "BLESSING_SANCTUARY_GREATER",
         spellId = 27169, -- Greater Blessing of Sanctuary (Rank 2)
         normalSpellId = 27168 -- Blessing of Sanctuary (Rank 5)
     }
@@ -256,6 +278,10 @@ for key, spellId in pairs(features.paladinNormalBuffSpellIds) do
 end
 for _, buff in pairs(WhoDoesWhat.PaladinBuffs) do
     buff.normalIcon = GetSpellTexture(buff.normalSpellId) or buff.icon
+    -- The full names, "Blessing of Might" and "Greater Blessing of Might", are
+    -- the spells' own (ClientText in the client's language).
+    buff.normalNameSpell = buff.normalSpellId
+    buff.greaterNameSpell = buff.spellId
 end
 
 -- The paladin's two self-buffs the Buffing Bar can drive: the aura they're
@@ -874,7 +900,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         },
     },
     gift = {
-        nameKey = "CHECK_GIFT",
+        nameKey = "CHECK_GIFT", nameSpell = 21849, -- Gift of the Wild
         gridNameKey = "CHECK_GIFT_GRID",
         descriptionKey = "CHECK_GIFT_TIP",
         icon = "Interface\\Icons\\Spell_Nature_GiftoftheWild",
@@ -891,7 +917,7 @@ WhoDoesWhat.CoreRaidBuffs = {
     },
     food = {
         nameKey = "CHECK_FOOD",
-        gridNameKey = "CHECK_FOOD_GRID",
+        gridNameKey = "CHECK_FOOD_GRID", gridNameSpell = 19705, -- Well Fed
         descriptionKey = "CHECK_FOOD_TIP",
         icon = 136000, -- Spell_Misc_Food
         auraSpellIds = {
@@ -926,6 +952,7 @@ WhoDoesWhat.CoreRaidBuffs = {
         gridNameKey = "CHECK_SHADOW_GRID",
         -- The raid callout spells it out: "Shadow 18/25" reads as anything.
         announceNameKey = "CHECK_SHADOW_ANNOUNCE",
+        announceNameSpell = 27683, -- Prayer of Shadow Protection
         descriptionKey = "CHECK_SHADOW_TIP",
         icon = "Interface\\Icons\\Spell_Shadow_AntiShadow",
         auraSpellIds = {
@@ -963,7 +990,7 @@ WhoDoesWhat.CoreRaidBuffs = {
 -- this", just a slower one than a priest already carrying it.
 if not features.isClassicEra then
     WhoDoesWhat.CoreRaidBuffs.spirit = {
-        nameKey = "CHECK_SPIRIT",
+        nameKey = "CHECK_SPIRIT", nameSpell = 14752, -- Divine Spirit
         gridNameKey = "CHECK_SPIRIT_GRID",
         descriptionKey = "CHECK_SPIRIT_TIP",
         icon = "Interface\\Icons\\Spell_Holy_PrayerofSpirit",
@@ -981,7 +1008,7 @@ if not features.isClassicEra then
             tab = 1, tier = 5, column = 4, maxRank = 2,
         },
         requiredTalent = {
-            nameKey = "TALENT_DIVINE_SPIRIT",
+            nameKey = "TALENT_DIVINE_SPIRIT", nameSpell = 14752,
             tab = 1, tier = 5, column = 3,
         },
     }
@@ -1062,7 +1089,7 @@ WhoDoesWhat.StatusBarChecks.actionItems = {
     defaultEnabled = true,
 }
 WhoDoesWhat.StatusBarChecks.thorns = {
-    nameKey = "CHECK_THORNS",
+    nameKey = "CHECK_THORNS", nameSpell = 467, -- Thorns
     descriptionKey = "CHECK_THORNS_TIP",
     icon = "Interface\\Icons\\Spell_Nature_Thorns",
     auraSpellIds = {
@@ -1582,12 +1609,14 @@ WhoDoesWhat.WarlockCurses = {
         icon = "Interface\\Icons\\Spell_Shadow_UnholyStrength",
         name_shortKey = "CURSE_RECKLESSNESS_SHORT",
         name_longKey = "CURSE_RECKLESSNESS",
+        name_longSpell = curseSpellIds.reck,
         spellId = curseSpellIds.reck
     },
     elements = {
         icon = "Interface\\Icons\\Spell_Shadow_ChillTouch",
         name_shortKey = "CURSE_ELEMENTS_SHORT",
         name_longKey = "CURSE_ELEMENTS",
+        name_longSpell = curseSpellIds.elements,
         spellId = curseSpellIds.elements
     }
 }
@@ -1596,6 +1625,7 @@ if curseSpellIds.shadow then
         icon = "Interface\\Icons\\Spell_Shadow_CurseOfAchimonde",
         name_shortKey = "CURSE_SHADOW_SHORT",
         name_longKey = "CURSE_SHADOW",
+        name_longSpell = curseSpellIds.shadow,
         spellId = curseSpellIds.shadow,
     }
 end
@@ -1649,6 +1679,7 @@ WhoDoesWhat.CCSpells = {}
 for _, spell in ipairs(ccSpells) do
     if not features.excludedCCSpells[spell.id] then
         spell.spellId = features.ccSpellIds[spell.id] or spell.spellId
+        spell.nameSpell = spell.spellId -- the spellbook's name (ClientText)
         WhoDoesWhat.CCSpells[#WhoDoesWhat.CCSpells + 1] = spell
     end
 end
@@ -2829,15 +2860,31 @@ end
 -- Keys, not text, because this file loads before that Language is known; and
 -- kept after, so a whisper can read the same record in someone else's.
 local TEXT_FIELDS = {
-    "name", "name_short", "name_long", "description", "gridName",
-    "announceName", "label", "shortLabel", "title", "noun", "plural",
+    "name", "name_short", "name_long", "normalName", "greaterName", "description",
+    "gridName", "announceName", "label", "shortLabel", "title", "noun", "plural",
 }
+
+-- A field that is an official game name can say where the client keeps it:
+-- `nameSpell = 12826` (the spell's name) or `labelClass = "MAGE"` (the class's).
+-- On screen that name always wins over WDW's translation, so it reads exactly
+-- as the spellbook and every other window do, whatever Language is picked. A
+-- message goes to somebody else's screen, so it uses the client's name only
+-- when it is written in the client's language; otherwise, or where this
+-- client lacks the spell, the key's translation stands.
+local function ClientText(record, field)
+    local spellId = record[field .. "Spell"]
+    if spellId then return (GetSpellInfo(spellId)) end
+    local classToken = record[field .. "Class"]
+    if classToken then
+        return LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classToken]
+    end
+end
 
 local function LocalizeRecord(record)
     if not record then return end
     for _, field in ipairs(TEXT_FIELDS) do
         local key = record[field .. "Key"]
-        if key then record[field] = L[key] end
+        if key then record[field] = ClientText(record, field) or L[key] end
     end
 end
 
@@ -2885,8 +2932,12 @@ end
 
 -- One of a record's text fields in `strings` -- a whisper's or chat's
 -- (WhisperLocale, ChatLocale) rather than the player's own. A record with no
--- key for it (a custom role, named by whoever made it) reads as it is.
+-- key for it (a custom role, named by whoever made it) reads as it is. `L`
+-- itself is the player's screen, where the client's names always win.
 function WhoDoesWhat:DataText(record, field, strings)
     local key = record[field .. "Key"]
-    return key and strings[key] or record[field]
+    if not key then return record[field] end
+    local client = (strings == L or Locale:IsClientLanguage(strings))
+        and ClientText(record, field)
+    return client or strings[key]
 end

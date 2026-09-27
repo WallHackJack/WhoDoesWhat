@@ -6,6 +6,11 @@ local L = select(2, ...).Locale:Register("enUS", "English")
 -- A string with two or more names them, like {name} or {count}: keep every
 -- one, spelled exactly, but put them wherever the sentence needs them.
 -- Plurals get a key per form (_ONE / _MANY).
+--
+-- Class names and spell names (the curses, crowd control, the full blessing
+-- names, a few buffs) must match the game's own wording in your language. On
+-- screen WoW supplies those names itself, in the game client's language; your
+-- translation is what goes into chat and whispers written in your language.
 
 -- Main window
 L["TAB_MEMBERS"] = "Members"
@@ -119,8 +124,7 @@ L["PP_LABEL_PALLYPOWER"] = "PallyPower"
 L["PP_LABEL_OPTIMIZED"] = "Optimized"
 L["PP_LABEL_ASSIGNED"] = "Assigned"
 -- A grid label, then the blessing.
-L["PP_CELL_GREATER"] = "{source}: Greater Blessing of {blessing}."
-L["PP_CELL_LESSER"] = "{source}: Blessing of {blessing}."
+L["PP_CELL_BLESSING"] = "{source}: {blessing}."
 -- A grid label, then the raider.
 L["PP_CELL_NONE"] = "{source}: no assignment for {raider}."
 L["PP_CELL_DEFAULT_GUESS"] = "%s has no role yet, so this is a default guess."
@@ -193,8 +197,8 @@ L["GRID_ACTIVE"] = "Active."
 -- A better caster, then their rank out of the maximum.
 L["GRID_BETTER_FROM"] = "Better available from {source} ({rank}/{max})."
 -- The raider, then the blessing.
-L["GRID_BLESSES_GREATER"] = "Blesses {raider} with Greater Blessing of {blessing}."
-L["GRID_BLESSES_LESSER"] = "Blesses {raider} with Blessing of {blessing} (Lesser)."
+L["GRID_BLESSES_GREATER"] = "Blesses {raider} with {blessing}."
+L["GRID_BLESSES_LESSER"] = "Blesses {raider} with {blessing} (Lesser)."
 L["GRID_RAIDER_MISSING"] = "%s is missing this buff."
 L["GRID_NOTHING_FOR"] = "Nothing for %s: every blessing they want at this paladin count is already covered."
 -- The raider, then the paladin.
@@ -401,8 +405,6 @@ L["WARN_NO_SHADOW"] = "No one is assigned to Curse of Shadow."
 L["WARN_ELEMENTS_NOT_AFFLICTION"] = "%s is not marked as Affliction. Without Malediction, Curse of the Elements is less effective."
 L["CURSES_AUTO_NO_WARLOCKS"] = "Warlock Curses: no warlocks in the group to auto-assign."
 L["CURSES_AUTO_DISABLED"] = "Warlock Curses: curse auto-assigns are disabled in Settings."
--- %s is a blessing's name ("Blessing of Kings").
-L["BLESSING_OF"] = "Blessing of %s"
 L["CHECKLIST_NOTE_BETTER_CASTER"] = "A better-talented caster is here."
 L["CHECKLIST_NOTE_OUTSIDE_RAID"] = "Cast from outside the raid; the pull strips it."
 
@@ -671,7 +673,8 @@ L["CUSTOM_ROLE_COPY_NAME"] = "%s copy"
 L["CUSTOM_ROLE_LIST_FULL"] = "The raid's custom role list is full (%d roles). Remove one before adding another."
 L["CUSTOM_ROLE_NOT_IN_RAID"] = "'%s' is one of your own custom roles and is not part of this raid's list yet. Somebody who can edit assignments has to add it in the main window's Custom Roles section."
 
--- Blessings, auras, shouts and curses. The _SHORT names label small buttons.
+-- Blessings, auras, shouts and curses. The _SHORT names label small buttons;
+-- _FULL and _GREATER are the spells' exact names.
 L["BLESSING_SALVATION"] = "Salvation"
 L["BLESSING_SALVATION_SHORT"] = "Salv"
 L["BLESSING_KINGS"] = "Kings"
@@ -684,6 +687,18 @@ L["BLESSING_WISDOM"] = "Wisdom"
 L["BLESSING_WISDOM_SHORT"] = "Wisdom"
 L["BLESSING_SANCTUARY"] = "Sanctuary"
 L["BLESSING_SANCTUARY_SHORT"] = "Sanc"
+L["BLESSING_SALVATION_FULL"] = "Blessing of Salvation"
+L["BLESSING_SALVATION_GREATER"] = "Greater Blessing of Salvation"
+L["BLESSING_KINGS_FULL"] = "Blessing of Kings"
+L["BLESSING_KINGS_GREATER"] = "Greater Blessing of Kings"
+L["BLESSING_MIGHT_FULL"] = "Blessing of Might"
+L["BLESSING_MIGHT_GREATER"] = "Greater Blessing of Might"
+L["BLESSING_LIGHT_FULL"] = "Blessing of Light"
+L["BLESSING_LIGHT_GREATER"] = "Greater Blessing of Light"
+L["BLESSING_WISDOM_FULL"] = "Blessing of Wisdom"
+L["BLESSING_WISDOM_GREATER"] = "Greater Blessing of Wisdom"
+L["BLESSING_SANCTUARY_FULL"] = "Blessing of Sanctuary"
+L["BLESSING_SANCTUARY_GREATER"] = "Greater Blessing of Sanctuary"
 L["AURA_DEVOTION_SHORT"] = "Devo"
 L["AURA_RETRIBUTION_SHORT"] = "Ret"
 L["AURA_CONCENTRATION_SHORT"] = "Conc"

@@ -63,12 +63,30 @@ function Locale:Register(code, name)
     return strings
 end
 
--- The game client's language, if WDW has it; English otherwise. British
+-- The game client's own language, whether or not WDW has it: the language
+-- every name the client hands back (spells, classes) comes in. British
 -- clients report enGB, which reads the American strings.
-function Locale:GameLanguage()
+function Locale:ClientLanguage()
     local code = GetLocale()
-    if code == "enGB" then code = DEFAULT end
+    return code == "enGB" and DEFAULT or code
+end
+
+-- The game client's language, if WDW has it; English otherwise.
+function Locale:GameLanguage()
+    local code = self:ClientLanguage()
     return languages[code] and code or DEFAULT
+end
+
+-- Whether `strings` (ns.L, or a table from Get) is in the client's language,
+-- so a name the client supplies can stand in for WDW's own.
+function Locale:IsClientLanguage(strings)
+    local code = strings == ns.L and self.primary or nil
+    if not code then
+        for c, s in pairs(languages) do
+            if s == strings then code = c break end
+        end
+    end
+    return code ~= nil and code == self:ClientLanguage()
 end
 
 -- A saved choice as a language WDW has: "auto" (or nothing) is the game's,

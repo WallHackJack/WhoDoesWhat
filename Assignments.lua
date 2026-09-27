@@ -2170,12 +2170,11 @@ local function BuildBuffChecklist(forPet)
                     entries[#entries + 1] = {
                         id = prefix .. "blessing:" .. key, key = key, target = target,
                         className = "Paladin",
-                        name = L.BLESSING_OF:format(buff.name_long),
+                        name = buff.normalName,
                         -- The same name in a whisper's strings (the Buff
                         -- Checklist's ask).
                         NameIn = function(S)
-                            return S.BLESSING_OF:format(
-                                WhoDoesWhat:DataText(buff, "name_long", S))
+                            return WhoDoesWhat:DataText(buff, "normalName", S)
                         end,
                         icon = buff.icon, has = has, missing = has == false,
                         remaining = WhoDoesWhat:GetBuffTimeRemaining(target, key),
@@ -2436,6 +2435,7 @@ do
         id = "curse_reck",
         icon = curses.reck.icon,
         labelKey = curses.reck.name_longKey, shortLabelKey = "CURSE_RECKLESSNESS_ROW",
+        labelSpell = curses.reck.spellId,
         spellId = curses.reck.spellId,
         class = "Warlock",
         exclusiveWith = OtherCurseIds("curse_reck"),
@@ -2449,6 +2449,7 @@ do
         id = "curse_elements",
         icon = curses.elements.icon,
         labelKey = curses.elements.name_longKey, shortLabelKey = "CURSE_ELEMENTS_ROW",
+        labelSpell = curses.elements.spellId,
         spellId = curses.elements.spellId,
         class = "Warlock",
         preferRoleId = not isClassicEra and "warlock_affl" or nil,
@@ -2467,6 +2468,7 @@ do
         id = "curse_shadow",
         icon = curses.shadow.icon,
         labelKey = curses.shadow.name_longKey, shortLabelKey = "CURSE_SHADOW_ROW",
+        labelSpell = curses.shadow.spellId,
         spellId = curses.shadow.spellId,
         class = "Warlock",
         exclusiveWith = OtherCurseIds("curse_shadow"),

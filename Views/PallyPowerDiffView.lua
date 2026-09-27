@@ -316,9 +316,9 @@ local function CreatePlanCell(row, index)
     UI.AddTooltip(cell, function(self)
         GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
         if self.buffKey then
-            GameTooltip:AddLine(Fill(self.isGreater and L.PP_CELL_GREATER or L.PP_CELL_LESSER,
-                { source = self.sourceLabel,
-                    blessing = WhoDoesWhat.PaladinBuffs[self.buffKey].name_long }),
+            local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
+            GameTooltip:AddLine(Fill(L.PP_CELL_BLESSING, { source = self.sourceLabel,
+                blessing = self.isGreater and buff.greaterName or buff.normalName }),
                 0.8, 0.8, 0.8, true)
         else
             GameTooltip:AddLine(Fill(L.PP_CELL_NONE,

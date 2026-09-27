@@ -411,9 +411,10 @@ local function CreatePaladinCell(row, c)
         local raider = WhoDoesWhat:DisplayName(self.raider)
         if self.buffKey then
             GameTooltip:SetText(WhoDoesWhat:LabelName(self.paladin), unpack(UI.TOOLTIP_TITLE))
+            local buff = WhoDoesWhat.PaladinBuffs[self.buffKey]
             GameTooltip:AddLine(Fill(self.isGreater and L.GRID_BLESSES_GREATER
                 or L.GRID_BLESSES_LESSER, { raider = raider,
-                blessing = WhoDoesWhat.PaladinBuffs[self.buffKey].name_long }),
+                blessing = self.isGreater and buff.greaterName or buff.normalName }),
                 0.8, 0.8, 0.8, true)
             if not WhoDoesWhat.Assign.IsSimulatedPaladinBuff(self.paladin, self.raider)
                 and WhoDoesWhat:HasBuff(self.raider, self.buffKey) == false then
