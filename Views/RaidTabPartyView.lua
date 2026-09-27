@@ -3,10 +3,10 @@ local _, ns = ...
 local UI = ns.UI
 
 -- ---------------------------------------------------------------------------
--- Party summary on the Raid tab. On Forever the Raid tab in a party is an
--- empty inset under the role counts, with Convert To Raid at the bottom; this
--- fills it with one row per party member (class, name, level, board role,
--- talent spread) and a button to the Members tab.
+-- Party summary on the Raid tab, solo or in a party. On Forever the tab outside
+-- a raid is an empty inset under the role counts; this fills it with one row
+-- per party member (class, name, level, board role, talent spread) and a
+-- button to the Members tab.
 --
 -- The panel is a child of FriendsFrame. Parented to UIParent it never drew:
 -- FriendsFrame is toplevel, and on Forever an outside MEDIUM frame stayed
@@ -20,7 +20,10 @@ local MAX_ROWS = 5
 local ROW_HEIGHT = 38
 local CLASS_ICON_SIZE = 28
 local ROLE_ICON_SIZE = 14
+local GROUP_ROLE_SIZE = 18
 local PAD = 8
+
+local WOW_ROLE_BY_BLIZZARD = { TANK = "tank", HEALER = "healer", DAMAGER = "dps" }
 
 local panel
 local dirty = false
@@ -33,6 +36,17 @@ local function RoleText(key)
         return WhoDoesWhat.Assign.RoleIconMarkup(key, ROLE_ICON_SIZE) .. role.name
     end
     return "|cff909090No role|r"
+end
+
+-- tank / healer / dps: the board role's group role, else the Blizzard role
+-- flag, else nil.
+local function GroupRole(key, unit)
+    local roleId = key and WhoDoesWhat:GetAssignedRole(key)
+    if roleId then
+        local _, role = WhoDoesWhat:FindRoleById(roleId)
+        if role and role.wowRole then return role.wowRole end
+    end
+    return UnitGroupRolesAssigned and WOW_ROLE_BY_BLIZZARD[UnitGroupRolesAssigned(unit)]
 end
 
 -- " (5/46/0)" from the inspect cache, or "" while nothing is read.
@@ -88,6 +102,11 @@ local function CreateRow(parent, index)
     row.zone:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 5)
     row.zone:SetJustifyH("RIGHT")
 
+    -- Group-role badge (shield / plus / sword) over the icon's bottom-right,
+    -- as the role customizer overlaps its spec icon on the class icon.
+    row.groupRole = row:CreateTexture(nil, "OVERLAY")
+    row.groupRole:SetSize(GROUP_ROLE_SIZE, GROUP_ROLE_SIZE)
+    row.groupRole:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 5, -5)
 
     row:SetScript("OnEnter", function(self)
         if not self.unit or not UnitExists(self.unit) then return end
@@ -133,6 +152,15 @@ local function PaintRow(row, unit)
     row.name:SetText(label)
     row.icon:SetDesaturated(not online)
 
+    local groupRole = GroupRole(key, unit)
+    if groupRole then
+        WhoDoesWhat:SetRoleIconTexture(row.groupRole, WhoDoesWhat:MakeRoleIcon(groupRole))
+        row.groupRole:SetDesaturated(not online)
+        row.groupRole:Show()
+    else
+        row.groupRole:Hide()
+    end
+
     local level = UnitLevel(unit)
     row.level:SetText(level and level > 0 and ("Level " .. level) or "")
     row.role:SetText(RoleText(key) .. TalentText(unit))
@@ -160,7 +188,8 @@ local function Paint()
 end
 
 local function ShouldShow()
-    return RaidFrame and RaidFrame:IsVisible() and IsInGroup() and not IsInRaid()
+    -- Solo too: the tab is just as empty, and the rows come down to our own.
+    return RaidFrame and RaidFrame:IsVisible() and not IsInRaid()
 end
 
 -- Sit just above FriendsFrame.NineSlice, which spans the whole window ~500
