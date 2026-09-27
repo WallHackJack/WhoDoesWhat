@@ -36,9 +36,16 @@ local primary        -- the strings ns.L reads, once settled
 local earlyReads, missing = {}, {}
 --@end-do-not-package@
 
+-- Languages listed whether or not they hold a line (the developer Pseudo).
+local alwaysListed = {}
+
 -- The strings table for `code`, created on first call. `name` is what the
--- Language dropdowns call it, in the language itself ("Deutsch").
-function Locale:Register(code, name)
+-- Language dropdowns call it, in the language itself ("Deutsch"). Every
+-- CurseForge language has a file, but one with nothing translated yet is
+-- left out of the dropdowns and reads as English (Usable), unless
+-- `alwaysListed` says otherwise.
+function Locale:Register(code, name, listed)
+    if listed then alwaysListed[code] = true end
     local strings = languages[code]
     if strings then return strings end
     strings = {}
@@ -71,10 +78,18 @@ function Locale:ClientLanguage()
     return code == "enGB" and DEFAULT or code
 end
 
+-- Whether `code` has anything to show: English always does; another
+-- language needs at least one translated line.
+local function Usable(code)
+    local strings = languages[code]
+    return strings ~= nil
+        and (code == DEFAULT or alwaysListed[code] or next(strings) ~= nil)
+end
+
 -- The game client's language, if WDW has it; English otherwise.
 function Locale:GameLanguage()
     local code = self:ClientLanguage()
-    return languages[code] and code or DEFAULT
+    return Usable(code) and code or DEFAULT
 end
 
 -- Whether `strings` (ns.L, or a table from Get) is in the client's language,
@@ -93,7 +108,7 @@ end
 -- and a language this copy lacks -- a peer on a newer build -- is English.
 function Locale:Resolve(code)
     if code == nil or code == "auto" then return self:GameLanguage() end
-    return languages[code] and code or DEFAULT
+    return Usable(code) and code or DEFAULT
 end
 
 function Locale:Get(code)
@@ -108,8 +123,13 @@ function Locale:Name(code)
     return names[code]
 end
 
+-- The languages a player can pick, in the order their files loaded.
 function Locale:Codes()
-    return codes
+    local out = {}
+    for _, code in ipairs(codes) do
+        if Usable(code) then out[#out + 1] = code end
+    end
+    return out
 end
 
 -- Fix the Language ns.L reads. Called once, from OnInitialize.

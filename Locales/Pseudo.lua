@@ -7,6 +7,6 @@ local Locale = select(2, ...).Locale
 --   - as your Message language, party and raid chat should come out
 --     bracketed, while a whisper to someone with WhoDoesWhat follows theirs.
 local english = Locale:Get("enUS")
-setmetatable(Locale:Register("xxXX", "[[Pseudo]]"), { __index = function(_, key)
+setmetatable(Locale:Register("xxXX", "[[Pseudo]]", true), { __index = function(_, key)
     return "[[" .. english[key] .. "]]"
 end })
