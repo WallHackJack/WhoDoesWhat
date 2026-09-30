@@ -163,12 +163,17 @@ local ANNOUNCE_BUDGET = 240 - 32
 -- lines go out spaced apart. Same value the assignment mass-mail uses.
 local ANNOUNCE_STAGGER = 0.25
 
--- Chat has no class colour and no room for realm tags. A pet answers under its
--- owner's name, which is who has to fix it.
+-- Chat has no class colour and no room for realm tags. A pet goes by its own
+-- name, which is what a buffer has to target, with its owner behind it to find
+-- it next to; while the pet can't be seen, by its owner's name alone.
 local function AnnounceName(name, S)
     local owner = name:match("^(.+)'s Pet$")
-    if owner then return S.ANNOUNCE_PET:format(WhoDoesWhat:ShortName(owner)) end
-    return WhoDoesWhat:ShortName(name)
+    if not owner then return WhoDoesWhat:ShortName(name) end
+    local petName = WhoDoesWhat:GetPetName(owner)
+    owner = WhoDoesWhat:ShortName(owner)
+    if not petName then return S.ANNOUNCE_PET:format(owner) end
+    return Fill(S.ANNOUNCE_PET_NAMED,
+        { pet = petName:match("^([^%-]+)") or petName, owner = owner })
 end
 
 -- A class's name in `S`, singular or plural, by its English name.
@@ -484,12 +489,18 @@ local function RowWhispers(row)
         return out
     end
     -- The announce's own line, minus the supplier clause naming the person
-    -- reading it: one wording for a check wherever it turns up.
+    -- reading it: one wording for a check wherever it turns up. It names who
+    -- is missing the buff, so a pet stays a pet here rather than folding into
+    -- its owner the way the recipients above do.
+    local flagged = {}
+    for _, entry in ipairs(row.flagged or {}) do
+        flagged[#flagged + 1] = entry.name
+    end
     local function msg(S)
         local line = CoverageSummary(WhoDoesWhat:DataText(definition, "name", S),
             row.correct or 0, row.total or 0, S)
-        if #missing <= MAX_NAMED_MISSING then
-            line = AnnounceLine(line, missing, S) or line
+        if #flagged <= MAX_NAMED_MISSING then
+            line = AnnounceLine(line, flagged, S) or line
         end
         return line
     end

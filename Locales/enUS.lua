@@ -353,6 +353,8 @@ L["COVERAGE_MISSING"] = "{summary} -- Missing: {names}"
 L["COVERAGE_PALLY_BUFFS"] = "Pally Buffs"
 -- A hunter pet named in raid chat, under its owner's name.
 L["ANNOUNCE_PET"] = "%s (pet)"
+-- A hunter pet named in chat by its own name: "Broll (Rexxar's pet)".
+L["ANNOUNCE_PET_NAMED"] = "{pet} ({owner}'s pet)"
 -- A chat name list cut short: "Anna, Bob and 3 more".
 L["ANNOUNCE_AND_MORE"] = "and %d more"
 -- A paladin and their blessings: "Hewmongus (Might, Wisdom)".
