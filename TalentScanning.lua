@@ -105,6 +105,8 @@ end
 local USES_TRAIT_TREE = WhoDoesWhat.ClientFeatures.isForever
 local INSPECT_CONFIG_ID = Constants and Constants.TraitConsts
     and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID or -1
+-- Fewer nodes than this on one side of a gap is a stray, not a talent tree.
+local MIN_TREE_NODES = 5
 
 local function TraitTreePoints(configID)
     if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits) then
@@ -128,9 +130,14 @@ local function TraitTreePoints(configID)
     -- beside the 5020 column, which made the "step" 10 and every column its own
     -- tree. The boundaries (~2200) dwarf any gap inside a tree (600, or 1200
     -- past an empty column), so the widest two are the right two regardless.
+    --
+    -- A boundary must also leave a real tree on either side. The hunter tree
+    -- has a node at 102800 (beside the 10280 column, a zero too many), and the
+    -- 91920 gap in front of it otherwise wins: all of Beast Mastery and
+    -- Marksmanship became one tree and every hunter read as Beast Mastery.
     local first, second -- node indices that start the second and third trees
     local firstGap, secondGap = 0, 0
-    for i = 2, #nodes do
+    for i = MIN_TREE_NODES + 1, #nodes - MIN_TREE_NODES + 1 do
         local gap = nodes[i].posX - nodes[i - 1].posX
         if gap > firstGap then
             second, secondGap = first, firstGap

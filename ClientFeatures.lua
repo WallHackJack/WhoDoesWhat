@@ -6,13 +6,13 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- World of Warcraft: Forever starts from the Classic Era baseline, so it counts
 -- as Era for everything below unless a Forever-specific flag says otherwise.
 --
--- It has no project id of its own: the 1.60.1 beta reports WOW_PROJECT_MAINLINE
--- and there is no WOW_PROJECT_FOREVER, so it is told apart by interface
--- version. Forever numbers from 16001 (1.60.1) while retail is past 120000, so
--- anything mainline below 20000 is Forever.
+-- It is told apart by interface version alone, because its project id does not
+-- hold still: the 1.60.1 beta first reported WOW_PROJECT_MAINLINE, then (build
+-- 70170) a bare 18 with no WOW_PROJECT_FOREVER constant to compare against.
+-- Forever numbers from 16001 (1.60.1); Classic Era sits at 115xx, TBC at 205xx
+-- and retail past 120000, so 16000-19999 is Forever's alone.
 local interfaceVersion = select(4, GetBuildInfo())
-local isForever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-    and interfaceVersion >= 16000 and interfaceVersion < 20000
+local isForever = interfaceVersion >= 16000 and interfaceVersion < 20000
 local isClassicEra = isForever or WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 -- Forever removed every talent that grants or improves a raid buff: Kings is
 -- baseline for every paladin, Sanctuary is gone, and nothing improves Might,
@@ -171,6 +171,9 @@ WhoDoesWhat.ClientFeatures = {
     -- the realm slot: a player key reads "First-Last" rather than
     -- "Name-Realm" (Core.lua's ShortName).
     twoPartNames = isForever,
+    -- False where pets cannot take raid buffs (Forever: no blessing, shout,
+    -- Mark or scroll lands on one), so no pet is planned, tracked or listed.
+    petBuffs = not isForever,
     -- False where no talent affects a raid buff: nothing about buff talents is
     -- scanned, shared, weighed or shown on that client.
     buffTalents = buffTalents,

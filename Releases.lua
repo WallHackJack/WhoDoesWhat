@@ -8,6 +8,18 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.0.8",
+        date = "2026-10-04",
+        notes = {
+            "WoW Forever: the addon recognizes the client again. The latest beta build changed how it identifies itself.",
+            "WoW Forever: hunters are detected as the right spec. Every hunter was reading as Beast Mastery.",
+            "WoW Forever: pets are left out of buff planning, tracking and the Buff Checklist, since no raid buff lands on them there.",
+            "WoW Forever: the Buff Checklist offers Skywall Souffle and Twice-Spiced Raptor Slice.",
+            "Buff reminder whispers name a pet by its own name, \"Broll (Rexxar's pet)\", instead of saying its hunter is missing the buff.",
+            "Translations made on the CurseForge page now ship with the addon.",
+        },
+    },
+    {
         version = "2.0.7",
         date = "2026-09-27",
         notes = {

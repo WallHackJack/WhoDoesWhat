@@ -691,6 +691,7 @@ WhoDoesWhat.TBCBuffFoodItems = {
 WhoDoesWhat.ForeverBuffFoodItems = {
     249865, -- Peace Tea (healing power and experience gained)
     263509, -- Skywall Souffle (same Well Fed aura as Herb Baked Egg, 1248406)
+    250077, -- Twice-Spiced Raptor Slice (Well Fed, 1248421)
     2679, -- Charred Wolf Meat
     2681, -- Roasted Boar Meat
     787, -- Slitherskin Mackerel
@@ -1344,7 +1345,11 @@ WhoDoesWhat.StatusBarOptionRules = {
     hideColumnComplete = { offered = HasGrid },
     onlyManaUsers = { offered = Coverage },
     onlyTanks = { offered = Coverage },
-    hunterPets = { offered = Coverage },
+    hunterPets = {
+        offered = function(definition)
+            return features.petBuffs and Coverage(definition)
+        end,
+    },
 
     hideWhenSynced = { offered = CustomStack("pallyPower"), aliases = { "onlyDesynced" } },
     hideWhenInactive = { offered = CustomStack("pallyPower") },

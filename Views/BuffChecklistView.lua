@@ -780,7 +780,7 @@ local function CollectEntries()
     end
 
     local pet = nil
-    if IsHunter() then
+    if IsHunter() and WhoDoesWhat.ClientFeatures.petBuffs then
         pet = Assign.GetPetBuffChecklist() or false
         for _, entry in ipairs(pet or {}) do
             entry.forPet = true

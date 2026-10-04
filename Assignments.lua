@@ -213,8 +213,11 @@ end
 -- shadowfiend or a felhunter takes Bloodlust like anyone else. Only pets that
 -- actually exist survive -- the callers drop the ones BuffTracking has never
 -- seen -- so a priest with no fiend out contributes nothing.
+--
+-- Always empty where pets take no raid buffs (ClientFeatures.petBuffs).
 local function GetPetMembers(allClasses)
     local out = {}
+    if not WhoDoesWhat.ClientFeatures.petBuffs then return out end
     for _, m in ipairs(GetEligibleMembers(allClasses and nil or "Hunter")) do
         if (allClasses or m.classInfo.name == "Hunter")
             and not WhoDoesWhat:IsNonRaider(m.name) then

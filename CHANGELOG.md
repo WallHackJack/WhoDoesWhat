@@ -4,6 +4,20 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.0.8 — 2026-10-04
+
+- WoW Forever: the addon recognizes the client again. The latest beta build
+  changed how it identifies itself.
+- WoW Forever: hunters are detected as the right spec. Every hunter was
+  reading as Beast Mastery.
+- WoW Forever: pets are left out of buff planning, tracking and the Buff
+  Checklist, since no raid buff lands on them there.
+- WoW Forever: the Buff Checklist offers Skywall Souffle and Twice-Spiced
+  Raptor Slice.
+- Buff reminder whispers name a pet by its own name, "Broll (Rexxar's pet)",
+  instead of saying its hunter is missing the buff.
+- Translations made on the CurseForge page now ship with the addon.
+
 ## 2.0.7 — 2026-09-27
 
 - WoW Forever: the Raid tab lists your party when you're not in a raid, and
