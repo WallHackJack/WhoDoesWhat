@@ -480,8 +480,9 @@ WhoDoesWhat.Shadowform = {
     icon = GetSpellTexture(15473),
 }
 
--- Trueshot Aura: a Marksmanship talent (tier 7), so like Omen of Clarity the
--- checklist asks the talent tree whether this hunter has it.
+-- Trueshot Aura: a Marksmanship talent (tier 7 column 2; row 4 column 2 on
+-- Forever), so like Omen of Clarity the checklist asks the talent tree whether
+-- this hunter has it -- by name, so neither position is relied on.
 WhoDoesWhat.TrueshotAura = {
     spellId = 19506,
     name = GetSpellInfo(19506) or "Trueshot Aura",

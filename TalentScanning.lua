@@ -459,8 +459,42 @@ end
 -- the form the client answers reliably here, and a group index it doesn't like
 -- comes back as a nil name for every talent -- which reads as "no such talent"
 -- and would quietly wave the aura through.
+--
+-- Forever has none of that API (Compat.lua answers it empty), so there the same
+-- question goes to the active trait tree: a node's entry names the spell it
+-- grants through its definition. Still by name, which matters twice over on a
+-- client that moved talents around -- Trueshot Aura sits in Marksmanship's
+-- fourth row there, not its seventh.
+local function TraitRankByName(talentName)
+    if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits
+        and C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo) then
+        return 0, false
+    end
+    local configID = C_ClassTalents.GetActiveConfigID()
+    local config = configID and C_Traits.GetConfigInfo(configID)
+    local treeID = config and config.treeIDs and config.treeIDs[1]
+    if not treeID then return 0, false end
+
+    for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+        local node = C_Traits.GetNodeInfo(configID, nodeID)
+        for _, entryID in ipairs(node and node.entryIDs or {}) do
+            local entry = C_Traits.GetEntryInfo(configID, entryID)
+            local definition = entry and entry.definitionID
+                and C_Traits.GetDefinitionInfo(entry.definitionID)
+            local spellName = definition and definition.spellID
+                and GetSpellInfo(definition.spellID)
+            if definition and (spellName == talentName
+                or definition.overrideName == talentName) then
+                return node.ranksPurchased or 0, true
+            end
+        end
+    end
+    return 0, false
+end
+
 function WhoDoesWhat:GetOwnTalentRankByName(talentName)
     if not talentName then return 0, false end
+    if USES_TRAIT_TREE then return TraitRankByName(talentName) end
     for tab = 1, (GetNumTalentTabs() or 3) do
         for i = 1, (GetNumTalents(tab) or 0) + 10 do
             local name, _, _, _, rank = GetTalentInfo(tab, i)
