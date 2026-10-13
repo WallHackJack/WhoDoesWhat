@@ -177,6 +177,10 @@ local function RefreshViews()
     WhoDoesWhat:RefreshMainAssignmentsView()
     WhoDoesWhat:RefreshMembersView()
     WhoDoesWhat:RefreshBoardViews()
+    -- The fake warriors count toward whether the Shout Bar is up at all, and
+    -- no roster event fires for them: the board repaint above only repaints a
+    -- bar that is already showing, and never takes one down.
+    WhoDoesWhat:UpdateWarriorShoutBarVisibility()
 end
 
 -- Re-write the fakes' roles and utility-talent ranks into the DB. No-op
