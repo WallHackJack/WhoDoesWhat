@@ -165,6 +165,16 @@ local function BuildChecklistPage(f, page)
             WhoDoesWhat:RefreshBuffChecklist()
         end)
 
+    -- The Bloodmyst crystals are TBC's, so no row for them anywhere else.
+    if WhoDoesWhat.CrystalItems then
+        f.checklistCrystalsCheck, yL = AddCompactCheckboxRow(checklistPage,
+            PAGE_X, yL, L.CHECKLIST_TRACK_CRYSTALS, L.CHECKLIST_TRACK_CRYSTALS_TIP,
+            function(value)
+                WhoDoesWhat.db.char.buffChecklistCrystals = value
+                WhoDoesWhat:RefreshBuffChecklist()
+            end)
+    end
+
     f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, L.CHECKLIST_TRACK_WEAPONS, L.CHECKLIST_TRACK_WEAPONS_TIP,
         function(value)
@@ -243,6 +253,9 @@ local function RefreshChecklistPage(f)
         f.checklistElixirsCheck:SetChecked(self.db.char.buffChecklistElixirs)
     end
     f.checklistScrollsCheck:SetChecked(self.db.char.buffChecklistScrolls)
+    if f.checklistCrystalsCheck then
+        f.checklistCrystalsCheck:SetChecked(self.db.char.buffChecklistCrystals)
+    end
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
     UIDropDownMenu_SetText(f.checklistPopoutDD,

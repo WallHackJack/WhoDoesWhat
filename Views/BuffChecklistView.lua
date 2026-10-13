@@ -18,8 +18,10 @@ local Assign = WhoDoesWhat.Assign
 -- and right-click uses that choice (eats or drinks it, or applies it to that
 -- weapon). Flasks are offered for both elixir slots and fill both. Physical
 -- damage roles also get a Scroll of Agility and a Scroll of Strength slot,
--- each picking a rank. An elixir or scroll that is up but isn't the pick wears
--- the expiring glow. A weapon can also be told to
+-- and tanks a Scroll of Protection one, each picking a rank. One more slot
+-- (TBC, off unless asked for) holds a Bloodmyst crystal. An elixir, scroll or
+-- crystal that is up but isn't the pick wears the expiring glow. A weapon can
+-- also be told to
 -- stay bare, for melee hoping for Windfury: right-click then strips whatever
 -- enchant is on it, and Windfury itself counts as bare. A picked consumable's
 -- icon carries how many are left in its corner.
@@ -330,24 +332,33 @@ end
 
 -- The consumable slots that fill from an aura: two elixir slots (TBC only;
 -- ElixirItems is nil on Classic Era), whose pickers list their own category
--- plus flasks, which fill both; and two scroll slots (ScrollItems), one per
--- scroll family, each picker listing that family's ranks.
+-- plus flasks, which fill both; the scroll slots (ScrollItems), one per
+-- scroll family, each picker listing that family's ranks; and one crystal
+-- slot (CrystalItems, TBC only) shared by the three Bloodmyst crystals.
 local ELIXIR_SLOTS = {
     { key = "battleElixir", category = "battle", nameKey = "CHECK_BATTLE_ELIXIR",
       defaultIcon = 22831 }, -- Elixir of Major Agility
     { key = "guardianElixir", category = "guardian", nameKey = "CHECK_GUARDIAN_ELIXIR",
       defaultIcon = 32067 }, -- Elixir of Draenic Wisdom
 }
--- petKey is the pick for the pet section's copy of the slot.
+-- petKey is the pick for the pet section's copy of the slot. tankOnly is a
+-- slot for whoever is marked as a tank (Righteous Fury's rule) rather than
+-- for the physical damage roles, and has no pet copy.
 local SCROLL_SLOTS = {
     { key = "agilityScroll", petKey = "petAgilityScroll", category = "agility",
       nameKey = "CHECKLIST_SCROLL_AGILITY", defaultIcon = 3012 }, -- Scroll of Agility
     { key = "strengthScroll", petKey = "petStrengthScroll", category = "strength",
       nameKey = "CHECKLIST_SCROLL_STRENGTH", defaultIcon = 954 }, -- Scroll of Strength
+    { key = "protectionScroll", category = "protection", tankOnly = true,
+      nameKey = "CHECKLIST_SCROLL_PROTECTION", defaultIcon = 3013 }, -- Scroll of Protection
+}
+local CRYSTAL_SLOTS = {
+    { key = "crystal", category = "crystal", nameKey = "CHECKLIST_CRYSTAL",
+      defaultIcon = 23985 }, -- Crystal of Vitality
 }
 
 -- item id -> category ("battle" / "guardian" / "flask" / "agility" /
--- "strength"), and per picker which ids it offers.
+-- "strength" / "protection" / "crystal"), and per picker which ids it offers.
 local consumableCategory, consumableChoices = {}, {}
 for category, ids in pairs(WhoDoesWhat.ElixirItems or {}) do
     for _, id in ipairs(ids) do consumableCategory[id] = category end
@@ -355,7 +366,10 @@ end
 for category, ids in pairs(WhoDoesWhat.ScrollItems or {}) do
     for _, id in ipairs(ids) do consumableCategory[id] = category end
 end
-for _, slots in ipairs({ ELIXIR_SLOTS, SCROLL_SLOTS }) do
+for _, id in ipairs(WhoDoesWhat.CrystalItems or {}) do
+    consumableCategory[id] = "crystal"
+end
+for _, slots in ipairs({ ELIXIR_SLOTS, SCROLL_SLOTS, CRYSTAL_SLOTS }) do
     for _, slot in ipairs(slots) do
         consumableChoices[slot.key] = {}
         for id, category in pairs(consumableCategory) do
@@ -557,6 +571,7 @@ local SWAPPERS = {
 WhoDoesWhat:LocalizeOnInit(WEAPON_SLOTS)
 WhoDoesWhat:LocalizeOnInit(ELIXIR_SLOTS)
 WhoDoesWhat:LocalizeOnInit(SCROLL_SLOTS)
+WhoDoesWhat:LocalizeOnInit(CRYSTAL_SLOTS)
 for _, swappers in pairs(SWAPPERS) do WhoDoesWhat:LocalizeOnInit(swappers) end
 
 -- Item id sets for the food, pet food and alcohol pickers.
@@ -678,15 +693,16 @@ local function ApplyPick(entry, pick)
 end
 
 -- Grid order: what you cast on yourself (aura, aspect, Omen of Clarity), then
--- weapon enchants, food, elixirs, scrolls, blessings, and everything else
--- (class buffs, shouts). Within a group the order things were collected in
--- stands, so main hand stays ahead of off hand.
+-- weapon enchants, food, elixirs, scrolls and the crystal, blessings, and
+-- everything else (class buffs, shouts). Within a group the order things were
+-- collected in stands, so main hand stays ahead of off hand.
 local function EntryGroup(entry)
     if entry.swap or entry.castSpell then return 1 end
     if entry.slot then return 2 end
     if entry.key == "food" or entry.key == "alcohol" then return 3 end
     if entry.id:find("elixir:", 1, true) then return 4 end
     if entry.id:find("scroll:", 1, true) then return 5 end
+    if entry.id:find("crystal:", 1, true) then return 5 end
     if entry.id:find("blessing:", 1, true) then return 6 end
     return 7
 end
@@ -905,19 +921,33 @@ local function CollectEntries()
 
     -- Scrolls of Agility and Strength, for the physical damage roles: whoever
     -- the raid would give Battle Shout, plus every hunter (whose ranged roles
-    -- don't stand in a shout, but do want the agility).
+    -- don't stand in a shout, but do want the agility). A Scroll of
+    -- Protection instead goes to whoever is marked as a tank.
     local member = Assign.FindMember(WhoDoesWhat:PlayerKey())
-    if WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls
-        and member and (class == "HUNTER" or WhoDoesWhat:WantsBattleShout(member)) then
+    local physical = member
+        and (class == "HUNTER" or WhoDoesWhat:WantsBattleShout(member))
+    local tank = WhoDoesWhat:IsMarkedTank(WhoDoesWhat:PlayerKey())
+    if WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls then
         for _, slot in ipairs(SCROLL_SLOTS) do
-            AddConsumableSlot(slot, "scroll:", "scroll", "Read")
+            local wanted = physical
+            if slot.tankOnly then wanted = tank end
+            if wanted then AddConsumableSlot(slot, "scroll:", "scroll", "Read") end
         end
     end
     -- And the pet's: a scroll reads onto a friendly target, and every hunter
     -- pet fights in melee.
     if pet and WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls then
         for _, slot in ipairs(SCROLL_SLOTS) do
-            AddConsumableSlot(slot, "pet:scroll:", "scroll", "Read", true)
+            if slot.petKey then
+                AddConsumableSlot(slot, "pet:scroll:", "scroll", "Read", true)
+            end
+        end
+    end
+
+    -- A Bloodmyst crystal: one slot, whichever of the three is picked.
+    if WhoDoesWhat.CrystalItems and WhoDoesWhat.db.char.buffChecklistCrystals then
+        for _, slot in ipairs(CRYSTAL_SLOTS) do
+            AddConsumableSlot(slot, "crystal:", "crystal", "Use")
         end
     end
 
@@ -1098,6 +1128,7 @@ local PICKER_TITLES = {
     agilityScroll = "CHECKLIST_SCROLL_AGILITY", strengthScroll = "CHECKLIST_SCROLL_STRENGTH",
     petAgilityScroll = "CHECKLIST_PET_SCROLL_AGILITY",
     petStrengthScroll = "CHECKLIST_PET_SCROLL_STRENGTH",
+    protectionScroll = "CHECKLIST_SCROLL_PROTECTION", crystal = "CHECKLIST_CRYSTAL",
 }
 -- By the entry's pickNoun, an English id: the noun as the tooltips say it,
 -- and what an empty picker says.
@@ -1105,17 +1136,19 @@ local PICK_NOUN_KEYS = {
     food = "CHECKLIST_NOUN_FOOD", drink = "CHECKLIST_NOUN_DRINK",
     ["pet food"] = "CHECKLIST_NOUN_PET_FOOD", scroll = "CHECKLIST_NOUN_SCROLL",
     elixir = "CHECKLIST_NOUN_ELIXIR", enchant = "CHECKLIST_NOUN_ENCHANT",
+    crystal = "CHECKLIST_NOUN_CRYSTAL",
 }
 local PICKER_EMPTY = {
     food = "CHECKLIST_EMPTY_FOOD", drink = "CHECKLIST_EMPTY_DRINK",
     ["pet food"] = "CHECKLIST_EMPTY_PET_FOOD", scroll = "CHECKLIST_EMPTY_SCROLL",
     elixir = "CHECKLIST_EMPTY_ELIXIR", enchant = "CHECKLIST_EMPTY_ENCHANT",
+    crystal = "CHECKLIST_EMPTY_CRYSTAL",
 }
 -- By the entry's useVerb, also an English id: its right-click hint.
 local USE_VERB_KEYS = {
     Eat = "CHECKLIST_HINT_EAT", Drink = "CHECKLIST_HINT_DRINK",
     Feed = "CHECKLIST_HINT_FEED", Read = "CHECKLIST_HINT_READ",
-    Apply = "CHECKLIST_HINT_APPLY",
+    Apply = "CHECKLIST_HINT_APPLY", Use = "CHECKLIST_HINT_USE",
 }
 
 local function PickNoun(entry)
@@ -2569,6 +2602,7 @@ function WhoDoesWhat:ResetBuffChecklistSettings()
     self.db.char.buffChecklistWeapons = true
     self.db.char.buffChecklistElixirs = true
     self.db.char.buffChecklistScrolls = true
+    self.db.char.buffChecklistCrystals = false
     self.db.profile.settings.buffChecklistPos = nil
     if frame and not InCombatLockdown() then LoadPosition() end
     self:RefreshBuffChecklist()

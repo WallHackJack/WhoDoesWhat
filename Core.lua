@@ -443,9 +443,13 @@ local defaults = {
         -- The battle / guardian elixir icons (TBC only); their picks share
         -- buffChecklistItems as battleElixir / guardianElixir.
         buffChecklistElixirs = true,
-        -- The Scroll of Agility / Strength icons, for physical damage roles;
-        -- picks as agilityScroll / strengthScroll in buffChecklistItems.
+        -- The Scroll of Agility / Strength icons, for physical damage roles,
+        -- and the Scroll of Protection one, for tanks; picks as agilityScroll
+        -- / strengthScroll / protectionScroll in buffChecklistItems.
         buffChecklistScrolls = true,
+        -- The Bloodmyst crystal icon (TBC only); its pick is `crystal` in
+        -- buffChecklistItems. Off until asked for: few carry them.
+        buffChecklistCrystals = false,
         -- A hunter's pet section folded down to its divider.
         buffChecklistPetCollapsed = false,
         -- Whether this character has been shown the Forever welcome

@@ -850,16 +850,21 @@ if not features.isClassicEra then
             13512, 13511, 13510, 13513,
         },
     }
+    -- The Bloodmyst Isle crystals (Vitality, Insight, Ferocity) for the Buff
+    -- Checklist's crystal picker: one slot between the three. They take no
+    -- elixir slot, and Bloodmyst is TBC's.
+    WhoDoesWhat.CrystalItems = { 23985, 23986, 23989 }
 end
 
--- Scrolls of Agility and Strength for the Buff Checklist's scroll pickers, by
--- item id, lowest rank first. Ranks I-IV are Classic's, V is TBC's and VI is
--- Wrath's; a rank a client doesn't have simply never turns up in anyone's
--- bags. Their auras share a name with the Elixir of Agility's and friends, so
--- the checklist tells them apart by spell id.
+-- Scrolls of Agility, Strength and Protection for the Buff Checklist's scroll
+-- pickers, by item id, lowest rank first. Ranks I-IV are Classic's, V is TBC's
+-- and VI is Wrath's; a rank a client doesn't have simply never turns up in
+-- anyone's bags. Their auras share a name with the Elixir of Agility's and
+-- friends, so the checklist tells them apart by spell id.
 WhoDoesWhat.ScrollItems = {
     agility = { 3012, 1477, 4425, 10309, 27498, 33457 },
     strength = { 954, 2289, 4426, 10310, 27503, 33462 },
+    protection = { 3013, 1478, 4421, 10305, 27500, 33459 },
 }
 
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
