@@ -581,6 +581,46 @@ local function FillTankMisdirectSubmenu(submenu, tankName)
     end
 end
 
+-- The "Set Role" pop-out's rows: the class's full role list (never the
+-- collapsed categories) plus any custom roles assigned to it, then Non-raider.
+local function FillSetRoleSubmenu(setRole, playerName, classInfo, unit)
+    local function AddRoleRadio(role)
+        setRole:CreateRadio(
+            RoleRowText(role, classInfo),
+            function() return WhoDoesWhat:GetAssignedRole(playerName) == role.id end,
+            function() WhoDoesWhat:SetAssignedRole(playerName, role.id, unit, true) end
+        )
+    end
+
+    for _, role in ipairs(classInfo.roles) do
+        AddRoleRadio(role)
+    end
+    for _, role in ipairs(classInfo.customRoles or {}) do
+        AddRoleRadio(role)
+    end
+
+    -- Non-raider (the classless pseudo-role, Data.lua): sitting out. Below a
+    -- divider since it isn't one of the class's specs; gray like its meaning.
+    setRole:CreateDivider()
+    local nr = WhoDoesWhat.NonRaiderRole
+    setRole:CreateRadio(
+        "|T" .. nr.icon .. ":16:16:0:0|t |cff" .. WhoDoesWhat.NonRaiderClass.colorHex
+            .. nr.name .. "|r",
+        function() return WhoDoesWhat:GetAssignedRole(playerName) == nr.id end,
+        function() WhoDoesWhat:SetAssignedRole(playerName, nr.id, unit, true) end
+    )
+
+    -- "None" only appears while the player has no role yet (it reads as the
+    -- current state); once assigned, the way to change is picking another role.
+    if not WhoDoesWhat:GetAssignedRole(playerName) then
+        setRole:CreateRadio(
+            "|cff909090" .. L.MENU_NONE .. "|r",
+            function() return true end,
+            NoOp
+        )
+    end
+end
+
 -- Insert our section into an opening unit menu. Only fires for player units
 -- whose class we know; the "Set Role" pop-out lists the class's full role
 -- list (never the collapsed categories) plus any custom roles assigned to it.
@@ -712,42 +752,55 @@ local function AddWdwSection(rootDescription, contextData)
     end
 
     if readOnly then return end
+    FillSetRoleSubmenu(setRole, playerName, classInfo, unit)
+end
 
-    local function AddRoleRadio(role)
-        setRole:CreateRadio(
-            RoleRowText(role, classInfo),
-            function() return WhoDoesWhat:GetAssignedRole(playerName) == role.id end,
-            function() WhoDoesWhat:SetAssignedRole(playerName, role.id, unit, true) end
-        )
+-- The Raid tab's member rows open their own menu (MENU_UNIT_RAID, not the raid
+-- frames' MENU_UNIT_RAID_PLAYER). It gets "Set Role" alone rather than the
+-- whole section, straight under the player-name title (index 1) so it's the
+-- first entry -- or the read-only current-role line without the rights to
+-- assign, same as the section above.
+local RAID_ROW_INSERT_INDEX = 2
+
+local function AddRaidRowSetRole(rootDescription, contextData)
+    local unit = contextData and contextData.unit
+    if not unit or not UnitIsPlayer(unit) then return end
+
+    local classInfo = GetClassInfoForUnit(unit)
+    if not classInfo then return end
+
+    local playerName = GetUnitKey(unit)
+    if not playerName then return end
+
+    if not CanAssignRoleTo(unit) then
+        local text = CurrentRoleText(playerName, classInfo)
+        if MenuUtil.CreateButton then
+            rootDescription:Insert(MenuUtil.CreateTitle(text), RAID_ROW_INSERT_INDEX)
+        else
+            rootDescription:CreateTitle(text)
+        end
+        return
     end
 
-    for _, role in ipairs(classInfo.roles) do
-        AddRoleRadio(role)
+    local setRole
+    if MenuUtil.CreateButton then
+        setRole = MenuUtil.CreateButton(SetRoleText(playerName), NoOp)
+        rootDescription:Insert(setRole, RAID_ROW_INSERT_INDEX)
+    else
+        setRole = rootDescription:CreateButton(SetRoleText(playerName), NoOp)
     end
-    for _, role in ipairs(classInfo.customRoles or {}) do
-        AddRoleRadio(role)
-    end
+    FillSetRoleSubmenu(setRole, playerName, classInfo, unit)
+end
 
-    -- Non-raider (the classless pseudo-role, Data.lua): sitting out. Below a
-    -- divider since it isn't one of the class's specs; gray like its meaning.
-    setRole:CreateDivider()
-    local nr = WhoDoesWhat.NonRaiderRole
-    setRole:CreateRadio(
-        "|T" .. nr.icon .. ":16:16:0:0|t |cff" .. WhoDoesWhat.NonRaiderClass.colorHex
-            .. nr.name .. "|r",
-        function() return WhoDoesWhat:GetAssignedRole(playerName) == nr.id end,
-        function() WhoDoesWhat:SetAssignedRole(playerName, nr.id, unit, true) end
-    )
-
-    -- "None" only appears while the player has no role yet (it reads as the
-    -- current state); once assigned, the way to change is picking another role.
-    if not WhoDoesWhat:GetAssignedRole(playerName) then
-        setRole:CreateRadio(
-            "|cff909090" .. L.MENU_NONE .. "|r",
-            function() return true end,
-            NoOp
-        )
-    end
+-- Run a menu builder so an error surfaces in chat; it would otherwise be
+-- swallowed and our entries silently dropped from the menu.
+local function ExtendMenu(tag, builder)
+    Menu.ModifyMenu(tag, function(owner, rootDescription, contextData)
+        local ok, err = pcall(builder, rootDescription, contextData)
+        if not ok then
+            WhoDoesWhat:Print("|cffff4040Unit menu error:|r " .. tostring(err))
+        end
+    end)
 end
 
 -- Register our extension on every unit menu tag. Called once from
@@ -759,14 +812,8 @@ function WhoDoesWhat:SetupUnitMenus()
         return
     end
     for _, tag in ipairs(MENU_TAGS) do
-        Menu.ModifyMenu(tag, function(owner, rootDescription, contextData)
-            -- An error here would otherwise be swallowed and our section
-            -- silently dropped from the menu; surface it in chat instead.
-            local ok, err = pcall(AddWdwSection, rootDescription, contextData)
-            if not ok then
-                WhoDoesWhat:Print("|cffff4040Unit menu error:|r " .. tostring(err))
-            end
-        end)
+        ExtendMenu(tag, AddWdwSection)
     end
+    ExtendMenu("MENU_UNIT_RAID", AddRaidRowSetRole)
     self:LogUiBuilding("Unit right-click menus registered.")
 end
