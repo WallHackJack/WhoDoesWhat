@@ -60,16 +60,10 @@ WhoDoesWhat.Classes = {
         roles = {
             { nameKey = "ROLE_BEAST_MASTERY", icon = 132164, id = "hunter_bm", wowRole = "dps" },
             { nameKey = "ROLE_SURVIVAL", icon = 132215, id = "hunter_surv", wowRole = "dps" },
-            { nameKey = "ROLE_MARKSMANSHIP", icon = 132222, id = "hunter_mm", wowRole = "dps" }, -- Ability_Marksmanship
-            -- A hunter who stands in melee. Spec-wise it is the three above
-            -- (same blessing order); what it says is where they stand, which
-            -- is the one thing the raid can't read off a talent tree -- and
-            -- what puts them inside a Battle Shout (BattleShoutWantedByRole
-            -- below). It wears Raptor Strike's icon to say so.
-            { nameKey = "ROLE_MELEE_HUNTER", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" }
+            { nameKey = "ROLE_MARKSMANSHIP", icon = 132222, id = "hunter_mm", wowRole = "dps" } -- Ability_Marksmanship
         },
         categories = {
-            { nameKey = "ROLE_DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm", "hunter_melee" } } -- class icon
+            { nameKey = "ROLE_DPS",  icon = 626000, id = "cat_hunter_dps",  allSubRoles = { "hunter_bm", "hunter_surv", "hunter_mm" } } -- class icon
         }
     },
     {
@@ -187,6 +181,17 @@ WhoDoesWhat.Classes = {
 -- picker and lookup sees the same definitions. Only the three raid-encounter
 -- roles are TBC-specific; the paladin tank split is shared.
 for _, classInfo in ipairs(WhoDoesWhat.Classes) do
+    -- A hunter who stands in melee. Spec-wise it is the three specs (same
+    -- blessing order); what it says is where they stand, which is the one
+    -- thing the raid can't read off a talent tree -- and what puts them inside
+    -- a Battle Shout (BattleShoutWantedByRole below). It wears Raptor Strike's
+    -- icon to say so. Not on Forever, where the talent tree does say it:
+    -- Survival is the melee spec there, and takes the shout itself.
+    if classInfo.name == "Hunter" and not features.isForever then
+        table.insert(classInfo.roles,
+            { nameKey = "ROLE_MELEE_HUNTER", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" })
+        table.insert(classInfo.categories[1].allSubRoles, "hunter_melee")
+    end
     if classInfo.name == "Paladin" then
         classInfo.roles[1].nameKey = "ROLE_MAIN_TANK"
         table.insert(classInfo.roles, 2,
@@ -1882,10 +1887,11 @@ WhoDoesWhat.PaladinBuffBansByRole = {
 -- where they stand rather than what they cast. A ranged hunter is outside the
 -- shout's radius, so counting them as missing it would leave the bar glowing
 -- at something nobody can fix; their pet, standing on the boss, is squarely
--- inside it. `hunter_melee` exists to say the hunter is in there with it.
+-- inside it. `hunter_melee` exists to say the hunter is in there with it; on
+-- Forever, where that role is gone, a Survival hunter is the one in melee.
 WhoDoesWhat.BattleShoutWantedByRole = {
     hunter_bm = false,
-    hunter_surv = false,
+    hunter_surv = features.isForever,
     hunter_mm = false,
     hunter_tank = false,
     hunter_melee = true,
@@ -1929,7 +1935,7 @@ WhoDoesWhat.PaladinBuffDefaults = {
     {
         -- Physical-leaning mana hybrids: Might stays high.
         order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
-        roles = { "hunter_bm", "hunter_surv", "hunter_mm", "hunter_melee", "shaman_enh" },
+        roles = { "hunter_bm", "hunter_surv", "hunter_mm", "shaman_enh" },
     },
     {
         order = { "salv", "kings", "might", "wisdom", "light", "sanctuary" },
@@ -1980,6 +1986,13 @@ if not features.isClassicEra then
     table.insert(WhoDoesWhat.PaladinBuffDefaults, {
         order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
         roles = { "hunter_tank" },
+    })
+end
+
+if not features.isForever then
+    table.insert(WhoDoesWhat.PaladinBuffDefaults, {
+        order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
+        roles = { "hunter_melee" },
     })
 end
 

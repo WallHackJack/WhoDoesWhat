@@ -989,6 +989,16 @@ function WhoDoesWhat:OnInitialize()
         end
     end
 
+    -- Forever dropped the Melee Hunter role for Survival, which is the melee
+    -- spec there (Data.lua). A hunter saved on the old role moves across.
+    if self.ClientFeatures.isForever then
+        for name, roleId in pairs(self.db.profile.assignments) do
+            if roleId == "hunter_melee" then
+                self.db.profile.assignments[name] = "hunter_surv"
+            end
+        end
+    end
+
     -- One-off cache wipe: the first buff-talent scanner matched icons against
     -- live GetTalentInfo returns, which don't compare equal to the library's
     -- static fileIDs for the local player -- locally-scanned paladins were
