@@ -35,17 +35,23 @@ local function RoleLine(name)
     return WhoDoesWhat.Assign.RoleIconMarkup(name, ICON_SIZE) .. role.name
 end
 
+-- GUID of the stranger whose tooltip went up without a talent line because
+-- their inspect was still out; AddStrangerTooltipLine fills it in.
+local pendingGuid = nil
+
 -- A player outside the group has no board role, so the opt-in stranger line
 -- says what their talents read as instead, with the raw spread beside it.
 -- Someone read with nothing spent says so in red; unread players get an
 -- inspect requested (throttled; see RequestStrangerInspect) and nothing drawn:
--- the tooltip redraws itself once the answer lands.
+-- the line is added to the tooltip once the answer lands.
 local function TalentLine(unit)
     local snapshot = WhoDoesWhat:GetTalentSnapshot(unit)
     if not (snapshot and snapshot.roleIds) then
         if WhoDoesWhat:UnitTalentsReadEmpty(unit) then
             return "|cffff4040" .. L.TOOLTIP_NO_TALENTS .. "|r"
         end
+        local guid = UnitGUID(unit)
+        if guid and not WhoDoesWhat:IsSecret(guid) then pendingGuid = guid end
         WhoDoesWhat:RequestStrangerInspect(unit)
         return nil
     end
@@ -64,6 +70,7 @@ local function TalentLine(unit)
 end
 
 local function AddRoleLine(tooltip)
+    pendingGuid = nil
     local settings = WhoDoesWhat.db and WhoDoesWhat.db.profile.settings
     if not settings then return end
     if not (settings.unitTooltipRole or settings.unitTooltipDetail) then return end
@@ -99,6 +106,28 @@ local function AddRoleLine(tooltip)
         added = true
     end
     if added then tooltip:Show() end
+end
+
+-- A stranger's inspect landed: add their line to the tooltip already up, and
+-- only while the cursor is still on them. This used to re-set the tooltip with
+-- SetUnit, but a unit tooltip set from addon code is no longer the client's
+-- mouseover tooltip and never fades when the cursor leaves -- it stayed on
+-- screen until something else was hovered. One that is already fading out is
+-- left alone, and pendingGuid keeps the line from going in twice.
+function WhoDoesWhat:AddStrangerTooltipLine(guid)
+    if not guid or guid ~= pendingGuid or not GameTooltip:IsShown() then return end
+    local _, unit = GameTooltip:GetUnit()
+    if not unit or self:IsSecret(unit) then return end
+    local shown, hovered = UnitGUID(unit), UnitGUID("mouseover")
+    if not (shown and hovered) or self:IsSecret(shown) or self:IsSecret(hovered)
+        or shown ~= guid or hovered ~= guid then
+        return
+    end
+    local line = TalentLine(unit)
+    if not line then return end
+    pendingGuid = nil
+    GameTooltip:AddLine(line, 1, 1, 1)
+    GameTooltip:Show()
 end
 
 -- Same two-client split as the healthstone line (ItemTooltipExtensions): the

@@ -219,18 +219,6 @@ local function RequestInspect(unit)
     return 1
 end
 
--- Redraw the unit tooltip if it is still showing this player, so a stranger's
--- talents appear under the cursor the moment their inspect lands rather than
--- on the next hover. Re-setting the unit re-runs the tooltip hooks.
-local function RefreshHoveredTooltip(guid)
-    if not GameTooltip:IsShown() then return end
-    local _, unit = GameTooltip:GetUnit()
-    if not unit or WhoDoesWhat:IsSecret(unit) then return end
-    local shown = UnitGUID(unit)
-    if not shown or WhoDoesWhat:IsSecret(shown) or shown ~= guid then return end
-    GameTooltip:SetUnit(unit)
-end
-
 -- Inspect a player outside the group for the unit tooltip. Throttled twice
 -- over, because hovering through a crowd asks for one per player: at most one
 -- inspect every STRANGER_INTERVAL, and a player we already asked about is not
@@ -836,9 +824,9 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- business; the cache also covers strangers). Ourselves included, so solo
     -- testing works. pointsSpent == 0 means a fresh respec that hasn't
     -- re-spent yet, or a low-level character -- no spec to read either way.
-    -- A stranger the tooltip asked about gets their tooltip redrawn first:
+    -- A stranger the tooltip asked about gets their tooltip line first:
     -- off Forever, the library's own cache is where their talents land.
-    if strangerAsked[guid] then RefreshHoveredTooltip(guid) end
+    if strangerAsked[guid] then self:AddStrangerTooltipLine(guid) end
     if not (name and self.db) then return end
     if not (IsGUIDInGroup(guid) or guid == UnitGUID("player")) then return end
 
@@ -1040,7 +1028,7 @@ if USES_TRAIT_TREE and Inspector then
             -- pipeline, which is group business.
             if not strangerAsked[guid] then return end
             strangerPoints[guid] = TraitTreePoints(INSPECT_CONFIG_ID)
-            RefreshHoveredTooltip(guid)
+            WhoDoesWhat:AddStrangerTooltipLine(guid)
             return
         end
         local points = TraitTreePoints(INSPECT_CONFIG_ID)
