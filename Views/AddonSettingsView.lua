@@ -53,9 +53,11 @@ function WhoDoesWhat:BuildAddonSettingsPage(tabPage)
     f:SetAllPoints(tabPage)
     f.titleBarHeight = 0
 
+    -- A page this client doesn't register (Test + Dev in a release, Warrior
+    -- Bar on Forever) is skipped rather than left as a hole.
     local sections = {}
-    for i, id in ipairs(PAGE_ORDER) do
-        sections[i] = S.pages[id]
+    for _, id in ipairs(PAGE_ORDER) do
+        sections[#sections + 1] = S.pages[id]
     end
     f.sections = sections
 

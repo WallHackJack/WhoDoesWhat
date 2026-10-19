@@ -174,6 +174,9 @@ WhoDoesWhat.ClientFeatures = {
     -- False where pets cannot take raid buffs (Forever: no blessing, shout,
     -- Mark or scroll lands on one), so no pet is planned, tracked or listed.
     petBuffs = not isForever,
+    -- False where the Warrior Shout Bar and its Settings tab are switched off
+    -- (Forever, for now: in-combat aura reads come back hidden).
+    warriorShoutBar = not isForever,
     -- False where no talent affects a raid buff: nothing about buff talents is
     -- scanned, shared, weighed or shown on that client.
     buffTalents = buffTalents,

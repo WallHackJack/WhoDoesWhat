@@ -4,7 +4,9 @@ local L = select(2, ...).L
 local S = WhoDoesWhat.SettingsKit
 
 -- Settings > Warrior Bar: the Warrior Shout Bar (WarriorShoutBarView.lua), in
--- whichever of its two account-wide settings sets is being edited.
+-- whichever of its two account-wide settings sets is being edited. No tab
+-- where the client has the bar switched off.
+if not WhoDoesWhat.ClientFeatures.warriorShoutBar then return end
 
 local PAGE_X = S.PAGE_X
 local AddCompactCheckboxRow = S.AddCompactCheckboxRow

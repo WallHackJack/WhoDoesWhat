@@ -218,6 +218,7 @@ end
 -- a shout bar in a warriorless party is glowing at something nobody present
 -- can cast, or asking nobody for it.
 local function ResolveShoutBar()
+    if not WhoDoesWhat.ClientFeatures.warriorShoutBar then return false, 0 end
     if not WhoDoesWhat:GetShoutBarSettings().enabled then return false, 0 end
     -- Warriors in OUR party: a warrior two subgroups over shouts for their own
     -- party, not ours, so they neither keep the bar up nor take one of its
