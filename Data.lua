@@ -192,6 +192,15 @@ for _, classInfo in ipairs(WhoDoesWhat.Classes) do
             { nameKey = "ROLE_MELEE_HUNTER", icon = "Interface\\Icons\\Ability_MeleeDamage", id = "hunter_melee", wowRole = "dps" })
         table.insert(classInfo.categories[1].allSubRoles, "hunter_melee")
     end
+    -- Forever's damage builds inside the Holy and Discipline trees. Talent
+    -- detection still reads them as the healing spec, so they're set by hand.
+    if features.isForever and classInfo.name == "Paladin" then
+        table.insert(classInfo.roles,
+            { nameKey = "ROLE_SHOCKADIN", icon = "Interface\\Icons\\Spell_Holy_SearingLight", id = "paladin_shockadin", wowRole = "dps" })
+    elseif features.isForever and classInfo.name == "Priest" then
+        table.insert(classInfo.roles,
+            { nameKey = "ROLE_SMITE", icon = "Interface\\Icons\\Spell_Holy_HolySmite", id = "priest_smite", wowRole = "dps" })
+    end
     if classInfo.name == "Paladin" then
         classInfo.roles[1].nameKey = "ROLE_MAIN_TANK"
         table.insert(classInfo.roles, 2,
@@ -1861,6 +1870,8 @@ WhoDoesWhat.PaladinBuffBansByRole = {
     priest_disc = { might = true },
     priest_holy = { might = true },
     priest_shadow = { might = true },
+    priest_smite = { might = true },
+    paladin_shockadin = { might = true },
     shaman_ele = { might = true },
     shaman_resto = { might = true },
     mage_arcane = { might = true },
@@ -1993,6 +2004,12 @@ if not features.isForever then
     table.insert(WhoDoesWhat.PaladinBuffDefaults, {
         order = { "salv", "might", "kings", "wisdom", "light", "sanctuary" },
         roles = { "hunter_melee" },
+    })
+else
+    -- Shockadin and Smite deal Holy spell damage: the caster order.
+    table.insert(WhoDoesWhat.PaladinBuffDefaults, {
+        order = { "salv", "kings", "wisdom", "light", "sanctuary", "might" },
+        roles = { "paladin_shockadin", "priest_smite" },
     })
 end
 
