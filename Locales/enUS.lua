@@ -409,6 +409,7 @@ L["CURSES_AUTO_NO_WARLOCKS"] = "Warlock Curses: no warlocks in the group to auto
 L["CURSES_AUTO_DISABLED"] = "Warlock Curses: curse auto-assigns are disabled in Settings."
 L["CHECKLIST_NOTE_BETTER_CASTER"] = "A better-talented caster is here."
 L["CHECKLIST_NOTE_OUTSIDE_RAID"] = "Cast from outside the raid; the pull strips it."
+L["CHECKLIST_NOTE_HELD"] = "The game hides buffs in combat; this is the last state seen."
 
 -- Assignment board widgets (SectionKit.lua)
 L["MAIL_WHISPER_PLAYER"] = "Whisper %s"
@@ -1357,6 +1358,8 @@ L["CHECKLIST_HIDE_HAVE"] = "Hide buffs I have"
 L["CHECKLIST_HIDE_HAVE_TIP"] = "Shows only what you are missing or about to lose. With everything up the checklist hides, so place it before turning this on."
 L["CHECKLIST_HIDE_OTHERS"] = "Hide other classes' buffs I have"
 L["CHECKLIST_HIDE_OTHERS_TIP"] = "Hides a buff another class casts on you (blessings, Fortitude, shouts) while it's up, and brings it back when it drops or is about to. Your own class's buffs, food, elixirs and weapons stay."
+L["CHECKLIST_HIDE_RAID_COMBAT"] = "Hide others' buffs in combat"
+L["CHECKLIST_HIDE_RAID_COMBAT_TIP"] = "From the pull until the fight ends, shows only your own buffs (auras, food, elixirs, weapons). Blessings, Fortitude, shouts and the rest come back afterwards."
 L["CHECKLIST_TRACK_ELIXIRS"] = "Track elixirs"
 L["CHECKLIST_TRACK_ELIXIRS_TIP"] = "Adds a Battle Elixir and a Guardian Elixir icon. Click one to pick what to drink; a flask fills both. This character only."
 L["CHECKLIST_TRACK_SCROLLS"] = "Track scrolls"

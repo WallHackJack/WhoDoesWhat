@@ -735,6 +735,9 @@ local defaults = {
             buffChecklistHideHave = false,
             -- Narrower: hide only done buffs another class casts on you.
             buffChecklistHideOthersHave = true,
+            -- Drop every buff someone else casts on you from the pull to the
+            -- end of the fight.
+            buffChecklistHideRaidInCombat = false,
             -- The checklist's glow: a status-bar highlight style in two
             -- colours, amber for missing and blue for expiring, like the
             -- Paladin Bar's.

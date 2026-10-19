@@ -148,6 +148,13 @@ local function BuildChecklistPage(f, page)
             WhoDoesWhat:RefreshBuffChecklist()
         end)
 
+    f.checklistHideRaidCombatCheck, yL = AddCompactCheckboxRow(checklistPage,
+        PAGE_X, yL, L.CHECKLIST_HIDE_RAID_COMBAT, L.CHECKLIST_HIDE_RAID_COMBAT_TIP,
+        function(value)
+            checklistSettings().buffChecklistHideRaidInCombat = value
+            WhoDoesWhat:RefreshBuffChecklist()
+        end)
+
     -- Classic Era has no battle/guardian elixir split, so no row for it.
     if WhoDoesWhat.ElixirItems then
         f.checklistElixirsCheck, yL = AddCompactCheckboxRow(checklistPage,
@@ -244,6 +251,7 @@ local function RefreshChecklistPage(f)
     f.checklistEnableCheck:SetChecked(settings.buffChecklistEnabled)
     f.checklistHideHaveCheck:SetChecked(settings.buffChecklistHideHave)
     f.checklistHideOthersCheck:SetChecked(settings.buffChecklistHideOthersHave)
+    f.checklistHideRaidCombatCheck:SetChecked(settings.buffChecklistHideRaidInCombat)
     f.checklistHeaderCheck:SetChecked(settings.buffChecklistShowHeader)
     f.checklistSplitOthersCheck:SetChecked(settings.buffChecklistSplitOthers)
     f.checklistWeaponsCheck:SetChecked(self.db.char.buffChecklistWeapons)

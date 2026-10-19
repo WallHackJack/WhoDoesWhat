@@ -46,7 +46,12 @@ local Assign = WhoDoesWhat.Assign
 --
 -- Wraps into rows at the configured column count. With "Hide buffs I have" on
 -- the grid shrinks to what is still missing or expiring, and with nothing left
--- to show the window hides altogether.
+-- to show the window hides altogether. "Hide others' buffs in combat" lays
+-- the grid out without them as the fight starts.
+--
+-- Where the client hides auras in combat (WoW Forever), every icon holds the
+-- last state it read, timers still running, and wears a "?" with no glow
+-- until the fight ends (IsHeld).
 
 local frame = nil
 -- Defined in the picker section, used by the button section after it.
@@ -57,6 +62,8 @@ local EnsureSwapMenu
 local RequestChecklistRefresh = nil
 local swapMenu = nil
 local divider = nil
+-- From PLAYER_REGEN_DISABLED to PLAYER_REGEN_ENABLED.
+local fighting = false
 
 local INSET = 3
 -- The pop-out menus' icon gap; the grid's own comes from the spacing preset.
@@ -417,15 +424,22 @@ local GetBuffDataByIndex = C_UnitAuras and C_UnitAuras.GetBuffDataByIndex
 -- client is hiding auras. Reading them then is not a nil to check for -- the
 -- call raises "Auras cannot be accessed when secret" -- so the only way to
 -- paint anything is to remember. Empty after a reload mid-fight, which reads
--- as "nothing known yet" rather than "you have nothing".
+-- as "nothing known yet" rather than "you have nothing". Each record's
+-- `remaining` is recounted off its expiry, so a held buff keeps counting down.
 local frozenOwnBuffs = {}
 
 local function OwnBuffs(unit)
     unit = unit or "player"
     if WhoDoesWhat:AurasSecret() then
         local frozen = frozenOwnBuffs[unit]
-        if frozen then return frozen.list, frozen.byName end
-        return {}, {}
+        if not frozen then return {}, {} end
+        local now = GetTime()
+        for _, buff in ipairs(frozen.list) do
+            local left = buff.expirationTime and buff.expirationTime > 0
+                and buff.expirationTime - now
+            buff.remaining = left and left > 0 and left or nil
+        end
+        return frozen.list, frozen.byName
     end
     local list, byName = {}, {}
     for i = 1, 40 do
@@ -647,11 +661,17 @@ end
 local frozenWeaponEnchants
 local function WeaponEnchantState()
     -- A weapon imbue is an aura by another name, so it is frozen the same way
-    -- the buff rows are: last readable answer, or nothing known.
+    -- the buff rows are: last readable answer, or nothing known. The time
+    -- left was read as a span, so what has passed since comes off it.
     if WhoDoesWhat:AurasSecret() then
         local frozen = frozenWeaponEnchants
-        if frozen then return frozen[1], frozen[2] end
-        return {}, {}
+        if not frozen then return {}, {} end
+        local elapsedMs = (GetTime() - frozen.at) * 1000
+        local function Aged(hand)
+            local ms = hand[2] and math.max(0, hand[2] - elapsedMs)
+            return { hand[1], ms, hand[3] }
+        end
+        return Aged(frozen[1]), Aged(frozen[2])
     end
     local count = select("#", GetWeaponEnchantInfo())
     local a, b, c, d, e, f, g, h = GetWeaponEnchantInfo()
@@ -661,7 +681,7 @@ local function WeaponEnchantState()
     else
         main, off = { a, b }, { d, e }
     end
-    frozenWeaponEnchants = { main, off }
+    frozenWeaponEnchants = { main, off, at = GetTime() }
     return main, off
 end
 
@@ -1468,6 +1488,13 @@ local function IsExpiring(entry)
         and entry.remaining < WarnSeconds()
 end
 
+-- While the client hides auras every icon shows the last state it could read
+-- (or a cast taken at its word), so none of it is known. A conjured stone or
+-- gem is counted in your bags instead, and stays known.
+local function IsHeld(entry)
+    return WhoDoesWhat:AurasSecret() and not (entry.swap and entry.swap.conjures)
+end
+
 local function CanUse(entry)
     return entry.useSpell ~= nil
         or (entry.useItem ~= nil and (entry.useCount or 0) > 0
@@ -1577,6 +1604,9 @@ local function ShowTooltip(btn)
         end
         if entry.note then GameTooltip:AddLine(entry.note, 1, 0.6, 0.2, true) end
     end
+    if IsHeld(entry) then
+        GameTooltip:AddLine(L.CHECKLIST_NOTE_HELD, 0.6, 0.6, 0.6, true)
+    end
 
     if entry.pick and not entry.bare then
         if entry.useSpell then
@@ -1645,6 +1675,8 @@ local function SizeButton(btn, size)
         math.max(9, math.floor(size * TIMER_FONT_RATIO + 0.5)), flags)
     local stockFace = btn.stock:GetFont()
     btn.stock:SetFont(stockFace or FALLBACK_FONT,
+        math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
+    btn.held:SetFont(stockFace or FALLBACK_FONT,
         math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
 end
 
@@ -2015,6 +2047,15 @@ local function CreateButton(index)
     timer:Hide()
     btn.timer = timer
 
+    -- A held state (IsHeld): what the icon shows is a guess until the client
+    -- shows auras again.
+    local held = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    held:SetPoint("TOPLEFT", 2, -1)
+    held:SetText("?")
+    held:SetTextColor(1, 1, 1)
+    held:Hide()
+    btn.held = held
+
     btn:SetScript("OnEnter", ShowTooltip)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     UI.AttachDrag(btn, frame)
@@ -2048,6 +2089,10 @@ end
 -- with it. Split out so the tick can run it between repaints.
 local function UpdateTimerAndGlow(btn)
     local entry = btn.entry
+    -- A held icon keeps its countdown but not its glow: a guess shouldn't
+    -- call for a recast.
+    local held = IsHeld(entry)
+    btn.held:SetShown(held)
     -- Eating: a 10-to-0 countdown in the expiring colour, glowing the same,
     -- until Well Fed lands (the aura change repaints it away).
     local eatLeft = entry.eatingUntil and (entry.eatingUntil - GetTime())
@@ -2086,8 +2131,9 @@ local function UpdateTimerAndGlow(btn)
     btn.timer:SetShown(left and true or false)
     -- The wrong elixir or scroll rank up wears the expiring glow too, without
     -- a countdown: it wants replacing, but nothing is missing.
-    local color = entry.missing and WhoDoesWhat:GetBuffChecklistGlowColor("missing")
-        or (expiring or entry.otherActive) and WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
+    local color = not held and (entry.missing
+        and WhoDoesWhat:GetBuffChecklistGlowColor("missing")
+        or (expiring or entry.otherActive) and WhoDoesWhat:GetBuffChecklistGlowColor("expiring"))
         or nil
     WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, color ~= nil,
         WhoDoesWhat:GetBuffChecklistGlowStyle(), color)
@@ -2224,6 +2270,11 @@ local function EnsureFrame()
             WhoDoesWhat:RefreshBuffChecklist()
             return
         end
+        -- Auras readable again: rebuild off a real read, not the held one,
+        -- whether or not the end of combat already came by.
+        local secret = WhoDoesWhat:AurasSecret()
+        if self.wasSecret and not secret then RequestChecklistRefresh() end
+        self.wasSecret = secret
         for _, btn in ipairs(self.buttons) do
             if btn:IsShown() then UpdateTimerAndGlow(btn) end
         end
@@ -2436,12 +2487,18 @@ function WhoDoesWhat:RefreshBuffChecklist()
         return settings.buffChecklistHideOthersHave and not entry.selfSupplied
             and entry.className ~= nil and entry.className ~= myClass
     end
+    -- "Hide others' buffs in combat": laid out as the fight starts (see
+    -- PLAYER_REGEN_DISABLED below), so anyone else's buff just isn't there
+    -- until it ends. Not a quiet buff, so it sets no reveal timer.
+    local hideOthers = fighting and settings.buffChecklistHideRaidInCombat
     local function Visible(list)
         local out = {}
         for _, entry in ipairs(list) do
             local quiet = Hideable(entry) and entry.has == true
                 and not entry.missing and not IsExpiring(entry) and not entry.otherActive
-            if not quiet then
+            if hideOthers and not entry.selfSupplied then
+                -- Hidden for the fight.
+            elseif not quiet then
                 out[#out + 1] = entry
             elseif entry.remaining then
                 local at = GetTime() + entry.remaining - WarnSeconds()
@@ -2592,7 +2649,8 @@ local RESET_SETTINGS = {
     "buffChecklistEnabled", "buffChecklistColumns", "buffChecklistIconSize",
     "buffChecklistHideHave", "buffChecklistAlign", "buffChecklistShowHeader",
     "buffChecklistPopoutDirection", "buffChecklistSpacing", "buffChecklistSplitOthers",
-    "buffChecklistHideOthersHave", "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
+    "buffChecklistHideOthersHave", "buffChecklistHideRaidInCombat",
+    "buffChecklistGlowStyle", "buffChecklistWarnMinutes",
     "buffChecklistGlowMissingColor", "buffChecklistGlowExpiringColor",
 }
 
@@ -2621,9 +2679,9 @@ loader:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- combat, and RegisterAutoHide -- which would have -- lives in the restricted
 -- environment we cannot reach either. PLAYER_REGEN_DISABLED still runs before
 -- the lockdown takes hold, so closing them here is the last chance anyone has.
-if not WhoDoesWhat:SecureSnippetsWork() then
-    loader:RegisterEvent("PLAYER_REGEN_DISABLED")
-end
+-- It is also the last layout before the fight, which "Hide others' buffs in
+-- combat" lays out without them.
+loader:RegisterEvent("PLAYER_REGEN_DISABLED")
 loader:RegisterEvent("BAG_UPDATE_DELAYED")
 loader:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 -- Elixirs, flasks, auras, aspects and Omen of Clarity aren't BuffTracking
@@ -2696,10 +2754,14 @@ end)
 local lastPetDead = nil
 loader:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_REGEN_DISABLED" then
-        -- Registered only where snippets are unavailable; see above.
-        HidePickers()
+        fighting = true
+        if not WhoDoesWhat:SecureSnippetsWork() then HidePickers() end
+        if WhoDoesWhat.db and WhoDoesWhat.db.profile.settings.buffChecklistHideRaidInCombat then
+            WhoDoesWhat:RefreshBuffChecklist()
+        end
         return
     end
+    if event == "PLAYER_REGEN_ENABLED" then fighting = false end
     if event == "GET_ITEM_INFO_RECEIVED" then
         -- A burst of names on login collapses into one repaint.
         if pendingItemNames[arg1] then
