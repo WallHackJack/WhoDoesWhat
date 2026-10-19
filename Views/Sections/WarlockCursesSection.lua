@@ -253,7 +253,9 @@ local function Build(f)
     })
     local box = chrome.box
 
-    local autoTooltip = IS_CLASSIC_ERA and L.CURSES_AUTO_ERA_TIP or L.CURSES_AUTO_TIP
+    local autoTooltip = not IS_CLASSIC_ERA and L.CURSES_AUTO_TIP
+        or WhoDoesWhat.WarlockCurses.shadow and L.CURSES_AUTO_ERA_TIP
+        or L.CURSES_AUTO_PAIR_TIP
     local autoBtn = UI.CreateTextButton(box, L.CURSES_AUTO, L.CURSES_AUTO_TITLE,
         autoTooltip,
         function()

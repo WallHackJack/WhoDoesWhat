@@ -2424,7 +2424,7 @@ local AutoAssignWarlockCurses -- defined below, exported for the view's Auto but
 do
     local curses = WhoDoesWhat.WarlockCurses
     local isClassicEra = WhoDoesWhat.ClientFeatures.isClassicEra
-    local curseIds = isClassicEra
+    local curseIds = curses.shadow
         and { "curse_reck", "curse_elements", "curse_shadow" }
         or { "curse_reck", "curse_elements" }
     local function OtherCurseIds(rowId)
@@ -2486,7 +2486,8 @@ do
     if shadow then RowDefs[shadow.id] = shadow end
 
     -- TBC prefers an Affliction warlock for Elements, then fills Recklessness.
-    -- Classic fills Recklessness, Elements, then Shadow on distinct warlocks.
+    -- Classic fills Recklessness, Elements, then Shadow on distinct warlocks;
+    -- Forever has no Shadow and no Malediction, so just the first two.
     -- The two Settings toggles gate magic curses and Recklessness separately;
     -- disabling one leaves its current picks untouched.
     function AutoAssignWarlockCurses() -- file-local, forward-declared above
@@ -2512,6 +2513,7 @@ do
                     if name ~= reckLock then
                         if not elementsLock then
                             elementsLock = name
+                            if not shadow then break end
                         elseif not shadowLock then
                             shadowLock = name
                             break
@@ -2519,10 +2521,10 @@ do
                     end
                 end
                 store.curse_elements = elementsLock
-                store.curse_shadow = shadowLock
+                if shadow then store.curse_shadow = shadowLock end
             else
                 elementsLock = store.curse_elements
-                shadowLock = store.curse_shadow
+                shadowLock = shadow and store.curse_shadow or nil
             end
         else
             elementsLock = store.curse_elements

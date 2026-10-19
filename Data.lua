@@ -1618,8 +1618,8 @@ function WhoDoesWhat:GetStatusBarCheckOptions(key)
 end
 
 -- Warlock raid curses metadata, using the highest rank available on this
--- client. Classic Era keeps Curse of Shadow separate; TBC folds its schools
--- into Curse of the Elements.
+-- client. Classic Era keeps Curse of Shadow separate; TBC and Forever fold its
+-- schools into Curse of the Elements.
 local curseSpellIds = features.warlockCurseSpellIds
 WhoDoesWhat.WarlockCurses = {
     reck = {

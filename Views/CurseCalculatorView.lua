@@ -7,7 +7,8 @@ local L = select(2, ...).L
 --
 -- Details records each spell's school bitmask and per-target damage, so the
 -- magic curses use the appropriate school pools: Classic CoE fire/frost and
--- CoS shadow/arcane, or TBC CoE all four (10%, or 13% with Malediction).
+-- CoS shadow/arcane, or TBC and Forever CoE all four (10%; TBC 13% with
+-- Malediction).
 --
 -- CoR is an estimate. Damage through armor is m(A) = C/(A+C). We reconstruct
 -- the boss's armor from the assumed debuff set the user ticks -- the exact
@@ -21,6 +22,8 @@ local L = select(2, ...).L
 local K = WhoDoesWhat.SectionKit
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local CURSES = WhoDoesWhat.WarlockCurses
+-- Classic Era only; Forever folds Shadow into Elements like TBC.
+local HAS_COS = CURSES.shadow ~= nil
 
 -- The page is the Calculator tab of the main window, wider than it is tall,
 -- laid out in section boxes on the page's dark ground:
@@ -65,9 +68,9 @@ local BLOOD_FRENZY = 0.04
 
 -- School bitmask: Physical 1, Holy 2, Fire 4, Nature 8, Frost 16, Shadow 32,
 -- Arcane 64. In Classic, CoE covers fire/frost and CoS covers shadow/arcane;
--- in TBC, CoE covers all four schools.
+-- in TBC and Forever, CoE covers all four schools.
 local SCHOOL_PHYSICAL = 0x1
-local COE_MASK = IS_CLASSIC_ERA and (0x4 + 0x10) or (0x4 + 0x10 + 0x20 + 0x40)
+local COE_MASK = HAS_COS and (0x4 + 0x10) or (0x4 + 0x10 + 0x20 + 0x40)
 local COS_MASK = 0x20 + 0x40
 local IGNITE_SPELL_ID = 12654
 
@@ -105,7 +108,7 @@ local BREAKDOWN = {
     { key = "bleeds", labelKey = "CALC_BLEEDS", depth = 2, color = C_MUTED },
     { key = "magicAll", labelKey = "CALC_MAGIC", depth = 1 },
 }
-if IS_CLASSIC_ERA then
+if HAS_COS then
     BREAKDOWN[#BREAKDOWN + 1] =
         { key = "coeRelevant", labelKey = "CALC_FIRE_FROST", depth = 2, color = C_COE }
     BREAKDOWN[#BREAKDOWN + 1] =
@@ -214,7 +217,7 @@ local function BossPoolsFromCombat(combat)
                                     if IS_CLASSIC_ERA and spellId == IGNITE_SPELL_ID then
                                         t.ignite = t.ignite + amount
                                     end
-                                elseif IS_CLASSIC_ERA and bit.band(school, COS_MASK) ~= 0 then
+                                elseif HAS_COS and bit.band(school, COS_MASK) ~= 0 then
                                     t.cosRelevant = t.cosRelevant + amount
                                 end
                             end
@@ -417,7 +420,7 @@ local function Recompute(f)
     PercentBonus(f.results.coe, L.CALC_NOUN_CURSE, coePool, coeRate, f.state.coe,
         ignitePool, ignitePool > 0 and 1.21 or nil)
 
-    if IS_CLASSIC_ERA then
+    if HAS_COS then
         PercentBonus(f.results.cos, L.CALC_NOUN_CURSE, stats.cosRelevant, COE_BASE, f.state.cos)
     end
 
@@ -687,16 +690,6 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
                 f.state.igniteDoubleDip = on
                 Recompute(f)
             end)
-
-        local cosBox = AddResult("cos", CURSES.shadow.name_long,
-            { icon = CURSES.shadow.icon, titleColor = C_COE, tintClass = "Warlock" },
-            1, 3, coeBox)
-        f.cosCheck = AddCheckRow(cosBox, 1, L.CALC_APPLIED, nil,
-            L.CALC_COS_UP,
-            function(on)
-                f.state.cos = on
-                Recompute(f)
-            end)
     else
         f.maledictionCheck = AddCheckRow(coeBox, 2, L.CALC_MALEDICTION, "13%",
             L.CALC_MALEDICTION_TIP,
@@ -711,6 +704,17 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         f.bloodFrenzyCheck = AddCheckRow(armsBox, 1, L.CALC_APPLIED, nil, L.CALC_BLOOD_FRENZY_UP,
             function(on)
                 f.state.bloodFrenzy = on
+                Recompute(f)
+            end)
+    end
+    if HAS_COS then
+        local cosBox = AddResult("cos", CURSES.shadow.name_long,
+            { icon = CURSES.shadow.icon, titleColor = C_COE, tintClass = "Warlock" },
+            1, 3, coeBox)
+        f.cosCheck = AddCheckRow(cosBox, 1, L.CALC_APPLIED, nil,
+            L.CALC_COS_UP,
+            function(on)
+                f.state.cos = on
                 Recompute(f)
             end)
     end
@@ -729,11 +733,11 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     f.coeCheck:SetChecked(f.state.coe)
     if IS_CLASSIC_ERA then
         f.igniteCheck:SetChecked(f.state.igniteDoubleDip)
-        f.cosCheck:SetChecked(f.state.cos)
     else
         f.maledictionCheck:SetChecked(f.state.malediction)
         f.bloodFrenzyCheck:SetChecked(f.state.bloodFrenzy)
     end
+    if HAS_COS then f.cosCheck:SetChecked(f.state.cos) end
 
     -- Rebuild the fight list every time the page comes up, so fights logged
     -- since last time show up.

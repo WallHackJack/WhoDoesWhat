@@ -212,10 +212,11 @@ WhoDoesWhat.ClientFeatures = {
         lifeByTalentRank = { [0] = 2080, [1] = 2288, [2] = 2496 },
         talentRankByItemId = { [22103] = 0, [22104] = 1, [22105] = 2 },
     }) or nil,
+    -- Forever removes Curse of Shadow and lets Elements cover all magic, as TBC does.
     warlockCurseSpellIds = isClassicEra and {
         reck = 11717,     -- Curse of Recklessness (Rank 4)
         elements = 11722, -- Curse of the Elements (Rank 3)
-        shadow = 17937,   -- Curse of Shadow (Rank 2)
+        shadow = not isForever and 17937 or nil, -- Curse of Shadow (Rank 2)
     } or {
         reck = 27226,     -- Curse of Recklessness (Rank 5)
         elements = 27228, -- Curse of the Elements (Rank 4)

@@ -400,11 +400,13 @@ local function BuildGeneralPage(f, page)
     -- In the warlock class colour, like the Warlock Curses section it tunes.
     yL = AddNextPageDivider(generalPage, yL, L.GENERAL_SECTION_WARLOCK_CURSES,
         { 0.72, 0.45, 1 })
-    local magicCurseLabel = IS_CLASSIC_ERA and L.GENERAL_AUTO_ELEMENTS_SHADOW
-        or L.GENERAL_AUTO_AFFLICTION_ELEMENTS
-    local magicCurseDescription = IS_CLASSIC_ERA
-        and L.GENERAL_AUTO_ELEMENTS_SHADOW_TIP
-        or L.GENERAL_AUTO_AFFLICTION_ELEMENTS_TIP
+    local hasShadow = WhoDoesWhat.WarlockCurses.shadow ~= nil
+    local magicCurseLabel = not IS_CLASSIC_ERA and L.GENERAL_AUTO_AFFLICTION_ELEMENTS
+        or hasShadow and L.GENERAL_AUTO_ELEMENTS_SHADOW
+        or L.GENERAL_AUTO_ELEMENTS
+    local magicCurseDescription = not IS_CLASSIC_ERA and L.GENERAL_AUTO_AFFLICTION_ELEMENTS_TIP
+        or hasShadow and L.GENERAL_AUTO_ELEMENTS_SHADOW_TIP
+        or L.GENERAL_AUTO_ELEMENTS_TIP
     f.afflElementsCheck, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL, magicCurseLabel,
         magicCurseDescription,
         function(value)
