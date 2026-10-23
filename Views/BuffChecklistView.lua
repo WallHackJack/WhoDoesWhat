@@ -1059,8 +1059,10 @@ local function AskFor(entry)
     -- In `S`: party chat's strings, or the whispered caster's.
     local function Request(S)
         local name = entry.NameIn and entry.NameIn(S) or entry.name
-        return S.CHAT_TAGGED:format((entry.forPet and S.CHECKLIST_ASK_PET
-            or S.CHECKLIST_ASK):format(name))
+        local line = entry.forPet
+            and Fill(S.CHECKLIST_ASK_PET, { buff = name, pet = UnitName("pet") or "" })
+            or S.CHECKLIST_ASK:format(name)
+        return S.CHAT_TAGGED:format(line)
     end
     if entry.isShout then
         if IsInGroup() then

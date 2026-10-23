@@ -1315,7 +1315,7 @@ L["CHECKLIST_HINT_ASK_PARTY"] = "Ask your party"
 L["CHECKLIST_HINT_ASK"] = "Ask %s"
 -- Asking for a buff (party chat, or a whisper in the caster's language).
 L["CHECKLIST_ASK"] = "%s please!"
-L["CHECKLIST_ASK_PET"] = "%s on my pet please!"
+L["CHECKLIST_ASK_PET"] = "{buff} on my pet {pet} please!"
 -- The request, then who it would have gone to.
 L["CHECKLIST_ASK_TO"] = "{request} (to {name})"
 L["CHECKLIST_NOBODY_TO_ASK"] = "Nobody here to ask for %s."
