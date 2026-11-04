@@ -700,6 +700,12 @@ local function NormalizeTalentFact(class, talents, ranks, healthstone, coreRanks
     -- 100 is intentionally future-proof across supported Classic variants,
     -- while still rejecting absurd or deliberately inflated payloads.
     if total == 0 or total > 100 then return nil end
+    -- Forever's marker talent (TRAIT_MARKERS in TalentScanning.lua), riding in
+    -- the same table so older builds, which read only [1]-[3], ignore it. A
+    -- word nobody maps refines nothing, so only its shape is checked here.
+    if type(talents.variant) == "string" and #talents.variant <= 16 then
+        points.variant = talents.variant
+    end
 
     local fact = { class = class, talents = points }
     if class == "PALADIN" and BUFF_TALENTS and type(ranks) == "table" then

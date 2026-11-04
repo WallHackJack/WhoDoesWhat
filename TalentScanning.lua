@@ -49,9 +49,10 @@ local INSPECTOR_PREFIX = "LCIV1"
 -- Inherently undetectable from a spec: warlock_firetank, druid_dreamstate
 -- and custom roles -- those only ever arrive by hand, and
 -- AutoAssignDetectedRole is built to leave them alone. Feral tanks and cat
--- DPS share one tree, so the guess here is always cat DPS; OnTalentsReady
--- recovers the tank from tank cues (WDW feral-tank role / TANK flag / MAINTANK)
--- before auto-assigning, and a manual correction to Feral Tank sticks anyway.
+-- DPS share one tree, so the guess here is always cat DPS; on Forever a marker
+-- talent can settle it (VARIANT_ROLES), and otherwise OnTalentsReady recovers
+-- the tank from tank cues (WDW feral-tank role / TANK flag / MAINTANK) before
+-- auto-assigning, and a manual correction to Feral Tank sticks anyway.
 local SPEC_ROLES = {
     WARRIOR = { "warrior_arms", "warrior_fury", "warrior_prot" },
     PALADIN = { "paladin_holy", "paladin_prot", "paladin_ret" },
@@ -64,8 +65,19 @@ local SPEC_ROLES = {
     DRUID   = { "druid_balance", "druid_feral_dps", "druid_resto" },
 }
 
-local function DetectedRoleFor(playerKey, class, specIndex)
+-- What a marker talent (see TRAIT_MARKERS) turns a tree's role into. A
+-- marker only refines the tree the points already picked: Divine Precision on
+-- a Retribution paladin who dipped into Holy says nothing about their role.
+local VARIANT_ROLES = {
+    paladin_holy = { shockadin = "paladin_shockadin" },
+    priest_disc = { smite = "priest_smite" },
+    druid_feral_dps = { cat = "druid_feral_dps", bear = "druid_feral_tank" },
+}
+
+local function DetectedRoleFor(playerKey, class, specIndex, variant)
     local detected = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
+    local refined = variant and VARIANT_ROLES[detected] and VARIANT_ROLES[detected][variant]
+    if refined then return refined end
 
     -- Feral druids (cat DPS and bear tank) share the Feral Combat tree. Keep
     -- the tank interpretation when the board or Blizzard already says tank.
@@ -82,10 +94,13 @@ end
 
 -- Which WDW roles a talent spread reads as -- normally one, but a feral druid
 -- gets both: cat and bear share the Feral Combat tree, so the points genuinely
--- cannot tell them apart and showing one icon would be picking a side.
-local function RolesForSpec(class, specIndex)
+-- cannot tell them apart and showing one icon would be picking a side -- unless
+-- a Forever marker talent already did.
+local function RolesForSpec(class, specIndex, variant)
     local id = class and specIndex and SPEC_ROLES[class] and SPEC_ROLES[class][specIndex]
     if not id then return nil end
+    local refined = variant and VARIANT_ROLES[id] and VARIANT_ROLES[id][variant]
+    if refined then return { refined } end
     if id == "druid_feral_dps" then return { id, "druid_feral_tank" } end
     return { id }
 end
@@ -107,6 +122,45 @@ local INSPECT_CONFIG_ID = Constants and Constants.TraitConsts
     and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID or -1
 -- Fewer nodes than this on one side of a gap is a stray, not a talent tree.
 local MIN_TREE_NODES = 5
+
+-- Forever builds that read as the wrong role by points alone, each told by one
+-- talent nobody in the other role would take, keyed by the spell its trait
+-- definition grants (an id, so any client language matches) -> the variant
+-- VARIANT_ROLES maps. Holy-spell hit is worthless to a healer, so Divine
+-- Precision (Holy) and Holy Precision (Discipline) mean a Shockadin and a Smite
+-- priest; Power in Light, which only buffs Smite, sits in Discipline's first
+-- row where a healer may still pass through it, so it is not used. Natural
+-- Reaction (dodge, rage when dodging) is bear-only, Shifting Power (Cat Form
+-- only) is cat-only; a druid with both, or neither, is left to the tank cues.
+local TRAIT_MARKERS = {
+    -- TODO(beta dump): replace the placeholder keys with the spell ids.
+    [-1] = "shockadin", -- Divine Precision
+    [-2] = "smite", -- Holy Precision
+    [-3] = "bear", -- Natural Reaction
+    [-4] = "cat", -- Shifting Power
+}
+
+-- The one marker variant among a tree's purchased nodes, or nil for none or
+-- for two that disagree.
+local function TraitVariant(configID, nodes)
+    if not (C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo) then return nil end
+    local variant
+    for _, node in ipairs(nodes) do
+        if (node.ranksPurchased or 0) > 0 then
+            for _, entryID in ipairs(node.entryIDs or {}) do
+                local entry = C_Traits.GetEntryInfo(configID, entryID)
+                local definition = entry and entry.definitionID
+                    and C_Traits.GetDefinitionInfo(entry.definitionID)
+                local found = definition and TRAIT_MARKERS[definition.spellID]
+                if found then
+                    if variant and variant ~= found then return nil end
+                    variant = found
+                end
+            end
+        end
+    end
+    return variant
+end
 
 local function TraitTreePoints(configID)
     if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits) then
@@ -156,6 +210,7 @@ local function TraitTreePoints(configID)
         local tab = i < first and 1 or i < second and 2 or 3
         points[tab] = points[tab] + (node.ranksPurchased or 0)
     end
+    points.variant = TraitVariant(configID, nodes)
     return points
 end
 
@@ -190,7 +245,7 @@ local function TalentPoints(guid)
         local points = guid == UnitGUID("player") and TraitTreePoints()
             or inspectedPoints[guid] or strangerPoints[guid]
         if not points then return nil end
-        return points[1], points[2], points[3]
+        return points[1], points[2], points[3], points.variant
     end
     return Inspector:GetTalentPoints(guid)
 end
@@ -254,7 +309,7 @@ end
 function WhoDoesWhat:GetTalentSnapshot(unit)
     local guid = Inspector and unit and UnitExists(unit) and UnitGUID(unit)
     if not guid then return nil end
-    local t1, t2, t3 = TalentPoints(guid)
+    local t1, t2, t3, variant = TalentPoints(guid)
     if not (t1 and t2 and t3) or t1 + t2 + t3 <= 0 then return nil end
     local specIndex = SpecializationFor(guid)
     local _, class = UnitClass(unit)
@@ -271,7 +326,7 @@ function WhoDoesWhat:GetTalentSnapshot(unit)
     return {
         points = { t1, t2, t3 },
         specNames = specNames,
-        roleIds = RolesForSpec(class, specIndex),
+        roleIds = RolesForSpec(class, specIndex, variant),
     }
 end
 
@@ -326,6 +381,9 @@ end
 local DETECTABLE_ROLES = { druid_feral_tank = true }
 for _, ids in pairs(SPEC_ROLES) do
     for _, id in ipairs(ids) do DETECTABLE_ROLES[id] = true end
+end
+for _, refined in pairs(VARIANT_ROLES) do
+    for _, id in pairs(refined) do DETECTABLE_ROLES[id] = true end
 end
 
 -- Can a talent spread say anything at all about this role? The roster-issue
@@ -479,6 +537,68 @@ local function TraitRankByName(talentName)
     end
     return 0, false
 end
+
+--@do-not-package@
+local devNamespace = select(2, ...)
+-- /run WhoDoesWhat:DumpTraitTree() - TEMPORARY developer tool: every node of a
+-- Forever trait tree (position, node id, rank, and each entry's definition,
+-- spell id and spell name) in a copy window. Our own tree, or pass a unit
+-- ("target") to inspect someone and dump theirs when INSPECT_READY lands.
+function WhoDoesWhat:DumpTraitTree(unit)
+    local function Dump(configID, label)
+        local config = configID and C_Traits.GetConfigInfo(configID)
+        local treeID = config and config.treeIDs and config.treeIDs[1]
+        if not treeID then
+            self:Print("No trait tree for " .. label .. " (config " .. tostring(configID) .. ").")
+            return
+        end
+        local nodes = {}
+        for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+            local node = C_Traits.GetNodeInfo(configID, nodeID)
+            if node and node.posX then nodes[#nodes + 1] = node end
+        end
+        table.sort(nodes, function(a, b)
+            if a.posX ~= b.posX then return a.posX < b.posX end
+            return a.posY < b.posY
+        end)
+        local lines = { string.format("%s: config %s, tree %s, %d nodes, build %s",
+            label, tostring(configID), tostring(treeID), #nodes, (GetBuildInfo())) }
+        for _, node in ipairs(nodes) do
+            for _, entryID in ipairs(node.entryIDs or {}) do
+                local entry = C_Traits.GetEntryInfo(configID, entryID)
+                local definition = entry and entry.definitionID
+                    and C_Traits.GetDefinitionInfo(entry.definitionID)
+                local spellID = definition and definition.spellID
+                lines[#lines + 1] = string.format(
+                    "x%d y%d node %d %d/%d entry %d def %s spell %s %s",
+                    node.posX, node.posY, node.ID, node.ranksPurchased or 0,
+                    node.maxRanks or 0, entryID, tostring(entry and entry.definitionID),
+                    tostring(spellID), tostring(spellID and GetSpellInfo(spellID)
+                        or definition and definition.overrideName))
+            end
+        end
+        -- Kept in saved variables too, so a /reload hands it to the repo side.
+        self.db.global.traitDump = self.db.global.traitDump or {}
+        self.db.global.traitDump[label] = lines
+        devNamespace.UI.ShowCopyText("WhoDoesWhatTraitDump", "Trait tree: " .. label,
+            table.concat(lines, "\n"))
+    end
+
+    if not unit or UnitIsUnit(unit, "player") then
+        Dump(C_ClassTalents.GetActiveConfigID(), UnitName("player"))
+        return
+    end
+    local guid, label = UnitGUID(unit), UnitName(unit)
+    local watch = CreateFrame("Frame")
+    watch:RegisterEvent("INSPECT_READY")
+    watch:SetScript("OnEvent", function(_, _, readyGUID)
+        if readyGUID ~= guid then return end
+        watch:UnregisterAllEvents()
+        Dump(INSPECT_CONFIG_ID, label)
+    end)
+    NotifyInspect(unit)
+end
+--@end-do-not-package@
 
 function WhoDoesWhat:GetOwnTalentRankByName(talentName)
     if not talentName then return 0, false end
@@ -765,9 +885,9 @@ end
 function WhoDoesWhat:GetOwnTalentTreePoints()
     local guid = UnitGUID("player")
     if not (guid and (USES_TRAIT_TREE or Inspector)) then return nil end
-    local t1, t2, t3 = TalentPoints(guid)
+    local t1, t2, t3, variant = TalentPoints(guid)
     if not (t1 and t2 and t3) or t1 + t2 + t3 <= 0 then return nil end
-    return { t1, t2, t3 }
+    return { t1, t2, t3, variant = variant }
 end
 
 function WhoDoesWhat:ApplySyncedTalentTreePoints(playerName, class, points)
@@ -784,7 +904,7 @@ function WhoDoesWhat:ApplySyncedTalentTreePoints(playerName, class, points)
         end
     end
 
-    local detected = DetectedRoleFor(playerName, class, specIndex)
+    local detected = DetectedRoleFor(playerName, class, specIndex, points.variant)
     if detected and mostPoints > 0 then
         self:AutoAssignDetectedRole(playerName, detected)
         self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
@@ -806,15 +926,17 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
 
     -- Points land in tab order (1-3); specIndex is whichever tab has the most.
     local specIndex, pointsSpent = SpecializationFor(guid)
+    -- variant is the Forever marker talent, if any (TRAIT_MARKERS).
+    local t1, t2, t3, variant = TalentPoints(guid)
 
     if self.LOG_TALENTS then
-        local t1, t2, t3 = TalentPoints(guid)
         local specName = class and specIndex and Inspector:GetSpecializationName(class, specIndex)
         self:Print(string.format(
-            "Talents received: %s - %s (%d/%d/%d) [%s, %s]",
+            "Talents received: %s - %s (%d/%d/%d%s) [%s, %s]",
             name or guid,
             specName or "unknown",
             t1 or 0, t2 or 0, t3 or 0,
+            variant and (", " .. variant) or "",
             isInspect and "inspected" or "synced from another player",
             IsGUIDInGroup(guid) and "in group" or "not in group"
         ))
@@ -847,7 +969,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- is most of what made this function the most expensive thing profiled.
     rescanPending[key] = nil
 
-    local detected = DetectedRoleFor(key, class, specIndex)
+    local detected = DetectedRoleFor(key, class, specIndex, variant)
 
     if detected and (pointsSpent or 0) > 0 then
         self:AutoAssignDetectedRole(key, detected, isReplay)
@@ -886,11 +1008,10 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     -- player in range. Share only that firsthand evidence; cache replays and
     -- the library's own messages use false and must never become hearsay.
     if sync and guid ~= UnitGUID("player") then
-        local t1, t2, t3 = TalentPoints(guid)
         if t1 and t2 and t3 then
             local profile = self.db.profile
             sync:ReportTalentObservation(
-                key, class, { t1, t2, t3 },
+                key, class, { t1, t2, t3, variant = variant },
                 class == "PALADIN" and profile.paladinBuffTalents[key] or nil,
                 class == "WARLOCK" and profile.warlockHealthstoneTalents[key] or nil,
                 (class == "DRUID" or class == "PRIEST")
