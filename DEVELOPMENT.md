@@ -117,7 +117,7 @@ Large WoW addon (TBC 2.5.5 Anniversary) for managing raid assignments, roles, an
 * References: [CurseForge automatic packaging](https://support.curseforge.com/support/solutions/articles/9000197281) and the [BigWigs packager](https://github.com/BigWigsMods/packager).
 
 ## Historical client observations (revalidate before relying on them)
-* The addon currently targets Interface `20505` for TBC Anniversary. Confirm the current client value after patches; an outdated value can mark the addon out of date.
+* The addon currently targets Interface `20506` for TBC Anniversary. Confirm the current client value after patches; an outdated value can mark the addon out of date.
 * Modern Menu API exists: `Menu.ModifyMenu`, `MenuUtil.Create*` + `rootDescription:Insert(desc, index)`. Submenu parents need non-nil click callback.
 * `SetPartyAssignment` protected (Blizzard-UI only); `ClearPartyAssignment` is callable. `UnitSetRole` is callable by addons only out of combat as of 2.5.6.
 * Raid tab rows are `RaidGroupButton<i>` (i = roster index); `RaidGroup<g>Slot<s>` are empty slots. `Blizzard_RaidUI` is load-on-demand; do not load or open it from addon execution on current builds.
