@@ -196,12 +196,14 @@ WhoDoesWhat.ClientFeatures = {
         might = { normal = 4, greater = 52 },
         wisdom = { normal = 14, greater = 54 },
         kings = { normal = 20, greater = 60 },
-        salv = { normal = 26 },
         light = { normal = 40, greater = 60 },
     } or nil,
     -- Paladin blessing keys from Data.lua that this client does not have.
+    -- Forever's Salvation is no blessing at all: it sits alongside one, so it
+    -- is tracked as a group buff of its own (the `salvation` status check).
     removedPaladinBuffs = isForever and {
         sanctuary = true,
+        salv = true,
     } or {},
     -- nil on Forever: Improved Healthstone is gone, so there are no ranks to
     -- scan, share or show.

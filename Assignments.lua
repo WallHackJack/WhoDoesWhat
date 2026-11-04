@@ -912,8 +912,10 @@ end
 -- arena, so it drops out of the plan there without anyone having to add a
 -- rule. Everyone in the instance evaluates this the same way, so the derived
 -- plan stays identical across clients. Any explicit Salvation rule -- of any
--- kind -- means the user has an opinion, and theirs wins.
+-- kind -- means the user has an opinion, and theirs wins. Never on a client
+-- where Salvation is not a blessing (Forever).
 local function PvpSalvationIgnored()
+    if not WhoDoesWhat.PaladinBuffs.salv then return false end
     local _, instanceType = IsInInstance()
     if instanceType ~= "pvp" and instanceType ~= "arena" then return false end
     for _, rule in ipairs(GetBuffRules()) do
@@ -1864,6 +1866,7 @@ local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
         and not (options.onlyManaUsers
             and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name])
         and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
+        and not (buff.skipTanks and WhoDoesWhat:IsMarkedTank(m.name))
 end
 
 -- Everyone who can supply a talent-improved core buff, best rank first, each

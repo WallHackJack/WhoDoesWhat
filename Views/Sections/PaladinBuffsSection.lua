@@ -835,9 +835,11 @@ local function Build(f)
     rulesEmptyHint:SetText(L.RULES_EMPTY)
     rulesEmptyHint:SetTextColor(0.55, 0.55, 0.55)
 
+    -- No Salvation blessing on Forever, so the line is never shown there.
+    local salv = WhoDoesWhat.PaladinBuffs.salv
     local autoRuleText = box:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    autoRuleText:SetText("|T" .. WhoDoesWhat.PaladinBuffs.salv.iconId
-        .. ":14:14:0:0|t " .. L.RULES_PVP_SALVATION)
+    autoRuleText:SetText((salv and ("|T" .. salv.iconId .. ":14:14:0:0|t ") or "")
+        .. L.RULES_PVP_SALVATION)
     autoRuleText:SetTextColor(0.75, 0.75, 0.75)
     autoRuleText:Hide()
 

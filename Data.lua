@@ -1130,6 +1130,31 @@ WhoDoesWhat.StatusBarChecks.thorns = {
         tab = 1, tier = 3, column = 1, maxRank = 3,
     },
 }
+-- Forever's Salvation is no blessing: it sits on a raider alongside one, so it
+-- is a class buff like Fortitude rather than a slot in the paladin plan (its
+-- blessing is in removedPaladinBuffs). Threat reduction is the last thing a
+-- tank wants, so they are never counted for it (`skipTanks`).
+if features.isForever then
+    WhoDoesWhat.StatusBarChecks.salvation = {
+        nameKey = "CHECK_SALVATION", nameSpell = 1038, -- Salvation
+        gridNameKey = "CHECK_SALVATION_GRID",
+        descriptionKey = "CHECK_SALVATION_TIP",
+        icon = 135967, -- Spell_Holy_SealOfSalvation
+        auraSpellIds = {
+            1038,  -- Salvation
+            25895, -- Mass Salvation
+        },
+        className = "Paladin",
+        skipTanks = true,
+        hiddenOptions = CLASS_BUFF_HIDDEN_OPTIONS,
+    }
+    for i, key in ipairs(WhoDoesWhat.StatusBarCheckOrder) do
+        if key == "paladinBuffs" then
+            table.insert(WhoDoesWhat.StatusBarCheckOrder, i + 1, "salvation")
+            break
+        end
+    end
+end
 WhoDoesWhat.StatusBarChecks.dead = {
     nameKey = "CHECK_DEAD",
     descriptionKey = "CHECK_DEAD_TIP",
@@ -2018,10 +2043,17 @@ table.insert(WhoDoesWhat.PaladinBuffDefaults, {
     roles = { "paladin_prot_trash" },
 })
 
--- Blessings this client doesn't have leave the metadata and every default
--- order, so no picker, rule menu, grid row or plan ever offers them.
+-- Blessings this client doesn't have leave the metadata, every default order
+-- and every role ban, so no picker, rule menu, grid row or plan ever offers them.
 for key in pairs(features.removedPaladinBuffs) do
     WhoDoesWhat.PaladinBuffs[key] = nil
+    for _, bansByRole in ipairs({ WhoDoesWhat.PaladinBuffBansByWowRole,
+        WhoDoesWhat.PaladinBuffBansByRole }) do
+        for roleId, bans in pairs(bansByRole) do
+            bans[key] = nil
+            if not next(bans) then bansByRole[roleId] = nil end
+        end
+    end
     local orders = { WhoDoesWhat.CanonicalBuffOrder, WhoDoesWhat.HunterPetBuffOrder }
     for _, defaults in ipairs(WhoDoesWhat.PaladinBuffDefaults) do
         orders[#orders + 1] = defaults.order
