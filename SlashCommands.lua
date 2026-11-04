@@ -1,8 +1,32 @@
 local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 local _, ns = ...
 
-local DumpFrameTree
+local DumpFrameTree, DumpCVars
 --@do-not-package@
+-- /wdw cvars [text] - TEMPORARY developer tool: every console command whose
+-- name contains `text` (default "target") with its current value, default and
+-- help text, in a copy window.
+DumpCVars = function(text)
+    text = (text and text ~= "") and text:lower() or "target"
+    local commands = C_Console and C_Console.GetAllCommands and C_Console.GetAllCommands()
+        or ConsoleGetAllCommands()
+    local lines = {}
+    for _, c in ipairs(commands) do
+        local name = c.command
+        if name:lower():find(text, 1, true) then
+            local okValue, value = pcall(GetCVar, name)
+            local okDefault, default = pcall(GetCVarDefault, name)
+            lines[#lines + 1] = string.format("%s = %s (default %s, type %s) %s", name,
+                tostring(okValue and value or nil), tostring(okDefault and default or nil),
+                tostring(c.commandType), tostring(c.help or ""))
+        end
+    end
+    table.sort(lines)
+    table.insert(lines, 1, string.format("build %s, %d of %d commands match \"%s\"",
+        table.concat({ GetBuildInfo() }, " ", 1, 4), #lines, #commands, text))
+    ns.UI.ShowCopyText("WhoDoesWhatCVarDump", "CVars: " .. text, table.concat(lines, "\n"))
+end
+
 -- /wdw fdump <GlobalFrameName> - developer tool: the frame's child/region tree
 -- (type, shown, size, first anchor, text or texture) in a copy window, for
 -- mapping Blizzard frames from the live client.
@@ -70,6 +94,11 @@ function WhoDoesWhat:ToggleMainUI(input)
     local frameName = input and input:match("^%s*fdump%s+(%S+)")
     if frameName and DumpFrameTree then
         DumpFrameTree(frameName)
+        return
+    end
+    local cvarText = input and input:match("^%s*cvars%s*(%S*)%s*$")
+    if cvarText and DumpCVars then
+        DumpCVars(cvarText)
         return
     end
     input = input and input:trim():lower() or ""
