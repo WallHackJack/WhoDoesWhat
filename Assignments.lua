@@ -727,6 +727,16 @@ end
 
 -- Distinct assigned players in a static section, each with their row labels
 -- joined ("Salvation, Kings (Paladin Buffs)").
+-- A static row's label for one assignee, in `strings` (L when nil). A row
+-- whose spell follows its assignee's class (Forever's armor debuff: Faerie
+-- Fire or Recklessness) names the spell that player casts.
+local function StaticRowLabel(def, name, strings)
+    if def.SpellFor and name then
+        return WhoDoesWhat:DataText(def.SpellFor(name), "name_long", strings or L)
+    end
+    return WhoDoesWhat:DataText(def, "label", strings or L)
+end
+
 local function CollectStaticWhispers(section)
     local jobs, order = {}, {}
     for _, def in ipairs(section.rows) do
@@ -749,7 +759,7 @@ local function CollectStaticWhispers(section)
             msg = function(S)
                 local labels = {}
                 for i, def in ipairs(defs) do
-                    labels[i] = WhoDoesWhat:DataText(def, "label", S)
+                    labels[i] = StaticRowLabel(def, name, S)
                 end
                 return Fill(S.WHISPER_STATIC, { labels = table.concat(labels, ", "),
                     section = WhoDoesWhat:DataText(section, "title", S) })
@@ -2401,8 +2411,12 @@ end
 --     id            key into db.profile.raidAssignments (-> player name)
 --     icon/label    row visuals (icon may be a texture path or FileDataID)
 --     spellId       ability hover tooltip over the icon
---     class         eligible class for the dropdown ("Paladin"); the
---                   Developer Mode setting lifts the filter to everyone
+--     class         eligible class for the dropdown ("Paladin"), or a list
+--                   of them; the Developer Mode setting lifts the filter to
+--                   everyone
+--     SpellFor(name) optional; the spell record ({ icon, spellId,
+--                   name_long }) this assignee casts, for a row whose spell
+--                   follows the assignee's class (Forever's armor debuff)
 --     preferRoleId  members holding this WDW role (db.profile.assignments)
 --                   float to the top of the dropdown above a divider
 --     IsPreferred(m) same float, as a predicate (wins over preferRoleId)
@@ -2428,8 +2442,8 @@ do
     local curses = WhoDoesWhat.WarlockCurses
     local isClassicEra = WhoDoesWhat.ClientFeatures.isClassicEra
     local curseIds = curses.shadow
-        and { "curse_reck", "curse_elements", "curse_shadow" }
-        or { "curse_reck", "curse_elements" }
+        and { "curse_reck", "curse_elements", "curse_shadow", "curse_tongues" }
+        or { "curse_reck", "curse_elements", "curse_tongues" }
     local function OtherCurseIds(rowId)
         local ids = {}
         for _, id in ipairs(curseIds) do
@@ -2437,17 +2451,26 @@ do
         end
         return ids
     end
+    -- Forever: Faerie Fire and Recklessness are one armor debuff, so the row
+    -- takes a druid or a warlock and names the spell its assignee casts. It
+    -- keeps the curse_reck id, so the board syncs as before.
+    local faerieFire = WhoDoesWhat.FaerieFire
     local reck = {
         id = "curse_reck",
         icon = curses.reck.icon,
-        labelKey = curses.reck.name_longKey, shortLabelKey = "CURSE_RECKLESSNESS_ROW",
-        labelSpell = curses.reck.spellId,
+        labelKey = faerieFire and "ARMOR_DEBUFF" or curses.reck.name_longKey,
+        shortLabelKey = faerieFire and "ARMOR_DEBUFF_ROW" or "CURSE_RECKLESSNESS_ROW",
+        labelSpell = not faerieFire and curses.reck.spellId or nil,
         spellId = curses.reck.spellId,
-        class = "Warlock",
+        class = faerieFire and { "Warlock", "Druid" } or "Warlock",
+        SpellFor = faerieFire and function(name)
+            local m = name and FindMember(name)
+            return m and m.classInfo.name == "Druid" and faerieFire or curses.reck
+        end or nil,
         exclusiveWith = OtherCurseIds("curse_reck"),
         GetWarning = function()
             if not GetAssignment("curse_reck") then
-                return L.WARN_NO_RECKLESSNESS
+                return faerieFire and L.WARN_NO_ARMOR_DEBUFF or L.WARN_NO_RECKLESSNESS
             end
         end,
     }
@@ -2484,31 +2507,94 @@ do
             end
         end,
     }
+    -- The rest are situational (Tongues for casters, Scorpid Sting for
+    -- melee bosses...), so an empty one isn't worth a warning, and Auto
+    -- leaves them to a person.
+    local function DebuffRow(id, record, shortLabelKey, class, extra)
+        local def = {
+            id = id,
+            icon = record.icon,
+            labelKey = record.name_longKey,
+            -- No short key: the spell name is short enough, in the client's words.
+            shortLabelKey = shortLabelKey or record.name_longKey,
+            shortLabelSpell = not shortLabelKey and record.spellId or nil,
+            labelSpell = record.spellId,
+            spellId = record.spellId,
+            class = class,
+        }
+        for k, v in pairs(extra or {}) do def[k] = v end
+        return def
+    end
+    local debuffs = WhoDoesWhat.RaidDebuffs
+    local tongues = DebuffRow("curse_tongues", curses.tongues, "CURSE_TONGUES_ROW",
+        "Warlock", { exclusiveWith = OtherCurseIds("curse_tongues") })
+    local huntersMark = DebuffRow("debuff_hunters_mark", debuffs.huntersMark,
+        nil, "Hunter")
+    local scorpidSting = DebuffRow("debuff_scorpid_sting", debuffs.scorpidSting,
+        nil, "Hunter")
+    -- Demoralizing Roar and Shout don't stack, so a druid can fill the row.
+    local demoralize = DebuffRow("debuff_demoralize", debuffs.demoShout,
+        "DEMORALIZE_ROW", { "Warrior", "Druid" }, {
+            labelKey = "DEMORALIZE", labelSpell = false,
+            SpellFor = function(name)
+                local m = name and FindMember(name)
+                return m and m.classInfo.name == "Druid" and debuffs.demoRoar
+                    or debuffs.demoShout
+            end,
+        })
+    local thunderClap = DebuffRow("debuff_thunder_clap", debuffs.thunderClap,
+        nil, "Warrior")
+    local judgementWisdom = DebuffRow("debuff_judgement_wisdom", debuffs.judgementWisdom,
+        nil, "Paladin")
+
     RowDefs[reck.id] = reck
     RowDefs[elements.id] = elements
     if shadow then RowDefs[shadow.id] = shadow end
+    for _, def in ipairs({ tongues, huntersMark, scorpidSting, demoralize, thunderClap,
+        judgementWisdom }) do
+        RowDefs[def.id] = def
+    end
 
     -- TBC prefers an Affliction warlock for Elements, then fills Recklessness.
     -- Classic fills Recklessness, Elements, then Shadow on distinct warlocks;
-    -- Forever has no Shadow and no Malediction, so just the first two.
+    -- Forever has no Shadow and no Malediction, so just the first two, and a
+    -- druid's Faerie Fire takes the armor row ahead of any warlock.
     -- The two Settings toggles gate magic curses and Recklessness separately;
-    -- disabling one leaves its current picks untouched.
+    -- disabling one leaves its current picks untouched. Faerie Fire carries
+    -- none of Recklessness's risk, so that toggle doesn't gate a druid.
     function AutoAssignWarlockCurses() -- file-local, forward-declared above
         local settings = WhoDoesWhat.db.profile.settings
-        local locks = MembersOfClass("Warlock")
+        local store = WhoDoesWhat.db.profile.raidAssignments
+        -- A Tongues pick is deliberate and outside Auto; fill around it.
+        local locks = {}
+        for _, name in ipairs(MembersOfClass("Warlock")) do
+            if name ~= store.curse_tongues then locks[#locks + 1] = name end
+        end
+
+        -- Keep a druid already on the row rather than shuffling druids.
+        local druid
+        if faerieFire then
+            for _, name in ipairs(MembersOfClass("Druid")) do
+                if not druid or name == store.curse_reck then druid = name end
+            end
+            if druid then store.curse_reck = druid end
+        end
+
         if #locks == 0 then
-            WhoDoesWhat:Print(L.CURSES_AUTO_NO_WARLOCKS)
+            if druid then
+                WhoDoesWhat:LogOperation(reck.label .. " auto-assigned: " .. druid .. ".")
+            else
+                WhoDoesWhat:Print(L.CURSES_AUTO_NO_WARLOCKS)
+            end
             return
         end
 
-        local store = WhoDoesWhat.db.profile.raidAssignments
-
         local elementsLock, shadowLock
-        local reckLock = not settings.allowRecklessnessAutoAssign
+        local reckLock = druid or not settings.allowRecklessnessAutoAssign
             and store.curse_reck or nil
         if isClassicEra then
             if settings.autoAssignAfflictionElements then
-                if settings.allowRecklessnessAutoAssign then
+                if settings.allowRecklessnessAutoAssign and not druid then
                     reckLock = locks[1]
                     store.curse_reck = reckLock
                 end
@@ -2570,7 +2656,7 @@ do
                     .. (shadowLock or "nobody (no second warlock)")
             end
         end
-        if settings.allowRecklessnessAutoAssign then
+        if settings.allowRecklessnessAutoAssign or druid then
             parts[#parts + 1] = reck.label .. " -> "
                 .. (reckLock or "nobody (no free warlock)")
         end
@@ -2585,11 +2671,14 @@ do
         -- Paladin blessings aren't stored in this assignment model. The
         -- section renders the active WDW/PallyPower plan as read-only rows.
         { titleKey = "SECTION_PALADIN_BUFFS", rows = {} },
-        { titleKey = "SECTION_WARLOCKS", rows = shadow and { reck, elements, shadow }
-            or { reck, elements } },
+        { titleKey = "SECTION_DEBUFFS", rows = shadow
+            and { reck, elements, shadow, tongues, huntersMark, scorpidSting, demoralize, thunderClap,
+                judgementWisdom }
+            or { reck, elements, tongues, huntersMark, scorpidSting, demoralize, thunderClap,
+                judgementWisdom } },
     }
     -- Labels and titles are filled in once the player's Language is known.
-    WhoDoesWhat:LocalizeOnInit({ reck, elements, shadow })
+    WhoDoesWhat:LocalizeOnInit(Sections[2].rows)
     WhoDoesWhat:LocalizeOnInit(Sections)
 end
 
@@ -2757,6 +2846,9 @@ local function AutoPlaceAfflictionElements(playerName)
     -- Elements and Recklessness are exclusive; don't double-book this warlock.
     if store.curse_reck == playerName then
         store.curse_reck = nil
+    end
+    if store.curse_tongues == playerName then
+        store.curse_tongues = nil
     end
     WhoDoesWhat:LogOperation("Curse of the Elements auto-assigned to " .. playerName
         .. " (detected Affliction).")
@@ -2941,6 +3033,7 @@ WhoDoesWhat.Assign = {
     CollectCCWhispers = CollectCCWhispers,
     CollectMisdirectWhispers = CollectMisdirectWhispers,
     CollectCurseWhispers = CollectCurseWhispers,
+    StaticRowLabel = StaticRowLabel,
     MassWhisper = MassWhisper,
     -- section clears / auto-assigns (the views' header buttons)
     ClearTankAssignments = ClearTankAssignments,

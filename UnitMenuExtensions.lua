@@ -382,7 +382,7 @@ local function CollectAssignmentSummaries(playerName)
         local labels = {}
         for _, def in ipairs(section.rows) do
             if A.GetAssignment(def.id) == playerName then
-                labels[#labels + 1] = def.label
+                labels[#labels + 1] = A.StaticRowLabel(def, playerName)
             end
         end
         if #labels > 0 then

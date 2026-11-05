@@ -24,6 +24,10 @@ local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 local CURSES = WhoDoesWhat.WarlockCurses
 -- Classic Era only; Forever folds Shadow into Elements like TBC.
 local HAS_COS = CURSES.shadow ~= nil
+-- Forever only: Faerie Fire and Recklessness are one -505 armor debuff that
+-- doesn't stack, so the armor box values Faerie Fire (whoever casts it) and
+-- Boss Armor has no separate Faerie Fire toggle.
+local SHARED_FF = WhoDoesWhat.FaerieFire
 
 -- The page is the Calculator tab of the main window, wider than it is tall,
 -- laid out in section boxes on the page's dark ground:
@@ -33,9 +37,10 @@ local HAS_COS = CURSES.shadow ~= nil
 --                                            | Curse of Shadow / Blood Frenzy
 --   footnote across the bottom
 --
--- Each curse's own options sit at the top of its result box. Curse of
--- Recklessness is also an armor reduction, so its toggle appears in Boss Armor
--- as well; the two are one setting.
+-- (On Forever the first result box is Faerie Fire.) Each curse's own options
+-- sit at the top of its result box. Curse of Recklessness is also an armor
+-- reduction, so its toggle appears in Boss Armor as well; the two are one
+-- setting.
 local GAP = 10
 local LEFT_W = 520
 local TARGET_STRIP_H = 24  -- Fight box: target and duration, above the rows
@@ -57,7 +62,7 @@ local BOSS_ARMORS = IS_CLASSIC_ERA and { 3731, 3009, 4641 } or { 7700, 6200 }
 local SUNDER = IS_CLASSIC_ERA and 2250 or 2600
 local EXPOSE = IS_CLASSIC_ERA and 2550 or 3075 -- Improved Expose Armor
 local FAERIE_FIRE = IS_CLASSIC_ERA and 505 or 610
-local COR_ARMOR = IS_CLASSIC_ERA and 640 or 800
+local COR_ARMOR = SHARED_FF and FAERIE_FIRE or IS_CLASSIC_ERA and 640 or 800
 
 -- Magic-taken bonus from Curse of the Elements: base rank 4, or 13% with the
 -- Affliction talent Malediction.
@@ -104,7 +109,8 @@ end
 local BREAKDOWN = {
     { key = "total", labelKey = "CALC_TOTAL", color = C_TOTAL },
     { key = "physAll", labelKey = "CALC_PHYSICAL", depth = 1 },
-    { key = "physNonBleed", labelKey = "CALC_ARMOR_MITIGATED", depth = 2, color = C_COR },
+    { key = "physNonBleed", labelKey = SHARED_FF and "CALC_ARMOR_MITIGATED_FF"
+        or "CALC_ARMOR_MITIGATED", depth = 2, color = C_COR },
     { key = "bleeds", labelKey = "CALC_BLEEDS", depth = 2, color = C_MUTED },
     { key = "magicAll", labelKey = "CALC_MAGIC", depth = 1 },
 }
@@ -424,14 +430,15 @@ local function Recompute(f)
         PercentBonus(f.results.cos, L.CALC_NOUN_CURSE, stats.cosRelevant, COE_BASE, f.state.cos)
     end
 
-    -- Curse of Recklessness ---------------------------------------------------
+    -- Curse of Recklessness (Forever: Faerie Fire) ----------------------------
     local armorDebuff = (f.state.sunder and SUNDER) or (f.state.expose and EXPOSE) or 0
-    local ff = f.state.ff and FAERIE_FIRE or 0
+    local ff = not SHARED_FF and f.state.ff and FAERIE_FIRE or 0
     local pen = tonumber(f.penEdit:GetText()) or 0
     local base = f.state.bossArmor
     local C = ARMOR_C
     local nonCorReduction = armorDebuff + ff + pen
     local corTag = L.CALC_MINUS_ARMOR:format(Commafy(COR_ARMOR))
+    local corNoun = SHARED_FF and SHARED_FF.name_long or L.CALC_NOUN_CURSE
 
     if f.state.cor then
         -- Reconstruct both states independently so a debuff set that already
@@ -440,8 +447,8 @@ local function Recompute(f)
         local aWith = math.max(aWithout - COR_ARMOR, 0)
         local before = physPool * (aWith + C) / (aWithout + C)
         SetResult(f.results.cor, corTag, {
-            { L.CALC_DAMAGE_WITH:format(L.CALC_NOUN_CURSE), Commafy(physPool) },
-            { L.CALC_DAMAGE_BEFORE:format(L.CALC_NOUN_CURSE), Commafy(before) },
+            { L.CALC_DAMAGE_WITH:format(corNoun), Commafy(physPool) },
+            { L.CALC_DAMAGE_BEFORE:format(corNoun), Commafy(before) },
             { L.CALC_PROVIDED, WithDps(physPool - before), C_PROVIDED },
         })
     else
@@ -451,7 +458,7 @@ local function Recompute(f)
         local withCor = physPool * (aNow + C) / (aWithCor + C)
         SetResult(f.results.cor, corTag, {
             { L.CALC_DAMAGE_NOW, Commafy(physPool) },
-            { L.CALC_DAMAGE_WITH:format(L.CALC_NOUN_CURSE), Commafy(withCor) },
+            { L.CALC_DAMAGE_WITH:format(corNoun), Commafy(withCor) },
             { L.CALC_COULD_HAVE, WithDps(withCor - physPool), C_MISSED },
         })
     end
@@ -578,10 +585,16 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     local armor = CreateBox(f, L.CALC_BOSS_ARMOR)
     armor:SetPoint("TOPLEFT", fight, "BOTTOMLEFT", 0, -GAP)
     armor:SetWidth(LEFT_W)
-    armor:SetHeight(BoxHeight(armor, 6))
+    -- Forever folds the Faerie Fire toggle into the Recklessness one.
+    local armorRows = SHARED_FF and 5 or 6
+    armor:SetHeight(BoxHeight(armor, armorRows))
 
     -- The one Curse of Recklessness setting, shown by a toggle here and one in
-    -- its result box; either keeps the other in step.
+    -- its result box; either keeps the other in step. On Forever it is the
+    -- shared armor debuff, shown as Faerie Fire.
+    local corName = SHARED_FF and SHARED_FF.name_long or CURSES.reck.name_long
+    local corIcon = SHARED_FF and SHARED_FF.icon or CURSES.reck.icon
+    local corTip = SHARED_FF and L.CALC_FF_UP or L.CALC_COR_UP
     local corChecks = {}
     local function SetCor(on)
         f.state.cor = on
@@ -624,16 +637,18 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
             if on then f.state.sunder = false; f.sunderCheck:SetChecked(false) end
             Recompute(f)
         end)
-    f.ffCheck = AddCheckRow(armor, 4, L.CALC_FAERIE_FIRE, "-" .. Commafy(FAERIE_FIRE),
-        L.CALC_FAERIE_FIRE_TIP,
-        function(on)
-            f.state.ff = on
-            Recompute(f)
-        end)
-    corChecks[#corChecks + 1] = AddCheckRow(armor, 5, CURSES.reck.name_long,
-        "-" .. Commafy(COR_ARMOR), L.CALC_COR_UP, SetCor)
+    if not SHARED_FF then
+        f.ffCheck = AddCheckRow(armor, 4, L.CALC_FAERIE_FIRE, "-" .. Commafy(FAERIE_FIRE),
+            L.CALC_FAERIE_FIRE_TIP,
+            function(on)
+                f.state.ff = on
+                Recompute(f)
+            end)
+    end
+    corChecks[#corChecks + 1] = AddCheckRow(armor, armorRows - 1, corName,
+        "-" .. Commafy(COR_ARMOR), corTip, SetCor)
 
-    local penRow = AddValueRow(armor, 6)
+    local penRow = AddValueRow(armor, armorRows)
     penRow.label:SetText(L.CALC_EXTRA_PEN)
     f.penEdit = CreateFrame("EditBox", nil, penRow, "InputBoxTemplate")
     f.penEdit:SetSize(48, 18)
@@ -670,10 +685,10 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
         return box
     end
 
-    local corBox = AddResult("cor", CURSES.reck.name_long,
-        { icon = CURSES.reck.icon, titleColor = C_COR, tintColor = C_COR }, 1, 3)
+    local corBox = AddResult("cor", corName,
+        { icon = corIcon, titleColor = C_COR, tintColor = C_COR }, 1, 3)
     corChecks[#corChecks + 1] = AddCheckRow(corBox, 1, L.CALC_APPLIED, nil,
-        L.CALC_COR_UP, SetCor)
+        corTip, SetCor)
 
     local coeBox = AddResult("coe", CURSES.elements.name_long,
         { icon = CURSES.elements.icon, titleColor = C_COE, tintClass = "Warlock" },
@@ -723,12 +738,12 @@ function WhoDoesWhat:BuildCurseCalculatorPage(page)
     f.footnote:SetPoint("BOTTOMLEFT", 4, 2)
     f.footnote:SetPoint("BOTTOMRIGHT", -4, 2)
     f.footnote:SetJustifyH("LEFT")
-    f.footnote:SetText(L.CALC_FOOTNOTE)
+    f.footnote:SetText(SHARED_FF and L.CALC_FOOTNOTE_FF or L.CALC_FOOTNOTE)
 
     -- Reflect the default checkbox states.
     f.sunderCheck:SetChecked(f.state.sunder)
     f.exposeCheck:SetChecked(f.state.expose)
-    f.ffCheck:SetChecked(f.state.ff)
+    if f.ffCheck then f.ffCheck:SetChecked(f.state.ff) end
     for _, check in ipairs(corChecks) do check:SetChecked(f.state.cor) end
     f.coeCheck:SetChecked(f.state.coe)
     if IS_CLASSIC_ERA then

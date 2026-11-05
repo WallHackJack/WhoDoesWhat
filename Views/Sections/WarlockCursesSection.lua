@@ -3,16 +3,23 @@ local UI = select(2, ...).UI
 local L = select(2, ...).L
 local Fill = select(2, ...).Fill
 
--- Warlocks section: three compact Improved Healthstone header icons followed
--- by one fixed row per curse, rendered as
+-- Debuffs section: one fixed row per curse, then the other boss debuffs
+-- (Hunter's Mark, Scorpid Sting, Demoralizing Shout/Roar, Thunder Clap,
+-- Judgement of Wisdom),
+-- each taking its casting class, rendered as
 --
 --   [spell icon] Name    (!)  [player dropdown v] [mail]
 --
+-- then, where the client has Improved Healthstone, a Healthstones row whose
+-- three rank icons light up for the ranks the group's warlocks have.
+--
 -- The row definitions (exclusivity, preferred roles, warnings) live in
 -- Assignments.lua (RowDefs / Sections); assignment writes go through
--- SetAssignment, which enforces exclusiveWith and repaints. Header buttons:
--- mass-mail and Auto (fill both curses from the group's warlocks, gated by the
--- Settings toggles). The Curse Value Calculator is its own main-window tab.
+-- SetAssignment, which enforces exclusiveWith and repaints. A row's class may
+-- be a list: on Forever the armor row takes a warlock or a druid, and its
+-- icon follows the assignee (Recklessness or Faerie Fire). Header buttons:
+-- mass-mail and Auto (fill the rows from the group, gated by the Settings
+-- toggles). The Curse Value Calculator is its own main-window tab.
 
 local A = WhoDoesWhat.Assign
 local K = WhoDoesWhat.SectionKit
@@ -20,11 +27,12 @@ local K = WhoDoesWhat.SectionKit
 local GetAssignment = A.GetAssignment
 local SetAssignment = A.SetAssignment
 local MembersOfClass = A.MembersOfClass
+local HasMemberOfClass = A.HasMemberOfClass
 local PlayerText = A.PlayerText
 local PlayerTextWithRole = A.PlayerTextWithRole
 local RoleIconMarkup = A.RoleIconMarkup
 local HEALTHSTONE = WhoDoesWhat.WarlockHealthstone
--- No header icons at all where the client has no Improved Healthstone.
+-- No healthstone row at all where the client has no Improved Healthstone.
 local HEALTHSTONE_RANKS = HEALTHSTONE and { 2, 1, 0 } or {}
 local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 
@@ -32,11 +40,27 @@ local IS_CLASSIC_ERA = WhoDoesWhat.ClientFeatures.isClassicEra
 -- so a reordering of A.Sections can't silently swap our rows.
 local SECTION
 for _, s in ipairs(A.Sections) do
-    if s.titleKey == "SECTION_WARLOCKS" then SECTION = s end
+    if s.titleKey == "SECTION_DEBUFFS" then SECTION = s end
 end
 
-local function CollectWarlockWhispers()
-    if #MembersOfClass("Warlock") == 0 then return {} end
+-- Anyone here who can fill this row?
+local function RowHasMembers(def)
+    local classes = type(def.class) == "table" and def.class or { def.class }
+    for _, className in ipairs(classes) do
+        if HasMemberOfClass(className) then return true end
+    end
+    return false
+end
+
+local function SectionHasMembers()
+    for _, def in ipairs(SECTION.rows) do
+        if RowHasMembers(def) then return true end
+    end
+    return false
+end
+
+local function CollectDebuffWhispers()
+    if not SectionHasMembers() then return {} end
     return A.CollectCurseWhispers()
 end
 
@@ -64,27 +88,67 @@ local function HealthstoneTooltip(self)
     return true
 end
 
-local function AddHealthstoneHeaderIcons(f, chrome)
+-- The Healthstones row: stone icon + label on the left, then one icon per
+-- Improved Healthstone rank (highest first) running to the row's right edge,
+-- each captioned with its rank. Returns the y offset below.
+local function AddHealthstoneRow(f, box, y)
+    local state = f.curseSection
+    local row = CreateFrame("Frame", nil, box)
+    row:SetFrameLevel(box:GetFrameLevel() + 1)
+    row:SetSize(box:GetWidth() - UI.BOX_PAD * 2, UI.ROW_H)
+    row:SetPoint("TOPLEFT", UI.BOX_PAD, -y)
+    UI.AddRowBackground(box, row, #state.rows + 1)
+
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
+    icon:SetPoint("LEFT", 4, 0)
+    icon:SetTexture(HEALTHSTONE.icon)
+
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    label:SetText(L.HEALTHSTONES_ROW)
+
     local slots = {}
+    local anchor
     for i = #HEALTHSTONE_RANKS, 1, -1 do
         local rank = HEALTHSTONE_RANKS[i]
-        local slot = CreateFrame("Frame", nil, chrome.box)
-        slot:SetFrameLevel(chrome.box:GetFrameLevel() + 1)
+        local slot = CreateFrame("Frame", nil, row)
         slot:SetSize(UI.HEADER_BTN_SIZE, UI.HEADER_BTN_SIZE)
+        if anchor then
+            slot:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
+        else
+            slot:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
+        end
+        anchor = slot
         UI.AddTooltip(slot, HealthstoneTooltip)
         slot.rank = rank
-        slot.state = f.curseSection
+        slot.state = state
 
-        local icon = slot:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
-        icon:SetPoint("CENTER")
-        icon:SetTexture(HEALTHSTONE.icon)
-        slot.icon = icon
+        local slotIcon = slot:CreateTexture(nil, "ARTWORK")
+        slotIcon:SetSize(K.ROW_ICON_SIZE, K.ROW_ICON_SIZE)
+        slotIcon:SetPoint("CENTER")
+        slotIcon:SetTexture(HEALTHSTONE.icon)
+        slot.icon = slotIcon
+
+        local caption = slot:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+        caption:SetPoint("BOTTOMRIGHT", slotIcon, "BOTTOMRIGHT", 2, -2)
+        caption:SetText(rank)
         slots[rank] = slot
-        K.ChainHeaderButton(chrome, slot)
     end
 
-    f.curseSection.healthstoneSlots = slots
+    state.healthstoneSlots = slots
+    state.healthstoneRow = { frame = row, icon = icon, label = label }
+    return y + UI.ROW_H
+end
+
+-- The spell a row stands for with this player on it: a class-following row
+-- (Forever's armor debuff) swaps to the assignee's spell.
+local function RowSpell(def, assigned)
+    if def.SpellFor then
+        local spell = def.SpellFor(assigned)
+        return spell.icon, spell.spellId
+    end
+    return def.icon, def.spellId
 end
 
 -- One static assignment row inside the box: spell icon + name on the left
@@ -112,8 +176,9 @@ local function AddAssignmentRow(f, box, y, def)
     local iconHover = CreateFrame("Frame", nil, row)
     iconHover:SetAllPoints(icon)
     UI.AddTooltip(iconHover, function(_, tooltip)
-        if not def.spellId then return end
-        tooltip:SetHyperlink("spell:" .. def.spellId)
+        local _, spellId = RowSpell(def, GetAssignment(def.id))
+        if not spellId then return end
+        tooltip:SetHyperlink("spell:" .. spellId)
         return true
     end)
 
@@ -122,9 +187,10 @@ local function AddAssignmentRow(f, box, y, def)
         if name then
             -- Worded in the recipient's Language; the tooltip in the player's.
             return name, function(S)
-                return Fill(S.WHISPER_STATIC, { labels = WhoDoesWhat:DataText(def, "label", S),
+                return Fill(S.WHISPER_STATIC, { labels = A.StaticRowLabel(def, name, S),
                     section = WhoDoesWhat:DataText(SECTION, "title", S) })
-            end, Fill(L.WHISPER_STATIC, { labels = def.label, section = SECTION.title })
+            end, Fill(L.WHISPER_STATIC, { labels = A.StaticRowLabel(def, name),
+                section = SECTION.title })
         end
     end)
     mailBtn:SetPoint("RIGHT", row, "RIGHT", -K.ROW_END_PAD, 0)
@@ -163,12 +229,14 @@ local function AddAssignmentRow(f, box, y, def)
     return y + UI.ROW_H
 end
 
-local function Refresh(f)
-    local state = f.curseSection
-    local editable = WhoDoesWhat:CanEditAssignments()
-    local warlocks = MembersOfClass("Warlock")
-    local enabled = #warlocks > 0
+local function SetRowEnabledLook(icon, label, enabled)
+    icon:SetDesaturated(not enabled)
+    local shade = enabled and 1 or 0.5
+    label:SetTextColor(shade, shade, shade)
+end
 
+local function RefreshHealthstones(state)
+    local warlocks = MembersOfClass("Warlock")
     local counts = { [0] = 0, [1] = 0, [2] = 0 }
     local names = { [0] = {}, [1] = {}, [2] = {} }
     local unknownNames = {}
@@ -187,13 +255,23 @@ local function Refresh(f)
     state.healthstoneUnknownNames = unknownNames
     for _, rank in ipairs(HEALTHSTONE_RANKS) do
         local slot = state.healthstoneSlots[rank]
-        local count = counts[rank]
         slot.confirmedNames = names[rank]
-        slot.icon:SetDesaturated(count == 0)
+        slot.icon:SetDesaturated(counts[rank] == 0)
     end
+    local row = state.healthstoneRow
+    SetRowEnabledLook(row.icon, row.label, #warlocks > 0)
+end
+
+local function Refresh(f)
+    local state = f.curseSection
+    local editable = WhoDoesWhat:CanEditAssignments()
+    local sectionEnabled = SectionHasMembers()
+
+    if state.healthstoneRow then RefreshHealthstones(state) end
 
     local assignedCount = 0
     for _, row in ipairs(state.rows) do
+        local enabled = RowHasMembers(row.def)
         local assigned = GetAssignment(row.def.id)
         if assigned then assignedCount = assignedCount + 1 end
         UIDropDownMenu_SetText(row.dropdown,
@@ -206,9 +284,8 @@ local function Refresh(f)
         end
         row.roText:SetText(PlayerText(assigned))
         row.roText:SetShown(not editable)
-        row.icon:SetDesaturated(not enabled)
-        row.label:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5,
-            enabled and 1 or 0.5)
+        row.icon:SetTexture((RowSpell(row.def, assigned)))
+        SetRowEnabledLook(row.icon, row.label, enabled)
         local warning = enabled and row.def.GetWarning and row.def.GetWarning() or nil
         -- An unassigned row's warning is a to-do, and a viewer can't do it;
         -- only warnings about someone actually assigned matter read-only.
@@ -224,6 +301,7 @@ local function Refresh(f)
 
     local showEmpty = not editable and assignedCount == 0
     for _, row in ipairs(state.rows) do row.frame:SetShown(not showEmpty) end
+    if state.healthstoneRow then state.healthstoneRow.frame:SetShown(not showEmpty) end
     state.emptyHint:SetShown(showEmpty)
     state.box:SetHeight(showEmpty
         and (UI.BOX_PAD + UI.SECTION_TITLE_H + UI.EMPTY_ROWS_H + UI.BOX_PAD)
@@ -232,12 +310,13 @@ local function Refresh(f)
 
     -- Auto rewrites the whole section, so hide it without edit permission.
     state.autoBtn:SetShown(editable)
-    -- Its own heading colour while live, grey while there are no warlocks.
+    -- Its own heading colour while live, grey while nobody can fill a row.
     UI.SetSectionTitleColor(state.box,
-        enabled and state.box.titleColor or { 0.5, 0.5, 0.5 })
+        sectionEnabled and state.box.titleColor or { 0.5, 0.5, 0.5 })
     for _, btn in ipairs(state.buttons) do
-        btn:SetEnabled(enabled)
-        btn.disabledReason = not enabled and L.WARLOCKS_NONE
+        btn:SetEnabled(sectionEnabled)
+        btn.disabledReason = not sectionEnabled
+            and (WhoDoesWhat.FaerieFire and L.DEBUFFS_NONE or L.WARLOCKS_NONE)
             or nil
     end
 
@@ -249,13 +328,13 @@ local function Build(f)
         title = SECTION.title,
         stack = K.STACK_ASSIGN_LEFT,
         tintClass = "Warlock",
-        mailCollect = CollectWarlockWhispers,
+        mailCollect = CollectDebuffWhispers,
     })
     local box = chrome.box
 
     local autoTooltip = not IS_CLASSIC_ERA and L.CURSES_AUTO_TIP
         or WhoDoesWhat.WarlockCurses.shadow and L.CURSES_AUTO_ERA_TIP
-        or L.CURSES_AUTO_PAIR_TIP
+        or L.CURSES_AUTO_FOREVER_TIP
     local autoBtn = UI.CreateTextButton(box, L.CURSES_AUTO, L.CURSES_AUTO_TITLE,
         autoTooltip,
         function()
@@ -275,13 +354,15 @@ local function Build(f)
         emptyHint = UI.CreateEmptyHint(box),
         rows = {},
     }
-    f.curseSection.emptyHint:SetText(L.WARLOCKS_EMPTY)
+    f.curseSection.emptyHint:SetText(L.DEBUFFS_EMPTY)
     f.curseSection.emptyHint:Hide()
-    AddHealthstoneHeaderIcons(f, chrome)
 
     local innerY = UI.BOX_PAD + UI.SECTION_TITLE_H
     for _, def in ipairs(SECTION.rows) do
         innerY = AddAssignmentRow(f, box, innerY, def)
+    end
+    if HEALTHSTONE then
+        innerY = AddHealthstoneRow(f, box, innerY)
     end
     box:SetHeight(innerY + UI.BOX_PAD)
     f.curseSection.fullHeight = innerY + UI.BOX_PAD

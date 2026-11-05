@@ -15,7 +15,7 @@ Open one window with `/wdw` or the minimap button to organize tanks, crowd contr
 - **Tank assignments** - assign tanks to raid markers, custom targets, or an "everything else" catch-all.
 - **Crowd control** - assign supported, class-appropriate CC by marker or custom target.
 - **Misdirects** - pair Hunters with tanks and optionally identify the pull by raid marker in TBC.
-- **Warlock curses** - assign curses manually or automatically. TBC prefers an Affliction Warlock for Elements; Classic assigns Elements, Shadow, and Recklessness to separate Warlocks.
+- **Debuffs** - assign Warlock curses manually or automatically, plus Hunter's Mark, Scorpid Sting, Demoralizing Shout (or a Druid's Roar), Thunder Clap and Judgement of Wisdom. TBC prefers an Affliction Warlock for Elements; Classic assigns Elements, Shadow, and Recklessness to separate Warlocks; on WoW Forever a Druid's Faerie Fire or a Warlock's Recklessness fills the shared armor debuff.
 - **Fast communication** - whisper one player's full job list, one section, or the whole board.
 - **Unit-menu controls** - set roles and manage tank, CC, and misdirect assignments from player right-click menus.
 - **Roles on raid frames** - each raider's spec icon is drawn onto Blizzard's raid frames, over the group icon usually shown there: as a round icon replacing the group icon, or as a band down either edge of the health bar, narrow and hard-edged or wider and fading out under the name. Players whose spec has not been chosen or scanned keep the corner Blizzard drew. Settings > General picks the style, turns it off, or limits it to out of combat.

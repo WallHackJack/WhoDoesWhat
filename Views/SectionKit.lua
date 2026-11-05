@@ -216,7 +216,8 @@ end
 -- Shared player-list portion of an assignment dropdown: eligible members
 -- (class-filtered unless class is nil / Developer Mode), IsPreferred members
 -- floated above a divider, an empty-state line, and a "None" clearer.
---   class          eligible class name, or nil for everyone
+--   class          eligible class name, a list of them (listed class by
+--                  class), or nil for everyone
 --   IsPreferred(m) optional; true floats the member above the divider
 --   saved          currently assigned player name (radio state)
 --   OnPick(name)   selection callback (nil = None)
@@ -224,7 +225,22 @@ end
 --                  (talent ranks on the paladin buff rows), nil for none
 --   noneFirst      puts the "None" clearer at the top (misdirect tank picker)
 function K.AddPlayerMenuItems(level, class, IsPreferred, saved, OnPick, Annotate, noneFirst)
-    local members = GetEligibleMembers(class)
+    local members = {}
+    if type(class) == "table" then
+        -- Developer Mode hands back everyone for each class; list them once.
+        local seen = {}
+        for _, className in ipairs(class) do
+            for _, m in ipairs(GetEligibleMembers(className)) do
+                if not seen[m.name] then
+                    seen[m.name] = true
+                    members[#members + 1] = m
+                end
+            end
+        end
+        class = nil -- the empty-state line below names no single class
+    else
+        members = GetEligibleMembers(class)
+    end
 
     local dividerAfter = nil
     if IsPreferred then

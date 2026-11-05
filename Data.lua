@@ -1680,6 +1680,43 @@ if curseSpellIds.shadow then
         spellId = curseSpellIds.shadow,
     }
 end
+WhoDoesWhat.WarlockCurses.tongues = {
+    icon = "Interface\\Icons\\Spell_Shadow_CurseOfTounges",
+    name_longKey = "CURSE_TONGUES",
+    name_longSpell = curseSpellIds.tongues,
+    spellId = curseSpellIds.tongues,
+}
+
+-- The Debuffs section's non-curse boss debuffs, shaped like the curse
+-- records. demoRoar is the druid's take on demoShout's slot.
+local debuffSpellIds = features.raidDebuffSpellIds
+local function DebuffRecord(icon, nameKey, spellId)
+    return { icon = icon, name_longKey = nameKey, name_longSpell = spellId, spellId = spellId }
+end
+WhoDoesWhat.RaidDebuffs = {
+    huntersMark = DebuffRecord("Interface\\Icons\\Ability_Hunter_SniperShot",
+        "HUNTERS_MARK", debuffSpellIds.huntersMark),
+    scorpidSting = DebuffRecord("Interface\\Icons\\Ability_Hunter_CriticalShot",
+        "SCORPID_STING", debuffSpellIds.scorpidSting),
+    demoShout = DebuffRecord("Interface\\Icons\\Ability_Warrior_WarCry",
+        "DEMORALIZING_SHOUT", debuffSpellIds.demoShout),
+    demoRoar = DebuffRecord("Interface\\Icons\\Ability_Druid_DemoralizingRoar",
+        "DEMORALIZING_ROAR", debuffSpellIds.demoRoar),
+    thunderClap = DebuffRecord("Interface\\Icons\\Spell_Nature_ThunderClap",
+        "THUNDER_CLAP", debuffSpellIds.thunderClap),
+    judgementWisdom = DebuffRecord("Interface\\Icons\\Spell_Holy_RighteousnessAura",
+        "JUDGEMENT_WISDOM", debuffSpellIds.judgementWisdom),
+}
+
+-- Forever's druid stand-in for Curse of Recklessness (ClientFeatures says
+-- why); nil elsewhere. Shaped like a curse record so the same fields read.
+local faerieFireSpellId = features.faerieFireSpellId
+WhoDoesWhat.FaerieFire = faerieFireSpellId and {
+    icon = "Interface\\Icons\\Spell_Nature_FaerieFire",
+    name_longKey = "FAERIE_FIRE",
+    name_longSpell = faerieFireSpellId,
+    spellId = faerieFireSpellId,
+} or nil
 
 -- nil where the client has no Improved Healthstone; every healthstone feature
 -- (scan, sync, header icons, tooltips) checks this table first.
@@ -2986,12 +3023,13 @@ function WhoDoesWhat:LocalizeData()
     LocalizeRecord(self.NonRaiderRole)
     LocalizeRecord(self.HunterPetRole)
     LocalizeRecord(self.WarlockHealthstone)
+    LocalizeRecord(self.FaerieFire)
     for _, list in ipairs({ self.PaladinAuras, self.WarriorShouts, self.CCSpells,
         self.RaidTargetMarkers }) do
         for _, record in ipairs(list) do LocalizeRecord(record) end
     end
     for _, map in ipairs({ self.PaladinBuffs, self.StatusBarBackgrounds,
-        self.WarlockCurses, self.BasicWowRoles }) do
+        self.WarlockCurses, self.RaidDebuffs, self.BasicWowRoles }) do
         for _, record in pairs(map) do LocalizeRecord(record) end
     end
     for _, check in pairs(self.StatusBarChecks) do

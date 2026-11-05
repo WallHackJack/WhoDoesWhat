@@ -222,10 +222,34 @@ WhoDoesWhat.ClientFeatures = {
         reck = 11717,     -- Curse of Recklessness (Rank 4)
         elements = 11722, -- Curse of the Elements (Rank 3)
         shadow = not isForever and 17937 or nil, -- Curse of Shadow (Rank 2)
+        tongues = 11719,  -- Curse of Tongues (Rank 2)
     } or {
         reck = 27226,     -- Curse of Recklessness (Rank 5)
         elements = 27228, -- Curse of the Elements (Rank 4)
+        tongues = 11719,  -- Curse of Tongues (Rank 2; TBC adds no rank)
     },
+    -- The Debuffs section's other boss debuffs, highest rank on this client.
+    -- Demoralizing Roar shares Demoralizing Shout's slot (they don't stack).
+    raidDebuffSpellIds = isClassicEra and {
+        huntersMark = 14325, -- Hunter's Mark (Rank 4)
+        scorpidSting = 14277, -- Scorpid Sting (Rank 4)
+        demoShout = 11556,   -- Demoralizing Shout (Rank 5)
+        demoRoar = 9898,     -- Demoralizing Roar (Rank 5)
+        thunderClap = 11581, -- Thunder Clap (Rank 6)
+        -- Forever keeps the debuff (now 40s; judging no longer eats the seal).
+        judgementWisdom = 20355, -- Judgement of Wisdom (Rank 3)
+    } or {
+        huntersMark = 14325, -- Hunter's Mark (Rank 4; TBC adds no rank)
+        scorpidSting = 3043, -- Scorpid Sting (TBC's single rank)
+        demoShout = 25203,   -- Demoralizing Shout (Rank 7)
+        demoRoar = 26998,    -- Demoralizing Roar (Rank 6)
+        thunderClap = 25264, -- Thunder Clap (Rank 7)
+        judgementWisdom = 27164, -- Judgement of Wisdom (Rank 4)
+    },
+    -- Forever only: Recklessness lost its attack power and shares Faerie
+    -- Fire's -505 armor, so the two don't stack and either class fills the
+    -- one armor-debuff slot. Era and TBC keep them as separate debuffs.
+    faerieFireSpellId = isForever and 9907 or nil, -- Faerie Fire (Rank 4)
 
     -- Highest Greater Blessing ranks available in Classic Era.
     paladinBuffSpellIds = isClassicEra and {
