@@ -50,8 +50,8 @@ local Assign = WhoDoesWhat.Assign
 -- the grid out without them as the fight starts.
 --
 -- Where the client hides auras in combat (WoW Forever), every icon holds the
--- last state it read, timers still running, and wears a "?" with no glow
--- until the fight ends (IsHeld).
+-- last state it read, timers still running (a "?" in the timer's place where
+-- none is), with no glow until the fight ends (IsHeld).
 
 local frame = nil
 -- Defined in the picker section, used by the button section after it.
@@ -669,17 +669,18 @@ local function WeaponEnchantState()
         local elapsedMs = (GetTime() - frozen.at) * 1000
         local function Aged(hand)
             local ms = hand[2] and math.max(0, hand[2] - elapsedMs)
-            return { hand[1], ms, hand[3] }
+            return { hand[1], ms, hand[3], hand[4] }
         end
         return Aged(frozen[1]), Aged(frozen[2])
     end
+    -- Per hand: { has, ms left, enchant id, charges }.
     local count = select("#", GetWeaponEnchantInfo())
     local a, b, c, d, e, f, g, h = GetWeaponEnchantInfo()
     local main, off
     if count >= 8 then
-        main, off = { a, b, d }, { e, f, h }
+        main, off = { a, b, d, c }, { e, f, h, g }
     else
-        main, off = { a, b }, { d, e }
+        main, off = { a, b, nil, c }, { d, e, nil, f }
     end
     frozenWeaponEnchants = { main, off, at = GetTime() }
     return main, off
@@ -998,6 +999,9 @@ local function CollectEntries()
                 entry.has = enchanted
                 local ms = state[2]
                 entry.remaining = enchanted and ms and ms > 0 and ms / 1000 or nil
+                -- Poisons carry charges; stones and oils report 0.
+                local charges = enchanted and state[4]
+                entry.charges = charges and charges > 0 and charges or nil
                 local imbueKey = type(pick) == "string" and pick:match("^imbue:(.+)$")
                 if imbueKey then
                     -- A shaman's own imbue: right-click casts it (useSpell).
@@ -1678,7 +1682,7 @@ local function SizeButton(btn, size)
     local stockFace = btn.stock:GetFont()
     btn.stock:SetFont(stockFace or FALLBACK_FONT,
         math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
-    btn.held:SetFont(stockFace or FALLBACK_FONT,
+    btn.charges:SetFont(stockFace or FALLBACK_FONT,
         math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
 end
 
@@ -2049,14 +2053,12 @@ local function CreateButton(index)
     timer:Hide()
     btn.timer = timer
 
-    -- A held state (IsHeld): what the icon shows is a guess until the client
-    -- shows auras again.
-    local held = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-    held:SetPoint("TOPLEFT", 2, -1)
-    held:SetText("?")
-    held:SetTextColor(1, 1, 1)
-    held:Hide()
-    btn.held = held
+    -- A poison's charges left, in orange so it doesn't read as the stock count.
+    local charges = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    charges:SetPoint("TOPLEFT", 2, -1)
+    charges:SetTextColor(1, 0.5, 0)
+    charges:Hide()
+    btn.charges = charges
 
     btn:SetScript("OnEnter", ShowTooltip)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2094,7 +2096,6 @@ local function UpdateTimerAndGlow(btn)
     -- A held icon keeps its countdown but not its glow: a guess shouldn't
     -- call for a recast.
     local held = IsHeld(entry)
-    btn.held:SetShown(held)
     -- Eating: a 10-to-0 countdown in the expiring colour, glowing the same,
     -- until Well Fed lands (the aura change repaints it away).
     local eatLeft = entry.eatingUntil and (entry.eatingUntil - GetTime())
@@ -2129,8 +2130,12 @@ local function UpdateTimerAndGlow(btn)
         else
             btn.timer:SetTextColor(1, 1, 1)
         end
+    elseif held then
+        -- Nothing counting down, and what the icon shows is a guess.
+        btn.timer:SetText("?")
+        btn.timer:SetTextColor(1, 1, 1)
     end
-    btn.timer:SetShown(left and true or false)
+    btn.timer:SetShown((left or held) and true or false)
     -- The wrong elixir or scroll rank up wears the expiring glow too, without
     -- a countdown: it wants replacing, but nothing is missing.
     local color = not held and (entry.missing
@@ -2173,6 +2178,8 @@ local function PaintButton(btn, entry)
     else
         btn.stock:Hide()
     end
+    btn.charges:SetText(entry.charges or "")
+    btn.charges:SetShown(entry.charges ~= nil)
     ConfigureUse(btn, entry)
     if entry.swap then
         ConfigureSwapMenu(entry)

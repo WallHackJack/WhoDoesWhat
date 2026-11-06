@@ -198,6 +198,37 @@ local function PartyNames()
     return names
 end
 
+-- Whether `name`'s party -- their raid subgroup, or the whole group outside
+-- a raid -- has no marked tank, for checks that go to everyone when there's
+-- no tank to put them on (`partyWhenNoTank`).
+-- ponytail: rebuilt once per frame (GetTime is constant within one); key it
+-- to roster and role events if this ever shows up in a profile.
+local tankless, tanklessAt = {}, nil
+function WhoDoesWhat:InTanklessParty(name)
+    local now = GetTime()
+    if tanklessAt ~= now then
+        tanklessAt = now
+        local subgroupOf, tanked = {}, {}
+        if IsInRaid() then
+            for i = 1, GetNumGroupMembers() do
+                local _, _, subgroup = GetRaidRosterInfo(i)
+                local key = GetUnitKey("raid" .. i)
+                if key then subgroupOf[key] = subgroup end
+            end
+        else
+            for _, key in ipairs(self:GroupMemberNames()) do subgroupOf[key] = 1 end
+        end
+        for key, subgroup in pairs(subgroupOf) do
+            if self:IsMarkedTank(key) then tanked[subgroup] = true end
+        end
+        wipe(tankless)
+        for key, subgroup in pairs(subgroupOf) do
+            if not tanked[subgroup] then tankless[key] = true end
+        end
+    end
+    return tankless[name] == true
+end
+
 -- One virtual pet per hunter in the group (a non-raider hunter's pet sits
 -- out with them -- the class-filtered roster already drops both). Pets are
 -- not assignable and never stored: they exist purely for the paladin-buff
@@ -1875,7 +1906,8 @@ local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
         and not (not buff.countsDead and IgnoredWhileDead(m.name))
         and not (options.onlyManaUsers
             and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name])
-        and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
+        and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name)
+            and not (buff.partyWhenNoTank and WhoDoesWhat:InTanklessParty(m.name)))
         and not (buff.skipTanks and WhoDoesWhat:IsMarkedTank(m.name))
 end
 

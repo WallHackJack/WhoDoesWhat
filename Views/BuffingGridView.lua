@@ -696,7 +696,8 @@ local function RefreshGrid(f)
             local options = coreOptions[key]
             local notNeeded = (options.onlyManaUsers
                     and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name] or false)
-                or (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name))
+                or (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name)
+                    and not (buff.partyWhenNoTank and WhoDoesWhat:InTanklessParty(m.name)))
                 or (buff.skipTanks and WhoDoesWhat:IsMarkedTank(m.name))
             local showForTarget = not m.isPet
                 or options.hunterPets

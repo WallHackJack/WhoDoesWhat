@@ -1120,6 +1120,8 @@ WhoDoesWhat.StatusBarChecks.thorns = {
     className = "Druid",
     colorRGB = { r = 129 / 255, g = 77 / 255, b = 24 / 255 }, -- #814D18
     defaultOnlyTanks = true,
+    -- "Only for tanks" means the whole party where that party has no tank.
+    partyWhenNoTank = true,
     -- Off the Buff Grid until turned on from the Buffs page.
     defaultGrid = false,
     -- Like the other class buffs, less "Only for tanks": thorns on whoever is
