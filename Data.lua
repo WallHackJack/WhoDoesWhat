@@ -387,8 +387,15 @@ WhoDoesWhat.WarlockDemons = {
     { key = "felhunter",  spellId = 691,   npcId = 417 },   -- Summon Felhunter
     { key = "felguard",   spellId = 30146, npcId = 17252 }, -- Summon Felguard (TBC)
 }
+-- Gathering trackers for the Buff Checklist's tracking swapper, any class:
+-- one runs at a time, and shows as a buff while it does.
+WhoDoesWhat.TrackingSpells = {
+    { key = "herbs",    spellId = 2383 },  -- Find Herbs
+    { key = "minerals", spellId = 2580 },  -- Find Minerals
+    { key = "fish",     spellId = 43308 }, -- Find Fish
+}
 -- Names and icons off the ids, dropping any spell this client doesn't have.
-for _, listKey in ipairs({ "MageArmors", "WarlockArmors", "WarlockDemons" }) do
+for _, listKey in ipairs({ "MageArmors", "WarlockArmors", "WarlockDemons", "TrackingSpells" }) do
     local known = {}
     for _, armor in ipairs(WhoDoesWhat[listKey]) do
         armor.name = GetSpellInfo(armor.spellId)
@@ -586,7 +593,12 @@ WhoDoesWhat.WeaponEnchantItems = {
     -- Sunwell weapon coatings
     { 34538, 3265 }, -- Blessed Weapon Coating
     { 34539, 3266 }, -- Righteous Weapon Coating
-    -- Rogue poisons
+}
+
+-- Rogue poisons, the same shape. Listed apart because Forever puts one on a
+-- weapon beside a stone or oil, so the Buff Checklist gives them their own
+-- slot there; everywhere else they join the list above.
+WhoDoesWhat.PoisonItems = {
     { 6947, 323 }, -- Instant Poison
     { 6949, 324 }, -- Instant Poison II
     { 6950, 325 }, -- Instant Poison III
@@ -613,6 +625,9 @@ WhoDoesWhat.WeaponEnchantItems = {
     { 9186, 643 }, -- Mind-numbing Poison III
     { 21835, 2640 }, -- Anesthetic Poison
 }
+for _, pair in ipairs(WhoDoesWhat.PoisonItems) do
+    table.insert(WhoDoesWhat.WeaponEnchantItems, pair)
+end
 
 -- Windfury's temporary weapon enchants, by the enchant id GetWeaponEnchantInfo
 -- returns: what a weapon kept bare for Windfury counts as covered by.
@@ -881,6 +896,27 @@ WhoDoesWhat.ScrollItems = {
     strength = { 954, 2289, 4426, 10310, 27503, 33462 },
     protection = { 3013, 1478, 4421, 10305, 27500, 33459 },
 }
+-- Classic Era and Forever have no battle/guardian elixirs: one buff per stat,
+-- so a scroll and an elixir of the same stat share a Buff Checklist slot.
+-- These are the elixirs that join each stat's scrolls there.
+if features.isClassicEra then
+    local scrolls = WhoDoesWhat.ScrollItems
+    scrolls.stamina = { 1180, 1711, 4422, 10307 }
+    scrolls.intellect = { 955, 2290, 4419, 10308 }
+    scrolls.spirit = { 1181, 1712, 4424, 10306 }
+    WhoDoesWhat.StatElixirItems = {
+        -- Lion's Strength, Ogre's Strength, Giants, Juju Power
+        strength = { 2454, 3391, 9206, 12451 },
+        -- Minor, Lesser, plain and Greater Agility, the Mongoose
+        agility = { 2457, 3390, 8949, 9187, 13452 },
+        -- Minor, plain, Greater and Superior Defense
+        protection = { 5997, 3389, 8951, 13445 },
+        -- Minor Fortitude, Fortitude
+        stamina = { 2458, 3825 },
+        -- Wisdom, Greater Intellect
+        intellect = { 3383, 9179 },
+    }
+end
 
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
 -- id per name (`auraSpellIds`), resolved to the client's own name at runtime:

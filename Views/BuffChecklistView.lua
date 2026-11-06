@@ -58,6 +58,8 @@ local frame = nil
 local ItemUseAction
 -- Defined in the swap menu section, needed by the pickers before it.
 local EnsureSwapMenu
+-- Defined by the button section, used by the sort before it.
+local DeadEnd
 -- Set by the loader at the bottom of the file: a refresh a moment from now.
 local RequestChecklistRefresh = nil
 local swapMenu = nil
@@ -274,14 +276,22 @@ local WINDFURY_ICON = "Interface\\Icons\\Spell_Nature_Windfury"
 -- hand is GetWeaponEnchantInfo's 1 or 2; slot is the inventory slot, which the
 -- secure "cancelaura" action takes as target-slot.
 local WEAPON_SLOTS = {
-    { key = "mainHand", slot = 16, hand = 1, nameKey = "CHECKLIST_MAIN_HAND" },
-    { key = "offHand", slot = 17, hand = 2, nameKey = "CHECKLIST_OFF_HAND" },
+    { key = "mainHand", slot = 16, hand = 1, nameKey = "CHECKLIST_MAIN_HAND",
+        shortLabelKey = "CHECKLIST_MH" },
+    { key = "offHand", slot = 17, hand = 2, nameKey = "CHECKLIST_OFF_HAND",
+        shortLabelKey = "CHECKLIST_OH" },
 }
 
 -- Item id -> the weapon pickers' entry: "sharp" / "blunt" for a stone that
 -- only takes on that edge, true for anything else. And the enchant id each
 -- puts on a weapon -> its item id.
 local weaponItems, itemByEnchant = {}, {}
+-- Poisons get their own slot per weapon where they sit beside a stone
+-- (separatePoisons), and leave the weapon slot's own picker there.
+local separatePoisons = WhoDoesWhat.ClientFeatures.separatePoisons
+local POISON_SLOT = { mainHandPoison = true, offHandPoison = true }
+local poisonItems = {}
+for _, pair in ipairs(WhoDoesWhat.PoisonItems) do poisonItems[pair[1]] = true end
 for _, pair in ipairs(WhoDoesWhat.WeaponEnchantItems) do
     weaponItems[pair[1]] = pair[3] or true
     itemByEnchant[pair[2]] = pair[1]
@@ -351,14 +361,37 @@ local ELIXIR_SLOTS = {
 -- petKey is the pick for the pet section's copy of the slot. tankOnly is a
 -- slot for whoever is marked as a tank (Righteous Fury's rule) rather than
 -- for the physical damage roles, and has no pet copy.
-local SCROLL_SLOTS = {
+--
+-- Where there are no battle/guardian elixirs (Classic Era, Forever:
+-- StatElixirItems), each is a stat slot instead: that stat's scrolls and
+-- elixirs, any one of which fills it, named by its stat (statNameKey). The
+-- stamina, intellect and spirit slots exist only there. everyone is a slot for
+-- all, manaOnly one for mana users; classBuff is the raid buff of the same
+-- stat, which a scroll won't stack with, so having it fills the slot too.
+local statSlots = WhoDoesWhat.StatElixirItems ~= nil
+local SCROLL_SLOTS = {}
+for _, slot in ipairs({
     { key = "agilityScroll", petKey = "petAgilityScroll", category = "agility",
-      nameKey = "CHECKLIST_SCROLL_AGILITY", defaultIcon = 3012 }, -- Scroll of Agility
+      nameKey = "CHECKLIST_SCROLL_AGILITY", statNameKey = "CHECKLIST_STAT_AGILITY",
+      defaultIcon = 3012 }, -- Scroll of Agility
     { key = "strengthScroll", petKey = "petStrengthScroll", category = "strength",
-      nameKey = "CHECKLIST_SCROLL_STRENGTH", defaultIcon = 954 }, -- Scroll of Strength
+      nameKey = "CHECKLIST_SCROLL_STRENGTH", statNameKey = "CHECKLIST_STAT_STRENGTH",
+      defaultIcon = 954 }, -- Scroll of Strength
     { key = "protectionScroll", category = "protection", tankOnly = true,
-      nameKey = "CHECKLIST_SCROLL_PROTECTION", defaultIcon = 3013 }, -- Scroll of Protection
-}
+      nameKey = "CHECKLIST_SCROLL_PROTECTION", statNameKey = "CHECKLIST_STAT_ARMOR",
+      defaultIcon = 3013 }, -- Scroll of Protection
+    { key = "staminaScroll", category = "stamina", everyone = true, classBuff = "fortitude",
+      statNameKey = "CHECKLIST_STAT_STAMINA", defaultIcon = 1180 }, -- Scroll of Stamina
+    { key = "intellectScroll", category = "intellect", manaOnly = true, classBuff = "intellect",
+      statNameKey = "CHECKLIST_STAT_INTELLECT", defaultIcon = 955 }, -- Scroll of Intellect
+    { key = "spiritScroll", category = "spirit", manaOnly = true, classBuff = "spirit",
+      statNameKey = "CHECKLIST_STAT_SPIRIT", defaultIcon = 1181 }, -- Scroll of Spirit
+}) do
+    if WhoDoesWhat.ScrollItems and WhoDoesWhat.ScrollItems[slot.category] then
+        if statSlots then slot.nameKey = slot.statNameKey end
+        SCROLL_SLOTS[#SCROLL_SLOTS + 1] = slot
+    end
+end
 local CRYSTAL_SLOTS = {
     { key = "crystal", category = "crystal", nameKey = "CHECKLIST_CRYSTAL",
       defaultIcon = 23985 }, -- Crystal of Vitality
@@ -373,6 +406,13 @@ end
 for category, ids in pairs(WhoDoesWhat.ScrollItems or {}) do
     for _, id in ipairs(ids) do consumableCategory[id] = category end
 end
+local statElixir = {}
+for category, ids in pairs(WhoDoesWhat.StatElixirItems or {}) do
+    for _, id in ipairs(ids) do
+        consumableCategory[id] = category
+        statElixir[id] = true
+    end
+end
 for _, id in ipairs(WhoDoesWhat.CrystalItems or {}) do
     consumableCategory[id] = "crystal"
 end
@@ -385,7 +425,13 @@ for _, slots in ipairs({ ELIXIR_SLOTS, SCROLL_SLOTS, CRYSTAL_SLOTS }) do
                 consumableChoices[slot.key][id] = true
             end
         end
-        if slot.petKey then consumableChoices[slot.petKey] = consumableChoices[slot.key] end
+        -- The pet's copy reads scrolls only: a pet drinks no elixir.
+        if slot.petKey then
+            consumableChoices[slot.petKey] = {}
+            for id in pairs(consumableChoices[slot.key]) do
+                if not statElixir[id] then consumableChoices[slot.petKey][id] = true end
+            end
+        end
     end
 end
 
@@ -581,6 +627,26 @@ local SWAPPERS = {
         Running = RunningDemon,
     } },
 }
+-- Swappers every class gets, after its own. Like any swapper, one shows only
+-- while this character knows at least one of its options.
+local ALL_CLASS_SWAPPERS = { {
+    key = "tracking", nameKey = "CHECKLIST_SWAP_TRACKING", nounKey = "CHECKLIST_SWAP_TRACKING_NOUN",
+    pluralKey = "CHECKLIST_SWAP_TRACKINGS",
+    List = function() return KnownSpells(WhoDoesWhat.TrackingSpells) end,
+} }
+local classSwappers = {}
+-- A class's swappers, then everyone's.
+local function SwappersFor(class)
+    local list = classSwappers[class]
+    if not list then
+        list = {}
+        for _, swapper in ipairs(SWAPPERS[class] or {}) do list[#list + 1] = swapper end
+        for _, swapper in ipairs(ALL_CLASS_SWAPPERS) do list[#list + 1] = swapper end
+        classSwappers[class] = list
+    end
+    return list
+end
+WhoDoesWhat:LocalizeOnInit(ALL_CLASS_SWAPPERS)
 -- Names, nouns and plurals are filled in once the player's Language is known.
 WhoDoesWhat:LocalizeOnInit(WEAPON_SLOTS)
 WhoDoesWhat:LocalizeOnInit(ELIXIR_SLOTS)
@@ -636,9 +702,12 @@ local function BagChoices(kind)
             wanted = pickerItems[kind][id]
         elseif consumableChoices[kind] then
             wanted = consumableChoices[kind][id]
+        elseif POISON_SLOT[kind] then
+            wanted = poisonItems[id] and GetItemSpell(id) ~= nil
         else
             local fits = weaponItems[id]
             wanted = fits and (fits == true or fits == edge)
+                and not (separatePoisons and poisonItems[id])
                 and GetItemSpell(id) ~= nil
         end
         if wanted then out[#out + 1] = id end
@@ -656,8 +725,26 @@ local function WieldsWeapon(slot)
     return classID == ITEM_CLASS_WEAPON
 end
 
--- { enchanted, expirationMs, enchantID } per hand. Clients before the enchant
--- ids were added return six values rather than eight.
+-- C_Item.GetWeaponEnchantInfo's enchantType for a rogue poison; a stone or
+-- oil reports 2.
+local POISON_ENCHANT_TYPE = 3
+
+-- Forever: one weapon's enchants, as the weapon's own slot (stone, oil,
+-- Windfury) and its poison.
+local function ReadWeaponSlot(weaponSlot)
+    local weapon, poison = {}, {}
+    for _, e in ipairs(C_Item.GetWeaponEnchantInfo(weaponSlot) or {}) do
+        if e.hasEnchant then
+            local state = { true, e.timeLeft, e.enchantID, e.charges }
+            if e.enchantType == POISON_ENCHANT_TYPE then poison = state else weapon = state end
+        end
+    end
+    return weapon, poison
+end
+
+-- Per hand { enchanted, expirationMs, enchantID, charges }: main, off, then
+-- main and off hand poisons where those sit apart (separatePoisons). Clients
+-- before the enchant ids were added return six values rather than eight.
 local frozenWeaponEnchants
 local function WeaponEnchantState()
     -- A weapon imbue is an aura by another name, so it is frozen the same way
@@ -667,23 +754,30 @@ local function WeaponEnchantState()
         local frozen = frozenWeaponEnchants
         if not frozen then return {}, {} end
         local elapsedMs = (GetTime() - frozen.at) * 1000
-        local function Aged(hand)
+        local aged = {}
+        for i, hand in ipairs(frozen) do
             local ms = hand[2] and math.max(0, hand[2] - elapsedMs)
-            return { hand[1], ms, hand[3], hand[4] }
+            aged[i] = { hand[1], ms, hand[3], hand[4] }
         end
-        return Aged(frozen[1]), Aged(frozen[2])
+        return unpack(aged)
     end
-    -- Per hand: { has, ms left, enchant id, charges }.
-    local count = select("#", GetWeaponEnchantInfo())
-    local a, b, c, d, e, f, g, h = GetWeaponEnchantInfo()
-    local main, off
-    if count >= 8 then
-        main, off = { a, b, d, c }, { e, f, h, g }
+    local states
+    if WhoDoesWhat.ClientFeatures.separatePoisons then
+        local main, mainPoison = ReadWeaponSlot(0)
+        local off, offPoison = ReadWeaponSlot(1)
+        states = { main, off, mainPoison, offPoison }
     else
-        main, off = { a, b, nil, c }, { d, e, nil, f }
+        local count = select("#", GetWeaponEnchantInfo())
+        local a, b, c, d, e, f, g, h = GetWeaponEnchantInfo()
+        if count >= 8 then
+            states = { { a, b, d, c }, { e, f, h, g } }
+        else
+            states = { { a, b, nil, c }, { d, e, nil, f } }
+        end
     end
-    frozenWeaponEnchants = { main, off, at = GetTime() }
-    return main, off
+    frozenWeaponEnchants = states
+    states.at = GetTime()
+    return unpack(states)
 end
 
 -- Enchant id -> true for the totem's and the shaman's own Windfury.
@@ -730,7 +824,8 @@ end
 
 local function SortEntries(list)
     for i, entry in ipairs(list) do
-        entry.sortGroup, entry.sortIndex = EntryGroup(entry), i
+        -- Red X icons (DeadEnd) go after everything else.
+        entry.sortGroup, entry.sortIndex = DeadEnd(entry) and 99 or EntryGroup(entry), i
     end
     table.sort(list, function(a, b)
         if a.sortGroup ~= b.sortGroup then return a.sortGroup < b.sortGroup end
@@ -849,7 +944,7 @@ local function CollectEntries()
     -- Aura (paladin), aspect (hunter), armor (mage, warlock) or demon
     -- (warlock): shows what is running, glows while that isn't the one you
     -- picked. Nothing picked yet adopts what is up.
-    for _, swapper in ipairs(SWAPPERS[class] or {}) do
+    for _, swapper in ipairs(SwappersFor(class)) do
         local swapOptions = swapper.List()
         if #swapOptions > 0 then
             local running, selected
@@ -902,6 +997,15 @@ local function CollectEntries()
     -- read off the pet's auras, and added to the pet's list.
     local function AddConsumableSlot(slot, prefix, noun, verb, forPet)
         local active = (forPet and petConsumables or consumables)[slot.category]
+        -- The raid buff of the slot's stat fills it as well as any scroll would.
+        local classBuff = not forPet and slot.classBuff
+            and WhoDoesWhat.StatusBarChecks[slot.classBuff]
+        if not active and classBuff
+            and WhoDoesWhat:HasBuff(WhoDoesWhat:PlayerKey(), slot.classBuff) then
+            active = { name = classBuff.name, icon = classBuff.icon, classBuff = true,
+                remaining = WhoDoesWhat:GetBuffTimeRemaining(WhoDoesWhat:PlayerKey(),
+                    slot.classBuff) }
+        end
         local pickKey = forPet and slot.petKey or slot.key
         local entry = {
             id = prefix .. slot.key, key = pickKey, pick = pickKey,
@@ -922,7 +1026,7 @@ local function CollectEntries()
         -- The slot is full so it isn't missing, but it glows as expiring: it
         -- wants replacing. Compared by spell id where both have one, since a
         -- scroll's ranks all share a name.
-        if active and entry.useItem then
+        if active and entry.useItem and not active.classBuff then
             local pickedName, pickedSpellId = GetItemSpell(entry.useItem)
             if pickedSpellId and active.spellId then
                 entry.otherActive = pickedSpellId ~= active.spellId
@@ -948,11 +1052,17 @@ local function CollectEntries()
     local physical = member
         and (class == "HUNTER" or WhoDoesWhat:WantsBattleShout(member))
     local tank = WhoDoesWhat:IsMarkedTank(WhoDoesWhat:PlayerKey())
+    local manaUser = member and not WhoDoesWhat.ManaExcludedClasses[member.classInfo.name]
+    -- A stat slot takes a scroll or an elixir, so it is "used", not "read".
+    local noun, verb = "scroll", "Read"
+    if statSlots then noun, verb = "consumable", "Use" end
     if WhoDoesWhat.ScrollItems and WhoDoesWhat.db.char.buffChecklistScrolls then
         for _, slot in ipairs(SCROLL_SLOTS) do
             local wanted = physical
             if slot.tankOnly then wanted = tank end
-            if wanted then AddConsumableSlot(slot, "scroll:", "scroll", "Read") end
+            if slot.everyone then wanted = member ~= nil end
+            if slot.manaOnly then wanted = manaUser end
+            if wanted then AddConsumableSlot(slot, "scroll:", noun, verb) end
         end
     end
     -- And the pet's: a scroll reads onto a friendly target, and every hunter
@@ -974,16 +1084,25 @@ local function CollectEntries()
 
     local weapons = WhoDoesWhat.db.char.buffChecklistWeapons
     local states = weapons and { WeaponEnchantState() }
+    -- Poisons go in as they're built, the weapons' own slots after them, so
+    -- both poisons sit together ahead of the stones.
+    local weaponEntries = {}
     for _, weapon in ipairs(WEAPON_SLOTS) do
         if weapons and WieldsWeapon(weapon.slot) then
             local state = states[weapon.hand]
             local enchanted = state[1] and true or false
             local pick = picks[weapon.key]
+            -- A poison picked here before poisons got their own slot: drop
+            -- it, so the weapon's picker stops offering it.
+            if separatePoisons and poisonItems[pick] then
+                picks[weapon.key], pick = nil, nil
+            end
             local entry = {
                 id = "weapon:" .. weapon.key, key = weapon.key, pick = weapon.key,
                 slot = weapon.slot, hand = weapon.hand, selfSupplied = true,
                 pickNoun = "enchant", useVerb = "Apply", enchanted = enchanted,
                 icon = GetInventoryItemTexture("player", weapon.slot),
+                handLabel = weapon.shortLabel,
             }
             if pick == "none" then
                 entry.bare = true
@@ -1034,9 +1153,38 @@ local function CollectEntries()
                 end
             end
             entry.missing = not entry.has
-            entries[#entries + 1] = entry
+            weaponEntries[#weaponEntries + 1] = entry
+
+            if separatePoisons and select(2, UnitClass("player")) == "ROGUE" then
+                local poison = states[weapon.hand + 2] or {}
+                local kind = weapon.key .. "Poison"
+                local p = {
+                    id = "poison:" .. weapon.key, key = kind, pick = kind,
+                    slot = weapon.slot, poison = true, selfSupplied = true,
+                    pickNoun = "poison", useVerb = "Apply",
+                    enchanted = poison[1] and true or false,
+                    name = L.CHECKLIST_WEAPON_POISON:format(weapon.name),
+                    icon = GetInventoryItemTexture("player", weapon.slot),
+                    handLabel = weapon.shortLabel,
+                }
+                p.has = p.enchanted
+                local ms = poison[2]
+                p.remaining = p.enchanted and ms and ms > 0 and ms / 1000 or nil
+                p.charges = p.enchanted and poison[4] and poison[4] > 0 and poison[4] or nil
+                local pick = picks[kind]
+                if type(pick) == "number" then ApplyPick(p, pick) end
+                local onItem = p.enchanted and itemByEnchant[poison[3]]
+                if onItem then
+                    p.icon = GetItemIcon(onItem) or p.icon
+                    p.activeName = ItemName(onItem)
+                    p.otherActive = pick ~= nil and onItem ~= pick
+                end
+                p.missing = not p.has
+                entries[#entries + 1] = p
+            end
         end
     end
+    for _, entry in ipairs(weaponEntries) do entries[#entries + 1] = entry end
     SortEntries(entries)
     if pet then SortEntries(pet) end
     return entries, pet
@@ -1149,26 +1297,31 @@ end
 local PICKER_TITLES = {
     food = "CHECKLIST_PICKER_FOOD", alcohol = "CHECKLIST_PICKER_ALCOHOL",
     mainHand = "CHECKLIST_MAIN_HAND", offHand = "CHECKLIST_OFF_HAND",
+    mainHandPoison = "CHECKLIST_MAIN_HAND_POISON", offHandPoison = "CHECKLIST_OFF_HAND_POISON",
     battleElixir = "CHECK_BATTLE_ELIXIR", guardianElixir = "CHECK_GUARDIAN_ELIXIR",
     petFood = "CHECKLIST_PET_FOOD",
     agilityScroll = "CHECKLIST_SCROLL_AGILITY", strengthScroll = "CHECKLIST_SCROLL_STRENGTH",
     petAgilityScroll = "CHECKLIST_PET_SCROLL_AGILITY",
     petStrengthScroll = "CHECKLIST_PET_SCROLL_STRENGTH",
-    protectionScroll = "CHECKLIST_SCROLL_PROTECTION", crystal = "CHECKLIST_CRYSTAL",
+    crystal = "CHECKLIST_CRYSTAL",
 }
+-- A scroll slot's picker wears the slot's own name (a stat on Classic Era).
+for _, slot in ipairs(SCROLL_SLOTS) do PICKER_TITLES[slot.key] = slot.nameKey end
 -- By the entry's pickNoun, an English id: the noun as the tooltips say it,
 -- and what an empty picker says.
 local PICK_NOUN_KEYS = {
     food = "CHECKLIST_NOUN_FOOD", drink = "CHECKLIST_NOUN_DRINK",
     ["pet food"] = "CHECKLIST_NOUN_PET_FOOD", scroll = "CHECKLIST_NOUN_SCROLL",
     elixir = "CHECKLIST_NOUN_ELIXIR", enchant = "CHECKLIST_NOUN_ENCHANT",
-    crystal = "CHECKLIST_NOUN_CRYSTAL",
+    poison = "CHECKLIST_NOUN_POISON", crystal = "CHECKLIST_NOUN_CRYSTAL",
+    consumable = "CHECKLIST_NOUN_CONSUMABLE",
 }
 local PICKER_EMPTY = {
     food = "CHECKLIST_EMPTY_FOOD", drink = "CHECKLIST_EMPTY_DRINK",
     ["pet food"] = "CHECKLIST_EMPTY_PET_FOOD", scroll = "CHECKLIST_EMPTY_SCROLL",
     elixir = "CHECKLIST_EMPTY_ELIXIR", enchant = "CHECKLIST_EMPTY_ENCHANT",
-    crystal = "CHECKLIST_EMPTY_CRYSTAL",
+    poison = "CHECKLIST_EMPTY_POISON", crystal = "CHECKLIST_EMPTY_CRYSTAL",
+    consumable = "CHECKLIST_EMPTY_STAT",
 }
 -- By the entry's useVerb, also an English id: its right-click hint.
 local USE_VERB_KEYS = {
@@ -1346,7 +1499,7 @@ local function PickerSpecs(entry)
     local kind = entry.pick
     local current = Picks()[kind]
     local specs = {}
-    if entry.slot then
+    if entry.slot and not entry.poison then
         specs[#specs + 1] = { value = "none", text = L.CHECKLIST_NO_ENCHANT_WINDFURY,
             icon = WINDFURY_ICON }
         for _, imbue in ipairs(KnownImbues()) do
@@ -1583,7 +1736,8 @@ local function ShowTooltip(btn)
                     c.r, c.g, c.b)
             end
         else
-            GameTooltip:AddLine(L.CHECKLIST_NO_ENCHANT_ON, 1, 0.3, 0.3)
+            GameTooltip:AddLine(entry.poison and L.CHECKLIST_NO_POISON_ON
+                or L.CHECKLIST_NO_ENCHANT_ON, 1, 0.3, 0.3)
         end
     elseif entry.has == nil then
         GameTooltip:AddLine(L.CHECKLIST_NOT_SCANNED, 0.6, 0.6, 0.6)
@@ -1671,6 +1825,7 @@ local function ShowTooltip(btn)
 end
 
 local STOCK_FONT_RATIO = 11 / 28
+local HAND_FONT_RATIO = 8 / 28
 
 local function SizeButton(btn, size)
     if btn.sizedAt == size then return end
@@ -1684,6 +1839,8 @@ local function SizeButton(btn, size)
         math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
     btn.charges:SetFont(stockFace or FALLBACK_FONT,
         math.max(8, math.floor(size * STOCK_FONT_RATIO + 0.5)), "OUTLINE")
+    btn.hand:SetFont(stockFace or FALLBACK_FONT,
+        math.max(7, math.floor(size * HAND_FONT_RATIO + 0.5)), "OUTLINE")
 end
 
 -- ---------------------------------------------------------------------------
@@ -2047,7 +2204,8 @@ local function CreateButton(index)
     textLayer:SetFrameLevel(cooldown:GetFrameLevel() + 1)
     btn.stock:SetParent(textLayer)
 
-    local timer = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    -- Top sublevel: the countdown draws over the stock, charges and hand text.
+    local timer = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormal", 7)
     timer:SetPoint("CENTER")
     timer:SetFont(GameFontNormal:GetFont() or FALLBACK_FONT, 16, "OUTLINE")
     timer:Hide()
@@ -2059,6 +2217,13 @@ local function CreateButton(index)
     charges:SetTextColor(1, 0.5, 0)
     charges:Hide()
     btn.charges = charges
+
+    -- Which hand a weapon icon is for ("M" / "O").
+    local hand = textLayer:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    hand:SetPoint("BOTTOMLEFT", 2, 2)
+    hand:SetTextColor(0.85, 0.85, 0.85)
+    hand:Hide()
+    btn.hand = hand
 
     btn:SetScript("OnEnter", ShowTooltip)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2115,7 +2280,11 @@ local function UpdateTimerAndGlow(btn)
     -- is wrong, it just can't be used yet.
     local cooldownLeft = btn.cooldownEnds and (btn.cooldownEnds - GetTime())
     local cooling = cooldownLeft ~= nil and cooldownLeft > 0
-    local left = expiring and remaining or cooling and cooldownLeft
+    -- A held buff counts down its whole predicted time, not just the warning
+    -- window: the last read expiry is all there is to go on.
+    local predicted = held and entry.has == true and remaining ~= nil and remaining > 0
+    local left = (expiring or predicted) and remaining or cooling and cooldownLeft
+    local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
     if left then
         -- Minutes while there are any, so a six-minute warning fits the icon.
         if left >= 60 then
@@ -2123,22 +2292,21 @@ local function UpdateTimerAndGlow(btn)
         else
             btn.timer:SetFormattedText("%d", math.ceil(left))
         end
-        if expiring then
+        if expiring or predicted then
             -- The countdown wears the expiring colour, like the Paladin Bar's.
-            local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
             btn.timer:SetTextColor(c.r, c.g, c.b)
         else
             btn.timer:SetTextColor(1, 1, 1)
         end
     elseif held then
-        -- Nothing counting down, and what the icon shows is a guess.
+        -- Its predicted time has run out, or it never had one: a guess.
         btn.timer:SetText("?")
-        btn.timer:SetTextColor(1, 1, 1)
+        btn.timer:SetTextColor(c.r, c.g, c.b)
     end
     btn.timer:SetShown((left or held) and true or false)
     -- The wrong elixir or scroll rank up wears the expiring glow too, without
     -- a countdown: it wants replacing, but nothing is missing.
-    local color = not held and (entry.missing
+    local color = not held and not btn.deadEnd and (entry.missing
         and WhoDoesWhat:GetBuffChecklistGlowColor("missing")
         or (expiring or entry.otherActive) and WhoDoesWhat:GetBuffChecklistGlowColor("expiring"))
         or nil
@@ -2154,12 +2322,23 @@ local function NothingToPick(entry)
         return false
     end
     if #BagChoices(entry.pick) > 0 then return false end
-    return not (entry.slot and #KnownImbues() > 0)
+    return not (entry.slot and not entry.poison and #KnownImbues() > 0)
+end
+
+-- The red X: nothing to do about this one from here -- nothing to pick, a
+-- stone that won't take on the weapon, or the pick missing with none left in
+-- your bags. It shows no glow and no count, and sorts last.
+function DeadEnd(entry)
+    return NothingToPick(entry) or entry.wrongEdge == true
+        or (entry.useItem ~= nil and (entry.useCount or 0) == 0 and entry.has ~= true
+            -- Eating the last one is not a dead end: Well Fed is on its way.
+            and not (entry.eatingUntil and entry.eatingUntil > GetTime()))
 end
 
 local function PaintButton(btn, entry)
     btn.entry = entry
-    btn.nothing:SetShown(NothingToPick(entry) or entry.wrongEdge == true)
+    btn.deadEnd = DeadEnd(entry)
+    btn.nothing:SetShown(btn.deadEnd)
     btn.cooldownEnds = ShowItemCooldown(btn.cooldown, entry.swap
         and entry.swap.conjures and entry.running and entry.running.itemId)
     btn.expiresAt = entry.remaining and (GetTime() + entry.remaining) or nil
@@ -2167,7 +2346,7 @@ local function PaintButton(btn, entry)
     -- Grey unless it is actually on you; unknown reads as not-yet rather than
     -- as missing, so it greys without glowing.
     btn.icon:SetDesaturated(entry.has ~= true or entry.missing)
-    if entry.useItem then
+    if entry.useItem and not btn.deadEnd then
         btn.stock:SetText(entry.useCount or 0)
         if (entry.useCount or 0) > 0 then
             btn.stock:SetTextColor(1, 1, 1)
@@ -2180,6 +2359,8 @@ local function PaintButton(btn, entry)
     end
     btn.charges:SetText(entry.charges or "")
     btn.charges:SetShown(entry.charges ~= nil)
+    btn.hand:SetText(entry.handLabel or "")
+    btn.hand:SetShown(entry.handLabel ~= nil)
     ConfigureUse(btn, entry)
     if entry.swap then
         ConfigureSwapMenu(entry)
@@ -2734,7 +2915,7 @@ WhoDoesWhat.BuffTracking:OnAssumedCast(function(unit, spellId)
     if not frozen or not name then return end
     local rivals = {}
     local _, class = UnitClass("player")
-    for _, swapper in ipairs(unit == "player" and SWAPPERS[class] or {}) do
+    for _, swapper in ipairs(unit == "player" and SwappersFor(class) or {}) do
         if not swapper.Running then
             local options, isOption = swapper.List(), false
             for _, option in ipairs(options) do

@@ -165,8 +165,12 @@ local function BuildChecklistPage(f, page)
             end)
     end
 
+    -- One setting either way; where scrolls and elixirs share stat slots
+    -- (Classic Era, Forever) it says so.
+    local stats = WhoDoesWhat.StatElixirItems ~= nil
     f.checklistScrollsCheck, yL = AddCompactCheckboxRow(checklistPage,
-        PAGE_X, yL, L.CHECKLIST_TRACK_SCROLLS, L.CHECKLIST_TRACK_SCROLLS_TIP,
+        PAGE_X, yL, stats and L.CHECKLIST_TRACK_STATS or L.CHECKLIST_TRACK_SCROLLS,
+        stats and L.CHECKLIST_TRACK_STATS_TIP or L.CHECKLIST_TRACK_SCROLLS_TIP,
         function(value)
             WhoDoesWhat.db.char.buffChecklistScrolls = value
             WhoDoesWhat:RefreshBuffChecklist()
