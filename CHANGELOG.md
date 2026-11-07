@@ -4,6 +4,60 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.1.0 — 2026-11-06
+
+- The Warlocks section is now Debuffs, with new rows for Curse of Tongues,
+  Hunter's Mark, Scorpid Sting, Demoralize (a warrior's Shout or a druid's
+  Roar), Thunder Clap and Judgement of Wisdom. Improved Healthstone ranks
+  have a row of their own.
+- WoW Forever: Faerie Fire and Curse of Recklessness don't stack, so the
+  Recklessness row takes a warlock or a druid, and the Calculator values
+  Faerie Fire there.
+- WoW Forever: Curse of Shadow is gone and Curse of the Elements covers all
+  four magic schools. The board has no Shadow row, Auto fills only Elements
+  and Recklessness, and the Calculator counts Elements over fire, frost,
+  shadow and arcane.
+- WoW Forever: Salvation is gone, so it is no longer planned or tracked
+  there.
+- WoW Forever: new Shockadin and Smite roles for the damage builds in the Holy
+  Paladin and Discipline Priest trees, with caster blessings and no Might. Set
+  them by hand for now; talents still read as the healing spec.
+- WoW Forever: the Melee Hunter role is gone, since Survival is the melee spec
+  there. Survival hunters get Battle Shout, and a saved Melee Hunter moves to
+  Survival.
+- WoW Forever: the Warrior Bar is switched off for now. The game hides buffs
+  in combat there, so it had nothing live to show. Your bar settings are kept.
+- WoW Forever: in combat, where the game hides buffs, Buff Checklist icons
+  keep the last state seen without a glow. Timed buffs keep counting down,
+  and show "?" once their time should have run out.
+- WoW Forever: rogues get a poison icon per weapon, next to the stone or oil
+  one, since both can be on a weapon at once. The stone and oil pickers no
+  longer offer poisons.
+- WoW Forever: the Buff Checklist sees Trueshot Aura in Forever's talent tree.
+  Every hunter was reading as untalented.
+- Classic Era and WoW Forever: scrolls and elixirs of the same stat share one
+  Buff Checklist icon: Strength, Agility, Attack Power, Armor, Stamina,
+  Intellect and Spirit. Fortitude and Arcane Intellect fill their stat too.
+- Buff Checklist: a Tracking icon for Find Herbs, Find Minerals and Find Fish,
+  for anyone who knows one. Switching trackers keeps it lit.
+- Buff Checklist: poison charges show in orange, weapon icons are marked M or
+  O, and countdowns draw over the other icon text.
+- Buff Checklist: a picked consumable with none left in your bags shows the
+  red X. Red X icons don't glow or show a count, and sit at the end.
+- Buff Checklist: new "Hide others' buffs in combat" setting, off by default.
+  From the pull until the fight ends, it shows only your own buffs.
+- Buff Checklist: on TBC Anniversary, a Scroll of Protection icon for tanks,
+  under "Track scrolls", and one icon for the Crystals of Vitality, Insight
+  and Ferocity, behind a new "Track Bloodmyst crystals" setting that starts
+  off.
+- Buff Checklist: asking for a pet buff names your pet in the message.
+- Thorns: a party with no tank counts everyone in it.
+- Raid tab: Set Role is the first entry in a member row's menu. Those rows had
+  no WhoDoesWhat entries before.
+- A stranger's unit tooltip no longer sticks on screen after their talents
+  come in.
+- No longer marked out of date on the TBC Anniversary client.
+
 ## 2.0.8 — 2026-10-04
 
 - WoW Forever: the addon recognizes the client again. The latest beta build
