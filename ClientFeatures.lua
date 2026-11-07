@@ -202,8 +202,7 @@ WhoDoesWhat.ClientFeatures = {
         light = { normal = 40, greater = 60 },
     } or nil,
     -- Paladin blessing keys from Data.lua that this client does not have.
-    -- Forever's Salvation is no blessing at all: it sits alongside one, so it
-    -- is tracked as a group buff of its own (the `salvation` status check).
+    -- Forever has no Salvation at all.
     removedPaladinBuffs = isForever and {
         sanctuary = true,
         salv = true,

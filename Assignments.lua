@@ -1908,7 +1908,6 @@ local function IsEligibleCoreBuffTarget(m, buff, options, disconnected)
             and WhoDoesWhat.ManaExcludedClasses[m.classInfo.name])
         and not (options.onlyTanks and not WhoDoesWhat:IsMarkedTank(m.name)
             and not (buff.partyWhenNoTank and WhoDoesWhat:InTanklessParty(m.name)))
-        and not (buff.skipTanks and WhoDoesWhat:IsMarkedTank(m.name))
 end
 
 -- Everyone who can supply a talent-improved core buff, best rank first, each

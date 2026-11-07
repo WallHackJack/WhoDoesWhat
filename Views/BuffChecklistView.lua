@@ -2280,10 +2280,11 @@ local function UpdateTimerAndGlow(btn)
     -- is wrong, it just can't be used yet.
     local cooldownLeft = btn.cooldownEnds and (btn.cooldownEnds - GetTime())
     local cooling = cooldownLeft ~= nil and cooldownLeft > 0
-    -- A held buff counts down its whole predicted time, not just the warning
-    -- window: the last read expiry is all there is to go on.
+    -- A held buff keeps counting off its last read expiry, and shows that
+    -- countdown by the usual rule: only inside the warning window.
     local predicted = held and entry.has == true and remaining ~= nil and remaining > 0
-    local left = (expiring or predicted) and remaining or cooling and cooldownLeft
+    local left = expiring and remaining or cooling and cooldownLeft
+    local guess = held and not predicted
     local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
     if left then
         -- Minutes while there are any, so a six-minute warning fits the icon.
@@ -2292,18 +2293,18 @@ local function UpdateTimerAndGlow(btn)
         else
             btn.timer:SetFormattedText("%d", math.ceil(left))
         end
-        if expiring or predicted then
+        if expiring then
             -- The countdown wears the expiring colour, like the Paladin Bar's.
             btn.timer:SetTextColor(c.r, c.g, c.b)
         else
             btn.timer:SetTextColor(1, 1, 1)
         end
-    elseif held then
+    elseif guess then
         -- Its predicted time has run out, or it never had one: a guess.
         btn.timer:SetText("?")
         btn.timer:SetTextColor(c.r, c.g, c.b)
     end
-    btn.timer:SetShown((left or held) and true or false)
+    btn.timer:SetShown((left or guess) and true or false)
     -- The wrong elixir or scroll rank up wears the expiring glow too, without
     -- a countdown: it wants replacing, but nothing is missing.
     local color = not held and not btn.deadEnd and (entry.missing
