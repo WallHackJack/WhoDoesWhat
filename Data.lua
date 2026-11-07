@@ -915,6 +915,8 @@ if features.isClassicEra then
         stamina = { 2458, 3825 },
         -- Wisdom, Greater Intellect
         intellect = { 3383, 9179 },
+        -- Winterfall Firewater, Juju Might
+        attackPower = { 12820, 12460 },
     }
 end
 

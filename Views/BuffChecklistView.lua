@@ -50,8 +50,8 @@ local Assign = WhoDoesWhat.Assign
 -- the grid out without them as the fight starts.
 --
 -- Where the client hides auras in combat (WoW Forever), every icon holds the
--- last state it read, timers still running (a "?" in the timer's place where
--- none is), with no glow until the fight ends (IsHeld).
+-- last state it read, timers still running (a "?" once a timed one has run
+-- out), with no glow until the fight ends (IsHeld).
 
 local frame = nil
 -- Defined in the picker section, used by the button section after it.
@@ -386,8 +386,13 @@ for _, slot in ipairs({
       statNameKey = "CHECKLIST_STAT_INTELLECT", defaultIcon = 955 }, -- Scroll of Intellect
     { key = "spiritScroll", category = "spirit", manaOnly = true, classBuff = "spirit",
       statNameKey = "CHECKLIST_STAT_SPIRIT", defaultIcon = 1181 }, -- Scroll of Spirit
+    -- No scroll gives attack power; its elixirs are for hitters and tanks.
+    { key = "attackPowerElixir", category = "attackPower", physicalOrTank = true,
+      statNameKey = "CHECKLIST_STAT_ATTACK_POWER", defaultIcon = 12820 }, -- Winterfall Firewater
 }) do
-    if WhoDoesWhat.ScrollItems and WhoDoesWhat.ScrollItems[slot.category] then
+    local items = WhoDoesWhat.ScrollItems and WhoDoesWhat.ScrollItems[slot.category]
+        or WhoDoesWhat.StatElixirItems and WhoDoesWhat.StatElixirItems[slot.category]
+    if items then
         if statSlots then slot.nameKey = slot.statNameKey end
         SCROLL_SLOTS[#SCROLL_SLOTS + 1] = slot
     end
@@ -633,6 +638,9 @@ local ALL_CLASS_SWAPPERS = { {
     key = "tracking", nameKey = "CHECKLIST_SWAP_TRACKING", nounKey = "CHECKLIST_SWAP_TRACKING_NOUN",
     pluralKey = "CHECKLIST_SWAP_TRACKINGS",
     List = function() return KnownSpells(WhoDoesWhat.TrackingSpells) end,
+    -- Whatever you last switched to is the pick: any tracker running is
+    -- right, and none (after a death) brings back the last one.
+    adoptsRunning = true,
 } }
 local classSwappers = {}
 -- A class's swappers, then everyone's.
@@ -956,6 +964,10 @@ local function CollectEntries()
                 if option.key == picks[swapper.key] then selected = option end
             end
             selected = selected or running
+            if swapper.adoptsRunning and running then
+                selected = running
+                picks[swapper.key] = running.key
+            end
             -- Gems: the best one known is what right-click conjures, and any
             -- gem held will do.
             if swapper.conjures then selected = swapOptions[1] end
@@ -1062,6 +1074,7 @@ local function CollectEntries()
             if slot.tankOnly then wanted = tank end
             if slot.everyone then wanted = member ~= nil end
             if slot.manaOnly then wanted = manaUser end
+            if slot.physicalOrTank then wanted = physical or tank end
             if wanted then AddConsumableSlot(slot, "scroll:", noun, verb) end
         end
     end
@@ -2282,9 +2295,10 @@ local function UpdateTimerAndGlow(btn)
     local cooling = cooldownLeft ~= nil and cooldownLeft > 0
     -- A held buff keeps counting off its last read expiry, and shows that
     -- countdown by the usual rule: only inside the warning window.
-    local predicted = held and entry.has == true and remaining ~= nil and remaining > 0
     local left = expiring and remaining or cooling and cooldownLeft
-    local guess = held and not predicted
+    -- "?" only once a timed buff's predicted time has run out. Untimed ones
+    -- (tracking, aspects, auras) just hold their last state.
+    local guess = held and remaining ~= nil and remaining <= 0
     local c = WhoDoesWhat:GetBuffChecklistGlowColor("expiring")
     if left then
         -- Minutes while there are any, so a six-minute warning fits the icon.
@@ -2300,7 +2314,7 @@ local function UpdateTimerAndGlow(btn)
             btn.timer:SetTextColor(1, 1, 1)
         end
     elseif guess then
-        -- Its predicted time has run out, or it never had one: a guess.
+        -- Its predicted time has run out: a guess.
         btn.timer:SetText("?")
         btn.timer:SetTextColor(c.r, c.g, c.b)
     end
@@ -2891,6 +2905,8 @@ loader:RegisterEvent("SPELLS_CHANGED")
 loader:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 -- A mana gem used: its cooldown starts on the icon.
 loader:RegisterEvent("BAG_UPDATE_COOLDOWN")
+-- Herbs swapped for minerals: the client says so here as well as by aura.
+loader:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
 
@@ -2973,7 +2989,8 @@ loader:SetScript("OnEvent", function(_, event, arg1)
         RefreshSoon()
         return
     end
-    if event == "UNIT_AURA" or event == "BAG_UPDATE_COOLDOWN" then
+    if event == "UNIT_AURA" or event == "BAG_UPDATE_COOLDOWN"
+        or event == "MINIMAP_UPDATE_TRACKING" then
         RefreshSoon()
         return
     end
