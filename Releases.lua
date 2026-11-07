@@ -8,6 +8,15 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.1.1",
+        date = "2026-11-07",
+        notes = {
+            "Roles you pick by hand, custom roles included, stay put when talent points are spent while levelling. A respec or dual-spec swap still updates them.",
+            "WoW Forever: buffs are hidden for your whole time in a dungeon, not just in combat. The Buff Checklist turns red and reads \"(Restricted)\" while they are.",
+            "WoW Forever: while restricted, food, elixirs, scrolls, stones, oils and poisons used from the Buff Checklist start their timers, and buffs you came in with keep counting down.",
+        },
+    },
+    {
         version = "2.1.0",
         date = "2026-11-06",
         notes = {

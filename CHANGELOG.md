@@ -4,6 +4,17 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.1.1 — 2026-11-07
+
+- Roles you pick by hand, custom roles included, stay put when talent points
+  are spent while levelling. A respec or dual-spec swap still updates them.
+- WoW Forever: buffs are hidden for your whole time in a dungeon, not just in
+  combat. The Buff Checklist turns red and reads "(Restricted)" while they
+  are.
+- WoW Forever: while restricted, food, elixirs, scrolls, stones, oils and
+  poisons used from the Buff Checklist start their timers, and buffs you came
+  in with keep counting down.
+
 ## 2.1.0 — 2026-11-06
 
 - The Warlocks section is now Debuffs, with new rows for Curse of Tongues,

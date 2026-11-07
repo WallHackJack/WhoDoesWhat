@@ -62,6 +62,8 @@ local EnsureSwapMenu
 local DeadEnd
 -- Set by the loader at the bottom of the file: a refresh a moment from now.
 local RequestChecklistRefresh = nil
+-- Set there too: note a weapon item a button just used (HoldWeaponUse).
+local RememberWeaponUse = nil
 local swapMenu = nil
 local divider = nil
 -- From PLAYER_REGEN_DISABLED to PLAYER_REGEN_ENABLED.
@@ -285,7 +287,7 @@ local WEAPON_SLOTS = {
 -- Item id -> the weapon pickers' entry: "sharp" / "blunt" for a stone that
 -- only takes on that edge, true for anything else. And the enchant id each
 -- puts on a weapon -> its item id.
-local weaponItems, itemByEnchant = {}, {}
+local weaponItems, itemByEnchant, enchantByItem = {}, {}, {}
 -- Poisons get their own slot per weapon where they sit beside a stone
 -- (separatePoisons), and leave the weapon slot's own picker there.
 local separatePoisons = WhoDoesWhat.ClientFeatures.separatePoisons
@@ -295,6 +297,7 @@ for _, pair in ipairs(WhoDoesWhat.PoisonItems) do poisonItems[pair[1]] = true en
 for _, pair in ipairs(WhoDoesWhat.WeaponEnchantItems) do
     weaponItems[pair[1]] = pair[3] or true
     itemByEnchant[pair[2]] = pair[1]
+    enchantByItem[pair[1]] = pair[2]
 end
 
 -- Weapon subclass (GetItemInfoInstant's 7th return) -> its edge, for the
@@ -449,20 +452,63 @@ end
 -- Agility's are all just "Agility", which is how scrolls were landing in the
 -- battle elixir slot.
 local consumableBySpellId, consumableBySpellName = {}, {}
+-- Use-spell -> item id, for these and the alcohol drinks: which item a cast
+-- made while auras are hidden came from (UseSeconds).
+local itemBySpellId = {}
 local unresolvedConsumables = {}
 for id in pairs(consumableCategory) do unresolvedConsumables[id] = true end
+local alcoholItems = {}
+for _, id in ipairs(WhoDoesWhat.AlcoholItems or {}) do
+    alcoholItems[id] = true
+    unresolvedConsumables[id] = true
+end
 
 local function ResolveConsumableSpells()
     for id in pairs(unresolvedConsumables) do
         local name, spellId = GetItemSpell(id)
         if name then
-            consumableBySpellName[name] = consumableCategory[id]
-            if spellId then consumableBySpellId[spellId] = consumableCategory[id] end
+            if consumableCategory[id] then
+                consumableBySpellName[name] = consumableCategory[id]
+                if spellId then consumableBySpellId[spellId] = consumableCategory[id] end
+            end
+            if spellId then itemBySpellId[spellId] = id end
             unresolvedConsumables[id] = nil
         elseif C_Item and C_Item.RequestLoadItemDataByID then
             C_Item.RequestLoadItemDataByID(id)
         end
     end
+end
+
+-- Durations seen on readable buffs, by spell id and by name, kept across
+-- sessions. Only a client that can hide auras ever needs them.
+local learnDurations = C_Secrets ~= nil
+local function LearnedDurations()
+    local global = WhoDoesWhat.db.global
+    global.buffDurations = global.buffDurations or {}
+    return global.buffDurations
+end
+
+-- Which ConsumableDurations kind an item is.
+local function ItemKind(id)
+    local category = consumableCategory[id]
+    if category == "flask" or category == "crystal" then return category end
+    if category == "battle" or category == "guardian" or statElixir[id] then
+        return "elixir"
+    end
+    if category then return "scroll" end
+    if alcoholItems[id] then return "alcohol" end
+    if poisonItems[id] then return "poison" end
+    if weaponItems[id] then return "weapon" end
+    return nil
+end
+
+-- How long the buff from using this item lasts: the duration last read off it
+-- (`key`, its spell id or aura name), else Data's figure. Nil for an item the
+-- checklist doesn't offer.
+local function UseSeconds(key, itemId)
+    local durations = WhoDoesWhat.ConsumableDurations
+    return key and LearnedDurations()[key] or durations.items[itemId]
+        or durations[ItemKind(itemId) or ""]
 end
 
 -- Your own buffs (or your pet's, with unit "pet"), scanned once per pass for
@@ -514,6 +560,11 @@ local function OwnBuffs(unit)
         }
         list[#list + 1] = buff
         byName[name] = buff
+        if learnDurations and duration and duration > 0 then
+            local learned = LearnedDurations()
+            if spellId then learned[spellId] = duration end
+            learned[name] = duration
+        end
     end
     frozenOwnBuffs[unit] = { list = list, byName = byName }
     return list, byName
@@ -788,6 +839,19 @@ local function WeaponEnchantState()
     return unpack(states)
 end
 
+-- A stone, oil or poison applied from the checklist while enchants are held:
+-- the hand it went on (WeaponEnchantState's index) starts a full timer.
+local function HoldWeaponUse(index, itemId)
+    local frozen = frozenWeaponEnchants
+    if not frozen then
+        frozen = { {}, {}, {}, {}, at = GetTime() }
+        frozenWeaponEnchants = frozen
+    end
+    local seconds = UseSeconds(nil, itemId) or 0
+    frozen[index] = { true, (seconds + GetTime() - frozen.at) * 1000,
+        enchantByItem[itemId] }
+end
+
 -- Enchant id -> true for the totem's and the shaman's own Windfury.
 local windfuryEnchants = {}
 for _, id in ipairs(WhoDoesWhat.WindfuryEnchantIDs) do windfuryEnchants[id] = true end
@@ -845,6 +909,7 @@ end
 -- shares it), and how long it takes to become Well Fed on TBC.
 local FOOD_AURA_NAME = GetSpellInfo(433) or "Food"
 local EAT_SECONDS = 10
+local WELL_FED_NAME = GetSpellInfo(19705) or "Well Fed"
 
 -- The self-buffs a class casts by hand, one icon each: right-click casts it.
 --   talent    granted by a talent of the same name, so the talent tree is
@@ -945,6 +1010,24 @@ local function CollectEntries()
         for _, entry in ipairs(entries) do
             if entry.key == "food" and wellFedAt > GetTime() then
                 entry.eatingUntil = wellFedAt
+            end
+        end
+    end
+
+    -- Food or a drink used while auras are hidden: the board's tracking can't
+    -- see it, so the timer started by OnAssumedCast below fills the slot.
+    -- Well Fed only counts once the eating time is up.
+    if WhoDoesWhat:AurasSecret() then
+        for _, entry in ipairs(entries) do
+            local used
+            if entry.key == "food" then
+                used = buffsByName[WELL_FED_NAME]
+            elseif entry.key == "alcohol" and entry.useItem then
+                used = buffsByName[GetItemSpell(entry.useItem) or ""]
+            end
+            if used and used.used and GetTime() >= (used.startsAt or 0) then
+                entry.has, entry.missing = true, false
+                entry.remaining = used.remaining
             end
         end
     end
@@ -2249,6 +2332,7 @@ local function CreateButton(index)
             -- case the aura or the bag count took its time.
             RequestChecklistRefresh(0.3)
             C_Timer.After(1.5, function() WhoDoesWhat:RefreshBuffChecklist() end)
+            RememberWeaponUse(entry)
         end
         if mouseButton == "RightButton" then
             if IsShiftKeyDown() then
@@ -2391,6 +2475,27 @@ end
 -- Frame
 -- ---------------------------------------------------------------------------
 
+-- While the client hides auras the window turns red and reads "(Restricted)"
+-- instead of "(Beta)": what it shows then is held and predicted, not read.
+local RESTRICTED_FILL = { 0.22, 0.03, 0.03 }
+local RESTRICTED_TITLE = { 0.5, 0.08, 0.08, 1 }
+
+local function TitleTag()
+    if WhoDoesWhat:AurasSecret() then
+        return "|cffff7070" .. L.CHECKLIST_RESTRICTED .. "|r"
+    end
+    return "|cff808080" .. L.CHECKLIST_BETA .. "|r"
+end
+
+local function PaintRestricted(restricted)
+    local fill = WhoDoesWhat.Theme.paladinBarFill
+    local tint = restricted and RESTRICTED_FILL or fill
+    frame:SetBackdropColor(tint[1], tint[2], tint[3], fill[4])
+    frame.titleBg:SetColorTexture(unpack(restricted and RESTRICTED_TITLE
+        or WhoDoesWhat.Theme.window.titleBarColor))
+    frame.title.text:SetText(L.CHECKLIST_TITLE .. " " .. TitleTag())
+end
+
 local function EnsureFrame()
     if frame then return frame end
     frame = CreateFrame("Frame", "WhoDoesWhatBuffChecklist", UIParent, "BackdropTemplate")
@@ -2439,7 +2544,7 @@ local function EnsureFrame()
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. L.CHECKLIST_TOOLTIP_TITLE .. " |cff808080" .. L.CHECKLIST_BETA .. "|r", 1, 1, 1)
+            .. L.CHECKLIST_TOOLTIP_TITLE .. " " .. TitleTag(), 1, 1, 1)
         GameTooltip:AddLine(L.CHECKLIST_TOOLTIP_TIP, 0.6, 0.6, 0.6)
         GameTooltip:AddLine(" ")
         UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)
@@ -2479,6 +2584,7 @@ local function EnsureFrame()
         -- whether or not the end of combat already came by.
         local secret = WhoDoesWhat:AurasSecret()
         if self.wasSecret and not secret then RequestChecklistRefresh() end
+        if secret ~= self.wasSecret then PaintRestricted(secret) end
         self.wasSecret = secret
         for _, btn in ipairs(self.buttons) do
             if btn:IsShown() then UpdateTimerAndGlow(btn) end
@@ -2907,6 +3013,8 @@ loader:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 loader:RegisterEvent("BAG_UPDATE_COOLDOWN")
 -- Herbs swapped for minerals: the client says so here as well as by aura.
 loader:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+-- A stone, oil or poison from the checklist finished applying (HoldWeaponUse).
+loader:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
 
@@ -2923,13 +3031,16 @@ end
 RequestChecklistRefresh = RefreshSoon
 
 -- A spell you finish on yourself or your pet while auras are secret (see
--- BuffTracking's OnAssumedCast) goes into the frozen list OwnBuffs is reading,
--- untimed, until the fight ends and a real scan replaces it. An aura, aspect
+-- BuffTracking's OnAssumedCast) goes into the frozen list OwnBuffs is reading
+-- until auras are readable and a real scan replaces it -- timed when its
+-- duration is known (UseSeconds), untimed otherwise. An aura, aspect
 -- or armor pushes out the other options of its swapper, as it does in game.
 WhoDoesWhat.BuffTracking:OnAssumedCast(function(unit, spellId)
-    local frozen = frozenOwnBuffs[unit]
     local name, _, icon = GetSpellInfo(spellId)
-    if not frozen or not name then return end
+    if not name then return end
+    -- Nothing read yet (a reload inside an instance) still takes the cast.
+    local frozen = frozenOwnBuffs[unit] or { list = {}, byName = {} }
+    frozenOwnBuffs[unit] = frozen
     local rivals = {}
     local _, class = UnitClass("player")
     for _, swapper in ipairs(unit == "player" and SwappersFor(class) or {}) do
@@ -2953,13 +3064,57 @@ WhoDoesWhat.BuffTracking:OnAssumedCast(function(unit, spellId)
         end
     end
     local buff = { name = name, icon = icon, spellId = spellId }
+    local now = GetTime()
+    -- An item from the checklist starts its buff's full timer. Sitting down to
+    -- eat also files the Well Fed to come, EAT_SECONDS from now; the Food aura
+    -- itself gets a 30-second span so CollectEntries runs the eating countdown.
+    local seconds = UseSeconds(spellId, itemBySpellId[spellId])
+    if name == FOOD_AURA_NAME then
+        seconds = 30
+        local fed = { name = WELL_FED_NAME, icon = icon, used = true,
+            startsAt = now + EAT_SECONDS,
+            expirationTime = now + EAT_SECONDS
+                + (UseSeconds(WELL_FED_NAME) or WhoDoesWhat.ConsumableDurations.food) }
+        for i = #frozen.list, 1, -1 do
+            if frozen.list[i].name == WELL_FED_NAME then table.remove(frozen.list, i) end
+        end
+        frozen.list[#frozen.list + 1] = fed
+        frozen.byName[WELL_FED_NAME] = fed
+        C_Timer.After(EAT_SECONDS + 0.1, function() RefreshSoon() end)
+    end
+    if seconds then
+        buff.used, buff.duration, buff.expirationTime = true, seconds, now + seconds
+    end
     frozen.list[#frozen.list + 1] = buff
     frozen.byName[name] = buff
     RefreshSoon()
 end)
 
+-- A stone, oil or poison right-clicked from the checklist, until its cast
+-- finishes (UNIT_SPELLCAST_SUCCEEDED below): { index, item }.
+local pendingWeaponUse = nil
+RememberWeaponUse = function(entry)
+    if not entry.slot or not entry.useItem then return end
+    pendingWeaponUse = {
+        index = (entry.slot == 16 and 1 or 2) + (entry.poison and 2 or 0),
+        item = entry.useItem,
+    }
+end
+
 local lastPetDead = nil
-loader:SetScript("OnEvent", function(_, event, arg1)
+loader:SetScript("OnEvent", function(_, event, arg1, _, arg3)
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- (unit, castGUID, spellId). Only while held: a readable read follows
+        -- the real enchant anyway.
+        local use = pendingWeaponUse
+        if use and WhoDoesWhat:AurasSecret() and not WhoDoesWhat:IsSecret(arg3)
+            and arg3 == select(2, GetItemSpell(use.item)) then
+            pendingWeaponUse = nil
+            HoldWeaponUse(use.index, use.item)
+            RefreshSoon()
+        end
+        return
+    end
     if event == "PLAYER_REGEN_DISABLED" then
         fighting = true
         if not WhoDoesWhat:SecureSnippetsWork() then HidePickers() end

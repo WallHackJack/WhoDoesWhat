@@ -805,19 +805,33 @@ end
 WhoDoesWhat.LOG_TALENTS = false
 WhoDoesWhat.LOG_TALENT_COMMS = false
 
+-- Each player's talent points as last seen this session ({ t1, t2, t3 }).
+-- Levelling only ever adds points; a respec or a dual-spec swap takes some
+-- away from a tree, which is how the two are told apart.
+-- ponytail: session-only, so a swap made across a reload reads as levelling
+-- and leaves a manual pick alone; save it beside talentSpecs if that bites.
+local lastPoints = {}
+
+local function TreeLostPoints(playerName, points)
+    local before = lastPoints[playerName]
+    if points then lastPoints[playerName] = points end
+    if not (before and points) then return false end
+    for i = 1, 3 do
+        if (tonumber(points[i]) or 0) < (tonumber(before[i]) or 0) then return true end
+    end
+    return false
+end
+
 -- Keep a player's assigned role in step with their detected talents:
 --   - no assignment yet -> fill it with the detection
---   - the detected spec *changed* since a previous detection (a respec) ->
---     follow it
---   - anything else -> hands off; in particular this client's FIRST
---     detection never overrides an assignment that already exists (it may be
---     a manual pick, or synced from a client that inspected them in range)
--- The change test is against our own previous detection (db.profile
--- .talentSpecs), not against the assignment, so a manual pick that disagrees
--- with the talents (Feral Tank over the feral-DPS guess, a custom role) is
--- repeated broadcasts of an unchanged spec never touch it.
--- The flip side: an actual respec overrides even a manual pick -- the board
--- follows reality, and the leader can re-override if they mean it.
+--   - the assignment is still our own previous detection (db.profile
+--     .talentSpecs) and the detected spec changed (a respec, or levelling
+--     points tipping the lead tree) -> follow it
+--   - a respec or dual-spec swap (a tree lost points since we last saw
+--     them) -> follow it, even over a manual pick
+--   - anything else -> hands off: an assignment that differs from our last
+--     detection was a manual pick, a custom role, or synced from a client
+--     that inspected them in range, and levelling never overrides it.
 --
 -- Quieter than SetAssignedRole -- no group-chat announcement, because talent
 -- data for a whole raid lands in a burst and 25 auto-assignments must not
@@ -828,7 +842,7 @@ WhoDoesWhat.LOG_TALENT_COMMS = false
 -- rights to touch Blizzard group state -- in a raid that means assist, in a
 -- party the lead (your own flag is always yours); without it the assignment
 -- still saves, just without touching group state.
-function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay)
+function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay, points)
     local profile = self.db.profile
     local lastDetected = profile.talentSpecs[playerName]
     -- A replay re-reads what the library already had; it is not new evidence.
@@ -840,19 +854,22 @@ function WhoDoesWhat:AutoAssignDetectedRole(playerName, detectedRoleId, isReplay
     if isReplay and lastDetected ~= nil and detectedRoleId ~= lastDetected then
         return
     end
+    local respecced = TreeLostPoints(playerName, points) and detectedRoleId ~= lastDetected
     profile.talentSpecs[playerName] = detectedRoleId
 
     local current = profile.assignments[playerName]
     if current == detectedRoleId then return end
-    -- An existing assignment only yields to an observed RESPEC: this client
-    -- saw one spec before and now sees a different one. A FIRST detection
-    -- (lastDetected == nil) must not override -- the assignment may have come
-    -- from the synced master copy (a client that could actually inspect them
-    -- in range) or a manual pick, and "I finally saw their talents" is no
-    -- evidence anything changed. Without this, two clients with different
-    -- cache states tug the player between two roles, each rebroadcasting its
-    -- own guess.
-    if current ~= nil and (lastDetected == nil or detectedRoleId == lastDetected) then return end
+    -- An assignment this client's last detection put there follows every new
+    -- detection. One that differs from it came from a person (a manual pick, a
+    -- custom role) or the synced master copy, and only a respec or dual-spec
+    -- swap (a tree lost points) replaces it. Levelling never does: each point
+    -- spent can tip the lead tree (5/5/0 -> 5/6/0) or add a Forever marker
+    -- talent, and those used to read as a respec and overwrite the pick.
+    -- A first detection (lastDetected == nil, no points seen before) never
+    -- overrides: "I finally saw their talents" is no evidence the board is
+    -- wrong, and two clients with different caches would otherwise tug the
+    -- player between their guesses.
+    if current ~= nil and current ~= lastDetected and not respecced then return end
 
     profile.assignments[playerName] = detectedRoleId
     local _, role = self:FindRoleById(detectedRoleId)
@@ -906,7 +923,7 @@ function WhoDoesWhat:ApplySyncedTalentTreePoints(playerName, class, points)
 
     local detected = DetectedRoleFor(playerName, class, specIndex, points.variant)
     if detected and mostPoints > 0 then
-        self:AutoAssignDetectedRole(playerName, detected)
+        self:AutoAssignDetectedRole(playerName, detected, nil, points)
         self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
     end
 end
@@ -972,7 +989,7 @@ function WhoDoesWhat:OnTalentsReady(event, guid, isInspect, isReplay)
     local detected = DetectedRoleFor(key, class, specIndex, variant)
 
     if detected and (pointsSpent or 0) > 0 then
-        self:AutoAssignDetectedRole(key, detected, isReplay)
+        self:AutoAssignDetectedRole(key, detected, isReplay, t1 and { t1, t2, t3 })
         self.Assign.EnsureAutoRows(self.Assign.SectionByKey("tank"))
     end
 

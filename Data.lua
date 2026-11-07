@@ -920,6 +920,27 @@ if features.isClassicEra then
     }
 end
 
+-- How long, in seconds, the buff from each Buff Checklist item lasts. Used when
+-- you use one while auras are hidden (all of a Forever instance, combat or
+-- not): the checklist cannot read the buff, so it starts the timer itself.
+-- Listed by kind, then the items that differ from it. These are Era numbers,
+-- because only Forever hides auras. Once a buff has been read with auras
+-- visible, the checklist keeps that duration (db.global.buffDurations) and
+-- uses it in place of these.
+-- ponytail: kind defaults, not one row per item; any wrong one is fixed by
+-- the first readable sighting of that buff.
+WhoDoesWhat.ConsumableDurations = {
+    weapon = 30 * 60, poison = 30 * 60, food = 15 * 60, alcohol = 15 * 60,
+    elixir = 60 * 60, flask = 2 * 60 * 60, scroll = 30 * 60, crystal = 30 * 60,
+    items = {
+        [12451] = 30 * 60, -- Juju Power
+        [12460] = 30 * 60, -- Juju Might
+        [12820] = 20 * 60, -- Winterfall Firewater
+        [23122] = 60 * 60, -- Consecrated Sharpening Stone
+        [23123] = 60 * 60, -- Blessed Wizard Oil
+    },
+}
+
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
 -- id per name (`auraSpellIds`), resolved to the client's own name at runtime:
 -- names are rank-independent and cover both the single-target and group
