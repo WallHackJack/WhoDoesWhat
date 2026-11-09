@@ -2606,16 +2606,16 @@ end
 -- Frame
 -- ---------------------------------------------------------------------------
 
--- While the client hides auras the window turns red and reads "(Restricted)"
--- instead of "(Beta)": what it shows then is held and predicted, not read.
+-- While the client hides auras the window turns red and adds "(Restricted)":
+-- what it shows then is held and predicted, not read.
 local RESTRICTED_FILL = { 0.22, 0.03, 0.03 }
 local RESTRICTED_TITLE = { 0.5, 0.08, 0.08, 1 }
 
 local function TitleTag()
     if WhoDoesWhat:AurasSecret() then
-        return "|cffff7070" .. L.CHECKLIST_RESTRICTED .. "|r"
+        return " |cffff7070" .. L.CHECKLIST_RESTRICTED .. "|r"
     end
-    return "|cff808080" .. L.CHECKLIST_BETA .. "|r"
+    return ""
 end
 
 local function PaintRestricted(restricted)
@@ -2624,7 +2624,7 @@ local function PaintRestricted(restricted)
     frame:SetBackdropColor(tint[1], tint[2], tint[3], fill[4])
     frame.titleBg:SetColorTexture(unpack(restricted and RESTRICTED_TITLE
         or WhoDoesWhat.Theme.window.titleBarColor))
-    frame.title.text:SetText(L.CHECKLIST_TITLE .. " " .. TitleTag())
+    frame.title.text:SetText(L.CHECKLIST_TITLE .. TitleTag())
 end
 
 local function EnsureFrame()
@@ -2668,14 +2668,14 @@ local function EnsureFrame()
     titleBg:SetColorTexture(unpack(WhoDoesWhat.Theme.window.titleBarColor))
     local titleText = title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     titleText:SetPoint("CENTER")
-    titleText:SetText(L.CHECKLIST_TITLE .. " |cff808080" .. L.CHECKLIST_BETA .. "|r")
+    titleText:SetText(L.CHECKLIST_TITLE)
     title.text = titleText
     UI.AttachDrag(title, frame)
     title:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
         GameTooltip:SetText("|T" .. WhoDoesWhat.ADDON_ICON .. ":16:16:0:0|t "
-            .. L.CHECKLIST_TOOLTIP_TITLE .. " " .. TitleTag(), 1, 1, 1)
+            .. L.CHECKLIST_TOOLTIP_TITLE .. TitleTag(), 1, 1, 1)
         GameTooltip:AddLine(L.CHECKLIST_TOOLTIP_TIP, 0.6, 0.6, 0.6)
         GameTooltip:AddLine(" ")
         UI.AddTooltipHint(GameTooltip, L.HINT_ALT_DRAG, L.HINT_MOVE)

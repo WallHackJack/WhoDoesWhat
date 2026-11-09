@@ -730,7 +730,7 @@ local defaults = {
             -- before the grid wraps; hide-have drops buffs already on you.
             -- Align picks the corner that holds still and the side a short
             -- last row hugs. The position is nil until it is first Alt-dragged.
-            buffChecklistEnabled = false,
+            buffChecklistEnabled = true,
             -- How a Cozy Sleeping Bag reaching full stacks (Forever only) and
             -- Well Fed renewing are announced (General > Alerts), checklist
             -- on or not.
