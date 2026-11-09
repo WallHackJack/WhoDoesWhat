@@ -186,6 +186,39 @@ local function BuildChecklistPage(f, page)
             end)
     end
 
+    -- The Cozy Sleeping Bag is Forever's, so no row for it anywhere else.
+    if WhoDoesWhat.SleepingBag then
+        local modes = {
+            { key = "buff", labelKey = "CHECKLIST_SLEEPING_BAG_BUFF" },
+            { key = "bag", labelKey = "CHECKLIST_SLEEPING_BAG_BAG" },
+            { key = "never", labelKey = "CHECKLIST_SLEEPING_BAG_NEVER" },
+        }
+        local bagLabel, bagDD
+        bagLabel, bagDD, yL = AddDropdownRow(checklistPage, yL,
+            L.CHECKLIST_SLEEPING_BAG_LABEL, "WhoDoesWhatBuffChecklistSleepingBagDD")
+        UIDropDownMenu_Initialize(bagDD, function(_, level)
+            for _, mode in ipairs(modes) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = L[mode.labelKey]
+                info.checked = WhoDoesWhat.db.char.buffChecklistSleepingBag == mode.key
+                info.func = function()
+                    WhoDoesWhat.db.char.buffChecklistSleepingBag = mode.key
+                    UIDropDownMenu_SetText(bagDD, L[mode.labelKey])
+                    WhoDoesWhat:RefreshBuffChecklist()
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        UI.AddDropdownTooltip(bagDD, bagLabel, L.CHECKLIST_SLEEPING_BAG,
+            L.CHECKLIST_SLEEPING_BAG_TIP)
+        f.RefreshChecklistSleepingBag = function()
+            local saved = WhoDoesWhat.db.char.buffChecklistSleepingBag
+            for _, mode in ipairs(modes) do
+                if mode.key == saved then UIDropDownMenu_SetText(bagDD, L[mode.labelKey]) end
+            end
+        end
+    end
+
     f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, L.CHECKLIST_TRACK_WEAPONS, L.CHECKLIST_TRACK_WEAPONS_TIP,
         function(value)
@@ -268,6 +301,7 @@ local function RefreshChecklistPage(f)
     if f.checklistCrystalsCheck then
         f.checklistCrystalsCheck:SetChecked(self.db.char.buffChecklistCrystals)
     end
+    if f.RefreshChecklistSleepingBag then f.RefreshChecklistSleepingBag() end
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
     UIDropDownMenu_SetText(f.checklistPopoutDD,

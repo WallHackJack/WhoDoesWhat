@@ -162,6 +162,8 @@ local RESET_GENERAL = {
     "raidFrameRoleIconsInCombat", "raidFrameRoleIconStyle",
     "announceRoleChanges", "manageBlizzardRoles",
     "autoAssignAfflictionElements", "allowRecklessnessAutoAssign",
+    "sleepingBagAlertText", "sleepingBagAlertSound", "sleepingBagAlertChat",
+    "foodAlertText", "foodAlertSound", "foodAlertChat",
 }
 
 local function ResetGeneral()
@@ -423,6 +425,32 @@ local function BuildGeneralPage(f, page)
             WhoDoesWhat:LogUiBuilding("Recklessness auto-assign " .. (value and "enabled." or "disabled."))
         end)
 
+    -- Well Fed renewing, and the Cozy Sleeping Bag filling up (Forever's, so
+    -- no rows for it anywhere else).
+    yL = AddNextPageDivider(generalPage, yL, L.GENERAL_SECTION_ALERTS)
+    local alertRows = {
+        { key = "foodAlertText", label = L.GENERAL_FOOD_ALERT_TEXT, tip = L.GENERAL_FOOD_ALERT_TIP },
+        { key = "foodAlertSound", label = L.GENERAL_FOOD_ALERT_SOUND, tip = L.GENERAL_FOOD_ALERT_TIP },
+        { key = "foodAlertChat", label = L.GENERAL_FOOD_ALERT_CHAT, tip = L.GENERAL_FOOD_ALERT_TIP },
+    }
+    if WhoDoesWhat.SleepingBag then
+        for _, row in ipairs({
+            { key = "sleepingBagAlertText", label = L.GENERAL_SLEEPING_BAG_TEXT },
+            { key = "sleepingBagAlertSound", label = L.GENERAL_SLEEPING_BAG_SOUND },
+            { key = "sleepingBagAlertChat", label = L.GENERAL_SLEEPING_BAG_CHAT },
+        }) do
+            row.tip = L.GENERAL_SLEEPING_BAG_TIP
+            alertRows[#alertRows + 1] = row
+        end
+    end
+    f.alertChecks = {}
+    for _, row in ipairs(alertRows) do
+        local check
+        check, yL = AddCompactCheckboxRow(generalPage, PAGE_X, yL, row.label, row.tip,
+            function(value) WhoDoesWhat.db.profile.settings[row.key] = value end)
+        f.alertChecks[row.key] = check
+    end
+
     -- Every page's reset in one go, plus the custom role library. Roles already
     -- published to the raid and who holds which role are board state, not
     -- settings, so they stay.
@@ -464,6 +492,9 @@ local function RefreshGeneralPage(f)
     f.manageBlizzRolesCheck:SetChecked(settings.manageBlizzardRoles ~= false)
     f.afflElementsCheck:SetChecked(settings.autoAssignAfflictionElements)
     f.recklessnessCheck:SetChecked(settings.allowRecklessnessAutoAssign)
+    for key, check in pairs(f.alertChecks) do
+        check:SetChecked(settings[key])
+    end
 end
 
 S.RegisterPage({

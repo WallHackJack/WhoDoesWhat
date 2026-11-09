@@ -450,6 +450,10 @@ local defaults = {
         -- The Bloodmyst crystal icon (TBC only); its pick is `crystal` in
         -- buffChecklistItems. Off until asked for: few carry them.
         buffChecklistCrystals = false,
+        -- When the Cozy Sleeping Bag icon shows (Forever only): "buff" while
+        -- it's on you, "bag" while it's on you or the bag is in your bags,
+        -- "never".
+        buffChecklistSleepingBag = "bag",
         -- A hunter's pet section folded down to its divider.
         buffChecklistPetCollapsed = false,
         -- Whether this character has been shown the Forever welcome
@@ -727,6 +731,15 @@ local defaults = {
             -- Align picks the corner that holds still and the side a short
             -- last row hugs. The position is nil until it is first Alt-dragged.
             buffChecklistEnabled = false,
+            -- How a Cozy Sleeping Bag reaching full stacks (Forever only) and
+            -- Well Fed renewing are announced (General > Alerts), checklist
+            -- on or not.
+            sleepingBagAlertText = true,
+            sleepingBagAlertSound = true,
+            sleepingBagAlertChat = true,
+            foodAlertText = true,
+            foodAlertSound = true,
+            foodAlertChat = true,
             buffChecklistColumns = 6,
             buffChecklistIconSize = 28,
             -- How tightly the grid packs: "roomy", "snug" or "compact"

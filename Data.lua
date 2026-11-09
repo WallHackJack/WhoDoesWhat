@@ -942,6 +942,11 @@ WhoDoesWhat.ConsumableDurations = {
     },
 }
 
+-- Forever's Cozy Sleeping Bag: 1% experience per stack, up to 3, until 60.
+-- ponytail: item id is Season of Discovery's bag, assumed reused on Forever;
+-- check it against the bag in hand.
+WhoDoesWhat.SleepingBag = features.isForever and { spellId = 429959, itemId = 211527 } or nil
+
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
 -- id per name (`auraSpellIds`), resolved to the client's own name at runtime:
 -- names are rank-independent and cover both the single-target and group

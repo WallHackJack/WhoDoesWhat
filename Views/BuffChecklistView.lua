@@ -540,20 +540,20 @@ local function OwnBuffs(unit)
     end
     local list, byName = {}, {}
     for i = 1, 40 do
-        local name, icon, duration, expirationTime, spellId
+        local name, icon, count, duration, expirationTime, spellId
         if GetBuffDataByIndex then
             local aura = GetBuffDataByIndex(unit, i)
             if not aura then break end
-            name, icon, duration, expirationTime, spellId = aura.name, aura.icon,
-                aura.duration, aura.expirationTime, aura.spellId
+            name, icon, count, duration, expirationTime, spellId = aura.name, aura.icon,
+                aura.applications, aura.duration, aura.expirationTime, aura.spellId
         else
             local _
-            name, icon, _, _, duration, expirationTime, _, _, _, spellId =
+            name, icon, count, _, duration, expirationTime, _, _, _, spellId =
                 UnitBuff(unit, i)
             if not name then break end
         end
         local buff = {
-            name = name, icon = icon, spellId = spellId,
+            name = name, icon = icon, spellId = spellId, count = count,
             duration = duration, expirationTime = expirationTime,
             remaining = expirationTime and expirationTime > 0
                 and expirationTime - GetTime() or nil,
@@ -954,6 +954,96 @@ local function IsHunter()
     return class == "HUNTER"
 end
 
+-- Cozy Sleeping Bag (Forever): the first stack lands a minute in, then one a
+-- minute to the third. bagStackAt is when the last one landed, so the tile
+-- counts down to full; reaching it is announced (General settings). Read on
+-- every aura refresh whether the checklist is on or not, so a bag laid by
+-- hand counts too. nil until the first read, so a reload at full stacks stays quiet.
+local BAG_FULL, BAG_STACK_SECONDS = 3, 60
+local bagStacks, bagStackAt, bagExpires = nil, nil, nil
+
+local function BagStackCount(buffs)
+    local bag = WhoDoesWhat.SleepingBag
+    for _, buff in ipairs(buffs) do
+        if buff.spellId == bag.spellId then return math.max(buff.count or 0, 1), buff end
+    end
+    return 0, nil
+end
+
+-- Well Fed's expiry at the last read, so a meal that renews or lengthens it
+-- is announced too (General settings). nil until a readable read, and again
+-- while auras are hidden, so neither a reload nor leaving an instance sounds.
+-- ponytail: matched by the "Well Fed" name only; Classic Era foods with other
+-- buff names (Increased Stamina, Mana Regeneration) stay quiet.
+local wellFedExpires = nil
+
+-- The on-screen line: half the stock 10-second hold, and a quick fade. The
+-- fade is the raid warning slot's own (FadingFrame's fadeOutTime), so it is
+-- shortened for our line only and put back once that line is gone.
+local NOTICE_SECONDS, NOTICE_FADE = 5, 0.5
+
+local function Notice(line, color)
+    RaidNotice_AddMessage(RaidWarningFrame, line, color, NOTICE_SECONDS)
+    for _, slot in ipairs({ RaidWarningFrame.slot1, RaidWarningFrame.slot2 }) do
+        if slot and slot.fadeOutTime and slot:GetText() == line then
+            -- Kept on the slot, so two lines close together can't save our
+            -- short fade as the stock one.
+            slot.wdwStockFade = slot.wdwStockFade or slot.fadeOutTime
+            slot.fadeOutTime = NOTICE_FADE
+            C_Timer.After(NOTICE_SECONDS + NOTICE_FADE + (slot.fadeInTime or 0) + 0.1,
+                function() slot.fadeOutTime = slot.wdwStockFade end)
+            return
+        end
+    end
+end
+
+-- `prefix` names the settings: <prefix>Text, <prefix>Sound, <prefix>Chat.
+local function Announce(prefix, line, noticeColor, sound)
+    local settings = WhoDoesWhat.db.profile.settings
+    line = "[WDW] " .. line
+    if settings[prefix .. "Text"] then Notice(line, noticeColor) end
+    if settings[prefix .. "Sound"] then PlaySound(sound, "Master") end
+    if settings[prefix .. "Chat"] then
+        local c = ChatTypeInfo["SYSTEM"]
+        DEFAULT_CHAT_FRAME:AddMessage(line, c.r, c.g, c.b)
+    end
+end
+
+local function WatchSelfBuffs()
+    if WhoDoesWhat:AurasSecret() then
+        wellFedExpires, bagStacks, bagExpires = nil, nil, nil
+        return
+    end
+    local buffs, byName = OwnBuffs()
+
+    local wellFed = byName[WELL_FED_NAME]
+    local expires = wellFed and wellFed.expirationTime or 0
+    if wellFedExpires and expires > wellFedExpires + 1 then
+        -- ponytail: whisper sound stands in until the custom file arrives.
+        Announce("foodAlert", L.ALERT_FOOD_RENEWED,
+            ChatTypeInfo["SYSTEM"], SOUNDKIT and SOUNDKIT.TELL_MESSAGE or 3081)
+    end
+    wellFedExpires = expires
+
+    local bag = WhoDoesWhat.SleepingBag
+    if not bag or UnitLevel("player") >= 60 then return end
+    local count, bagBuff = BagStackCount(buffs)
+    local bagExpiry = bagBuff and bagBuff.expirationTime or 0
+    -- Re-laid at full stacks: the count holds, the time jumps back up.
+    local renewed = bagExpires and bagExpiry > bagExpires + 1
+    bagExpires = bagExpiry
+    if bagStacks and (count > bagStacks or renewed) then
+        if count > bagStacks then bagStackAt = GetTime() end
+        if count >= BAG_FULL then
+            Announce("sleepingBagAlert", L.CHECKLIST_SLEEPING_BAG_FULL:format(
+                GetSpellInfo(bag.spellId) or L.CHECKLIST_SLEEPING_BAG),
+                ChatTypeInfo["RAID_WARNING"], SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959)
+        end
+    end
+    if count == 0 then bagStackAt = nil end
+    bagStacks = count
+end
+
 -- The model's list plus what only this character's bags and gear can say: the
 -- picked food on the food entry, a battle and a guardian elixir, and one
 -- entry per wielded weapon.
@@ -1081,6 +1171,30 @@ local function CollectEntries()
                 castToggles = cast.toggles,
                 has = buff ~= nil, missing = buff == nil,
                 remaining = buff and buff.remaining,
+            }
+        end
+    end
+
+    -- Cozy Sleeping Bag (Forever): its experience buff, stacks in the corner;
+    -- right-click lays the bag down. Nothing to gain at 60.
+    local bag = WhoDoesWhat.SleepingBag
+    local bagMode = WhoDoesWhat.db.char.buffChecklistSleepingBag
+    if bag and bagMode ~= "never" and UnitLevel("player") < 60 then
+        local stacks, buff = BagStackCount(buffs)
+        local held = GetItemCount(bag.itemId) > 0
+        if buff or (bagMode == "bag" and held) then
+            local spellName, _, spellIcon = GetSpellInfo(bag.spellId)
+            entries[#entries + 1] = {
+                id = "self:sleepingBag", key = "sleepingBag",
+                name = spellName or ItemName(bag.itemId),
+                icon = spellIcon or GetItemIcon(bag.itemId), selfSupplied = true,
+                has = buff ~= nil, missing = buff == nil,
+                remaining = buff and buff.remaining,
+                charges = stacks > 1 and stacks or nil,
+                stackingUntil = buff and bagStackAt and stacks < BAG_FULL
+                    and bagStackAt + (BAG_FULL - stacks) * BAG_STACK_SECONDS or nil,
+                useItem = held and bag.itemId or nil, useCount = held and 1 or 0,
+                useVerb = "Use",
             }
         end
     end
@@ -1899,6 +2013,9 @@ local function ShowTooltip(btn)
     elseif entry.castSpell then
         UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
             L.CHECKLIST_HINT_CAST:format(entry.castSpell))
+    elseif not entry.pick and CanUse(entry) then
+        UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK,
+            L.CHECKLIST_HINT_USE:format(ItemName(entry.useItem)))
     end
     if entry.pick then
         UI.AddTooltipHint(GameTooltip, L.HINT_LEFT_CLICK,
@@ -2370,6 +2487,20 @@ local function UpdateTimerAndGlow(btn)
             WhoDoesWhat:GetBuffChecklistGlowStyle(), c)
         return
     end
+    -- Sleeping bag stacking: "2m", then 60 to 0, in white -- nothing is wrong.
+    local stackLeft = entry.stackingUntil and (entry.stackingUntil - GetTime())
+    if stackLeft and stackLeft > 0 then
+        if stackLeft > 60 then
+            btn.timer:SetFormattedText("%dm", math.ceil(stackLeft / 60))
+        else
+            btn.timer:SetFormattedText("%d", math.ceil(stackLeft))
+        end
+        btn.timer:SetTextColor(1, 1, 1)
+        btn.timer:Show()
+        WhoDoesWhat:ApplyStatusBarHighlight(btn.highlightHost, false,
+            WhoDoesWhat:GetBuffChecklistGlowStyle(), nil)
+        return
+    end
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     local expiring = entry.has == true and remaining ~= nil and remaining > 0
         and remaining < WarnSeconds()
@@ -2807,6 +2938,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
         for _, entry in ipairs(list) do
             local quiet = Hideable(entry) and entry.has == true
                 and not entry.missing and not IsExpiring(entry) and not entry.otherActive
+                and not entry.stackingUntil
             if hideOthers and not entry.selfSupplied then
                 -- Hidden for the fight.
             elseif not quiet then
@@ -2972,6 +3104,7 @@ function WhoDoesWhat:ResetBuffChecklistSettings()
     self.db.char.buffChecklistElixirs = true
     self.db.char.buffChecklistScrolls = true
     self.db.char.buffChecklistCrystals = false
+    self.db.char.buffChecklistSleepingBag = "bag"
     self.db.profile.settings.buffChecklistPos = nil
     if frame and not InCombatLockdown() then LoadPosition() end
     self:RefreshBuffChecklist()
@@ -3025,6 +3158,7 @@ local function RefreshSoon(delay)
     auraRefreshPending = true
     C_Timer.After(delay or AURA_REFRESH_DELAY, function()
         auraRefreshPending = false
+        WatchSelfBuffs()
         WhoDoesWhat:RefreshBuffChecklist()
     end)
 end
