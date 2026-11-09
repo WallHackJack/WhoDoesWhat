@@ -8,6 +8,17 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.1.2",
+        date = "2026-11-09",
+        notes = {
+            "The Buff Checklist is out of beta and on by default.",
+            "WoW Forever: the Buff Checklist shows the Cozy Sleeping Bag buff with its stacks and a countdown to the third. Choose when it shows in Checklist settings.",
+            "New Alerts in General settings: an on-screen message, sound and chat line when the sleeping bag reaches 3 stacks or a food buff is renewed.",
+            "Rumsey Rum Light counts as alcohol.",
+            "The Buff Checklist and bars no longer drift from where you put them after a restart.",
+        },
+    },
+    {
         version = "2.1.1",
         date = "2026-11-07",
         notes = {

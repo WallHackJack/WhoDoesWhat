@@ -4,6 +4,18 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.1.2 — 2026-11-09
+
+- The Buff Checklist is out of beta and on by default.
+- WoW Forever: the Buff Checklist shows the Cozy Sleeping Bag buff with its
+  stacks and a countdown to the third. Choose when it shows in Checklist
+  settings.
+- New Alerts in General settings: an on-screen message, sound and chat line
+  when the sleeping bag reaches 3 stacks or a food buff is renewed.
+- Rumsey Rum Light counts as alcohol.
+- The Buff Checklist and bars no longer drift from where you put them after a
+  restart.
+
 ## 2.1.1 — 2026-11-07
 
 - Roles you pick by hand, custom roles included, stay put when talent points
