@@ -668,6 +668,7 @@ WhoDoesWhat.AlcoholItems = {
     21151, -- Rumsey Rum Black Label
     17048, -- Rumsey Rum
     21114, -- Rumsey Rum Dark
+    20709, -- Rumsey Rum Light (buff 25037)
 }
 -- Consumed instantly, so their buff is their use-spell rather than "Well Fed":
 -- the food check matches these by spell id (BuffTracking's `itemSpells`).
