@@ -716,14 +716,17 @@ function UI.SavePoint(frame, point)
 end
 
 -- Put a frame back where `pos` ({ point, x, y }) says, clamped to the screen as
--- it is now - the resolution may have changed since it was saved - and written
--- back into `pos` so the stored copy stays honest. Without a usable `pos` the
--- frame is centred, `fallbackY` below the middle. Returns whether `pos` was used.
+-- it is now - the resolution may have changed since it was saved. The clamp is
+-- for showing only: `pos` keeps the place the player chose, because the screen
+-- can be smaller for a moment while the game starts (an ultrawide settling its
+-- size and scale), and saving that clamp moved the frame for good. Without a
+-- usable `pos` the frame is centred, `fallbackY` below the middle. Returns
+-- whether `pos` was used.
 function UI.RestorePoint(frame, pos, fallbackY)
     frame:ClearAllPoints()
     if pos and pos.point and pos.x and pos.y then
-        pos.x, pos.y = UI.ClampPoint(frame, pos.point, pos.x, pos.y)
-        frame:SetPoint(pos.point, UIParent, "BOTTOMLEFT", pos.x, pos.y)
+        local x, y = UI.ClampPoint(frame, pos.point, pos.x, pos.y)
+        frame:SetPoint(pos.point, UIParent, "BOTTOMLEFT", x, y)
         return true
     end
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -(fallbackY or 0))
@@ -772,6 +775,9 @@ function UI.AttachDrag(region, frame)
         if not frame.moving then return end
         frame.moving = nil
         frame:StopMovingOrSizing()
+        -- A dragged named frame is otherwise put back by the client's own
+        -- layout cache at login, fighting the position the caller keeps.
+        frame:SetUserPlaced(false)
         if frame.uiMove.OnStop then frame.uiMove.OnStop(frame) end
     end)
 end
