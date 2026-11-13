@@ -740,6 +740,10 @@ local defaults = {
             foodAlertText = true,
             foodAlertSound = true,
             foodAlertChat = true,
+            -- A red line per Buff Checklist icon that goes off, and a green
+            -- one when the Camp Tent can be pitched again (Forever only).
+            lostAlertText = true,
+            tentAlertText = true,
             buffChecklistColumns = 6,
             buffChecklistIconSize = 28,
             -- How tightly the grid packs: "roomy", "snug" or "compact"

@@ -956,11 +956,14 @@ end
 
 -- Cozy Sleeping Bag (Forever): the first stack lands a minute in, then one a
 -- minute to the third. bagStackAt is when the last one landed, so the tile
--- counts down to full; reaching it is announced (General settings). Read on
--- every aura refresh whether the checklist is on or not, so a bag laid by
--- hand counts too. nil until the first read, so a reload at full stacks stays quiet.
+-- counts down to full; reaching it, or re-laying the bag at three, is
+-- announced (General settings). Read on every aura refresh whether the
+-- checklist is on or not, so a bag laid by hand counts too. nil until the
+-- first read, so a reload at full stacks stays quiet.
 local BAG_FULL, BAG_STACK_SECONDS = 3, 60
-local bagStacks, bagStackAt, bagExpires = nil, nil, nil
+-- The alert watchers' state, in one table: this file is near Lua's 200-local
+-- limit. bagStacks, bagStackAt, bagExpires: the sleeping bag (below).
+local watch = { wasUp = {} }
 
 local function BagStackCount(buffs)
     local bag = WhoDoesWhat.SleepingBag
@@ -975,7 +978,6 @@ end
 -- while auras are hidden, so neither a reload nor leaving an instance sounds.
 -- ponytail: matched by the "Well Fed" name only; Classic Era foods with other
 -- buff names (Increased Stamina, Mana Regeneration) stay quiet.
-local wellFedExpires = nil
 
 -- The on-screen line: half the stock 10-second hold, and a quick fade. The
 -- fade is the raid warning slot's own (FadingFrame's fadeOutTime), so it is
@@ -1009,39 +1011,95 @@ local function Announce(prefix, line, noticeColor, sound)
     end
 end
 
+
+-- Checklist icon id -> up at the last refresh, for a red line per buff lost.
+-- Only an icon that was on and is now missing counts: one that comes or goes
+-- (a priest leaving the group) says nothing, and a swapper or a bare weapon
+-- goes off by a change of pick, not a loss. Forgotten while auras are hidden,
+-- so leaving an instance doesn't replay the dungeon's losses.
+
+local function AnnounceLost(entries)
+    if WhoDoesWhat:AurasSecret() then
+        watch.wasUp = {}
+        return
+    end
+    local up = {}
+    for _, entry in ipairs(entries) do
+        -- quietLoss: going off is good news (the tent ready again), told green.
+        if not entry.swap and not entry.bare and not entry.quietLoss then
+            if entry.missing == true and watch.wasUp[entry.id] then
+                Announce("lostAlert", L.ALERT_BUFF_LOST:format(entry.name), { r = 1, g = 0.25, b = 0.25 })
+            end
+            up[entry.id] = entry.has == true or nil
+        end
+    end
+    watch.wasUp = up
+end
+
+-- Camp Tent (Forever): its rested debuff's expiry, nil while it's off. Kept
+-- while auras are hidden, so a tent that comes back inside a dungeon is
+-- announced on the way out. tentSeen is false until the first read, so a
+-- login with the debuff already gone stays quiet.
+
+-- The expiry of your debuff `spellId` (0 for none), or nil when it's off.
+local function OwnDebuffExpiry(spellId)
+    for i = 1, 40 do
+        local id, expirationTime
+        if C_UnitAuras and C_UnitAuras.GetDebuffDataByIndex then
+            local aura = C_UnitAuras.GetDebuffDataByIndex("player", i)
+            if not aura then return nil end
+            id, expirationTime = aura.spellId, aura.expirationTime
+        else
+            local name, _, _, _, _, exp, _, _, _, sid = UnitDebuff("player", i)
+            if not name then return nil end
+            id, expirationTime = sid, exp
+        end
+        if id == spellId then return expirationTime or 0 end
+    end
+end
+
 local function WatchSelfBuffs()
     if WhoDoesWhat:AurasSecret() then
-        wellFedExpires, bagStacks, bagExpires = nil, nil, nil
+        watch.wellFedExpires, watch.bagStacks, watch.bagExpires = nil, nil, nil
         return
     end
     local buffs, byName = OwnBuffs()
 
+    local tent = WhoDoesWhat.CampingTent
+    if tent and tent.debuffSpellId then
+        local readyAt = OwnDebuffExpiry(tent.debuffSpellId)
+        if watch.tentSeen and watch.tentReadyAt and not readyAt then
+            Announce("tentAlert", L.ALERT_TENT_READY, { r = 0.25, g = 1, b = 0.25 })
+        end
+        watch.tentReadyAt, watch.tentSeen = readyAt, true
+    end
+
     local wellFed = byName[WELL_FED_NAME]
     local expires = wellFed and wellFed.expirationTime or 0
-    if wellFedExpires and expires > wellFedExpires + 1 then
+    if watch.wellFedExpires and expires > watch.wellFedExpires + 1 then
         -- ponytail: whisper sound stands in until the custom file arrives.
         Announce("foodAlert", L.ALERT_FOOD_RENEWED,
             ChatTypeInfo["SYSTEM"], SOUNDKIT and SOUNDKIT.TELL_MESSAGE or 3081)
     end
-    wellFedExpires = expires
+    watch.wellFedExpires = expires
 
     local bag = WhoDoesWhat.SleepingBag
     if not bag or UnitLevel("player") >= 60 then return end
     local count, bagBuff = BagStackCount(buffs)
     local bagExpiry = bagBuff and bagBuff.expirationTime or 0
     -- Re-laid at full stacks: the count holds, the time jumps back up.
-    local renewed = bagExpires and bagExpiry > bagExpires + 1
-    bagExpires = bagExpiry
-    if bagStacks and (count > bagStacks or renewed) then
-        if count > bagStacks then bagStackAt = GetTime() end
+    local renewed = watch.bagExpires and bagExpiry > watch.bagExpires + 1
+    watch.bagExpires = bagExpiry
+    if watch.bagStacks and (count > watch.bagStacks or renewed) then
+        if count > watch.bagStacks then watch.bagStackAt = GetTime() end
         if count >= BAG_FULL then
             Announce("sleepingBagAlert", L.CHECKLIST_SLEEPING_BAG_FULL:format(
                 GetSpellInfo(bag.spellId) or L.CHECKLIST_SLEEPING_BAG),
                 ChatTypeInfo["RAID_WARNING"], SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959)
         end
     end
-    if count == 0 then bagStackAt = nil end
-    bagStacks = count
+    if count == 0 then watch.bagStackAt = nil end
+    watch.bagStacks = count
 end
 
 -- The model's list plus what only this character's bags and gear can say: the
@@ -1191,9 +1249,32 @@ local function CollectEntries()
                 has = buff ~= nil, missing = buff == nil,
                 remaining = buff and buff.remaining,
                 charges = stacks > 1 and stacks or nil,
-                stackingUntil = buff and bagStackAt and stacks < BAG_FULL
-                    and bagStackAt + (BAG_FULL - stacks) * BAG_STACK_SECONDS or nil,
+                countdownUntil = buff and watch.bagStackAt and stacks < BAG_FULL
+                    and watch.bagStackAt + (BAG_FULL - stacks) * BAG_STACK_SECONDS or nil,
                 useItem = held and bag.itemId or nil, useCount = held and 1 or 0,
+                useVerb = "Use",
+            }
+        end
+    end
+
+    -- Camp Tent (Forever): wears its rested debuff's icon. Glows while the
+    -- tent is ready to pitch, right-click pitches it; while the debuff is on
+    -- it counts down to the next pitch, by the buffs' warning-window rule.
+    -- Rested experience is moot at 60.
+    local tent = WhoDoesWhat.CampingTent
+    if tent and tent.debuffSpellId and UnitLevel("player") < 60 then
+        local held = GetItemCount(tent.itemId) > 0
+        if held or watch.tentReadyAt then
+            local _, _, debuffIcon = GetSpellInfo(tent.debuffSpellId)
+            local cooling = watch.tentReadyAt ~= nil
+            entries[#entries + 1] = {
+                id = "self:campingTent", key = "campingTent", quietLoss = true,
+                name = ItemName(tent.itemId),
+                icon = debuffIcon or GetItemIcon(tent.itemId), selfSupplied = true,
+                has = cooling, missing = not cooling,
+                remaining = cooling and watch.tentReadyAt > 0
+                    and watch.tentReadyAt - GetTime() or nil,
+                useItem = held and tent.itemId or nil, useCount = held and 1 or 0,
                 useVerb = "Use",
             }
         end
@@ -2487,8 +2568,9 @@ local function UpdateTimerAndGlow(btn)
             WhoDoesWhat:GetBuffChecklistGlowStyle(), c)
         return
     end
-    -- Sleeping bag stacking: "2m", then 60 to 0, in white -- nothing is wrong.
-    local stackLeft = entry.stackingUntil and (entry.stackingUntil - GetTime())
+    -- A white countdown to the sleeping bag's third stack:
+    -- "2m", then 60 to 0. Nothing is wrong, so no glow.
+    local stackLeft = entry.countdownUntil and (entry.countdownUntil - GetTime())
     if stackLeft and stackLeft > 0 then
         if stackLeft > 60 then
             btn.timer:SetFormattedText("%dm", math.ceil(stackLeft / 60))
@@ -2896,6 +2978,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
     end
 
     local entries, pet = CollectEntries()
+    AnnounceLost(entries)
     local collapsed = self.db.char.buffChecklistPetCollapsed and true or false
 
     -- Mid-fight nothing secure can be shown, hidden or moved, so whatever is
@@ -2938,7 +3021,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
         for _, entry in ipairs(list) do
             local quiet = Hideable(entry) and entry.has == true
                 and not entry.missing and not IsExpiring(entry) and not entry.otherActive
-                and not entry.stackingUntil
+                and not entry.countdownUntil
             if hideOthers and not entry.selfSupplied then
                 -- Hidden for the fight.
             elseif not quiet then

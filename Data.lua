@@ -948,6 +948,10 @@ WhoDoesWhat.ConsumableDurations = {
 -- check it against the bag in hand.
 WhoDoesWhat.SleepingBag = features.isForever and { spellId = 429959, itemId = 211527 } or nil
 
+-- Forever's Camp Tent (Leatherworking): pitching it leaves a rested debuff
+-- until it can be pitched again.
+WhoDoesWhat.CampingTent = features.isForever and { itemId = 279978, debuffSpellId = 1229451 } or nil
+
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
 -- id per name (`auraSpellIds`), resolved to the client's own name at runtime:
 -- names are rank-independent and cover both the single-target and group

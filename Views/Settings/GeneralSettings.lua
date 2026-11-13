@@ -164,6 +164,7 @@ local RESET_GENERAL = {
     "autoAssignAfflictionElements", "allowRecklessnessAutoAssign",
     "sleepingBagAlertText", "sleepingBagAlertSound", "sleepingBagAlertChat",
     "foodAlertText", "foodAlertSound", "foodAlertChat",
+    "lostAlertText", "tentAlertText",
 }
 
 local function ResetGeneral()
@@ -429,6 +430,7 @@ local function BuildGeneralPage(f, page)
     -- no rows for it anywhere else).
     yL = AddNextPageDivider(generalPage, yL, L.GENERAL_SECTION_ALERTS)
     local alertRows = {
+        { key = "lostAlertText", label = L.GENERAL_LOST_ALERT_TEXT, tip = L.GENERAL_LOST_ALERT_TIP },
         { key = "foodAlertText", label = L.GENERAL_FOOD_ALERT_TEXT, tip = L.GENERAL_FOOD_ALERT_TIP },
         { key = "foodAlertSound", label = L.GENERAL_FOOD_ALERT_SOUND, tip = L.GENERAL_FOOD_ALERT_TIP },
         { key = "foodAlertChat", label = L.GENERAL_FOOD_ALERT_CHAT, tip = L.GENERAL_FOOD_ALERT_TIP },
@@ -442,6 +444,10 @@ local function BuildGeneralPage(f, page)
             row.tip = L.GENERAL_SLEEPING_BAG_TIP
             alertRows[#alertRows + 1] = row
         end
+    end
+    if WhoDoesWhat.CampingTent then
+        alertRows[#alertRows + 1] = { key = "tentAlertText",
+            label = L.GENERAL_TENT_ALERT_TEXT, tip = L.GENERAL_TENT_ALERT_TIP }
     end
     f.alertChecks = {}
     for _, row in ipairs(alertRows) do
