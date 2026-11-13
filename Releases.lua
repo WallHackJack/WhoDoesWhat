@@ -8,6 +8,15 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.1.3",
+        date = "2026-11-12",
+        notes = {
+            "A red message in the middle of the screen when a Buff Checklist buff drops off you. Turn it off in General > Alerts.",
+            "WoW Forever: the Buff Checklist shows the Camp Tent, with a green \"Camping Tent available!\" message when it can be pitched again.",
+            "WoW Forever: paladins with Holy Shock and the most points in Retribution are detected as Shockadins.",
+        },
+    },
+    {
         version = "2.1.2",
         date = "2026-11-09",
         notes = {

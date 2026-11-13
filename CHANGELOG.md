@@ -4,6 +4,15 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.1.3 — 2026-11-12
+
+- A red message in the middle of the screen when a Buff Checklist buff drops
+  off you. Turn it off in General > Alerts.
+- WoW Forever: the Buff Checklist shows the Camp Tent, with a green "Camping
+  Tent available!" message when it can be pitched again.
+- WoW Forever: paladins with Holy Shock and the most points in Retribution are
+  detected as Shockadins.
+
 ## 2.1.2 — 2026-11-09
 
 - The Buff Checklist is out of beta and on by default.
