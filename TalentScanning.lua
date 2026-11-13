@@ -68,8 +68,11 @@ local SPEC_ROLES = {
 -- What a marker talent (see TRAIT_MARKERS) turns a tree's role into. A
 -- marker only refines the tree the points already picked: Divine Precision on
 -- a Retribution paladin who dipped into Holy says nothing about their role.
+-- Holy Shock does (holyShock, set in TraitTreePoints): a Retribution paladin
+-- reaching that far into Holy is a Shockadin.
 local VARIANT_ROLES = {
     paladin_holy = { shockadin = "paladin_shockadin" },
+    paladin_ret = { holyShock = "paladin_shockadin" },
     priest_disc = { smite = "priest_smite" },
     druid_feral_dps = { cat = "druid_feral_dps", bear = "druid_feral_tank" },
 }
@@ -162,6 +165,29 @@ local function TraitVariant(configID, nodes)
     return variant
 end
 
+-- Holy Shock, by name: its Forever trait spell id isn't known, and a name
+-- from the Era spell matches in any client language.
+local HOLY_SHOCK = GetSpellInfo(20473) or "Holy Shock"
+
+-- Whether any purchased node grants the talent named `name`.
+local function TraitPurchased(configID, nodes, name)
+    if not (C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo) then return false end
+    for _, node in ipairs(nodes) do
+        if (node.ranksPurchased or 0) > 0 then
+            for _, entryID in ipairs(node.entryIDs or {}) do
+                local entry = C_Traits.GetEntryInfo(configID, entryID)
+                local definition = entry and entry.definitionID
+                    and C_Traits.GetDefinitionInfo(entry.definitionID)
+                if definition and (definition.overrideName == name
+                    or (definition.spellID and GetSpellInfo(definition.spellID)) == name) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function TraitTreePoints(configID)
     if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits) then
         return nil
@@ -211,6 +237,12 @@ local function TraitTreePoints(configID)
         points[tab] = points[tab] + (node.ranksPurchased or 0)
     end
     points.variant = TraitVariant(configID, nodes)
+    -- Retribution in the lead (SpecFromPoints' rule) with Holy Shock bought:
+    -- a Shockadin. Only a paladin's tree has Holy Shock.
+    if points[3] > points[1] and points[3] > points[2]
+        and TraitPurchased(configID, nodes, HOLY_SHOCK) then
+        points.variant = "holyShock"
+    end
     return points
 end
 

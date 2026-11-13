@@ -193,7 +193,8 @@ for _, classInfo in ipairs(WhoDoesWhat.Classes) do
         table.insert(classInfo.categories[1].allSubRoles, "hunter_melee")
     end
     -- Forever's damage builds inside the Holy and Discipline trees. Talent
-    -- detection still reads them as the healing spec, so they're set by hand.
+    -- detection reads a Shockadin from Holy Shock on a Retribution-led
+    -- paladin (TalentScanning.lua); the rest are set by hand.
     if features.isForever and classInfo.name == "Paladin" then
         table.insert(classInfo.roles,
             { nameKey = "ROLE_SHOCKADIN", icon = "Interface\\Icons\\Spell_Holy_SearingLight", id = "paladin_shockadin", wowRole = "dps" })
