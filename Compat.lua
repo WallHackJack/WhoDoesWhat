@@ -84,8 +84,12 @@ end
 -- tabs, no talents" is the truthful reply on such a client, and it is what
 -- every caller here already handles -- the scanners walk an empty list and the
 -- buff-talent features are off anyway (ClientFeatures.buffTalents).
-if not GetNumTalentTabs then
-    function GetNumTalentTabs() return 0 end
-    function GetNumTalents() return 0 end
-    function GetTalentInfo() return nil end
-end
+--
+-- Guarded one at a time, not as a block behind the first name. Forever ships
+-- GetNumTalentTabs and not GetNumTalents, so a single test defined neither of
+-- the other two and LibClassicInspector's talent broadcast called straight
+-- through a nil on its ticker -- two errors a minute, forever. Same shape as
+-- C_FriendList.SendWho existing while SetWhoToUI does not.
+if not GetNumTalentTabs then function GetNumTalentTabs() return 0 end end
+if not GetNumTalents then function GetNumTalents() return 0 end end
+if not GetTalentInfo then function GetTalentInfo() return nil end end
