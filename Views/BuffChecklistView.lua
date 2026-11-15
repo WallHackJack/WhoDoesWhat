@@ -1421,11 +1421,37 @@ local function CollectEntries()
                         end
                     end
                 elseif type(pick) == "number" then
-                    ApplyPick(entry, pick)
-                    -- A stone picked for the weapon you held before.
+                    -- A stone picked for the weapon you held before (a sword
+                    -- swapped for a mace): the pick follows the new weapon.
+                    -- First the stone already on it, then the last one used
+                    -- on this edge (kept in picks as "mainHand:blunt"), then
+                    -- the best of that edge in your bags. With none of those
+                    -- it stays, marked as the wrong edge.
                     local fits = weaponItems[pick]
-                    entry.wrongEdge = fits ~= nil and fits ~= true
-                        and fits ~= WieldedEdge(weapon.key)
+                    local edge = WieldedEdge(weapon.key)
+                    if fits ~= nil and fits ~= true and edge and fits ~= edge then
+                        picks[weapon.key .. ":" .. fits] = pick
+                        local onItem = enchanted and itemByEnchant[state[3]]
+                        local last = picks[weapon.key .. ":" .. edge]
+                        local best, bestRank
+                        for rank, pair in ipairs(WhoDoesWhat.WeaponEnchantItems) do
+                            if pair[3] == edge and GetItemCount(pair[1]) > 0
+                                and (not bestRank or rank > bestRank) then
+                                best, bestRank = pair[1], rank
+                            end
+                        end
+                        if onItem and weaponItems[onItem] == edge then
+                            pick = onItem
+                        elseif last and GetItemCount(last) > 0 then
+                            pick = last
+                        else
+                            pick = best or last or pick
+                        end
+                        picks[weapon.key] = pick
+                        fits = weaponItems[pick]
+                    end
+                    ApplyPick(entry, pick)
+                    entry.wrongEdge = fits ~= nil and fits ~= true and fits ~= edge
                 end
                 -- What is on the weapon shows as itself, and glows when it
                 -- isn't the pick: a second Flametongue lands on the off hand
