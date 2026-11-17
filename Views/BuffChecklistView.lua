@@ -1247,7 +1247,9 @@ local function CollectEntries()
             entries[#entries + 1] = {
                 id = "self:sleepingBag", key = "sleepingBag",
                 name = spellName or ItemName(bag.itemId),
-                icon = spellIcon or GetItemIcon(bag.itemId), selfSupplied = true,
+                -- The buff's icon while it is on you, the bag's while it is not.
+                icon = buff and spellIcon or GetItemIcon(bag.itemId) or spellIcon,
+                selfSupplied = true, warnSeconds = 15 * 60,
                 has = buff ~= nil, missing = buff == nil,
                 remaining = buff and buff.remaining,
                 charges = stacks > 1 and stacks or nil,
