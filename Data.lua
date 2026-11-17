@@ -724,6 +724,7 @@ WhoDoesWhat.ForeverBuffFoodItems = {
     249865, -- Peace Tea (healing power and experience gained)
     263509, -- Skywall Souffle (same Well Fed aura as Herb Baked Egg, 1248406)
     250077, -- Twice-Spiced Raptor Slice (Well Fed, 1248421)
+    267341, -- Sweetpaw Jam (buff 1294007: move speed in Hyjal, experience)
     2679, -- Charred Wolf Meat
     2681, -- Roasted Boar Meat
     787, -- Slitherskin Mackerel
@@ -1028,6 +1029,8 @@ WhoDoesWhat.CoreRaidBuffs = {
             1249927, -- Well Fed (Peace Tea)
             1248420, -- Well Fed (Spiced Wolf Meat)
             1248406, -- Well Fed (Herb Baked Egg)
+            1294007, -- Sweetpaw Jam: its name is unconfirmed, so listed in case
+            -- it is not "Well Fed".
         },
         itemSpells = INSTANT_FOOD_ITEMS,
         colorRGB = { r = 1, g = 0.82, b = 0 },
