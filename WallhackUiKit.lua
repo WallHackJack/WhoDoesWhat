@@ -759,6 +759,23 @@ end
 -- Let another region - a title strip, a button covering most of the frame -
 -- start the same drag. The options are read off the frame at drag time, so a
 -- region may be attached before the frame has been through MakeMovable.
+-- Entering combat mid-drag cancels it: the frame goes back to where it was
+-- picked up, and OnStop is skipped, so nothing is saved. PLAYER_REGEN_DISABLED
+-- fires before the lockdown starts, so a frame parenting secure buttons can
+-- still be put back.
+local dragCancel = CreateFrame("Frame")
+dragCancel:RegisterEvent("PLAYER_REGEN_DISABLED")
+dragCancel:SetScript("OnEvent", function(self)
+    local frame, points = self.frame, self.points
+    if not frame or not frame.moving then return end
+    self.frame, self.points = nil, nil
+    frame.moving = nil
+    frame:StopMovingOrSizing()
+    frame:SetUserPlaced(false)
+    frame:ClearAllPoints()
+    for _, p in ipairs(points) do frame:SetPoint(unpack(p)) end
+end)
+
 function UI.AttachDrag(region, frame)
     region:EnableMouse(true)
     region:RegisterForDrag("LeftButton")
@@ -767,6 +784,9 @@ function UI.AttachDrag(region, frame)
         if not opts then return end
         if not (opts.modifier or IsAltKeyDown)() then return end
         if opts.noCombat and InCombatLockdown() then return end
+        local points = {}
+        for i = 1, frame:GetNumPoints() do points[i] = { frame:GetPoint(i) } end
+        dragCancel.frame, dragCancel.points = frame, points
         frame.moving = true
         frame:StartMoving()
         if opts.OnStart then opts.OnStart(frame) end
@@ -774,6 +794,7 @@ function UI.AttachDrag(region, frame)
     region:SetScript("OnDragStop", function()
         if not frame.moving then return end
         frame.moving = nil
+        dragCancel.frame, dragCancel.points = nil, nil
         frame:StopMovingOrSizing()
         -- A dragged named frame is otherwise put back by the client's own
         -- layout cache at login, fighting the position the caller keeps.
