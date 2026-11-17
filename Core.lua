@@ -454,6 +454,9 @@ local defaults = {
         -- it's on you, "bag" while it's on you or the bag is in your bags,
         -- "never".
         buffChecklistSleepingBag = "bag",
+        -- The Arcane Censer icon (Forever only), shown while the censer is in
+        -- your bags.
+        buffChecklistCenser = true,
         -- A hunter's pet section folded down to its divider.
         buffChecklistPetCollapsed = false,
         -- Whether this character has been shown the Forever welcome

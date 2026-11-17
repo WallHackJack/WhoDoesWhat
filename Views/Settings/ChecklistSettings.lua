@@ -219,6 +219,16 @@ local function BuildChecklistPage(f, page)
         end
     end
 
+    -- The Arcane Censer is Forever's, so no row for it anywhere else.
+    if WhoDoesWhat.ArcaneCenser then
+        f.checklistCenserCheck, yL = AddCompactCheckboxRow(checklistPage,
+            PAGE_X, yL, L.CHECKLIST_TRACK_CENSER, L.CHECKLIST_TRACK_CENSER_TIP,
+            function(value)
+                WhoDoesWhat.db.char.buffChecklistCenser = value
+                WhoDoesWhat:RefreshBuffChecklist()
+            end)
+    end
+
     f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, L.CHECKLIST_TRACK_WEAPONS, L.CHECKLIST_TRACK_WEAPONS_TIP,
         function(value)
@@ -302,6 +312,9 @@ local function RefreshChecklistPage(f)
         f.checklistCrystalsCheck:SetChecked(self.db.char.buffChecklistCrystals)
     end
     if f.RefreshChecklistSleepingBag then f.RefreshChecklistSleepingBag() end
+    if f.checklistCenserCheck then
+        f.checklistCenserCheck:SetChecked(self.db.char.buffChecklistCenser)
+    end
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))
     UIDropDownMenu_SetText(f.checklistPopoutDD,

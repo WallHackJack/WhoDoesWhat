@@ -91,8 +91,10 @@ function WhoDoesWhat:GetBuffChecklistWarnMinutes()
     return DEFAULT_WARN_MINUTES
 end
 
-local function WarnSeconds()
-    return WhoDoesWhat:GetBuffChecklistWarnMinutes() * 60
+-- An entry may warn earlier than the setting (its warnSeconds), never later.
+local function WarnSeconds(entry)
+    return math.max(WhoDoesWhat:GetBuffChecklistWarnMinutes() * 60,
+        entry and entry.warnSeconds or 0)
 end
 
 -- The glow is the status bars' highlight styles in this checklist's own two
@@ -1257,6 +1259,31 @@ local function CollectEntries()
         end
     end
 
+    -- Arcane Censer (Forever): its buff, only while the censer is in your
+    -- bags; right-click uses it.
+    local censer = WhoDoesWhat.ArcaneCenser
+    if censer and WhoDoesWhat.db.char.buffChecklistCenser then
+        local held = GetItemCount(censer.itemId) > 0
+        local buff
+        for _, b in ipairs(buffs) do
+            if b.spellId == censer.spellId then buff = b break end
+        end
+        if held then
+            local spellName, _, spellIcon = GetSpellInfo(censer.spellId)
+            entries[#entries + 1] = {
+                id = "self:arcaneCenser", key = "arcaneCenser",
+                warnSeconds = 30 * 60,
+                name = spellName or ItemName(censer.itemId),
+                icon = buff and spellIcon or GetItemIcon(censer.itemId) or spellIcon,
+                selfSupplied = true,
+                has = buff ~= nil, missing = buff == nil,
+                remaining = buff and buff.remaining,
+                useItem = held and censer.itemId or nil, useCount = held and 1 or 0,
+                useVerb = "Use",
+            }
+        end
+    end
+
     -- Camp Tent (Forever): wears its rested debuff's icon. Glows while the
     -- tent is ready to pitch, right-click pitches it; while the debuff is on
     -- it counts down to the next pitch, by the buffs' warning-window rule.
@@ -1961,7 +1988,7 @@ end
 
 local function IsExpiring(entry)
     return entry.has == true and entry.remaining ~= nil
-        and entry.remaining < WarnSeconds()
+        and entry.remaining < WarnSeconds(entry)
 end
 
 -- While the client hides auras every icon shows the last state it could read
@@ -2611,7 +2638,7 @@ local function UpdateTimerAndGlow(btn)
     end
     local remaining = btn.expiresAt and (btn.expiresAt - GetTime())
     local expiring = entry.has == true and remaining ~= nil and remaining > 0
-        and remaining < WarnSeconds()
+        and remaining < WarnSeconds(entry)
     -- A mana gem on cooldown counts down in the same text, in white: nothing
     -- is wrong, it just can't be used yet.
     local cooldownLeft = btn.cooldownEnds and (btn.cooldownEnds - GetTime())
@@ -3053,7 +3080,7 @@ function WhoDoesWhat:RefreshBuffChecklist()
             elseif not quiet then
                 out[#out + 1] = entry
             elseif entry.remaining then
-                local at = GetTime() + entry.remaining - WarnSeconds()
+                local at = GetTime() + entry.remaining - WarnSeconds(entry)
                 if not revealAt or at < revealAt then revealAt = at end
             end
         end
@@ -3214,6 +3241,7 @@ function WhoDoesWhat:ResetBuffChecklistSettings()
     self.db.char.buffChecklistScrolls = true
     self.db.char.buffChecklistCrystals = false
     self.db.char.buffChecklistSleepingBag = "bag"
+    self.db.char.buffChecklistCenser = true
     self.db.profile.settings.buffChecklistPos = nil
     if frame and not InCombatLockdown() then LoadPosition() end
     self:RefreshBuffChecklist()
