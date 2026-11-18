@@ -457,6 +457,9 @@ local defaults = {
         -- The Arcane Censer icon (Forever only), shown while the censer is in
         -- your bags.
         buffChecklistCenser = true,
+        -- The companion pet icon (Forever only); its pick is `companion` in
+        -- buffChecklistItems, and `companionRecent` the pets last summoned.
+        buffChecklistCompanion = true,
         -- A hunter's pet section folded down to its divider.
         buffChecklistPetCollapsed = false,
         -- Whether this character has been shown the Forever welcome

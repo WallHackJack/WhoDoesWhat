@@ -956,6 +956,11 @@ WhoDoesWhat.CampingTent = features.isForever and { itemId = 279978, debuffSpellI
 -- Forever's Arcane Censer: using it gives its buff.
 WhoDoesWhat.ArcaneCenser = features.isForever and { itemId = 275730, spellId = 1297774 } or nil
 
+-- Forever's account-wide pet collection (Retail's C_PetJournal), for the
+-- Buff Checklist's companion pet icon. nil where there is none.
+WhoDoesWhat.CompanionJournal = features.isForever and C_PetJournal
+    and C_PetJournal.SummonPetByGUID and C_PetJournal or nil
+
 -- Raid-wide status bars beyond paladin blessings. Auras are listed by one spell
 -- id per name (`auraSpellIds`), resolved to the client's own name at runtime:
 -- names are rank-independent and cover both the single-target and group

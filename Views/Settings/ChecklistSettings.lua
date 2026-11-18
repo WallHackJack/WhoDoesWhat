@@ -229,6 +229,16 @@ local function BuildChecklistPage(f, page)
             end)
     end
 
+    -- A pet collection is Forever's, so no row for it anywhere else.
+    if WhoDoesWhat.CompanionJournal then
+        f.checklistCompanionCheck, yL = AddCompactCheckboxRow(checklistPage,
+            PAGE_X, yL, L.CHECKLIST_TRACK_COMPANION, L.CHECKLIST_TRACK_COMPANION_TIP,
+            function(value)
+                WhoDoesWhat.db.char.buffChecklistCompanion = value
+                WhoDoesWhat:RefreshBuffChecklist()
+            end)
+    end
+
     f.checklistWeaponsCheck, yL = AddCompactCheckboxRow(checklistPage,
         PAGE_X, yL, L.CHECKLIST_TRACK_WEAPONS, L.CHECKLIST_TRACK_WEAPONS_TIP,
         function(value)
@@ -314,6 +324,9 @@ local function RefreshChecklistPage(f)
     if f.RefreshChecklistSleepingBag then f.RefreshChecklistSleepingBag() end
     if f.checklistCenserCheck then
         f.checklistCenserCheck:SetChecked(self.db.char.buffChecklistCenser)
+    end
+    if f.checklistCompanionCheck then
+        f.checklistCompanionCheck:SetChecked(self.db.char.buffChecklistCompanion)
     end
     UIDropDownMenu_SetText(f.checklistAlignDD,
         self:GetBuffChecklistAlignLabel(self:GetBuffChecklistAlign()))

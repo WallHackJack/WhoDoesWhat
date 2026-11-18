@@ -1113,6 +1113,8 @@ end
 --             "mainHand" / "offHand": left-click opens a picker
 --   pickNoun, useVerb   how the tooltip names the pick and its right-click
 --   useItem   the picked item id, useCount how many are in your bags
+--   useMacro, useName   a right-click that is neither item nor spell (the
+--             companion pet's summon), and what the tooltip calls it
 --   activeName          the elixir or flask on you, when it isn't the pick
 --   slot, hand     the weapon's inventory slot and enchant hand
 --   bare      the weapon is meant to stay unenchanted; enchanted / windfury
@@ -1121,6 +1123,50 @@ end
 --
 -- Returns your entries, then the pet's: nil for anyone but a hunter, false
 -- for a hunter with no pet out, otherwise the pet's list.
+--
+-- (Methods rather than locals below: this file is at Lua's 200-local limit.)
+--
+-- A companion pet's name and icon, by its journal GUID; nil once it has left
+-- the collection.
+function WhoDoesWhat:CompanionInfo(guid)
+    local journal = self.CompanionJournal
+    if not (journal and guid) then return nil end
+    local _, customName, _, _, _, _, _, name, icon = journal.GetPetInfoByPetID(guid)
+    if not name then return nil end
+    return (customName and customName ~= "") and customName or name, icon
+end
+
+-- The right-click that summons it. Unprotected, so a plain /run will do; the
+-- guard stops a second click dismissing the pet it just called.
+function WhoDoesWhat:CompanionSummonMacro(guid)
+    return ('/run if C_PetJournal.GetSummonedPetGUID()~="%s" then '
+        .. 'C_PetJournal.SummonPetByGUID("%s") end'):format(guid, guid)
+end
+
+-- The companion picker's rows: the pets last summoned first, then the rest
+-- of the collection in the journal's order, 12 at most.
+-- ponytail: read through the journal's own filters and search, so a pet
+-- filtered out there is missing here too; clear them first if that bites.
+function WhoDoesWhat:CompanionChoices()
+    local journal = self.CompanionJournal
+    local out, seen = {}, {}
+    local function Add(guid)
+        if #out >= 12 or not guid or seen[guid] then return end
+        local name, icon = self:CompanionInfo(guid)
+        if not name then return end
+        seen[guid] = true
+        out[#out + 1] = { value = guid, text = name, icon = icon,
+            macro = self:CompanionSummonMacro(guid) }
+    end
+    for _, guid in ipairs(Picks().companionRecent or {}) do Add(guid) end
+    for i = 1, journal and (journal.GetNumPets()) or 0 do
+        if #out >= 12 then break end
+        local guid, _, owned = journal.GetPetInfoByIndex(i)
+        if owned then Add(guid) end
+    end
+    return out
+end
+
 local function CollectEntries()
     local entries = Assign.GetPlayerBuffChecklist()
     local picks = Picks()
@@ -1282,6 +1328,41 @@ local function CollectEntries()
                 remaining = buff and buff.remaining,
                 useItem = held and censer.itemId or nil, useCount = held and 1 or 0,
                 useVerb = "Use",
+            }
+        end
+    end
+
+    -- Companion pet (Forever): any pet out counts. One summoned by any means
+    -- becomes the pick and moves to the top of the picker.
+    local journal = WhoDoesWhat.db.char.buffChecklistCompanion
+        and WhoDoesWhat.CompanionJournal
+    if journal then
+        local out = journal.GetSummonedPetGUID()
+        if out then
+            picks.companion = out
+            local recent = picks.companionRecent or {}
+            if recent[1] ~= out then
+                for i = #recent, 1, -1 do
+                    if recent[i] == out then table.remove(recent, i) end
+                end
+                table.insert(recent, 1, out)
+                recent[13] = nil
+                picks.companionRecent = recent
+            end
+        end
+        local pickName, pickIcon = WhoDoesWhat:CompanionInfo(picks.companion)
+        local _, owned = journal.GetNumPets()
+        if out or (owned or 0) > 0 then
+            entries[#entries + 1] = {
+                id = "self:companion", key = "companion", quietLoss = true,
+                pick = "companion", pickNoun = "companion", useVerb = "Summon",
+                name = L.CHECKLIST_COMPANION, selfSupplied = true,
+                icon = pickIcon or "Interface\\Icons\\INV_Box_PetCarrier_01",
+                has = out ~= nil, missing = out == nil,
+                activeName = out and WhoDoesWhat:CompanionInfo(out) or nil,
+                useMacro = pickName and WhoDoesWhat:CompanionSummonMacro(picks.companion)
+                    or nil,
+                useName = pickName,
             }
         end
     end
@@ -1650,6 +1731,7 @@ local PICKER_TITLES = {
     petAgilityScroll = "CHECKLIST_PET_SCROLL_AGILITY",
     petStrengthScroll = "CHECKLIST_PET_SCROLL_STRENGTH",
     crystal = "CHECKLIST_CRYSTAL",
+    companion = "CHECKLIST_COMPANION",
 }
 -- A scroll slot's picker wears the slot's own name (a stat on Classic Era).
 for _, slot in ipairs(SCROLL_SLOTS) do PICKER_TITLES[slot.key] = slot.nameKey end
@@ -1661,6 +1743,7 @@ local PICK_NOUN_KEYS = {
     elixir = "CHECKLIST_NOUN_ELIXIR", enchant = "CHECKLIST_NOUN_ENCHANT",
     poison = "CHECKLIST_NOUN_POISON", crystal = "CHECKLIST_NOUN_CRYSTAL",
     consumable = "CHECKLIST_NOUN_CONSUMABLE",
+    companion = "CHECKLIST_NOUN_COMPANION",
 }
 local PICKER_EMPTY = {
     food = "CHECKLIST_EMPTY_FOOD", drink = "CHECKLIST_EMPTY_DRINK",
@@ -1668,12 +1751,14 @@ local PICKER_EMPTY = {
     elixir = "CHECKLIST_EMPTY_ELIXIR", enchant = "CHECKLIST_EMPTY_ENCHANT",
     poison = "CHECKLIST_EMPTY_POISON", crystal = "CHECKLIST_EMPTY_CRYSTAL",
     consumable = "CHECKLIST_EMPTY_STAT",
+    companion = "CHECKLIST_EMPTY_COMPANION",
 }
 -- By the entry's useVerb, also an English id: its right-click hint.
 local USE_VERB_KEYS = {
     Eat = "CHECKLIST_HINT_EAT", Drink = "CHECKLIST_HINT_DRINK",
     Feed = "CHECKLIST_HINT_FEED", Read = "CHECKLIST_HINT_READ",
     Apply = "CHECKLIST_HINT_APPLY", Use = "CHECKLIST_HINT_USE",
+    Summon = "CHECKLIST_HINT_SUMMON",
 }
 
 local function PickNoun(entry)
@@ -1844,6 +1929,10 @@ end
 local function PickerSpecs(entry)
     local kind = entry.pick
     local current = Picks()[kind]
+    if kind == "companion" then
+        local pets = WhoDoesWhat:CompanionChoices()
+        return pets, #pets == 0
+    end
     local specs = {}
     if entry.slot and not entry.poison then
         specs[#specs + 1] = { value = "none", text = L.CHECKLIST_NO_ENCHANT_WINDFURY,
@@ -1899,7 +1988,7 @@ local function FillPicker(entry)
         and tostring(entry.slot) or nil
     local parts = { tostring(entry.useUnit), tostring(empty), tostring(stripSlot) }
     for _, spec in ipairs(specs) do
-        spec.usable = spec.spell ~= nil
+        spec.usable = spec.spell ~= nil or spec.macro ~= nil
             or (spec.itemID ~= nil and GetItemCount(spec.itemID) > 0)
         -- "?" while the item's name is still loading, so the rows are
         -- relaid once it arrives.
@@ -1914,7 +2003,9 @@ local function FillPicker(entry)
             row.spec = spec
             row:SetAttribute("choosable", true)
             local kind, value
-            if spec.spell then
+            if spec.macro then
+                kind, value = "macro", spec.macro
+            elseif spec.spell then
                 kind, value = "spell", spec.spell.name
             elseif spec.itemID and spec.usable then
                 kind, value = ItemUseAction(entry, spec.itemID)
@@ -2001,7 +2092,7 @@ local function IsHeld(entry)
 end
 
 local function CanUse(entry)
-    return entry.useSpell ~= nil
+    return entry.useSpell ~= nil or entry.useMacro ~= nil
         or (entry.useItem ~= nil and (entry.useCount or 0) > 0
             and not entry.wrongEdge)
 end
@@ -2117,6 +2208,8 @@ local function ShowTooltip(btn)
     if entry.pick and not entry.bare then
         if entry.useSpell then
             GameTooltip:AddLine(L.CHECKLIST_USING:format(entry.useSpell), 0.8, 0.8, 0.8)
+        elseif entry.useName then
+            GameTooltip:AddLine(L.CHECKLIST_USING:format(entry.useName), 0.8, 0.8, 0.8)
         elseif entry.useItem then
             local name = ItemName(entry.useItem)
             if CanUse(entry) then
@@ -2162,7 +2255,8 @@ local function ShowTooltip(btn)
         elseif CanUse(entry) and not entry.bare then
             UI.AddTooltipHint(GameTooltip, L.HINT_RIGHT_CLICK, entry.useSpell
                 and L.CHECKLIST_HINT_CAST:format(entry.useSpell)
-                or L[USE_VERB_KEYS[entry.useVerb]]:format(ItemName(entry.useItem)))
+                or L[USE_VERB_KEYS[entry.useVerb]]:format(entry.useName
+                    or ItemName(entry.useItem)))
         end
     end
     local ask = not entry.selfSupplied and (entry.isShout and L.CHECKLIST_HINT_ASK_PARTY
@@ -2427,6 +2521,8 @@ local function ConfigureUse(btn, entry)
         kind, value = "macro", "/use item:" .. entry.running.itemId
     elseif entry.swap then
         if entry.selected then kind, value = "macro", "/cast " .. entry.selected.name end
+    elseif entry.useMacro then
+        kind, value = "macro", entry.useMacro
     elseif entry.useSpell then
         kind, value = "spell", entry.useSpell
     elseif CanUse(entry) then
@@ -3244,6 +3340,7 @@ function WhoDoesWhat:ResetBuffChecklistSettings()
     self.db.char.buffChecklistCrystals = false
     self.db.char.buffChecklistSleepingBag = "bag"
     self.db.char.buffChecklistCenser = true
+    self.db.char.buffChecklistCompanion = true
     self.db.profile.settings.buffChecklistPos = nil
     if frame and not InCombatLockdown() then LoadPosition() end
     self:RefreshBuffChecklist()
@@ -3287,6 +3384,12 @@ loader:RegisterEvent("BAG_UPDATE_COOLDOWN")
 loader:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 -- A stone, oil or poison from the checklist finished applying (HoldWeaponUse).
 loader:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+-- A companion pet summoned or dismissed, and the collection loading or
+-- changing (Forever). pcall: a client without them refuses the name.
+if WhoDoesWhat.CompanionJournal then
+    pcall(loader.RegisterEvent, loader, "COMPANION_UPDATE")
+    pcall(loader.RegisterEvent, loader, "PET_JOURNAL_LIST_UPDATE")
+end
 local AURA_REFRESH_DELAY = 0.15
 local auraRefreshPending = false
 
@@ -3418,7 +3521,8 @@ loader:SetScript("OnEvent", function(_, event, arg1, _, arg3)
         return
     end
     if event == "UNIT_AURA" or event == "BAG_UPDATE_COOLDOWN"
-        or event == "MINIMAP_UPDATE_TRACKING" then
+        or event == "MINIMAP_UPDATE_TRACKING" or event == "COMPANION_UPDATE"
+        or event == "PET_JOURNAL_LIST_UPDATE" then
         RefreshSoon()
         return
     end
