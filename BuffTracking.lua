@@ -451,13 +451,20 @@ end
 -- A caster the client could not name (`false`) counts as outside: it only
 -- names a caster it currently holds a unit for, and in a raid it holds one for
 -- every member. Ordered so the common answer -- cast by a raider -- costs one
--- UnitInRaid and returns before the group check.
+-- table lookup and returns before the group check.
+--
+-- The caster is a roster key, so it is looked up among the scanned roster
+-- (same keys) before UnitInRaid: on Forever a key is "First-Last", which
+-- UnitInRaid cannot resolve, and every raider's buff read as an outsider's.
+-- UnitInRaid stays for a member who joined since the last scan.
 function WhoDoesWhat:IsBuffFromOutsideRaid(name, key)
     local s = state[name]
     local source = s and s.sources and s.sources[key]
     -- nil is "no aura recorded", which is not the same as "no caster".
     if source == nil then return false end
-    if source ~= false and UnitInRaid(source) ~= nil then return false end
+    if source ~= false and (state[source] or UnitInRaid(source) ~= nil) then
+        return false
+    end
     return IsInRaid() and true or false
 end
 
