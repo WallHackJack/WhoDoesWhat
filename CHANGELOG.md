@@ -4,6 +4,21 @@ The same releases the About window shows, for reading outside the game. The
 list the window draws lives in [Releases.lua](Releases.lua); update both when
 cutting a tag.
 
+## 2.1.4 — 2026-11-18
+
+- WoW Forever: a companion pet icon on the Buff Checklist. Pick from your
+  collection; right-click summons.
+- WoW Forever: an Arcane Censer icon while the censer is in your bags, warning
+  from 30 minutes.
+- WoW Forever: the sleeping bag icon shows the bag until it's laid, and warns
+  from 15 minutes.
+- WoW Forever: Sweetpaw Jam counts as buff food.
+- WoW Forever: buffs from raiders no longer show as cast from outside the raid.
+- WoW Forever: fixed talent errors repeating every 30 seconds.
+- The sharpening stone or weightstone icon follows a swap between sword and
+  mace.
+- Entering combat while dragging the checklist or a bar puts it back.
+
 ## 2.1.3 — 2026-11-12
 
 - A red message in the middle of the screen when a Buff Checklist buff drops

@@ -8,6 +8,20 @@ local WhoDoesWhat = LibStub("AceAddon-3.0"):GetAddon("WhoDoesWhat")
 -- Newest first. The first entry is presented as the latest release.
 WhoDoesWhat.Releases = {
     {
+        version = "2.1.4",
+        date = "2026-11-18",
+        notes = {
+            "WoW Forever: a companion pet icon on the Buff Checklist. Pick from your collection; right-click summons.",
+            "WoW Forever: an Arcane Censer icon while the censer is in your bags, warning from 30 minutes.",
+            "WoW Forever: the sleeping bag icon shows the bag until it's laid, and warns from 15 minutes.",
+            "WoW Forever: Sweetpaw Jam counts as buff food.",
+            "WoW Forever: buffs from raiders no longer show as cast from outside the raid.",
+            "WoW Forever: fixed talent errors repeating every 30 seconds.",
+            "The sharpening stone or weightstone icon follows a swap between sword and mace.",
+            "Entering combat while dragging the checklist or a bar puts it back.",
+        },
+    },
+    {
         version = "2.1.3",
         date = "2026-11-12",
         notes = {
